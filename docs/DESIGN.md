@@ -170,16 +170,16 @@ The cost is disk space and a copy step that takes longer on large repositories.
 Both trees are whole, so opening any file and searching the tree keep working for
 as long as the report exists.
 
-Adapter interface:
+Every source offers the same three things:
 
-```ts
-interface DiffSource {
-  /** Cheap identity check, used to notice that the diff has changed. */
-  resolve(spec: SourceSpec): Promise<{ store: string; base: TreeId; head: TreeId; label: string }>;
-  /** Source-specific extras: PR title and description, jj change id, commit messages. */
-  describe(spec: SourceSpec): Promise<SourceMeta>;
-}
-```
+- **A fingerprint**, cheap to compute, for noticing that the diff may have changed.
+  It is not the trees themselves: for a working tree those cannot be known without
+  taking a snapshot. It may raise a false alarm, so a new snapshot's trees are
+  compared with the old ones before the reviewer is told anything changed.
+- **A snapshot**: the base and head trees written into diff delver's store.
+- **A description**: the source in plain words, plus what is specific to it (a pull
+  request's title and description, a jj change id, commit messages), and anything
+  that could not be included, which the reviewer is shown.
 
 A patch-file source does not fit this shape (no surrounding content). It is out of
 v1.
@@ -646,7 +646,7 @@ The quoted code is inserted by the server from the snapshot.
 
 ## 9. Storage and safety
 
-- SQLite in the user's state directory. Reports, revisions, sections, assignments
+- SQLite in the data directory, beside the stores, so there is one place to find, back up or delete. Reports, revisions, sections, assignments
   (as ranges), reviewed ranges, threads, messages, reviews with their frozen items
   and export text, and an append-only event log that feeds live updates.
 - One git object store per reviewed repository in the data directory (3.2).
