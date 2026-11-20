@@ -5,6 +5,8 @@
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { CommitId } from '#lib/core/commit-id.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import { escapedRepoPath } from '#lib/core/path-bytes.ts';
+import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { Revision } from '#lib/core/revision.tiny.ts';
 import { describeStoreError, type StoreError } from '../../store/index.ts';
 
@@ -51,8 +53,17 @@ export interface PartialCloneMissing {
 	readonly repository: AbsolutePath;
 }
 
+/** The index holds a merge conflict, so there is no staged version of the conflicted files. */
+export interface UnresolvedConflict {
+	readonly kind: 'UnresolvedConflict';
+	readonly repository: AbsolutePath;
+	/** The conflicted files, sorted; never empty. */
+	readonly paths: readonly RepoPath[];
+}
+
 export type GitSourceError =
 	| StoreError
+	| UnresolvedConflict
 	| NoWorkingTree
 	| UnknownRevision
 	| NoCommitsYet
@@ -60,9 +71,27 @@ export type GitSourceError =
 	| NoCommonHistory
 	| PartialCloneMissing;
 
+/** How many conflicted files a message names before it counts the rest. */
+const NAMED_CONFLICTS = 3;
+
+/** "a", "a and b", "a, b and c", "a, b, c and 2 more files". */
+function listOfPaths(paths: readonly RepoPath[]): string {
+	const named: string[] = paths.slice(0, NAMED_CONFLICTS).map(escapedRepoPath);
+	const more = paths.length - named.length;
+	if (more > 0) named.push(more === 1 ? '1 more file' : `${String(more)} more files`);
+	const last = named.pop() ?? '';
+	return named.length === 0 ? last : `${named.join(', ')} and ${last}`;
+}
+
 /** What happened and what to do next, for the reviewer. */
 export function describeGitSourceError(error: GitSourceError): ReviewerMessage {
 	switch (error.kind) {
+		case 'UnresolvedConflict': {
+			const one = error.paths.length === 1;
+			return reviewerMessage(
+				`${listOfPaths(error.paths)} ${one ? 'has an unresolved conflict' : 'have unresolved conflicts'}, so there is no staged version of ${one ? 'it' : 'them'} yet. Resolve the ${one ? 'conflict' : 'conflicts'} and stage the result with "git add", or review the uncommitted changes instead.`
+			);
+		}
 		case 'NoWorkingTree':
 			return reviewerMessage(
 				`${error.repository} has no working tree: it is a bare repository, or you are inside its .git folder, so there are no ${error.source === 'staged' ? 'staged' : 'uncommitted'} changes to review. Open a commit or two branches to compare instead, or run diff delver in a checkout of it.`

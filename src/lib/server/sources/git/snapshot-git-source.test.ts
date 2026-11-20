@@ -290,6 +290,52 @@ describe('a staged snapshot', () => {
 		const file = value(await readSnapshotFile(taken.snapshot, 'new', path('staged.txt')));
 		expect(Buffer.from(file.bytes).toString('utf8')).toBe('one\nstaged\n');
 	});
+
+	it('says plainly that there is no staged version during a merge conflict', async () => {
+		const repo = await emptyRepo();
+		await repo.write('a.txt', 'base\n');
+		await repo.write('b.txt', 'base\n');
+		await repo.write('c.txt', 'base\n');
+		await repo.commit('base');
+		await repo.git('checkout', '--quiet', '-b', 'side');
+		await repo.write('a.txt', 'side\n');
+		await repo.write('b.txt', 'side\n');
+		await repo.commit('side');
+		await repo.git('checkout', '--quiet', 'main');
+		await repo.write('a.txt', 'main\n');
+		await repo.write('b.txt', 'main\n');
+		await repo.write('c.txt', 'main\n');
+		await repo.commit('main');
+		await repo.git('merge', '--quiet', 'side').catch(() => 'conflict, as intended');
+		const who = await reviewer();
+		const staged = await take(repo.dir, 'staged', who);
+		expect(staged.ok ? 'taken' : staged.error.kind).toBe('UnresolvedConflict');
+		if (!staged.ok) {
+			expect(describeGitSourceError(staged.error)).toBe(
+				'a.txt and b.txt have unresolved conflicts, so there is no staged version of them yet. Resolve the conflicts and stage the result with "git add", or review the uncommitted changes instead.'
+			);
+		}
+		const workingTree = value(await take(repo.dir, 'working-tree', who));
+		expect(await changesOf(workingTree.snapshot)).toEqual({
+			'a.txt': 'modified',
+			'b.txt': 'modified'
+		});
+		const many = ['a', 'b', 'c', 'd', 'e'].map(path);
+		expect(
+			describeGitSourceError({ kind: 'UnresolvedConflict', repository: repo.dir, paths: many })
+		).toBe(
+			'a, b, c and 2 more files have unresolved conflicts, so there is no staged version of them yet. Resolve the conflicts and stage the result with "git add", or review the uncommitted changes instead.'
+		);
+		expect(
+			describeGitSourceError({
+				kind: 'UnresolvedConflict',
+				repository: repo.dir,
+				paths: [path('a')]
+			})
+		).toBe(
+			'a has an unresolved conflict, so there is no staged version of it yet. Resolve the conflict and stage the result with "git add", or review the uncommitted changes instead.'
+		);
+	});
 });
 
 describe('a commit or range snapshot', () => {

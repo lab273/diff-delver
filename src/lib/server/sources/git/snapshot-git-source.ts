@@ -20,6 +20,8 @@
  */
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { CommitId } from '#lib/core/commit-id.tiny.ts';
+import { repoPathFromBytes } from '#lib/core/path-bytes.ts';
+import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import { EMPTY_TREE } from '#lib/core/object-format.ts';
 import { objectCountOf, type ObjectCount } from '#lib/core/object-count.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
@@ -106,6 +108,39 @@ function writing(scratch: ScratchIndex, writer: StoreWriter): Record<string, str
 		GIT_OBJECT_DIRECTORY: writer.objects,
 		GIT_NO_LAZY_FETCH: '1'
 	};
+}
+
+/** The conflicted files of the private index, sorted, from a merge that is not finished. */
+async function unmergedPaths(
+	scratch: ScratchIndex
+): Promise<Result<readonly RepoPath[], GitSourceError>> {
+	const listed = await runGit({
+		cwd: scratch.gitDir,
+		args: ['ls-files', '--unmerged', '-z'],
+		env: { GIT_INDEX_FILE: scratch.index }
+	});
+	if (!listed.ok) return listed;
+	const paths = new Set<RepoPath>();
+	for (const record of nulSeparated(listed.value.stdout)) {
+		const tab = record.indexOf(0x09);
+		const path = repoPathFromBytes(record.subarray(tab + 1));
+		if (tab !== -1 && path.ok) paths.add(path.value);
+	}
+	return ok([...paths].toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+/** The index as a tree, or `UnresolvedConflict` when a merge left files without a staged version. */
+async function stagedTree(
+	repo: LocalRepository,
+	scratch: ScratchIndex,
+	writer: StoreWriter
+): Promise<Result<TreeId, GitSourceError>> {
+	const unmerged = await unmergedPaths(scratch);
+	if (!unmerged.ok) return unmerged;
+	if (unmerged.value.length > 0) {
+		return err({ kind: 'UnresolvedConflict', repository: repo.commonDir, paths: unmerged.value });
+	}
+	return writeTree(scratch, writer);
 }
 
 /** Writes the private index as a tree into the store. */
@@ -374,7 +409,7 @@ async function prepareSides(
 				async (scratch): Promise<Result<Sides, GitSourceError>> => {
 					const written =
 						spec.kind === 'staged'
-							? await writeTree(scratch, writer).then((tree) =>
+							? await stagedTree(repo, scratch, writer).then((tree) =>
 									tree.ok ? ok({ tree: tree.value, leftOut: [], copied: objectCountOf(0) }) : tree
 								)
 							: await workingTreeTree(repo, workTree, scratch, writer);

@@ -195,4 +195,21 @@ describe('suggestSource', () => {
 			others: []
 		});
 	});
+
+	it('offers the uncommitted changes during a merge conflict, never the staged ones', async () => {
+		const repo = await emptyRepo();
+		await repo.write('a.txt', 'base\n');
+		await repo.commit('base');
+		await repo.git('checkout', '--quiet', '-b', 'side');
+		await repo.write('a.txt', 'side\n');
+		await repo.commit('side');
+		await repo.git('checkout', '--quiet', 'main');
+		await repo.write('a.txt', 'main\n');
+		await repo.commit('main');
+		await repo.git('merge', '--quiet', 'side').catch(() => 'conflict, as intended');
+		expect(shown(await suggestion(repo.dir))).toEqual({
+			one: ['Uncommitted changes (1 file)', 'working-tree'],
+			others: []
+		});
+	});
 });

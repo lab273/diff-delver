@@ -25,6 +25,7 @@ export type {
 	NoWorkingTree,
 	PartialCloneMissing,
 	ShallowHistory,
-	UnknownRevision
+	UnknownRevision,
+	UnresolvedConflict
 } from './git-source-error.ts';
 export { describeGitSourceError } from './git-source-error.ts';
