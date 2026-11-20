@@ -8,6 +8,7 @@ import { DATA_DIRECTORY_VARIABLE } from '#lib/core/cli/command-line.ts';
 import { parseAbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { ReportService, describeReportError, randomIds, systemClock } from '../reports/index.ts';
 import { machineDataDirectory } from '../store/index.ts';
+import { randomEntryCode } from '../system.ts';
 import { codeVersion } from '../version.ts';
 import type { DaemonContext } from './context.ts';
 
@@ -25,6 +26,8 @@ async function make(): Promise<DaemonContext> {
 		service: service.value,
 		clock: systemClock,
 		version: codeVersion(),
+		// `pnpm dev` has no gate, so the code lets nothing in that was not let in already.
+		entryCode: randomEntryCode,
 		requestStop: () => undefined
 	};
 }

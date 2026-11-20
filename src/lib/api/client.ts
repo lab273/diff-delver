@@ -18,6 +18,7 @@ import {
 	ChangeCheckSchema,
 	DaemonInfoSchema,
 	DeletedSchema,
+	EntryCodeSchema,
 	DiffListSchema,
 	DiffPageSchema,
 	OpenResponseSchema,
@@ -28,6 +29,7 @@ import {
 	type ChangeCheckResponse,
 	type DaemonInfo,
 	type DeletedResponse,
+	type EntryCodeResponse,
 	type DiffList,
 	type DiffPage,
 	type OpenRequest,
@@ -193,6 +195,11 @@ export class ApiClient {
 
 	daemonInfo(): Promise<Result<DaemonInfo, ApiError>> {
 		return this.#call('GET', '/api/daemon', DaemonInfoSchema);
+	}
+
+	/** A single-use code that lets a browser in, for an address the command opens. */
+	entryCode(): Promise<Result<EntryCodeResponse, ApiError>> {
+		return this.#call('POST', '/api/entry', EntryCodeSchema);
 	}
 
 	stopDaemon(): Promise<Result<Stopping, ApiError>> {

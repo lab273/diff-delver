@@ -30,8 +30,8 @@ import { parseTimestamp } from '../../src/lib/core/timestamp.tiny.ts';
 import { openOutcome, startOutcome } from '../../src/lib/server/cli/outcome.ts';
 import { loadAppHandler, type AppHandler } from '../../src/lib/server/daemon/app-handler.ts';
 import {
-	addressFor,
 	describeDaemonStartError,
+	entryAddress,
 	startDaemon,
 	type RunningDaemon
 } from '../../src/lib/server/daemon/daemon.ts';
@@ -223,8 +223,11 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 			const { command } = parsed.value;
 			switch (command.kind) {
 				case 'serve': {
-					const address = addressFor(daemon, '/');
-					return { output: `diff delver is running at ${address}`, address };
+					const address = entryAddress(daemon.origin, '/', daemon.entryCode());
+					return {
+						output: `diff delver is running. Open this in your browser: ${address}`,
+						address
+					};
 				}
 				case 'start':
 				case 'open': {
@@ -232,7 +235,7 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 						command.kind === 'start'
 							? await startOutcome(client, where)
 							: await openOutcome(client, where, command.source);
-					const address = addressFor(daemon, outcome.page);
+					const address = entryAddress(daemon.origin, outcome.page, daemon.entryCode());
 					return {
 						output: [...outcome.lines, `Open this in your browser: ${address}`].join('\n'),
 						address

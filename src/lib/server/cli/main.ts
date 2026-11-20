@@ -18,12 +18,9 @@ import {
 import { describeNoDataDirectory } from '#lib/core/data-directory.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { loadAppHandler } from '../daemon/app-handler.ts';
-import {
-	addressFor,
-	describeDaemonStartError,
-	startDaemon,
-	type DaemonConnection
-} from '../daemon/daemon.ts';
+import { describeApiError } from '#lib/api/client.ts';
+import { ENTRY_CODE_LIFETIME_TEXT } from '#lib/core/daemon/entry-codes.ts';
+import { describeDaemonStartError, entryAddress, startDaemon } from '../daemon/daemon.ts';
 import {
 	describeLaunchError,
 	ensureDaemon,
@@ -101,7 +98,10 @@ async function serve(dataDirectory: AbsolutePath, background: boolean): Promise<
 		console.log(`diff delver started at ${daemon.origin}, serving ${dataDirectory}.`);
 		signalParent({ kind: 'ready' });
 	} else {
-		terminal.print(`diff delver is running at ${addressFor(daemon, '/')}`);
+		terminal.print(
+			`diff delver is running. Open this in your browser: ${entryAddress(daemon.origin, '/', daemon.entryCode())}`
+		);
+		terminal.print(WORKS_ONCE);
 		terminal.print('Press Ctrl+C to stop it.');
 	}
 	await daemon.stopped;
@@ -109,18 +109,28 @@ async function serve(dataDirectory: AbsolutePath, background: boolean): Promise<
 	return 0;
 }
 
+/** What an address with an entry code is good for, said after it. */
+const WORKS_ONCE = `The address works once, within ${ENTRY_CODE_LIFETIME_TEXT}; run diff-delver again for a new one.`;
+
 async function show(
-	connection: DaemonConnection,
+	client: ApiClient,
+	origin: string,
 	outcome: CommandOutcome,
 	noOpen: boolean
 ): Promise<number> {
 	for (const line of outcome.lines)
 		(outcome.exitCode === 0 ? terminal.print : terminal.printError)(line);
-	const address = addressFor(connection, outcome.page);
+	const code = await client.entryCode();
+	if (!code.ok) {
+		terminal.printError(describeApiError(code.error));
+		return 1;
+	}
+	const address = entryAddress(origin, outcome.page, code.value.code);
 	if (!noOpen && (await openBrowser(address))) {
-		terminal.print(`Opened in your browser: ${address}`);
+		terminal.print(`Opened in your browser: ${origin}${outcome.page}`);
 	} else {
 		terminal.print(`Open this in your browser: ${address}`);
+		terminal.print(WORKS_ONCE);
 	}
 	return outcome.exitCode;
 }
@@ -199,7 +209,7 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 				command.kind === 'start'
 					? await startOutcome(client, directory.value)
 					: await openOutcome(client, directory.value, command.source);
-			return show(connection, outcome, invocation.noOpen);
+			return show(client, connection.origin, outcome, invocation.noOpen);
 		}
 	}
 }

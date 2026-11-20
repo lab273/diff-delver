@@ -132,9 +132,10 @@ describe('the daemon', () => {
 });
 
 describe('the daemon’s gate', () => {
-	it('lets the browser in with the token in the address, and takes it out of the address', async () => {
+	it('lets the browser in once with an entry code in the address, and takes it out of the address', async () => {
 		const daemon = await testDaemon();
-		const entered = await rawRequest(daemon.port, { path: `/?token=${daemon.token}` });
+		const code = daemon.entryCode();
+		const entered = await rawRequest(daemon.port, { path: `/?entry=${code}` });
 		expect(entered.status).toBe(303);
 		expect(entered.headers['location']).toBe('/');
 		expect(entered.headers['set-cookie']).toEqual([
@@ -147,6 +148,27 @@ describe('the daemon’s gate', () => {
 		expect(home.status).toBe(200);
 		expect(home.body).toContain('No diffs have been opened yet.');
 		expect(home.headers['referrer-policy']).toBe('no-referrer');
+
+		// The same address again, as from another browser, is out of date.
+		const again = await rawRequest(daemon.port, { path: `/?entry=${code}` });
+		expect(again.status).toBe(403);
+		expect(again.body).toContain('This link is out of date');
+		expect(again.body).toContain('opens it once, within two minutes');
+		// The token itself never lets a browser in from the address.
+		const token = await rawRequest(daemon.port, { path: `/?token=${daemon.token}` });
+		expect(token.status).toBe(403);
+		expect(token.headers['set-cookie']).toBeUndefined();
+	});
+
+	it('gives the command an entry code, and only with its token', async () => {
+		const daemon = await testDaemon();
+		const given = value(await clientOf(daemon).entryCode());
+		expect(given.code).toMatch(/^[0-9a-f]{32}$/);
+		const entered = await rawRequest(daemon.port, { path: `/diffs/r_9?entry=${given.code}` });
+		expect(entered.status).toBe(303);
+		expect(entered.headers['location']).toBe('/diffs/r_9');
+		const refused = await rawRequest(daemon.port, { method: 'POST', path: '/api/entry' });
+		expect(refused.status).toBe(403);
 	});
 
 	it('answers a request without the token with a page saying how to open diff delver', async () => {
@@ -157,7 +179,7 @@ describe('the daemon’s gate', () => {
 		expect(page.body).toContain('Open diff delver from your terminal');
 		expect(page.body).toContain('<code>diff-delver</code>');
 
-		const old = await rawRequest(daemon.port, { path: `/?token=${'0'.repeat(64)}` });
+		const old = await rawRequest(daemon.port, { path: `/?entry=${'0'.repeat(32)}` });
 		expect(old.status).toBe(403);
 		expect(old.body).toContain('This link is out of date');
 

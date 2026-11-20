@@ -15,7 +15,7 @@ import {
 } from '#lib/core/daemon/request-gate.ts';
 import type { AppHandler } from './app-handler.ts';
 
-/** Headers on every answer: the token never leaves in a Referer, and no other site may frame or read the pages. */
+/** Headers on every answer: an entry code never leaves in a Referer, and no other site may frame or read the pages. */
 const ALWAYS = {
 	'referrer-policy': 'no-referrer',
 	'x-content-type-options': 'nosniff',
@@ -110,7 +110,7 @@ export function daemonServer(app: AppHandler, settings: () => GateSettings | und
 			case 'enter':
 				res.writeHead(303, {
 					location: decision.location,
-					'set-cookie': decision.setCookie,
+					...(decision.setCookie === undefined ? {} : { 'set-cookie': decision.setCookie }),
 					'cache-control': 'no-store'
 				});
 				res.end();

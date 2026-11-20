@@ -7,6 +7,7 @@
  */
 import type { Clock } from '#lib/core/clock.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
+import type { EntryCode } from '#lib/core/entry-code.tiny.ts';
 import type { PortNumber } from '#lib/core/port-number.tiny.ts';
 import type { ReportService } from '../reports/index.ts';
 
@@ -14,6 +15,8 @@ export interface DaemonContext {
 	readonly service: ReportService;
 	readonly clock: Clock;
 	readonly version: CodeVersion;
+	/** A new single-use code that lets a browser in, for the address the command opens. */
+	readonly entryCode: () => EntryCode;
 	/** Asks the daemon to stop once the current response is sent. */
 	readonly requestStop: () => void;
 }

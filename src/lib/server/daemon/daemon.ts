@@ -27,7 +27,9 @@ import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { Clock } from '#lib/core/clock.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { parseDaemonToken, type DaemonToken } from '#lib/core/daemon-token.tiny.ts';
-import { TOKEN_PARAMETER } from '#lib/core/daemon/request-gate.ts';
+import { entryCodes } from '#lib/core/daemon/entry-codes.ts';
+import { ENTRY_PARAMETER, type GateSettings } from '#lib/core/daemon/request-gate.ts';
+import type { EntryCode } from '#lib/core/entry-code.tiny.ts';
 import type { IdSource } from '#lib/core/ids.ts';
 import { parsePortNumber, type PortNumber } from '#lib/core/port-number.tiny.ts';
 import { parseProcessId } from '#lib/core/process-id.tiny.ts';
@@ -37,6 +39,7 @@ import type { DatabaseError } from '../db/index.ts';
 import { describeDatabaseError } from '../db/index.ts';
 import { ReportService, describeReportError } from '../reports/index.ts';
 import type { RepositoryOptions } from '../sources/git/index.ts';
+import { randomEntryCode } from '../system.ts';
 import type { AppHandler } from './app-handler.ts';
 import { registerDaemon, unregisterDaemon } from './context.ts';
 import { daemonServer } from './http-server.ts';
@@ -73,6 +76,8 @@ export interface DaemonConnection {
 
 export interface RunningDaemon extends DaemonConnection {
 	readonly lock: Lock;
+	/** A new single-use code that lets a browser in, for an address to open (`entryAddress`). */
+	entryCode(): EntryCode;
 	/** The removal of snapshots a crash left behind, which starting begins. */
 	readonly cleaned: Promise<void>;
 	/** Stops serving, closes the database and removes the lockfile. Stopping twice is stopping once. */
@@ -119,10 +124,13 @@ export function connectionOf(lock: Pick<Lock, 'port' | 'token'>): DaemonConnecti
 	return { port: lock.port, token: lock.token, origin: `http://127.0.0.1:${String(lock.port)}` };
 }
 
-/** The address of a page of the daemon that lets the browser in: what the command opens. */
-export function addressFor(connection: DaemonConnection, path: string): string {
+/**
+ * The address of a page of the daemon that lets the browser in once, with an
+ * entry code: what the command opens. It never holds the token.
+ */
+export function entryAddress(origin: string, path: string, code: EntryCode): string {
 	const separator = path.includes('?') ? '&' : '?';
-	return `${connection.origin}${path}${separator}${TOKEN_PARAMETER}=${connection.token}`;
+	return `${origin}${path}${separator}${ENTRY_PARAMETER}=${code}`;
 }
 
 function newToken(): DaemonToken {
@@ -199,8 +207,12 @@ export async function startDaemon(
 	const service = opened.value;
 
 	// Nothing is served until the lock is taken and the daemon registered.
-	const gate: { settings: { port: PortNumber; token: DaemonToken } | undefined } = {
-		settings: undefined
+	const gate: { settings: GateSettings | undefined } = { settings: undefined };
+	const codes = entryCodes(options.clock);
+	const entryCode = (): EntryCode => {
+		const code = randomEntryCode();
+		codes.issue(code);
+		return code;
 	};
 	const server = daemonServer(options.app, () => gate.settings);
 	const port = await listen(server);
@@ -253,6 +265,7 @@ export async function startDaemon(
 		service,
 		clock: options.clock,
 		version: options.version,
+		entryCode,
 		requestStop: () => {
 			// After the answer saying so has gone.
 			setTimeout(() => {
@@ -260,6 +273,10 @@ export async function startDaemon(
 			}, 0);
 		}
 	});
-	gate.settings = { port: lock.port, token: lock.token };
-	return ok({ ...connectionOf(lock), lock, cleaned, stop, stopped });
+	gate.settings = {
+		port: lock.port,
+		token: lock.token,
+		redeemEntryCode: (given) => codes.redeem(given)
+	};
+	return ok({ ...connectionOf(lock), lock, entryCode, cleaned, stop, stopped });
 }

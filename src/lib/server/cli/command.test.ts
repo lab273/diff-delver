@@ -103,23 +103,34 @@ describe('the diff-delver command', () => {
 		expect(after).toEqual(before);
 		expect(result.code).toBe(0);
 		const lines = result.stdout.trimEnd().split('\n');
-		expect(lines).toHaveLength(2);
+		expect(lines).toHaveLength(3);
 		expect(lines[0]).toBe(
 			`${repo.dir.split('/').at(-1) ?? ''}: Uncommitted changes, 2 files changed, 2 lines added and 1 removed.`
 		);
 		const address = addressIn(result.stdout);
 		expect(address.origin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
 		expect(address.pathname).toMatch(/^\/diffs\/r_[0-9a-f]{16}$/);
+		expect(lines[2]).toBe(
+			'The address works once, within two minutes; run diff-delver again for a new one.'
+		);
 
-		// The daemon outlives the command, and the address lets a browser in.
+		// The daemon outlives the command, and the address lets a browser in once.
+		// It holds a single-use code, never the daemon's token.
 		const lock = await readLockfile(data);
 		if (lock.kind !== 'lock') throw new Error('no lock');
 		expect(address.port).toBe(String(lock.lock.port));
+		expect(address.href).not.toContain(lock.lock.token);
+		expect(address.searchParams.get('entry')).toMatch(/^[0-9a-f]{32}$/);
 		const entered = await rawRequest(lock.lock.port, {
 			path: `${address.pathname}${address.search}`
 		});
 		expect(entered.status).toBe(303);
 		expect(entered.headers['location']).toBe(address.pathname);
+		const reused = await rawRequest(lock.lock.port, {
+			path: `${address.pathname}${address.search}`
+		});
+		expect(reused.status).toBe(403);
+		expect(reused.body).toContain('This link is out of date');
 		const page = await rawRequest(lock.lock.port, {
 			path: address.pathname,
 			headers: { cookie: `${tokenCookieName(lock.lock.port)}=${lock.lock.token}` }
@@ -132,7 +143,7 @@ describe('the diff-delver command', () => {
 		expect(again.stdout).toContain(
 			'opened again where you left it (not started: 3 changes to review)'
 		);
-		expect(addressIn(again.stdout).href).toBe(address.href);
+		expect(addressIn(again.stdout).pathname).toBe(address.pathname);
 	});
 
 	it('opens a named source, and says when it has nothing to review', async () => {

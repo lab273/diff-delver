@@ -12,11 +12,16 @@
  *   `Origin` with every such request; a program that sends the token itself
  *   cannot be made to by a page, so it need not.
  *
- * The browser is given the token once, in the address the command opens
- * (`?token=…`). That request is answered with a redirect to the same address
- * without it, setting a cookie for this daemon alone, so the token neither stays
- * in the address bar or the history nor leaks in a `Referer`. The redirect only
- * ever goes to a path of this daemon (`localPath`), whatever the request said.
+ * The browser is let in by the address the command opens, which carries a
+ * single-use entry code (`?entry=…`, `entry-codes.ts`), never the token itself:
+ * a process's arguments, such as the browser opener's, can be read by anyone on
+ * the machine. That request is answered with a redirect to the same address
+ * without the code, setting the token as a cookie for this daemon alone, so
+ * nothing secret stays in the address bar or the history or leaks in a
+ * `Referer`. A code works once, for two minutes; a browser that already has the
+ * cookie is sent on even with a used code, as when it opens the address again
+ * from its history. The redirect only ever goes to a path of this daemon
+ * (`localPath`), whatever the request said.
  *
  * Accepted: browsers send a host's cookies to every port of that host, so
  * another server on 127.0.0.1 that the person's browser visits would receive
@@ -30,7 +35,7 @@ import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.
 /** The parts of a request the gate looks at, as they came. */
 export interface GateRequest {
 	readonly method: string;
-	/** The path and query, as in the request line: `/diffs/r_1?token=…`. */
+	/** The path and query, as in the request line: `/diffs/r_1?entry=…`. */
 	readonly target: string;
 	readonly host: string | undefined;
 	readonly origin: string | undefined;
@@ -41,6 +46,8 @@ export interface GateRequest {
 export interface GateSettings {
 	readonly port: PortNumber;
 	readonly token: DaemonToken;
+	/** Whether `given` is an entry code that may be used now; using it means it never works again. */
+	readonly redeemEntryCode: (given: string) => boolean;
 }
 
 /** Why a request is not served. */
@@ -52,17 +59,22 @@ export type Refusal =
 	/** No token: the address was typed or bookmarked, or the cookie is gone. */
 	| 'no-token'
 	/** A token that is not this daemon's: a link from an earlier run of diff delver. */
-	| 'wrong-token';
+	| 'wrong-token'
+	/** An entry code that has been used, has run out, or is from an earlier run. */
+	| 'entry-used';
 
 export type GateDecision =
 	/** Serve it. */
 	| { readonly kind: 'serve' }
-	/** The browser brought the token in the address: set the cookie and send it to `location`. */
-	| { readonly kind: 'enter'; readonly location: string; readonly setCookie: string }
+	/**
+	 * The browser brought an entry code in the address: send it to `location`,
+	 * setting the cookie when the code let it in, not when it had the cookie already.
+	 */
+	| { readonly kind: 'enter'; readonly location: string; readonly setCookie: string | undefined }
 	| { readonly kind: 'refuse'; readonly refusal: Refusal };
 
-/** The query parameter the command puts the token in. */
-export const TOKEN_PARAMETER = 'token';
+/** The query parameter the command puts the entry code in. */
+export const ENTRY_PARAMETER = 'entry';
 
 /**
  * The cookie the token is kept in. Cookies are shared by every port of a host,
@@ -91,19 +103,19 @@ export function cookieValue(header: string | undefined, name: string): string | 
 /** Methods that only read. Everything else must come from the daemon's own pages. */
 const READING = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-/** The path and query of `target` with the token parameter taken out. */
-function withoutToken(target: string): { readonly location: string; readonly token: string } {
+/** The path and query of `target` with the entry code taken out. */
+function withoutEntryCode(target: string): { readonly location: string; readonly code: string } {
 	const queryAt = target.indexOf('?');
-	if (queryAt === -1) return { location: target, token: '' };
+	if (queryAt === -1) return { location: target, code: '' };
 	const path = target.slice(0, queryAt);
 	const kept: string[] = [];
-	let token = '';
+	let code = '';
 	for (const pair of target.slice(queryAt + 1).split('&')) {
 		const name = pair.split('=', 1)[0] ?? '';
-		if (name === TOKEN_PARAMETER) token = pair.slice(name.length + 1);
+		if (name === ENTRY_PARAMETER) code = pair.slice(name.length + 1);
 		else if (pair !== '') kept.push(pair);
 	}
-	return { location: kept.length === 0 ? path : `${path}?${kept.join('&')}`, token };
+	return { location: kept.length === 0 ? path : `${path}?${kept.join('&')}`, code };
 }
 
 /**
@@ -121,14 +133,14 @@ export function localPath(location: string): string {
 	return `/${location.replace(/^\/+/, '')}`;
 }
 
-/** Whether `target` carries the token parameter at all. */
-function hasTokenParameter(target: string): boolean {
+/** Whether `target` carries an entry code at all. */
+function hasEntryCode(target: string): boolean {
 	const queryAt = target.indexOf('?');
 	if (queryAt === -1) return false;
 	return target
 		.slice(queryAt + 1)
 		.split('&')
-		.some((pair) => (pair.split('=', 1)[0] ?? '') === TOKEN_PARAMETER);
+		.some((pair) => (pair.split('=', 1)[0] ?? '') === ENTRY_PARAMETER);
 }
 
 /** What the daemon does with a request. */
@@ -139,14 +151,20 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 	}
 	const reading = READING.has(request.method.toUpperCase());
 
-	if (reading && hasTokenParameter(request.target)) {
-		const { location, token } = withoutToken(request.target);
-		if (!isToken(settings.token, token)) return { kind: 'refuse', refusal: 'wrong-token' };
-		return {
-			kind: 'enter',
-			location: localPath(location),
-			setCookie: `${tokenCookieName(settings.port)}=${settings.token}; Path=/; HttpOnly; SameSite=Strict`
-		};
+	const cookie = cookieValue(request.cookie, tokenCookieName(settings.port));
+	if (reading && hasEntryCode(request.target)) {
+		const { location, code } = withoutEntryCode(request.target);
+		if (settings.redeemEntryCode(code)) {
+			return {
+				kind: 'enter',
+				location: localPath(location),
+				setCookie: `${tokenCookieName(settings.port)}=${settings.token}; Path=/; HttpOnly; SameSite=Strict`
+			};
+		}
+		if (cookie !== undefined && isToken(settings.token, cookie)) {
+			return { kind: 'enter', location: localPath(location), setCookie: undefined };
+		}
+		return { kind: 'refuse', refusal: 'entry-used' };
 	}
 
 	const bearer = /^Bearer (.+)$/.exec(request.authorization ?? '')?.[1];
@@ -160,7 +178,6 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 		return { kind: 'serve' };
 	}
 
-	const cookie = cookieValue(request.cookie, tokenCookieName(settings.port));
 	if (cookie === undefined) return { kind: 'refuse', refusal: 'no-token' };
 	if (!isToken(settings.token, cookie)) return { kind: 'refuse', refusal: 'wrong-token' };
 	if (!reading && request.origin !== `http://${host}`) {
@@ -177,6 +194,7 @@ export function refusalStatus(refusal: Refusal): 403 | 421 {
 		case 'wrong-origin':
 		case 'no-token':
 		case 'wrong-token':
+		case 'entry-used':
 			return 403;
 	}
 }
@@ -213,6 +231,13 @@ export function describeRefusal(refusal: Refusal): {
 				title: reviewerMessage('This link is out of date'),
 				message: reviewerMessage(
 					'This link is from an earlier run of diff delver, which has stopped since. Run diff-delver in a terminal, in your repository, to open it again with a new link.'
+				)
+			};
+		case 'entry-used':
+			return {
+				title: reviewerMessage('This link is out of date'),
+				message: reviewerMessage(
+					'Each link diff delver gives you opens it once, within two minutes, and this one has been used already or has run out. Run diff-delver in a terminal, in your repository, to open it again with a new link.'
 				)
 			};
 	}

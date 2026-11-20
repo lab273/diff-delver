@@ -13,6 +13,7 @@ import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.ti
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { parseCodeVersion } from '#lib/core/code-version.tiny.ts';
 import { parseFileCount } from '#lib/core/file-count.tiny.ts';
+import { parseEntryCode } from '#lib/core/entry-code.tiny.ts';
 import { parseLineCount } from '#lib/core/line-count.tiny.ts';
 import { parseProcessId } from '#lib/core/process-id.tiny.ts';
 import { parseEscapedPath } from '#lib/core/path-bytes.ts';
@@ -242,6 +243,10 @@ export const DaemonInfoSchema = z.object({
 	pid: parsed(z.number(), parseProcessId)
 });
 export type DaemonInfo = z.output<typeof DaemonInfoSchema>;
+
+/** POST /api/entry: a single-use code for the address the command opens. */
+export const EntryCodeSchema = z.object({ code: parsed(z.string(), parseEntryCode) });
+export type EntryCodeResponse = z.output<typeof EntryCodeSchema>;
 
 /** POST /api/daemon/stop. */
 export const StoppingSchema = z.object({ stopping: z.literal(true) });
