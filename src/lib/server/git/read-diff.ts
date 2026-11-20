@@ -31,6 +31,7 @@ import { parseLineCount, type LineCount } from '#lib/core/line-count.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { EMPTY_TREE, type ObjectFormat } from '#lib/core/object-format.ts';
 import type { TreeId } from '#lib/core/tree-id.tiny.ts';
+import { alternatesLine } from './alternates.ts';
 import { runGit, runGitText, type GitError } from './run-git.ts';
 
 /** Anything git can diff as a tree: a tree id, or a commit id standing for its tree. */
@@ -113,12 +114,6 @@ export function diffTreeArgs(
 	];
 }
 
-/** A line of an alternates file, quoted as git reads it, so any path survives. */
-function alternatesLine(path: string): string {
-	const quoted = path.replace(/[\\"]/g, '\\$&').replace(/\n/g, '\\n');
-	return `"${quoted}"\n`;
-}
-
 /** The settings that say where a partial clone fetches missing objects from. */
 const FETCH_SETTING =
 	/^(?:extensions\.partialclone|remote\..+\.(?:url|promisor|partialclonefilter)|url\..+\.insteadof)$/;
@@ -188,7 +183,9 @@ export async function runDiffTree(
 			args: ['init', '--quiet', '--bare', `--object-format=${objectFormat}`, '.']
 		});
 		if (!init.ok) return init;
-		await writeFile(join(scratch, 'objects', 'info', 'alternates'), alternatesLine(objects.value));
+		const borrowed = parseAbsolutePath(objects.value);
+		if (!borrowed.ok) throw new Error(`git gave a path that is not absolute: ${objects.value}`);
+		await writeFile(join(scratch, 'objects', 'info', 'alternates'), alternatesLine(borrowed.value));
 		const promisor = await promisorSettings(repository);
 		if (!promisor.ok) return promisor;
 		for (const [key, value] of promisor.value) {

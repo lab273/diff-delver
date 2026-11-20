@@ -20,6 +20,7 @@ import { err, ok, type Result } from '#lib/core/result.ts';
 import { parseSnapshotId, type SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import type { StoreId } from '#lib/core/store-id.tiny.ts';
 import { parseTreeId, type TreeId } from '#lib/core/tree-id.tiny.ts';
+import { borrowObjects } from '../git/alternates.ts';
 import { runGit, runGitText } from '../git/run-git.ts';
 import type { StoreError } from './store-error.ts';
 import { withStoreLock } from './store-lock.ts';
@@ -73,39 +74,31 @@ export interface TakenSnapshot {
 	readonly copied: ObjectCount;
 }
 
-/** git's alternates syntax quoted, so a path with a colon, quote or newline survives. */
-function quotedAlternate(path: string): string {
-	return `"${path.replace(/[\\"]/g, '\\$&').replace(/\n/g, '\\n')}"`;
-}
-
 /** Below this many objects a copy is unpacked into loose objects, as `git fetch` does. */
 const UNPACK_LIMIT = 100;
 
 /**
- * Copies into the store every object reachable from the trees that it lacks,
- * reading from `copyFrom`. Runs in the store, so only the store's settings apply;
- * the other directory is borrowed read-only as an alternate while objects are
- * listed and packed, and is not visible while they are written, because git
+ * Copies into the store those of the given objects it lacks, reading them from
+ * `copyFrom`, and returns how many it copied. Runs in the store, so only the
+ * store's settings apply; the other directory is borrowed read-only while the
+ * objects are packed, and is not visible while they are written, because git
  * freshens (touches) an existing object it is asked to write.
+ *
+ * For a source preparing its trees inside `takeSnapshot`, to put in the store
+ * any object git will need to read while it writes there, such as the blobs an
+ * index names.
  */
-async function copyTrees(
-	store: Store,
-	trees: readonly TreeId[],
-	copyFrom: AbsolutePath | undefined
+export async function copyObjects(
+	writer: StoreWriter,
+	ids: readonly string[],
+	copyFrom: AbsolutePath
 ): Promise<Result<ObjectCount, StoreError>> {
-	const borrow =
-		copyFrom === undefined ? {} : { GIT_ALTERNATE_OBJECT_DIRECTORIES: quotedAlternate(copyFrom) };
-	const env = { ...borrow, GIT_NO_LAZY_FETCH: '1' };
-	const listed = await runGit({
-		cwd: store.dir,
-		args: ['rev-list', '--objects', '--no-object-names', '--end-of-options', ...trees],
-		env
-	});
-	if (!listed.ok) return listed;
+	const { store } = writer;
+	if (ids.length === 0) return ok(objectCountOf(0));
 	const checked = await runGit({
 		cwd: store.dir,
 		args: ['cat-file', '--batch-check=%(objectname)'],
-		input: listed.value.stdout
+		input: `${ids.join('\n')}\n`
 	});
 	if (!checked.ok) return checked;
 	const missing = checked.value.stdout
@@ -115,6 +108,7 @@ async function copyTrees(
 		.map((line) => line.slice(0, line.indexOf(' ')));
 	if (missing.length === 0) return ok(objectCountOf(0));
 	const list = `${missing.join('\n')}\n`;
+	const env = borrowObjects(copyFrom);
 	if (missing.length < UNPACK_LIMIT) {
 		const pack = await runGit({
 			cwd: store.dir,
@@ -140,6 +134,31 @@ async function copyTrees(
 		if (!packed.ok) return packed;
 	}
 	return ok(objectCountOf(missing.length));
+}
+
+/**
+ * Copies in every object reachable from the trees that the store lacks, and
+ * returns how many it copied. With no `copyFrom`, it checks that the store has
+ * them all, which fails with `MissingObject` if it does not. For a source
+ * preparing its trees inside `takeSnapshot`, like `copyObjects`.
+ */
+export async function copyTrees(
+	writer: StoreWriter,
+	trees: readonly TreeId[],
+	copyFrom: AbsolutePath | undefined
+): Promise<Result<ObjectCount, StoreError>> {
+	const listed = await runGit({
+		cwd: writer.store.dir,
+		args: ['rev-list', '--objects', '--no-object-names', '--end-of-options', ...trees],
+		env: copyFrom === undefined ? { GIT_NO_LAZY_FETCH: '1' } : borrowObjects(copyFrom)
+	});
+	if (!listed.ok) return listed;
+	if (copyFrom === undefined) return ok(objectCountOf(0));
+	const ids = listed.value.stdout
+		.toString('utf8')
+		.split('\n')
+		.filter((id) => id !== '');
+	return copyObjects(writer, ids, copyFrom);
 }
 
 function snapshotRef(id: SnapshotId): string {
@@ -194,10 +213,11 @@ export async function takeSnapshot<E>(
 				args: ['rev-parse', '--path-format=absolute', '--git-path', 'objects']
 			});
 			if (!objects.ok) return objects;
-			const prepared = await prepare({ store, objects: absoluteOrThrow(objects.value) });
+			const writer: StoreWriter = { store, objects: absoluteOrThrow(objects.value) };
+			const prepared = await prepare(writer);
 			if (!prepared.ok) return prepared;
 			const { base, head, copyFrom } = prepared.value;
-			const copied = await copyTrees(store, base === head ? [head] : [base, head], copyFrom);
+			const copied = await copyTrees(writer, base === head ? [head] : [base, head], copyFrom);
 			if (!copied.ok) return copied;
 			const snapshot = await pin(store, base, head);
 			return snapshot.ok ? ok({ snapshot: snapshot.value, copied: copied.value }) : snapshot;

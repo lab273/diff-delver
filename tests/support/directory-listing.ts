@@ -29,10 +29,12 @@ export async function listDirectory(root: string): Promise<readonly string[]> {
 					? 'file'
 					: 'other';
 		let content = '';
-		if (info.isFile())
-			content = createHash('sha256')
-				.update(await readFile(path))
-				.digest('hex');
+		if (info.isFile()) {
+			// A file the test made unreadable is still listed, by its other details.
+			const bytes = await readFile(path).catch(() => undefined);
+			content =
+				bytes === undefined ? 'unreadable' : createHash('sha256').update(bytes).digest('hex');
+		}
 		if (info.isSymbolicLink()) content = shown(await readlink(path, { encoding: 'buffer' }));
 		lines.push(
 			[

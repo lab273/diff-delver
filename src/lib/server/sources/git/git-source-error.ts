@@ -1,0 +1,102 @@
+/**
+ * What can go wrong turning a local git source into a snapshot, and what the
+ * reviewer is told: what happened and what to do next.
+ */
+import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import type { CommitId } from '#lib/core/commit-id.tiny.ts';
+import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import type { Revision } from '#lib/core/revision.tiny.ts';
+import { describeStoreError, type StoreError } from '../../store/index.ts';
+
+/** The source needs a working tree, and the repository has none here. */
+export interface NoWorkingTree {
+	readonly kind: 'NoWorkingTree';
+	readonly repository: AbsolutePath;
+	readonly source: 'working-tree' | 'staged';
+}
+
+/** git does not know the revision in this repository. */
+export interface UnknownRevision {
+	readonly kind: 'UnknownRevision';
+	readonly repository: AbsolutePath;
+	readonly revision: Revision;
+}
+
+/** The repository has no commits yet, so the revision cannot name one. */
+export interface NoCommitsYet {
+	readonly kind: 'NoCommitsYet';
+	readonly repository: AbsolutePath;
+	readonly revision: Revision;
+}
+
+/** A shallow clone stops before the commit that is needed: a commit's parent, or a merge base. */
+export interface ShallowHistory {
+	readonly kind: 'ShallowHistory';
+	readonly repository: AbsolutePath;
+	/** The commit whose history was not downloaded. */
+	readonly commit: CommitId;
+}
+
+/** The two ends of a range share no history, so there is no merge base to compare against. */
+export interface NoCommonHistory {
+	readonly kind: 'NoCommonHistory';
+	readonly repository: AbsolutePath;
+	readonly from: Revision;
+	readonly to: Revision;
+}
+
+/** A partial clone lacks file contents the snapshot needs, and diff delver does not download them. */
+export interface PartialCloneMissing {
+	readonly kind: 'PartialCloneMissing';
+	readonly repository: AbsolutePath;
+}
+
+export type GitSourceError =
+	| StoreError
+	| NoWorkingTree
+	| UnknownRevision
+	| NoCommitsYet
+	| ShallowHistory
+	| NoCommonHistory
+	| PartialCloneMissing;
+
+/** What happened and what to do next, for the reviewer. */
+export function describeGitSourceError(error: GitSourceError): ReviewerMessage {
+	switch (error.kind) {
+		case 'NoWorkingTree':
+			return reviewerMessage(
+				`${error.repository} has no working tree: it is a bare repository, or you are inside its .git folder, so there are no ${error.source === 'staged' ? 'staged' : 'uncommitted'} changes to review. Open a commit or two branches to compare instead, or run diff delver in a checkout of it.`
+			);
+		case 'UnknownRevision':
+			return reviewerMessage(
+				`git does not know "${error.revision}" in ${error.repository}. Check the name (git branch --all lists branches), or fetch it first, then try again.`
+			);
+		case 'NoCommitsYet':
+			return reviewerMessage(
+				`${error.repository} has no commits yet, so "${error.revision}" names nothing. Review the uncommitted changes instead, or make a first commit.`
+			);
+		case 'ShallowHistory':
+			return reviewerMessage(
+				`${error.repository} is a shallow clone, and the history before commit ${error.commit.slice(0, 7)} was not downloaded, so there is nothing to compare it with. Download more history with "git fetch --deepen=50" (or "git fetch --unshallow" for all of it), then try again.`
+			);
+		case 'NoCommonHistory':
+			return reviewerMessage(
+				`"${error.from}" and "${error.to}" share no history in ${error.repository}, so there is no common starting point to compare from. Check that these are the two branches you meant.`
+			);
+		case 'PartialCloneMissing':
+			return reviewerMessage(
+				`${error.repository} is a partial clone and some file contents were never downloaded, and diff delver does not download them for a local repository. Download them with "git backfill" (or "git fetch --refetch" without a filter), then try again.`
+			);
+		case 'GitNotFound':
+		case 'NotARepository':
+		case 'DubiousOwnership':
+		case 'BadRevision':
+		case 'MissingObject':
+		case 'GitFailed':
+		case 'DataDirectoryUnusable':
+		case 'StoreNotFound':
+		case 'SnapshotNotFound':
+		case 'StoreDamaged':
+			return describeStoreError(error);
+	}
+}

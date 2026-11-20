@@ -29,6 +29,8 @@ export type {
 	TakenSnapshot
 } from './snapshots.ts';
 export {
+	copyObjects,
+	copyTrees,
 	deleteSnapshot,
 	listSnapshots,
 	openSnapshot,
