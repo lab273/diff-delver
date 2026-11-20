@@ -192,6 +192,11 @@ The smallest unit is a changed line: one added line or one deleted line. Context
 lines belong to nobody. A file whose change has no lines (pure rename, mode change,
 binary file, image, empty file) has a single file-level unit instead.
 
+A file also has a file-level unit, beside its lines, whenever something about the
+file itself changed: its name, its mode (such as becoming executable) or its kind
+(a file becoming a link). Those changes matter, a line-by-line reading cannot show
+them, and so they are sorted, shown and ticked like any other change.
+
 Call these units **change lines**. Each one is addressed by file, side and line
 number, which is stable within a snapshot:
 
@@ -355,7 +360,11 @@ Applying an update creates a new revision:
    the same change kept its state too, so such lines are never matched across
    unrelated code. When in doubt a line counts as new: a wrong "reviewed" would
    hide code from the reviewer, and a wrong "new" only costs a second look.
-3. Matched lines keep their bucket, role, reviewed mark and thread anchors.
+3. Matched lines keep their bucket, role and thread anchors. A matched line keeps
+   its reviewed mark only when nothing within three lines of it, in the diff as
+   the reviewer reads it, is new or was removed. Familiar lines that now sit
+   inside changed code, such as an unchanged error check under a replaced call,
+   are read again in their new surroundings.
 4. Unmatched new lines go to `Uncategorised`, marked "new since revision N". An
    attached agent is told there is work to sort.
 5. Threads whose lines disappeared are kept and marked outdated, with the old code
