@@ -13,11 +13,9 @@
  *   bearer and basic credentials in an Authorization header, and a password in a
  *   URL (`postgres://user:password@host`);
  * - home directory paths, which carry a username: `/home/<name>`,
- *   `/var/home/<name>`, `C:\Users\<name>`, `/mnt/c/Users/<name>`, and the same with
- *   the separators turned into hyphens (`-home-<name>-src`), as some tools name
- *   directories. `/Users/<name>` counts only as macOS writes it: capitalised, at
- *   the start of a path, with a name that starts with a letter, so `GET /users/123`
- *   is not one;
+ *   `/var/home/<name>`, `C:\Users\<name>` and `/mnt/c/Users/<name>`.
+ *   `/Users/<name>` counts only as macOS writes it: capitalised, at the start of
+ *   a path, with a name that starts with a letter, so `GET /users/123` is not one;
  * - the private terms the person has listed, as whole words, in any case, where
  *   `_`, `-` and `.` also end a word, so `someone` is found in `someone_dev`.
  *
@@ -127,9 +125,6 @@ const USERNAME = String.raw`[A-Za-z0-9_]${USERNAME_REST}`;
 /** A macOS user name starts with a letter, so `/Users/123` is an id in a URL, not a home. */
 const MAC_USERNAME = String.raw`[A-Za-z]${USERNAME_REST}`;
 
-/** In a hyphenated path the name ends at the next hyphen. */
-const MAC_USERNAME_IN_HYPHENS = String.raw`[A-Za-z][A-Za-z0-9_.]*`;
-
 /** Home directories that belong to no person. */
 const SHARED_HOMES = new Set(['runner', 'shared', 'public', 'default', 'all users']);
 
@@ -209,9 +204,7 @@ const DETECTORS: readonly Detector[] = [
 		pattern: new RegExp(
 			[
 				String.raw`(?<![\w.~/-])(?:/var)?/home/(${USERNAME})`,
-				String.raw`(?<![\w.~/-])(?:/mnt/[a-z])?/Users/(${MAC_USERNAME})`,
-				// A path with its separators turned into hyphens, as some tools name directories.
-				String.raw`(?<![\w.~-])-(?:home|Users)-(${MAC_USERNAME_IN_HYPHENS})`
+				String.raw`(?<![\w.~/-])(?:/mnt/[a-z])?/Users/(${MAC_USERNAME})`
 			].join('|'),
 			'g'
 		),
@@ -263,31 +256,44 @@ function termPattern(term: string): RegExp {
 
 // --- Scanning ------------------------------------------------------------------------
 
+/** What a match found: its first group that took part, or the whole match. */
+function valueOf(match: RegExpExecArray): string {
+	// A group that did not take part in the match is undefined, whatever the type says.
+	const groups: readonly (string | undefined)[] = match.slice(1);
+	return groups.find((group) => group !== undefined) ?? match[0];
+}
+
 /** Every finding in one string. */
 export function scanText(
 	text: string,
 	lists: ScanLists
 ): readonly Omit<Finding, 'issue' | 'field'>[] {
 	const found: Omit<Finding, 'issue' | 'field'>[] = [];
-	// `user:password@host` holds what looks like an address; it is reported, masked,
-	// as credentials, and never shown as an email address.
-	const credentials = [...text.matchAll(URL_CREDENTIALS)].map((m) => ({
-		from: m.index,
-		to: m.index + m[0].length
-	}));
-	const inCredentials = (at: number): boolean =>
-		credentials.some(({ from, to }) => at >= from && at < to);
+	// A secret can look like an address, as `user:password@host` and
+	// `password=hunter2@example.com` do. It is reported, masked, as a secret, and
+	// never shown in full as an email address.
+	const secrets = DETECTORS.filter((detector) => detector.secret).flatMap((detector) =>
+		[...text.matchAll(detector.pattern)]
+			.filter(
+				(match) =>
+					detector.pattern === URL_CREDENTIALS ||
+					detector.accept === undefined ||
+					detector.accept(valueOf(match), lists)
+			)
+			.map((match) => ({ from: match.index, to: match.index + match[0].length }))
+	);
+	const inSecret = (from: number, to: number): boolean =>
+		secrets.some((secret) => from < secret.to && to > secret.from);
 	// Two detectors can find one value, as `access_token=` and `token=` both do.
 	const reported = new Set<string>();
 	for (const detector of DETECTORS) {
 		for (const match of text.matchAll(detector.pattern)) {
-			if (detector.kind === 'Email' && inCredentials(match.index)) continue;
+			if (detector.kind === 'Email' && inSecret(match.index, match.index + match[0].length))
+				continue;
 			const key = `${detector.kind} ${String(match.index + match[0].length)}`;
 			if (reported.has(key)) continue;
 			reported.add(key);
-			// A group that did not take part in the match is undefined, whatever the type says.
-			const groups: readonly (string | undefined)[] = match.slice(1);
-			const value = groups.find((group) => group !== undefined) ?? match[0];
+			const value = valueOf(match);
 			if (detector.accept !== undefined && !detector.accept(value, lists)) continue;
 			found.push({
 				kind: detector.kind,

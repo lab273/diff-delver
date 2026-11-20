@@ -115,6 +115,21 @@ describe('secrets', () => {
 		expect(finding?.shown).not.toContain(token.slice(4));
 		expect(scanText('password=hunter2!', LISTS)[0]?.shown).toBe('… (8 characters)');
 	});
+
+	it('does not show a secret that looks like an email address as one', () => {
+		for (const text of ['password=hunter2@example.com', 'api_key: "abc@example.com"']) {
+			const found = scanText(text, LISTS);
+			expect(found.map((f) => f.kind)).toEqual(['PasswordAssignment']);
+			expect(found.map((f) => f.shown).join(' ')).not.toContain('@example.com');
+		}
+	});
+
+	it('still shows an email address beside a secret', () => {
+		expect(kinds('password=hunter2 from someone@example.com')).toEqual([
+			'Email',
+			'PasswordAssignment'
+		]);
+	});
 });
 
 describe('secrets the first version missed', () => {
@@ -161,9 +176,7 @@ describe('home directories', () => {
 		['c:/users/someone/AppData', 'c:/users/someone'],
 		['(at /home/someone)', '/home/someone'],
 		['/var/home/someone/src', '/var/home/someone'],
-		['/mnt/c/Users/someone/Documents', '/mnt/c/Users/someone'],
-		['~/.claude/projects/-home-someone-src-app', '-home-someone'],
-		['projects/-Users-someone-src-app', '-Users-someone']
+		['/mnt/c/Users/someone/Documents', '/mnt/c/Users/someone']
 	])('flags %s', (text, shown) => {
 		expect(scanText(text, LISTS)).toEqual([{ kind: 'HomeDirectory', shown }]);
 	});
@@ -178,6 +191,10 @@ describe('home directories', () => {
 		expect(kinds('GET /users/123 and POST /users/someone')).toEqual([]);
 		expect(kinds('GET /Users/123 and https://api.example.com/Users/someone')).toEqual([]);
 		expect(kinds('nav-home-link and --home-dir and my-users-list')).toEqual([]);
+	});
+
+	it('does not flag a name with -home- or -Users- in it', () => {
+		expect(kinds('the app-home-screen, a -home-screen and -Users-list')).toEqual([]);
 	});
 });
 
