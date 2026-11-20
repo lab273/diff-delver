@@ -817,4 +817,42 @@ describe('the report service', () => {
 		expect(describeReportError(unknown)).toMatch(/This diff is not in diff delver any more/);
 		service.close();
 	});
+
+	it('checks whether a source can be opened and has changes cheaply, writing nothing', async () => {
+		const { repo, data, service } = await setUp();
+		await repo.git('branch', 'feature');
+		const check = (text: string) => service.checkSource(repo.dir, spec(text));
+		// Nothing has been opened, so the data folder has no store; checking makes none.
+		const { before, after, result } = await listingsAround([data, repo.dir], async () => ({
+			workingTree: await check('working-tree'),
+			staged: await check('staged'),
+			head: await check('HEAD'),
+			range: await check('main...feature'),
+			unknown: await check('no-such-branch'),
+			unknownRange: await check('no-such-branch...feature')
+		}));
+		expect(after).toEqual(before);
+		expect(value(result.workingTree)).toBe('changes');
+		expect(value(result.staged)).toBe('nothing');
+		expect(value(result.head)).toBe('changes');
+		expect(value(result.range)).toBe('nothing');
+		expect(failure(result.unknown).kind).toBe('UnknownRevision');
+		expect(failure(result.unknownRange).kind).toBe('UnknownRevision');
+		await repo.git('add', 'src/app.ts');
+		expect(value(await check('staged'))).toBe('changes');
+		service.close();
+	});
+
+	it('collects a store when it tidies after a check discarded a snapshot from it', async () => {
+		const { repo, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		expect(value(await service.tidyStores())).toEqual([]);
+		// A false alarm: the file is written again as it was, so the check's snapshot is not kept.
+		await repo.write('src/app.ts', 'one\n2\nthree\nfour\n');
+		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
+		const page = value(await service.load(id));
+		expect(value(await service.tidyStores())).toEqual([page.revision.store]);
+		expect(value(await service.tidyStores())).toEqual([]);
+		service.close();
+	});
 });

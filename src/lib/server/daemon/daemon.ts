@@ -22,6 +22,10 @@
  * version replaces it. It also stops when its lockfile is gone or holds another
  * daemon's entry, as when its data folder was deleted, since then no command
  * could find it or stop it: it checks every few seconds (`LOCK_CHECK_EVERY_MS`).
+ * With the same check, once at least `TIDY_STORES_EVERY_MS` has passed by its
+ * clock since it last did, it tidies the stores (`ReportService.tidyStores`),
+ * so the objects of snapshots it took and did not keep do not pile up until it
+ * next starts.
  */
 import { randomBytes } from 'node:crypto';
 import type { Server } from 'node:http';
@@ -37,6 +41,8 @@ import { parsePortNumber, type PortNumber } from '#lib/core/port-number.tiny.ts'
 import { parseProcessId } from '#lib/core/process-id.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import { timeBetween } from '#lib/core/timestamp.tiny.ts';
+import { GRACE_PERIOD } from '../store/index.ts';
 import type { DatabaseError } from '../db/index.ts';
 import { describeDatabaseError } from '../db/index.ts';
 import { ReportService, describeReportError } from '../reports/index.ts';
@@ -76,6 +82,12 @@ export interface DaemonOptions {
 
 /** How often a daemon checks that its lockfile is still there and still its own. */
 export const LOCK_CHECK_EVERY_MS = 5000;
+
+/**
+ * How long, by the daemon's clock, between tidying its stores: the grace period
+ * the store keeps unreferenced objects for, since nothing younger is collected.
+ */
+export const TIDY_STORES_EVERY_MS = GRACE_PERIOD;
 
 function everyFewSeconds(check: () => Promise<void>): () => void {
 	const timer = setInterval(() => {
@@ -270,12 +282,29 @@ export async function startDaemon(
 		}
 	});
 	let stopChecking = (): void => undefined;
+	let lastTidy = options.clock.now();
+	let tidying: Promise<void> | undefined;
+	const tidyIfDue = async (): Promise<void> => {
+		const now = options.clock.now();
+		if (tidying !== undefined || timeBetween(lastTidy, now) < TIDY_STORES_EVERY_MS) return;
+		lastTidy = now;
+		tidying = service.tidyStores().then((tidied) => {
+			tidying = undefined;
+			if (!tidied.ok) {
+				console.error(
+					`diff delver could not tidy its saved changes: ${describeReportError(tidied.error)}`
+				);
+			}
+		});
+		await tidying;
+	};
 	const stop = (): Promise<void> => {
 		stopping ??= (async () => {
 			stopChecking();
 			unregisterDaemon(lock.port);
 			await close(server);
 			await cleaned;
+			await tidying;
 			service.close();
 			await removeLockfileIf(options.dataDirectory, lockText(lock));
 			markStopped();
@@ -301,11 +330,14 @@ export async function startDaemon(
 	stopChecking = (options.repeat ?? everyFewSeconds)(async () => {
 		const now = await readLockfile(options.dataDirectory).catch(() => undefined);
 		if (now === undefined || stopping !== undefined) return;
-		if (now.kind !== 'none' && now.text === text) return;
-		console.log(
-			`diff delver is stopping: its lockfile in ${options.dataDirectory} is gone or belongs to another diff delver, so nothing else could find or stop it.`
-		);
-		await stop();
+		if (now.kind === 'none' || now.text !== text) {
+			console.log(
+				`diff delver is stopping: its lockfile in ${options.dataDirectory} is gone or belongs to another diff delver, so nothing else could find or stop it.`
+			);
+			await stop();
+			return;
+		}
+		await tidyIfDue();
 	});
 	gate.settings = {
 		port: lock.port,

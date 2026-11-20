@@ -9,7 +9,7 @@ import { request as httpRequest } from 'node:http';
 import { onTestFinished } from 'vitest';
 import { ApiClient } from '#lib/api/client.ts';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
-import { settableClock } from '#lib/core/clock.ts';
+import { settableClock, type SettableClock } from '#lib/core/clock.ts';
 import { parseCodeVersion, type CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import { parseTimestamp } from '#lib/core/timestamp.tiny.ts';
@@ -37,6 +37,8 @@ export interface TestDaemonOptions {
 	readonly who?: Reviewer;
 	/** How the daemon runs its lockfile check; by default, as the command's does. */
 	readonly repeat?: (check: () => Promise<void>) => () => void;
+	/** The daemon's clock; by default one fixed at a time in 2026. */
+	readonly clock?: SettableClock;
 }
 
 /** Starts a daemon, or says why it could not; one that starts is stopped when the test finishes. */
@@ -46,10 +48,11 @@ export async function tryStartDaemon(
 	app ??= loadAppHandler();
 	const time = parseTimestamp(Date.UTC(2026, 0, 15, 9, 30));
 	if (!time.ok) throw new Error('bad time');
+	const clock = options.clock ?? settableClock(time.value);
 	const who = options.who ?? (await reviewer());
 	const started = await startDaemon({
 		dataDirectory: options.dataDirectory ?? (await tempDirectory()),
-		clock: settableClock(time.value),
+		clock,
 		ids: sequentialIds(),
 		version: options.version ?? version('test'),
 		app: await app,

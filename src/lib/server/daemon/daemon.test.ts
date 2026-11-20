@@ -21,7 +21,14 @@ import { listingsAround } from '../../../../tests/support/directory-listing.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
 import { parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import { startOutcome, startPage } from '../cli/outcome.ts';
-import { describeDaemonStartError } from './daemon.ts';
+import { describeDaemonStartError, TIDY_STORES_EVERY_MS } from './daemon.ts';
+import { settableClock } from '#lib/core/clock.ts';
+import { randomIds } from '#lib/server/system.ts';
+import { listSnapshots, listStores } from '#lib/server/store/index.ts';
+import { snapshotGitSource } from '#lib/server/sources/git/index.ts';
+import { located } from '../../../../tests/support/git-source-helpers.ts';
+import { at } from '../../../../tests/support/report-rows.ts';
+import { reviewer } from '../../../../tests/support/reviewer-git.ts';
 import { lockfilePath, readLockfile } from './lockfile.ts';
 
 /** A committed file, edited, and a new one: uncommitted changes to open. */
@@ -360,3 +367,44 @@ describe('the daemon’s lock', () => {
 function never(): never {
 	throw new Error('unreachable');
 }
+
+describe('the daemon’s tidying', () => {
+	it('removes snapshots left behind, by its clock, while it runs', async () => {
+		const repo = await useFixture(edited);
+		const who = await reviewer();
+		const dataDirectory = await tempDirectory();
+		// A snapshot taken by a run that crashed before recording its revision.
+		value(
+			await snapshotGitSource(
+				dataDirectory,
+				await located(repo.dir, who),
+				value(parseGitSourceSpec('HEAD')),
+				randomIds.snapshotId()
+			)
+		);
+		const snapshots = async (): Promise<number> => {
+			let count = 0;
+			for (const store of value(await listStores(dataDirectory))) {
+				count += value(await listSnapshots(store)).length;
+			}
+			return count;
+		};
+		const checks: (() => Promise<void>)[] = [];
+		const repeat = (check: () => Promise<void>): (() => void) => {
+			checks.push(check);
+			return () => {
+				checks.splice(checks.indexOf(check), 1);
+			};
+		};
+		const clock = settableClock(at(Date.UTC(2026, 0, 15, 9, 30)));
+		const daemon = await testDaemon({ dataDirectory, repeat, clock, who });
+		await daemon.cleaned;
+		const run = () => Promise.all(checks.map((check) => check()));
+		await run();
+		// Seen at start, but not yet left alone for the store's grace period.
+		expect(await snapshots()).toBe(1);
+		clock.advance(TIDY_STORES_EVERY_MS + 1);
+		await run();
+		expect(await snapshots()).toBe(0);
+	});
+});

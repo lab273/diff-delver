@@ -17,6 +17,7 @@ export type { ShortLivedFolder } from './stale-folders.ts';
 export { GRACE_PERIOD, removeStaleFolders } from './stale-folders.ts';
 export type { Store } from './store.ts';
 export {
+	checkStoreUsable,
 	collectGarbage,
 	ensureStore,
 	listStores,

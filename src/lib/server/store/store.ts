@@ -11,7 +11,8 @@
  * reflogs, and `diffdelver.repository` naming the repository it holds, for the
  * Storage page. Nothing in it changes a diff, so the diff runs in it directly.
  */
-import { mkdir, mkdtemp, readdir, rename, rm, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, mkdir, mkdtemp, readdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseObjectFormat, type ObjectFormat } from '#lib/core/object-format.ts';
@@ -55,6 +56,45 @@ function unusable(directory: string, error: unknown): StoreError {
 }
 
 /**
+ * Why the folder that holds the stores could not hold a new one, if it could
+ * not: it is not a folder, or diff delver cannot write to it or, while it does
+ * not exist, to the data folder it would be made in. Writes nothing.
+ */
+async function storesFolderProblem(dataDirectory: AbsolutePath): Promise<StoreError | undefined> {
+	const stores = join(dataDirectory, STORES_FOLDER);
+	try {
+		const found = await stat(stores).catch((error: unknown) => {
+			if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
+			throw error;
+		});
+		if (found !== undefined && !found.isDirectory()) {
+			return unusable(stores, new Error('it is a file, not a folder'));
+		}
+		await access(found === undefined ? dataDirectory : stores, constants.W_OK | constants.X_OK);
+		return undefined;
+	} catch (error) {
+		return unusable(stores, error);
+	}
+}
+
+/**
+ * Whether a snapshot could be taken into the store with this id, found without
+ * making or writing anything: the store opens, or it does not exist yet and
+ * `ensureStore` could make it. What would stop `ensureStore` is the error it
+ * would give.
+ */
+export async function checkStoreUsable(
+	dataDirectory: AbsolutePath,
+	id: StoreId
+): Promise<Result<void, StoreError>> {
+	const existing = await openStore(dataDirectory, id);
+	if (existing.ok) return ok(undefined);
+	if (existing.error.kind !== 'StoreNotFound') return existing;
+	const problem = await storesFolderProblem(dataDirectory);
+	return problem === undefined ? ok(undefined) : err(problem);
+}
+
+/**
  * The store with this id, made if it does not exist yet, in the given object
  * format, with `repository` recorded as what it holds.
  */
@@ -68,6 +108,9 @@ export async function ensureStore(
 	await removeStaleFolders(stores, '.new-');
 	const existing = await openStore(dataDirectory, id);
 	if (existing.ok || existing.error.kind !== 'StoreNotFound') return existing;
+	// Said as `checkStoreUsable` says it.
+	const problem = await storesFolderProblem(dataDirectory);
+	if (problem !== undefined) return err(problem);
 
 	try {
 		await mkdir(stores, { recursive: true, mode: 0o700 });

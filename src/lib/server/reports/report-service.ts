@@ -123,6 +123,7 @@ import {
 	commitsSince,
 	locateRepository,
 	snapshotGitSource,
+	sourceHasChanges,
 	sourceIdentity,
 	suggestSource,
 	type GitSnapshot,
@@ -132,6 +133,7 @@ import {
 	type SuggestedSource
 } from '../sources/git/index.ts';
 import {
+	checkStoreUsable,
 	collectGarbage,
 	deleteSnapshot,
 	describeStoreError,
@@ -523,6 +525,8 @@ export class ReportService {
 	readonly #repository: RepositoryOptions;
 	readonly #diffs = new Map<string, Promise<Result<Diff, ReportError>>>();
 	readonly #checks = new Map<ReportId, Remembered>();
+	/** Stores snapshots were discarded from since they were last collected. */
+	readonly #discarded = new Set<StoreId>();
 	/** Checks under way, by report and revision, so callers at the same time share one. */
 	readonly #checking = new Map<string, Promise<Result<SourceCheck, ReportError>>>();
 	readonly #log: (line: string) => void;
@@ -600,11 +604,12 @@ export class ReportService {
 	}
 
 	/**
-	 * Whether a source can be opened in the repository at `directory`, tried as
-	 * `open` would, without making a report: for the page that says why it could
-	 * not be opened. Says what is wrong as `open` would, such as a branch git does
-	 * not know, or else whether the source has changes to review. The snapshot it
-	 * takes to know is deleted again; the repository is only read.
+	 * Whether a source can be opened in the repository at `directory`, without
+	 * making a report: for the page that says why it could not be opened, which
+	 * may be reloaded any number of times. Says what is wrong as `open` would,
+	 * such as a branch git does not know, or else whether the source has changes
+	 * to review. Cheap: no snapshot is taken, nothing is written to the store, and
+	 * the repository is only read (`sourceHasChanges`).
 	 */
 	async checkSource(
 		directory: AbsolutePath,
@@ -612,18 +617,12 @@ export class ReportService {
 	): Promise<Result<'changes' | 'nothing', ReportError>> {
 		const repo = await locateRepository(directory, this.#repository);
 		if (!repo.ok) return repo;
-		const taken = await snapshotGitSource(
-			this.#dataDirectory,
-			repo.value,
-			spec,
-			this.#ids.snapshotId()
-		);
-		if (!taken.ok) return taken;
-		const { snapshot } = taken.value;
-		const files = await readSnapshotDiff(snapshot);
-		await deleteSnapshot(snapshot.store, snapshot.id);
-		if (!files.ok) return files;
-		return ok(files.value.length === 0 ? 'nothing' : 'changes');
+		const changes = await sourceHasChanges(repo.value, spec);
+		if (!changes.ok) return changes;
+		// Opening it would also need its store: say so if that cannot be made.
+		const usable = await checkStoreUsable(this.#dataDirectory, repo.value.storeId);
+		if (!usable.ok) return usable;
+		return ok(changes.value ? 'changes' : 'nothing');
 	}
 
 	/**
@@ -983,7 +982,44 @@ export class ReportService {
 		return ok(removed);
 	}
 
+	/**
+	 * Tidies the stores now and then (DESIGN 9.1): removes the snapshots nothing
+	 * refers to (`removeUnusedSnapshots`), and collects every store this service
+	 * discarded a snapshot from since the last tidy, such as one a check for
+	 * changes took and did not need, so their objects do not pile up until the
+	 * daemon next starts. The daemon calls it from time to time; it returns the
+	 * stores it collected.
+	 */
+	async tidyStores(): Promise<Result<readonly StoreId[], ReportError>> {
+		const removed = await this.removeUnusedSnapshots();
+		if (!removed.ok) return removed;
+		const collected = new Set(removed.value.map((r) => r.store));
+		// Taken now: a snapshot discarded while this runs is collected next time.
+		const due = [...this.#discarded].filter((id) => !collected.has(id));
+		this.#discarded.clear();
+		for (const [i, id] of due.entries()) {
+			const store = await openStore(this.#dataDirectory, id);
+			const done = store.ok
+				? await collectGarbage(store.value)
+				: store.error.kind === 'StoreNotFound'
+					? ok(undefined)
+					: store;
+			if (!done.ok) {
+				for (const left of due.slice(i)) this.#discarded.add(left);
+				return done;
+			}
+			if (store.ok) collected.add(id);
+		}
+		return ok([...collected]);
+	}
+
 	// --- Inside -------------------------------------------------------------------
+
+	/** Deletes a snapshot no revision will use, noting its store for the next tidy. */
+	async #discard(store: Snapshot['store'], id: SnapshotId): Promise<void> {
+		this.#discarded.add(store.id);
+		await deleteSnapshot(store, id);
+	}
 
 	#logOnce(line: string): void {
 		if (this.#logged.has(line)) return;
@@ -1094,7 +1130,7 @@ export class ReportService {
 		if (!taken.ok) return taken;
 		const { snapshot } = taken.value;
 		const discard = async <T>(result: Result<T, ReportError>): Promise<Result<T, ReportError>> => {
-			await deleteSnapshot(snapshot.store, snapshot.id);
+			await this.#discard(snapshot.store, snapshot.id);
 			return result;
 		};
 		const diff = await this.#diffOf(snapshot);
@@ -1214,7 +1250,7 @@ export class ReportService {
 				const { prepared } = probe.value;
 				const files = await this.#filesChanged(found, prepared);
 				if (!files.ok) {
-					await deleteSnapshot(prepared.taken.snapshot.store, prepared.taken.snapshot.id);
+					await this.#discard(prepared.taken.snapshot.store, prepared.taken.snapshot.id);
 					return files;
 				}
 				return remember({ kind: 'changed', files: files.value }, prepared);
@@ -1241,7 +1277,7 @@ export class ReportService {
 		if (!taken.ok) return taken;
 		const { snapshot } = taken.value;
 		const discard = async <T>(result: Result<T, ReportError>): Promise<Result<T, ReportError>> => {
-			await deleteSnapshot(snapshot.store, snapshot.id);
+			await this.#discard(snapshot.store, snapshot.id);
 			return result;
 		};
 		if (snapshot.base === revision.baseTree && snapshot.head === revision.headTree) {
@@ -1328,7 +1364,7 @@ export class ReportService {
 		const earlier = this.#checks.get(id)?.prepared;
 		this.#checks.set(id, entry);
 		if (earlier !== undefined && earlier.taken.snapshot.id !== entry.prepared?.taken.snapshot.id) {
-			await deleteSnapshot(earlier.taken.snapshot.store, earlier.taken.snapshot.id);
+			await this.#discard(earlier.taken.snapshot.store, earlier.taken.snapshot.id);
 		}
 	}
 
@@ -1337,7 +1373,7 @@ export class ReportService {
 		const prepared = this.#checks.get(id)?.prepared;
 		this.#checks.delete(id);
 		if (prepared !== undefined) {
-			await deleteSnapshot(prepared.taken.snapshot.store, prepared.taken.snapshot.id);
+			await this.#discard(prepared.taken.snapshot.store, prepared.taken.snapshot.id);
 		}
 	}
 
@@ -1371,7 +1407,7 @@ export class ReportService {
 			const { snapshot } = prepared.taken;
 			const written = await this.#writeUpdate(found.value, prepared);
 			if (!written.ok || written.value === 'stale') {
-				await deleteSnapshot(snapshot.store, snapshot.id);
+				await this.#discard(snapshot.store, snapshot.id);
 				if (!written.ok) return written;
 				if (attempt + 1 >= RETRIES) return err({ kind: 'RevisionChangedWhileSaving', report: id });
 				continue;

@@ -16,6 +16,7 @@ export type { LocalRepository, RepositoryOptions } from './local-repository.ts';
 export { locateRepository, storeIdFor } from './local-repository.ts';
 export type { GitSnapshot } from './snapshot-git-source.ts';
 export { snapshotGitSource } from './snapshot-git-source.ts';
+export { sourceHasChanges } from './source-has-changes.ts';
 export { sourceIdentity } from './source-identity.ts';
 export type { SourceCandidate, SourceSuggestion, SuggestedSource } from './suggest-source.ts';
 export { candidateSourceText, suggestSource } from './suggest-source.ts';
