@@ -9,12 +9,22 @@
  *
  * - email addresses that are not on the allow-list;
  * - what looks like a secret: private key blocks, GitHub tokens, common API key
- *   shapes, `password=`-style assignments and bearer tokens;
- * - home directory paths, which carry a username;
- * - the private terms the person has listed, as whole words, in any case.
+ *   shapes, `password=`-style assignments (`MY_API_KEY=…` and `token: …` too),
+ *   bearer and basic credentials in an Authorization header, and a password in a
+ *   URL (`postgres://user:password@host`);
+ * - home directory paths, which carry a username: `/home/<name>`,
+ *   `/var/home/<name>`, `C:\Users\<name>`, `/mnt/c/Users/<name>`, and the same with
+ *   the separators turned into hyphens (`-home-<name>-src`), as some tools name
+ *   directories. `/Users/<name>` counts only as macOS writes it: capitalised, at
+ *   the start of a path, with a name that starts with a letter, so `GET /users/123`
+ *   is not one;
+ * - the private terms the person has listed, as whole words, in any case, where
+ *   `_`, `-` and `.` also end a word, so `someone` is found in `someone_dev`.
  *
- * A finding shows enough to find the text again, and no more: a secret is shown
- * only by its first characters and its length.
+ * It is a helper that catches honest mistakes, not a guarantee, so it prefers
+ * fewer, more certain findings to broad patterns. A finding shows enough to find
+ * the text again, and no more: a secret is shown only by its first characters and
+ * its length.
  */
 
 /** What kind of thing was found. */
@@ -25,6 +35,8 @@ export type FindingKind =
 	| 'ApiKey'
 	| 'PasswordAssignment'
 	| 'BearerToken'
+	| 'BasicCredentials'
+	| 'UrlCredentials'
 	| 'HomeDirectory'
 	| 'PrivateTerm'
 	| 'UnreadableRecord';
@@ -58,6 +70,23 @@ interface Detector {
 	readonly accept?: (found: string, lists: ScanLists) => boolean;
 }
 
+/** A secret value that is at least long and mixed enough to be a generated token. */
+function looksGenerated(value: string): boolean {
+	return value.length >= 16 && /[A-Za-z]/.test(value) && /[0-9]/.test(value);
+}
+
+/**
+ * The start of a key name: not inside a word, though a name may be prefixed, as in
+ * `MY_API_KEY` or `x-api-key`.
+ */
+const KEY_START = String.raw`(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*`;
+
+/** `=` or `:` after a key name, with the quotes JSON, YAML and shells put around them. */
+const ASSIGNED = String.raw`["']?\s*[:=]\s*["']?`;
+
+/** `scheme://user:password@`: the password is group 1. */
+const URL_CREDENTIALS = /\b[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/@:]*:([^\s/@]+)@/g;
+
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 
 /** Words that stand for no real value in `password: none` or `secret: string`. */
@@ -86,8 +115,16 @@ function isReference(value: string): boolean {
 	);
 }
 
-/** Characters a username in a path may have. Excludes `<`, `$`, `{` and `%`, so `/home/<name>` and `/home/$USER` are not flagged. */
-const USERNAME = String.raw`[A-Za-z0-9_][^\s/\\'"\x60<>(){}\[\],;:$%]*`;
+/** Characters a username in a path may have after its first. Excludes `<`, `$`, `{` and `%`, so `/home/<name>` and `/home/$USER` are not flagged. */
+const USERNAME_REST = String.raw`[^\s/\\'"\x60<>(){}\[\],;:$%]*`;
+
+const USERNAME = String.raw`[A-Za-z0-9_]${USERNAME_REST}`;
+
+/** A macOS user name starts with a letter, so `/Users/123` is an id in a URL, not a home. */
+const MAC_USERNAME = String.raw`[A-Za-z]${USERNAME_REST}`;
+
+/** In a hyphenated path the name ends at the next hyphen. */
+const MAC_USERNAME_IN_HYPHENS = String.raw`[A-Za-z][A-Za-z0-9_.]*`;
 
 /** Home directories that belong to no person. */
 const SHARED_HOMES = new Set(['runner', 'shared', 'public', 'default', 'all users']);
@@ -129,10 +166,20 @@ const DETECTORS: readonly Detector[] = [
 	},
 	{
 		kind: 'PasswordAssignment',
-		pattern:
-			/\b(?:password|passwd|pwd|passphrase|secret|client[_-]?secret|api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|private[_-]?key)["']?\s*[:=]\s*["']?([^\s"',;]{4,})/gi,
+		pattern: new RegExp(
+			`${KEY_START}(?:password|passwd|pwd|passphrase|secret|client[_-]?secret|secret[_-]?access[_-]?key|api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|private[_-]?key)${ASSIGNED}([^\\s"',;]{4,})`,
+			'gi'
+		),
 		secret: true,
 		accept: (found) => !isReference(found)
+	},
+	{
+		// A plain `token`, as in `GH_TOKEN=` or `token:`, is a common word, so only a
+		// value that looks generated counts.
+		kind: 'PasswordAssignment',
+		pattern: new RegExp(`${KEY_START}token${ASSIGNED}([^\\s"',;]{4,})`, 'gi'),
+		secret: true,
+		accept: (found) => !isReference(found) && looksGenerated(found)
 	},
 	{
 		kind: 'BearerToken',
@@ -141,15 +188,35 @@ const DETECTORS: readonly Detector[] = [
 		accept: (found) => !isReference(found)
 	},
 	{
+		kind: 'BasicCredentials',
+		pattern: /\bAuthorization["']?\s*[:=]\s*["']?Basic\s+([A-Za-z0-9+/]{8,}={0,2})/gi,
+		secret: true
+	},
+	{
+		kind: 'UrlCredentials',
+		pattern: URL_CREDENTIALS,
+		secret: true,
+		accept: (found) => !isReference(found)
+	},
+	{
+		// Linux, Fedora Atomic's /var/home, and WSL's view of a Windows home. As
+		// Linux and macOS write them: case matters.
 		kind: 'HomeDirectory',
 		pattern: new RegExp(
 			[
-				String.raw`(?<![\w.~-])/home/(${USERNAME})`,
-				String.raw`(?<![\w.~-])/Users/(${USERNAME})`,
-				String.raw`\b[A-Za-z]:[\\/]+Users[\\/]+(${USERNAME})`
+				String.raw`(?<![\w.~/-])(?:/var)?/home/(${USERNAME})`,
+				String.raw`(?<![\w.~/-])(?:/mnt/[a-z])?/Users/(${MAC_USERNAME})`,
+				// A path with its separators turned into hyphens, as some tools name directories.
+				String.raw`(?<![\w.~-])-(?:home|Users)-(${MAC_USERNAME_IN_HYPHENS})`
 			].join('|'),
-			'gi'
+			'g'
 		),
+		secret: false,
+		accept: (found) => !SHARED_HOMES.has(found.toLowerCase())
+	},
+	{
+		kind: 'HomeDirectory',
+		pattern: new RegExp(String.raw`\b[A-Za-z]:[\\/]+Users[\\/]+(${USERNAME})`, 'gi'),
 		secret: false,
 		accept: (found) => !SHARED_HOMES.has(found.toLowerCase())
 	}
@@ -172,7 +239,8 @@ export function parsePrivateTerms(text: string): readonly string[] {
 		.filter((line) => line !== '' && !line.startsWith('#'));
 }
 
-const WORD_CHAR = /[\p{L}\p{N}_]/u;
+/** Letters and digits. `_`, `-` and `.` end a word, as in `someone_dev` or `dev-someone`. */
+const WORD_CHAR = /[\p{L}\p{N}]/u;
 
 function escapeRegex(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
@@ -184,8 +252,8 @@ function escapeRegex(text: string): string {
  */
 function termPattern(term: string): RegExp {
 	const chars = Array.from(term);
-	const before = WORD_CHAR.test(chars[0] ?? '') ? String.raw`(?<![\p{L}\p{N}_])` : '';
-	const after = WORD_CHAR.test(chars.at(-1) ?? '') ? String.raw`(?![\p{L}\p{N}_])` : '';
+	const before = WORD_CHAR.test(chars[0] ?? '') ? String.raw`(?<![\p{L}\p{N}])` : '';
+	const after = WORD_CHAR.test(chars.at(-1) ?? '') ? String.raw`(?![\p{L}\p{N}])` : '';
 	return new RegExp(`${before}${escapeRegex(term)}${after}`, 'giu');
 }
 
@@ -197,8 +265,22 @@ export function scanText(
 	lists: ScanLists
 ): readonly Omit<Finding, 'issue' | 'field'>[] {
 	const found: Omit<Finding, 'issue' | 'field'>[] = [];
+	// `user:password@host` holds what looks like an address; it is reported, masked,
+	// as credentials, and never shown as an email address.
+	const credentials = [...text.matchAll(URL_CREDENTIALS)].map((m) => ({
+		from: m.index,
+		to: m.index + m[0].length
+	}));
+	const inCredentials = (at: number): boolean =>
+		credentials.some(({ from, to }) => at >= from && at < to);
+	// Two detectors can find one value, as `access_token=` and `token=` both do.
+	const reported = new Set<string>();
 	for (const detector of DETECTORS) {
 		for (const match of text.matchAll(detector.pattern)) {
+			if (detector.kind === 'Email' && inCredentials(match.index)) continue;
+			const key = `${detector.kind} ${String(match.index + match[0].length)}`;
+			if (reported.has(key)) continue;
+			reported.add(key);
 			// A group that did not take part in the match is undefined, whatever the type says.
 			const groups: readonly (string | undefined)[] = match.slice(1);
 			const value = groups.find((group) => group !== undefined) ?? match[0];
@@ -283,6 +365,10 @@ export function findingReason(kind: FindingKind): string {
 			return 'what looks like a password or secret being set';
 		case 'BearerToken':
 			return 'what looks like a bearer token';
+		case 'BasicCredentials':
+			return 'what looks like a user name and password in an Authorization header';
+		case 'UrlCredentials':
+			return 'a password in a URL';
 		case 'HomeDirectory':
 			return 'a home directory path, which names a user';
 		case 'PrivateTerm':

@@ -117,13 +117,53 @@ describe('secrets', () => {
 	});
 });
 
+describe('secrets the first version missed', () => {
+	it.each([
+		['an exported token', `export GH_TOKEN=${join('ghx', alnum(37))}`],
+		['a prefixed key name', `MY_API_KEY=${alnum(20)}`],
+		['an AWS secret key', `AWS_SECRET_ACCESS_KEY=${alnum(40)}`],
+		['a token set with a colon', `token: ${alnum(32)}`],
+		['a dashed name', `x-api-key: ${alnum(24)}`]
+	])('flags %s', (_name, text) => {
+		expect(kinds(text)).toEqual(['PasswordAssignment']);
+	});
+
+	it('flags basic credentials in an Authorization header, but not the word', () => {
+		expect(kinds(`Authorization: Basic ${alnum(24)}==`)).toEqual(['BasicCredentials']);
+		expect(kinds('Basic usage: run it. Authorization: Basic $CREDENTIALS')).toEqual([]);
+	});
+
+	it('does not take talk about tokens, or short words after one, for a secret', () => {
+		expect(kinds('token: see the docs, the token: expires, csrf_token: none')).toEqual([]);
+		expect(kinds('token: string, tokens: 12345')).toEqual([]);
+	});
+
+	it.each([
+		['https://user:hunter22@10.0.0.5/repo.git', 'hunter22'],
+		['postgres://admin:S3cretPass@db.internal/app', 'S3cretPass'],
+		['redis://:pw0rd123@cache.example.com:6379', 'pw0rd123']
+	])('flags credentials in %s, always masked, and not as an email address', (text, password) => {
+		const found = scanText(text, LISTS);
+		expect(found.map((f) => f.kind)).toEqual(['UrlCredentials']);
+		expect(found[0]?.shown).not.toContain(password);
+	});
+
+	it('does not take a URL with only a user name for credentials', () => {
+		expect(kinds('ssh://git@github.com/lab273/diff-delver.git')).toEqual([]);
+	});
+});
+
 describe('home directories', () => {
 	it.each([
 		['/home/someone/src/project', '/home/someone'],
 		['/Users/Some.One/Library', '/Users/Some.One'],
 		['C:\\Users\\someone\\AppData', 'C:\\Users\\someone'],
 		['c:/users/someone/AppData', 'c:/users/someone'],
-		['(at /home/someone)', '/home/someone']
+		['(at /home/someone)', '/home/someone'],
+		['/var/home/someone/src', '/var/home/someone'],
+		['/mnt/c/Users/someone/Documents', '/mnt/c/Users/someone'],
+		['~/.claude/projects/-home-someone-src-app', '-home-someone'],
+		['projects/-Users-someone-src-app', '-Users-someone']
 	])('flags %s', (text, shown) => {
 		expect(scanText(text, LISTS)).toEqual([{ kind: 'HomeDirectory', shown }]);
 	});
@@ -132,6 +172,12 @@ describe('home directories', () => {
 		expect(kinds('/home/runner/work/diff-delver and /Users/Shared/x')).toEqual([]);
 		expect(kinds('/home/<name> and /home/$USER and ~/src and /homes/x')).toEqual([]);
 		expect(kinds('src/home/page.svelte and docs/Users/guide.md')).toEqual([]);
+	});
+
+	it('takes /Users/<name> for a macOS home only as written there: capitalised, at the start of a path, a name that starts with a letter', () => {
+		expect(kinds('GET /users/123 and POST /users/someone')).toEqual([]);
+		expect(kinds('GET /Users/123 and https://api.example.com/Users/someone')).toEqual([]);
+		expect(kinds('nav-home-link and --home-dir and my-users-list')).toEqual([]);
 	});
 });
 
@@ -153,6 +199,14 @@ describe('private terms', () => {
 		expect(kinds('for Acme Corp', lists)).toEqual(['PrivateTerm']);
 		expect(kinds('ZOË wrote it', lists)).toEqual(['PrivateTerm']);
 		expect(kinds('canadas, adapt, acme corporation, Zoëy', lists)).toEqual([]);
+	});
+
+	it('takes _, - and . as the edge of a word, as names in code and paths are written', () => {
+		const lists = { ...LISTS, privateTerms: ['someone'] };
+		expect(kinds('someone_dev', lists)).toEqual(['PrivateTerm']);
+		expect(kinds('dev-someone.example', lists)).toEqual(['PrivateTerm']);
+		expect(kinds('MY_SOMEONE_VAR', lists)).toEqual(['PrivateTerm']);
+		expect(kinds('someones', lists)).toEqual([]);
 	});
 
 	it('treats a term as text, not as a pattern', () => {
