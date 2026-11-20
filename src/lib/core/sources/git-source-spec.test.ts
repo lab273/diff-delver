@@ -97,5 +97,8 @@ describe('describeGitSource', () => {
 		expect(describeGitSourceWithSize(parsed('staged'), fileCountOf(0))).toBe(
 			'Staged changes (no files)'
 		);
+		expect(describeGitSourceWithSize(parsed('main...feature-x'), undefined)).toBe(
+			'feature-x compared with main'
+		);
 	});
 });

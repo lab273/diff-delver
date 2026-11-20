@@ -8,8 +8,9 @@
  * repository, a submodule or another clone each have their own. The store id is
  * a readable name from the repository's folder and a hash of that identity.
  *
- * Every git command in the reviewed repository runs with the reviewer's config
- * (`runGit`'s `config: 'reviewer'`), and none of them writes to it.
+ * Every git command in the reviewed repository runs through `gitIn`, with the
+ * reviewer's config (`runGit`'s `config: 'reviewer'`), which also stops git
+ * fetching a missing object into a partial clone; none of them writes to it.
  */
 import { createHash } from 'node:crypto';
 import { readdir, realpath } from 'node:fs/promises';
@@ -58,7 +59,7 @@ function absolute(path: string): AbsolutePath {
 	return parsed.value;
 }
 
-/** Runs git in the reviewed repository with the reviewer's config. */
+/** Runs git in the reviewed repository with the reviewer's config, never fetching. */
 export function gitIn(
 	repo: Pick<LocalRepository, 'gitEnv'>,
 	cwd: AbsolutePath,

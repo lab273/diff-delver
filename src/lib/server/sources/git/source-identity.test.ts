@@ -7,6 +7,7 @@ import { listingsAround } from '../../../../../tests/support/directory-listing.t
 import { emptyRepo, tempDirectory } from '../../../../../tests/support/fixture-repos.ts';
 import { absolutePath, GitRepo } from '../../../../../tests/support/git-repo.ts';
 import { located, value } from '../../../../../tests/support/git-source-helpers.ts';
+import { partialClone, type CloneFilter } from '../../../../../tests/support/partial-clone.ts';
 import { reviewer, type Reviewer } from '../../../../../tests/support/reviewer-git.ts';
 import { snapshotGitSource, sourceIdentity } from './index.ts';
 
@@ -133,4 +134,16 @@ describe('sourceIdentity', () => {
 		await identityOf(sparse, 'working-tree', who);
 		await identityOf(sparse, 'staged', who);
 	});
+
+	it.each<CloneFilter>(['blob:none', 'tree:0'])(
+		'fetches nothing into a partial clone (%s), for any source',
+		async (filter) => {
+			const { clone } = await partialClone(filter);
+			const who = await reviewer();
+			await clone.write('new.txt', 'new\n');
+			for (const source of ['HEAD', 'origin/main...feat', 'staged', 'working-tree']) {
+				await identityOf(clone, source, who);
+			}
+		}
+	);
 });

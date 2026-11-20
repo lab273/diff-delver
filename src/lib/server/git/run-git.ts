@@ -14,7 +14,10 @@
  * global ignore rules, line-ending and filter settings, and git refuses a
  * repository owned by another account unless their `safe.directory` allows it.
  * Inherited `GIT_*` variables are still dropped, so nothing in the environment
- * can point git at another repository, index or object store.
+ * can point git at another repository, index or object store. And such a
+ * command can never fetch: in a partial clone git would download a missing
+ * object into the repository, so `GIT_NO_LAZY_FETCH` is set last, where no
+ * caller's environment can undo it, and a missing object is `MissingObject`.
  */
 import { spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
@@ -35,7 +38,8 @@ export interface GitCommand {
 	readonly env?: Readonly<Record<string, string>>;
 	/**
 	 * Which git config applies besides the repository's own: none (`isolated`, the
-	 * default), or the reviewer's system and global config (`reviewer`).
+	 * default), or the reviewer's system and global config (`reviewer`), for
+	 * commands in the reviewed repository, which also never fetch a missing object.
 	 */
 	readonly config?: 'isolated' | 'reviewer';
 }
@@ -126,7 +130,8 @@ function gitEnv(command: GitCommand): NodeJS.ProcessEnv {
 		GIT_OPTIONAL_LOCKS: '0',
 		LC_ALL: 'C',
 		LANGUAGE: 'C',
-		...command.env
+		...command.env,
+		...(command.config === 'reviewer' ? { GIT_NO_LAZY_FETCH: '1' } : {})
 	};
 }
 

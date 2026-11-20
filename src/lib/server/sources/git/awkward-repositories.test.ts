@@ -21,6 +21,7 @@ import {
 	type Reviewer
 } from '../../../../../tests/support/reviewer-git.ts';
 import { listDirectory } from '../../../../../tests/support/directory-listing.ts';
+import { partialClone, type CloneFilter } from '../../../../../tests/support/partial-clone.ts';
 import {
 	listSnapshotPaths,
 	listSnapshots,
@@ -295,11 +296,32 @@ describe('awkward repositories', () => {
 		const who = await reviewer();
 		const commit = await take(clone, 'HEAD', who);
 		expect(commit.ok ? 'taken' : commit.error.kind).toBe('PartialCloneMissing');
-		if (!commit.ok) expect(describeGitSourceError(commit.error)).toContain('git backfill');
+		if (!commit.ok) {
+			expect(describeGitSourceError(commit.error)).toBe(
+				`${value(await locateRepository(clone, { gitEnv: who.gitEnv })).commonDir} is a partial clone: some of the files or folders this needs were never downloaded, and diff delver does not download them, so that nothing is written to your repository. Review its uncommitted changes instead, or make a full clone (git clone without --filter) and open the same source there.`
+			);
+		}
 		await GitRepo.open(clone).write('b.txt', 'new file\n');
 		const workingTree = value(await take(clone, 'working-tree', who));
 		expect(await changesOf(workingTree.snapshot)).toEqual({ 'b.txt': 'added' });
 	});
+
+	it.each<CloneFilter>(['blob:none', 'tree:0'])(
+		'fetches nothing into a partial clone (%s): what it lacks is named, what it has is taken',
+		async (filter) => {
+			const { clone } = await partialClone(filter);
+			const who = await reviewer();
+			for (const source of ['HEAD', 'origin/main...feat']) {
+				const taken = await take(clone.dir, source, who);
+				expect(taken.ok ? 'taken' : taken.error.kind).toBe('PartialCloneMissing');
+			}
+			await clone.write('new.txt', 'new\n');
+			const workingTree = value(await take(clone.dir, 'working-tree', who));
+			expect(await changesOf(workingTree.snapshot)).toEqual({ 'new.txt': 'added' });
+			const staged = value(await take(clone.dir, 'staged', who));
+			expect(await changesOf(staged.snapshot)).toEqual({});
+		}
+	);
 
 	it('takes several snapshots of one repository at once, all correct', async () => {
 		const repo = await emptyRepo();

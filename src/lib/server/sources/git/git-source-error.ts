@@ -45,7 +45,7 @@ export interface NoCommonHistory {
 	readonly to: Revision;
 }
 
-/** A partial clone lacks file contents the snapshot needs, and diff delver does not download them. */
+/** A partial clone lacks files or folders the snapshot needs, and diff delver does not download them. */
 export interface PartialCloneMissing {
 	readonly kind: 'PartialCloneMissing';
 	readonly repository: AbsolutePath;
@@ -85,7 +85,7 @@ export function describeGitSourceError(error: GitSourceError): ReviewerMessage {
 			);
 		case 'PartialCloneMissing':
 			return reviewerMessage(
-				`${error.repository} is a partial clone and some file contents were never downloaded, and diff delver does not download them for a local repository. Download them with "git backfill" (or "git fetch --refetch" without a filter), then try again.`
+				`${error.repository} is a partial clone: some of the files or folders this needs were never downloaded, and diff delver does not download them, so that nothing is written to your repository. Review its uncommitted changes instead, or make a full clone (git clone without --filter) and open the same source there.`
 			);
 		case 'GitNotFound':
 		case 'NotARepository':

@@ -86,7 +86,7 @@ export async function workingTreeStatus(
 				'--ignore-submodules=dirty',
 				'--renames'
 			],
-			{ env: { GIT_NO_LAZY_FETCH: '1', ...(index === undefined ? {} : { GIT_INDEX_FILE: index }) } }
+			{ env: index === undefined ? {} : { GIT_INDEX_FILE: index } }
 		);
 	const status =
 		(await sharedIndexFiles(repo)).length === 0

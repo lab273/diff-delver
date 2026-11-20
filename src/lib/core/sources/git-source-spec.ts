@@ -138,9 +138,16 @@ export function describeFileCount(files: FileCount): string {
 	return files === 1 ? '1 file' : `${String(files)} files`;
 }
 
-/** The source and its size, for a chooser: "Uncommitted changes (12 files)". */
-export function describeGitSourceWithSize(spec: GitSourceSpec, files: FileCount): ReviewerMessage {
-	return reviewerMessage(`${describeGitSource(spec)} (${describeFileCount(files)})`);
+/**
+ * The source and its size, for a chooser: "Uncommitted changes (12 files)". With
+ * no size, when it could not be counted, the source alone.
+ */
+export function describeGitSourceWithSize(
+	spec: GitSourceSpec,
+	files: FileCount | undefined
+): ReviewerMessage {
+	const title = describeGitSource(spec);
+	return files === undefined ? title : reviewerMessage(`${title} (${describeFileCount(files)})`);
 }
 
 /** What happened and what to do next, for the reviewer. */

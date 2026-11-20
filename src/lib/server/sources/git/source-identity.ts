@@ -55,7 +55,7 @@ async function indexEntries(repo: LocalRepository): Promise<Result<Buffer, GitSo
 			repo.workTree ?? repo.gitDir,
 			['-c', 'core.fsmonitor=false', 'ls-files', '--stage', '--sparse', '-z'],
 			{
-				env: { GIT_NO_LAZY_FETCH: '1', ...(index === undefined ? {} : { GIT_INDEX_FILE: index }) }
+				env: index === undefined ? {} : { GIT_INDEX_FILE: index }
 			}
 		);
 	const listed =

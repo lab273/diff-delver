@@ -5,6 +5,7 @@ import { listingsAround } from '../../../../../tests/support/directory-listing.t
 import { emptyRepo, tempDirectory } from '../../../../../tests/support/fixture-repos.ts';
 import { absolutePath, GitRepo } from '../../../../../tests/support/git-repo.ts';
 import { value } from '../../../../../tests/support/git-source-helpers.ts';
+import { partialClone } from '../../../../../tests/support/partial-clone.ts';
 import { reviewer, type Reviewer } from '../../../../../tests/support/reviewer-git.ts';
 import {
 	candidateSourceText,
@@ -172,6 +173,25 @@ describe('suggestSource', () => {
 		await origin.git('clone', '--quiet', '--bare', origin.dir, bare);
 		expect(shown(await suggestion(bare))).toEqual({
 			one: ['feature-x compared with main (2 files)', 'refs/heads/main...refs/heads/feature-x'],
+			others: []
+		});
+	});
+
+	it('fetches nothing into a blobless clone, counting a rename it cannot compare as two files', async () => {
+		const { clone } = await partialClone('blob:none');
+		expect(shown(await suggestion(clone.dir))).toEqual({
+			one: [
+				'feat compared with origin/main (2 files)',
+				'refs/remotes/origin/main...refs/heads/feat'
+			],
+			others: []
+		});
+	});
+
+	it('fetches nothing into a treeless clone, and leaves out the size it cannot count', async () => {
+		const { clone } = await partialClone('tree:0');
+		expect(shown(await suggestion(clone.dir))).toEqual({
+			one: ['feat compared with origin/main', 'refs/remotes/origin/main...refs/heads/feat'],
 			others: []
 		});
 	});

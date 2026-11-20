@@ -60,17 +60,21 @@ export async function resolveCommit(
 	});
 }
 
-/** The tree of a commit. */
+/**
+ * The tree of a commit, as the commit names it. Read from the commit itself, so
+ * a partial clone that never downloaded the tree still gives its id, and the
+ * copy into the store is what finds it missing.
+ */
 export async function treeOf(
 	repo: LocalRepository,
 	commit: CommitId
 ): Promise<Result<TreeId, GitSourceError>> {
-	const tree = await gitIn(repo, gitCwd(repo), ['rev-parse', '--verify', `${commit}^{tree}`]);
-	if (!tree.ok) return tree;
-	const id = parseTreeId(firstLine(tree.value.stdout));
+	const read = await gitIn(repo, gitCwd(repo), ['cat-file', 'commit', commit]);
+	if (!read.ok) return read;
+	const id = parseTreeId(/^tree ([0-9a-f]+)$/.exec(firstLine(read.value.stdout))?.[1] ?? '');
 	return id.ok
 		? ok(id.value)
-		: err({ kind: 'MissingObject', object: commit, stderr: tree.value.stderr });
+		: err({ kind: 'MissingObject', object: commit, stderr: read.value.stderr });
 }
 
 /** The commits a shallow clone has without their parents. */

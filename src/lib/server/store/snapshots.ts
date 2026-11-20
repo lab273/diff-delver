@@ -152,7 +152,17 @@ export async function copyTrees(
 		args: ['rev-list', '--objects', '--no-object-names', '--end-of-options', ...trees],
 		env: copyFrom === undefined ? { GIT_NO_LAZY_FETCH: '1' } : borrowObjects(copyFrom)
 	});
-	if (!listed.ok) return listed;
+	if (!listed.ok) {
+		// The trees are named by id, so one git calls a bad object is missing: a
+		// partial clone that never downloaded it, or a damaged repository.
+		return listed.error.kind === 'BadRevision'
+			? err({
+					kind: 'MissingObject',
+					object: /bad object ([0-9a-f]+)/.exec(listed.error.stderr)?.[1],
+					stderr: listed.error.stderr
+				})
+			: listed;
+	}
 	if (copyFrom === undefined) return ok(objectCountOf(0));
 	const ids = listed.value.stdout
 		.toString('utf8')

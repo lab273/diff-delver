@@ -45,8 +45,11 @@ export interface SourceCandidate {
 	readonly spec: GitSourceSpec;
 	/** In plain words, with its size: "Uncommitted changes (12 files)". */
 	readonly description: ReviewerMessage;
-	/** How many files it changes, as a size hint. */
-	readonly files: FileCount;
+	/**
+	 * How many files it changes, as a size hint. Absent when it could not be
+	 * counted without downloading: a partial clone that lacks the trees.
+	 */
+	readonly files: FileCount | undefined;
 }
 
 export type SourceSuggestion =
@@ -76,7 +79,7 @@ function revision(text: string): Revision {
 	return parsed.value;
 }
 
-function candidate(spec: GitSourceSpec, files: FileCount): SourceCandidate {
+function candidate(spec: GitSourceSpec, files: FileCount | undefined): SourceCandidate {
 	return { spec, files, description: describeGitSourceWithSize(spec, files) };
 }
 
@@ -127,26 +130,38 @@ async function mainBranches(
 	return ok(found);
 }
 
-/** How many files differ between two commits, renames counted once. */
+/**
+ * How many files differ between two commits, renames counted once. Rename
+ * detection reads file contents, so in a partial clone that lacks them the
+ * files are counted without it, a rename as two; one that lacks the trees as
+ * well cannot be counted, which is undefined. git never fetches here.
+ */
 async function filesChanged(
 	repo: LocalRepository,
 	base: CommitId | undefined,
 	head: CommitId
-): Promise<Result<FileCount, GitSourceError>> {
-	const args =
-		base === undefined
-			? ['diff-tree', '-r', '-z', '--name-only', '--root', '--no-commit-id', head]
-			: ['diff-tree', '-r', '-z', '--name-only', '-M', base, head];
-	const listed = await gitIn(repo, gitCwd(repo), args);
-	if (!listed.ok) return listed;
-	return ok(
-		fileCountOf(
-			listed.value.stdout
-				.toString('latin1')
-				.split('\0')
-				.filter((n) => n !== '').length
-		)
-	);
+): Promise<Result<FileCount | undefined, GitSourceError>> {
+	const ends = base === undefined ? ['--root', '--no-commit-id', head] : [base, head];
+	for (const renames of [['-M'], ['--no-renames']]) {
+		const listed = await gitIn(repo, gitCwd(repo), [
+			'diff-tree',
+			'-r',
+			'-z',
+			'--name-only',
+			...renames,
+			...ends
+		]);
+		if (!listed.ok) {
+			if (listed.error.kind === 'MissingObject') continue;
+			return listed;
+		}
+		const names = listed.value.stdout
+			.toString('latin1')
+			.split('\0')
+			.filter((n) => n !== '');
+		return ok(fileCountOf(names.length));
+	}
+	return ok(undefined);
 }
 
 /** The merge base of two commits, or undefined when they share no history (or it was not downloaded). */
