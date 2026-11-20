@@ -7,7 +7,8 @@
  *   and a new one is started, so a person who updated diff delver is never left
  *   talking to the old one. Its open pages stop working, and the command says so;
  * - a stale lockfile (its process is gone, or it does not answer) or none: a
- *   new daemon is started, which replaces the stale lockfile.
+ *   new daemon is started, which replaces the stale lockfile. A process a stale
+ *   lockfile names is never signalled: it may be any program by now.
  *
  * A new daemon is `diff-delver serve` run in the background, detached from the
  * terminal, writing to `daemon.log` in the data folder. It says over an IPC
@@ -24,7 +25,7 @@ import { err, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { connectionOf, type DaemonConnection } from './daemon.ts';
 import { readLockfile, removeLockfileIf, type Lock } from './lockfile.ts';
-import { clientFor, probeLock, processExists } from './probe.ts';
+import { clientFor, probeLock } from './probe.ts';
 
 export const LOG_NAME = 'daemon.log';
 
@@ -77,7 +78,13 @@ async function lockReleased(
 	}
 }
 
-/** Asks the daemon of `lock` to stop and waits for it to; ends its process if it will not. */
+/**
+ * Asks the daemon of `lock` to stop and waits for it to; ends its process if it
+ * will not. The process is signalled only while a daemon answers at the
+ * lockfile's port with its token and process id: a process the lockfile names
+ * that does not answer may be any program that has since been given that id,
+ * and is never touched. When nothing answers, the lockfile is stale and goes.
+ */
 export async function stopDaemonOf(
 	dataDirectory: AbsolutePath,
 	lock: Lock,
@@ -85,15 +92,15 @@ export async function stopDaemonOf(
 ): Promise<boolean> {
 	await clientFor(lock).stopDaemon();
 	if (await lockReleased(dataDirectory, text, STOP_WITHIN_MS)) return true;
-	if (processExists(lock.pid)) {
+	if ((await probeLock(lock)).kind === 'answering') {
 		try {
 			process.kill(lock.pid, 'SIGTERM');
 		} catch {
 			// Gone meanwhile.
 		}
+		if (await lockReleased(dataDirectory, text, STOP_WITHIN_MS)) return true;
+		if ((await probeLock(lock)).kind === 'answering') return false;
 	}
-	if (await lockReleased(dataDirectory, text, STOP_WITHIN_MS)) return true;
-	if (processExists(lock.pid)) return false;
 	await removeLockfileIf(dataDirectory, text);
 	return true;
 }
@@ -198,15 +205,19 @@ export async function ensureDaemon(
 	});
 }
 
-/** What `diff-delver stop` did. */
-export type StopOutcome = 'stopped' | 'not-running' | 'would-not-stop';
+/**
+ * What `diff-delver stop` did: stopped a daemon; found none; found a stale
+ * lockfile, which it removed without signalling anything; or found a daemon
+ * that would not stop.
+ */
+export type StopOutcome = 'stopped' | 'not-running' | 'stale' | 'would-not-stop';
 
 export async function stopDaemon(dataDirectory: AbsolutePath): Promise<StopOutcome> {
 	const content = await readLockfile(dataDirectory);
 	if (content.kind !== 'lock') return 'not-running';
-	if (!processExists(content.lock.pid)) {
+	if ((await probeLock(content.lock)).kind === 'gone') {
 		await removeLockfileIf(dataDirectory, content.text);
-		return 'not-running';
+		return 'stale';
 	}
 	return (await stopDaemonOf(dataDirectory, content.lock, content.text))
 		? 'stopped'

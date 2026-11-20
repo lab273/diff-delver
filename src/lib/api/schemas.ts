@@ -14,6 +14,7 @@ import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { parseCodeVersion } from '#lib/core/code-version.tiny.ts';
 import { parseFileCount } from '#lib/core/file-count.tiny.ts';
 import { parseLineCount } from '#lib/core/line-count.tiny.ts';
+import { parseProcessId } from '#lib/core/process-id.tiny.ts';
 import { parseEscapedPath } from '#lib/core/path-bytes.ts';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import { ok, err, type Result } from '#lib/core/result.ts';
@@ -235,8 +236,11 @@ export const DeletedSchema = z.object({
 });
 export type DeletedResponse = z.output<typeof DeletedSchema>;
 
-/** GET /api/daemon: which build the daemon runs, for the command. */
-export const DaemonInfoSchema = z.object({ version: parsed(z.string(), parseCodeVersion) });
+/** GET /api/daemon: which build the daemon runs, and which process it is, so the command can tell it is the one its lockfile names. */
+export const DaemonInfoSchema = z.object({
+	version: parsed(z.string(), parseCodeVersion),
+	pid: parsed(z.number(), parseProcessId)
+});
 export type DaemonInfo = z.output<typeof DaemonInfoSchema>;
 
 /** POST /api/daemon/stop. */

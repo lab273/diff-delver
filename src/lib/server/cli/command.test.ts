@@ -4,7 +4,8 @@
  * data folder and a git setup of the test's own. The daemons it starts run in
  * the background and are stopped when each test finishes.
  */
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, onTestFinished } from 'vitest';
@@ -12,6 +13,7 @@ import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { HELP_TEXT } from '#lib/core/cli/command-line.ts';
 import { tokenCookieName } from '#lib/core/daemon/request-gate.ts';
 import { parseDaemonToken } from '#lib/core/daemon-token.tiny.ts';
+import { parseProcessId } from '#lib/core/process-id.tiny.ts';
 import { BUILT_COMMAND } from '../../../../tests/support/build.ts';
 import { clientOf, rawRequest, testDaemon, version } from '../../../../tests/support/daemons.ts';
 import { listingsAround } from '../../../../tests/support/directory-listing.ts';
@@ -24,6 +26,7 @@ import {
 import { value } from '../../../../tests/support/git-source-helpers.ts';
 import { reviewer, type Reviewer } from '../../../../tests/support/reviewer-git.ts';
 import { readLockfile } from '../daemon/lockfile.ts';
+import { processExists } from '../daemon/probe.ts';
 
 const edited = defineFixture('command-edited', async (repo) => {
 	await repo.write('src/a.ts', 'export const a = 1;\n');
@@ -208,6 +211,44 @@ describe('the diff-delver command', () => {
 		expect(await readLockfile(data)).toEqual({ kind: 'none' });
 		const again = await run(['stop', '--data-directory', data], data, who);
 		expect(again.stdout).toBe('diff delver is not running.\n');
+	});
+
+	it('never signals a process a stale lockfile names, when no daemon answers for it', async () => {
+		const { who, data } = await setUp();
+		// Any program, given the id a daemon that was killed once had.
+		const other = spawn('sleep', ['60'], { stdio: 'ignore' });
+		onTestFinished(() => {
+			other.kill();
+		});
+		const pid = await new Promise<number>((resolve, reject) => {
+			other.once('spawn', () => {
+				if (other.pid === undefined) reject(new Error('no pid'));
+				else resolve(other.pid);
+			});
+			other.once('error', reject);
+		});
+		// A port nothing listens on any more.
+		const closed = createServer();
+		const port = await new Promise<number>((resolve) => {
+			closed.listen(0, '127.0.0.1', () => {
+				const address = closed.address();
+				resolve(typeof address === 'object' && address !== null ? address.port : 0);
+			});
+		});
+		await new Promise((resolve) => closed.close(resolve));
+		await writeFile(
+			join(data, 'daemon.lock'),
+			JSON.stringify({ port, pid, token: 'a'.repeat(64), version: 'gone', startedAt: 1 })
+		);
+
+		const stopped = await run(['stop', '--data-directory', data], data, who);
+		expect(stopped.code).toBe(0);
+		expect(stopped.stdout).toMatch(/^diff delver was not running\./);
+		expect(stopped.stdout).toContain('nothing else was touched');
+		expect(await readLockfile(data)).toEqual({ kind: 'none' });
+		expect(processExists(value(parseProcessId(pid)))).toBe(true);
+		expect(other.exitCode).toBeNull();
+		expect(other.signalCode).toBeNull();
 	});
 
 	it('replaces a running daemon of another version, and says so', async () => {

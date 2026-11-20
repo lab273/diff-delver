@@ -163,6 +163,11 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 				case 'not-running':
 					terminal.print('diff delver is not running.');
 					return 0;
+				case 'stale':
+					terminal.print(
+						'diff delver was not running. It had left behind a note saying it was, from a run that ended without tidying up; the note is removed and nothing else was touched.'
+					);
+					return 0;
 				case 'would-not-stop':
 					terminal.printError(
 						'diff delver did not stop when asked. End its process, which daemon.lock in its data folder names, then try again.'

@@ -1,7 +1,9 @@
 /**
- * Whether the daemon a lockfile names is there: its process exists and it
- * answers at its port with its token. A lockfile whose daemon is not there is
- * stale, left by a daemon that crashed or was killed, and can be replaced.
+ * Whether the daemon a lockfile names is there: its process exists, and a
+ * daemon answers at its port, with its token, saying it is that process. A
+ * lockfile whose daemon is not there is stale, left by a daemon that crashed or
+ * was killed, and can be replaced; the process it names may by now be any other
+ * program, so only a daemon that answers is ever sent a signal.
  */
 import { ApiClient } from '#lib/api/client.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
@@ -38,5 +40,7 @@ export function clientFor(
 export async function probeLock(lock: Lock): Promise<Probe> {
 	if (!processExists(lock.pid)) return { kind: 'gone' };
 	const info = await clientFor(lock).daemonInfo();
-	return info.ok ? { kind: 'answering', version: info.value.version } : { kind: 'gone' };
+	return info.ok && info.value.pid === lock.pid
+		? { kind: 'answering', version: info.value.version }
+		: { kind: 'gone' };
 }

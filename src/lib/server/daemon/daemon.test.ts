@@ -89,7 +89,7 @@ describe('the daemon', () => {
 			expect(gone.error).toMatchObject({ kind: 'refused', status: 404, reason: 'ReportNotFound' });
 			expect(describeApiError(gone.error)).toMatch(/This diff is not in diff delver any more/);
 		}
-		expect(value(await client.daemonInfo())).toEqual({ version: 'test' });
+		expect(value(await client.daemonInfo())).toEqual({ version: 'test', pid: process.pid });
 	});
 
 	it('says why in plain words when a folder is not a repository, and when there is nothing to review', async () => {
