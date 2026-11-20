@@ -41,7 +41,14 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { expect, test as base, type Locator, type Page, type TestInfo } from '@playwright/test';
+import {
+	expect,
+	test as base,
+	type JSHandle,
+	type Locator,
+	type Page,
+	type TestInfo
+} from '@playwright/test';
 import {
 	journeySlug,
 	SCREENSHOT_ANNOTATION,
@@ -168,6 +175,16 @@ export interface Journey {
 	 * these files in it, as a person does in the system's dialog.
 	 */
 	chooseFiles(target: Target, files: readonly string[], key?: string): Promise<void>;
+}
+
+/**
+ * An element's role and accessible name, as a screen reader announces it:
+ * `link "Start reviewing"`. The first line of its ARIA snapshot, without the
+ * colon that introduces its children (a link's address, a list's items).
+ */
+async function roleAndName(locator: Locator): Promise<string> {
+	const first = (await locator.ariaSnapshot()).split('\n')[0] ?? '';
+	return first.replace(/^- /, '').replace(/:$/, '');
 }
 
 /** Waits until the bundled fonts are loaded and the page has drawn twice since. */
@@ -589,12 +606,22 @@ export async function startJourney(
 			});
 			const order: string[] = [];
 			const focused = page.locator(':focus');
-			for (let n = 0; n < MAX_TABS; n += 1) {
-				await page.keyboard.press('Tab');
-				if ((await focused.count()) === 0) break;
-				const name = (await focused.ariaSnapshot()).replace(/^- /, '').split('\n')[0] ?? '';
-				if (name === order[0]) break;
-				order.push(name);
+			// Tab has come round again when the first element it reached has focus again:
+			// the same element, not one with the same name.
+			let first: JSHandle | undefined;
+			try {
+				for (let n = 0; n < MAX_TABS; n += 1) {
+					await page.keyboard.press('Tab');
+					if ((await focused.count()) === 0) break;
+					if (first === undefined) {
+						first = await page.evaluateHandle(() => document.activeElement);
+					} else if (await first.evaluate((element) => element === document.activeElement)) {
+						break;
+					}
+					order.push(await roleAndName(focused));
+				}
+			} finally {
+				await first?.dispose();
 			}
 			return order;
 		},

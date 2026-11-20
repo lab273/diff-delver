@@ -83,6 +83,20 @@ test.describe('the journey helper acts with the keyboard', () => {
 		await journey.expectVisible(journey.byRole('button', { name: 'Pressed' }));
 		await journey.step('Filled in');
 	});
+
+	test('lists the whole tab order, even when two controls share a name', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>Links</h1>
+<a href="#a">Help</a> <a href="#b">Other</a> <a href="#c">Help</a> <a href="#d">Last</a>`)
+		);
+		expect(await journey.tabOrder()).toEqual([
+			'link "Help"',
+			'link "Other"',
+			'link "Help"',
+			'link "Last"'
+		]);
+		await journey.step('Links');
+	});
 });
 
 // Lint keeps a journey to the keyboard (scripts/eslint-journey-rules.ts); the
