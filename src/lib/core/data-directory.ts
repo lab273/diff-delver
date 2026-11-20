@@ -15,9 +15,22 @@ import { parseAbsolutePath, type AbsolutePath } from './absolute-path.tiny.ts';
 import { err, ok, type Result } from './result.ts';
 import { reviewerMessage, type ReviewerMessage } from './reviewer-message.tiny.ts';
 
+/** An operating system, as Node's `process.platform` names it. */
+export type Platform =
+	| 'aix'
+	| 'android'
+	| 'cygwin'
+	| 'darwin'
+	| 'freebsd'
+	| 'haiku'
+	| 'linux'
+	| 'netbsd'
+	| 'openbsd'
+	| 'sunos'
+	| 'win32';
+
 export interface PlatformEnvironment {
-	/** As Node's `process.platform` names it: `linux`, `darwin`, `win32`, ... */
-	readonly platform: string;
+	readonly platform: Platform;
 	/** The home directory, if one is known. */
 	readonly home: string | undefined;
 	/** Environment variables. */
@@ -27,8 +40,8 @@ export interface PlatformEnvironment {
 /** No default could be worked out: the variable or home directory it needs is missing. */
 export interface NoDataDirectory {
 	readonly kind: 'NoDataDirectory';
-	/** What was missing, as the reviewer would set it: `HOME`, `LOCALAPPDATA`. */
-	readonly missing: string;
+	/** What was missing, as the reviewer would set it. */
+	readonly missing: 'HOME' | 'LOCALAPPDATA';
 }
 
 export const APP_FOLDER = 'diff-delver';
@@ -64,7 +77,15 @@ export function defaultDataDirectory(
 			return home === undefined
 				? err({ kind: 'NoDataDirectory', missing: 'HOME' })
 				: ok(under(home, '/', 'Library', 'Application Support', APP_FOLDER));
-		default: {
+		case 'aix':
+		case 'android':
+		case 'cygwin':
+		case 'freebsd':
+		case 'haiku':
+		case 'linux':
+		case 'netbsd':
+		case 'openbsd':
+		case 'sunos': {
 			const xdg = absolute(env.variables['XDG_DATA_HOME']);
 			if (xdg !== undefined) return ok(under(xdg, '/', APP_FOLDER));
 			return home === undefined

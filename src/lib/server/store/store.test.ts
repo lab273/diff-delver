@@ -6,6 +6,7 @@ import { parseLineNumber, type LineNumber } from '#lib/core/line-number.tiny.ts'
 import type { ObjectFormat } from '#lib/core/object-format.ts';
 import { escapedRepoPath, repoPathFromBytes } from '#lib/core/path-bytes.ts';
 import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
+import { parseRepositoryName, type RepositoryName } from '#lib/core/repository-name.tiny.ts';
 import { ok } from '#lib/core/result.ts';
 import { parseSnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import { parseStoreId, type StoreId } from '#lib/core/store-id.tiny.ts';
@@ -61,6 +62,12 @@ function path(text: string): RepoPath {
 	return parsed.value;
 }
 
+function repositoryName(text: string): RepositoryName {
+	const parsed = parseRepositoryName(text);
+	if (!parsed.ok) throw new Error('bad repository name');
+	return parsed.value;
+}
+
 function line(n: number): LineNumber {
 	const parsed = parseLineNumber(n);
 	if (!parsed.ok) throw new Error('bad line');
@@ -79,7 +86,9 @@ async function objectsOf(repo: GitRepo): Promise<AbsolutePath> {
 }
 
 async function store(format: ObjectFormat = 'sha1', id = storeId()): Promise<Store> {
-	return value(await ensureStore(await tempDirectory(), id, format, '/somewhere/repo'));
+	return value(
+		await ensureStore(await tempDirectory(), id, format, repositoryName('/somewhere/repo'))
+	);
 }
 
 /** A snapshot of two trees of a repository, copied from its object directory. */
@@ -364,7 +373,7 @@ describe('the snapshot store', () => {
 		}
 		await utimes(join(stores, '.new-old'), twoHoursAgo, twoHoursAgo);
 		await utimes(join(stores, 'kept-old.git'), twoHoursAgo, twoHoursAgo);
-		value(await ensureStore(dataDirectory, storeId(), 'sha1', '/repo'));
+		value(await ensureStore(dataDirectory, storeId(), 'sha1', repositoryName('/repo')));
 		expect((await readdir(stores)).toSorted()).toEqual(
 			['.new-fresh', 'kept-old.git', `${storeId()}.git`].toSorted()
 		);
@@ -382,7 +391,9 @@ describe('the snapshot store', () => {
 	it('is created once even when many snapshots make it at the same time, and is listed', async () => {
 		const dataDirectory = await tempDirectory();
 		const made = await Promise.all(
-			Array.from({ length: 6 }, () => ensureStore(dataDirectory, storeId(), 'sha1', '/repo/path'))
+			Array.from({ length: 6 }, () =>
+				ensureStore(dataDirectory, storeId(), 'sha1', repositoryName('/repo/path'))
+			)
 		);
 		const dirs = new Set(made.map((result) => value(result).dir));
 		expect(dirs.size).toBe(1);
@@ -427,14 +438,19 @@ describe('the snapshot store', () => {
 	it('says plainly when the data directory cannot be written, and when a store or snapshot is gone', async () => {
 		const blocker = join(await tempDirectory(), 'a-file');
 		await writeFile(blocker, 'not a directory');
-		const unusable = await ensureStore(absolutePath(blocker), storeId(), 'sha1', '/repo');
+		const unusable = await ensureStore(
+			absolutePath(blocker),
+			storeId(),
+			'sha1',
+			repositoryName('/repo')
+		);
 		expect(unusable.ok ? 'made' : unusable.error.kind).toBe('DataDirectoryUnusable');
 		// Something that is not a store where the store goes: the store cannot be put in place.
 		const blocked = await tempDirectory();
 		const blockedId = storeId();
 		await mkdir(join(blocked, 'stores'));
 		await writeFile(storeDirectory(blocked, blockedId), 'not a store');
-		const notPlaced = await ensureStore(blocked, blockedId, 'sha1', '/repo');
+		const notPlaced = await ensureStore(blocked, blockedId, 'sha1', repositoryName('/repo'));
 		expect(notPlaced.ok ? 'made' : notPlaced.error).toMatchObject({
 			kind: 'DataDirectoryUnusable',
 			directory: storeDirectory(blocked, blockedId)
@@ -446,7 +462,9 @@ describe('the snapshot store', () => {
 			snapshot: id
 		});
 		expect(missingStore.ok ? 'found' : missingStore.error.kind).toBe('StoreNotFound');
-		const target = value(await ensureStore(dataDirectory, storeId(), 'sha1', '/repo'));
+		const target = value(
+			await ensureStore(dataDirectory, storeId(), 'sha1', repositoryName('/repo'))
+		);
 		const missingSnapshot = await openSnapshot(target, id);
 		expect(missingSnapshot.ok ? 'found' : missingSnapshot.error.kind).toBe('SnapshotNotFound');
 		await mkdir(join(dataDirectory, 'stores', 'NOT-A-STORE.git'));

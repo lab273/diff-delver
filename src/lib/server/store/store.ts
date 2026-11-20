@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseObjectFormat, type ObjectFormat } from '#lib/core/object-format.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
+import { parseRepositoryName, type RepositoryName } from '#lib/core/repository-name.tiny.ts';
 import { parseStoreId, type StoreId } from '#lib/core/store-id.tiny.ts';
 import { runGit, runGitText } from '../git/run-git.ts';
 import type { StoreError } from './store-error.ts';
@@ -27,8 +28,8 @@ export interface Store {
 	/** The store's bare repository. */
 	readonly dir: AbsolutePath;
 	readonly objectFormat: ObjectFormat;
-	/** The repository the store holds snapshots of, as it was named when the store was made. */
-	readonly repository: string;
+	/** The repository the store holds snapshots of, as it was named when the store was made; absent if not recorded. */
+	readonly repository: RepositoryName | undefined;
 }
 
 /** The folder inside the data directory that holds the stores. */
@@ -61,7 +62,7 @@ export async function ensureStore(
 	dataDirectory: AbsolutePath,
 	id: StoreId,
 	objectFormat: ObjectFormat,
-	repository: string
+	repository: RepositoryName
 ): Promise<Result<Store, StoreError>> {
 	const stores = absolute(join(dataDirectory, STORES_FOLDER));
 	await removeStaleFolders(stores, '.new-');
@@ -151,7 +152,10 @@ export async function openStore(
 		id,
 		dir,
 		objectFormat: format.value,
-		repository: entries.get('diffdelver.repository') ?? ''
+		repository: (() => {
+			const name = parseRepositoryName(entries.get('diffdelver.repository') ?? '');
+			return name.ok ? name.value : undefined;
+		})()
 	});
 }
 

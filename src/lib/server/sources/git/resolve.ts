@@ -111,7 +111,7 @@ export async function firstParent(
 	const id = parseCommitId(parent);
 	return id.ok
 		? ok(id.value)
-		: err({ kind: 'MissingObject', object: parent, stderr: listed.value.stderr });
+		: err({ kind: 'MissingObject', object: undefined, stderr: listed.value.stderr });
 }
 
 /** The merge base of two commits, which a range compares from. */

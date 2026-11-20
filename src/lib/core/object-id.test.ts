@@ -3,16 +3,20 @@ import { describe, expect, it } from 'vitest';
 import { parseBlobId } from './blob-id.tiny.ts';
 import { parseCommitId } from './commit-id.tiny.ts';
 import { isNullObjectId } from './object-id.ts';
+import { parseObjectId } from './object-id.tiny.ts';
 import { parseTreeId } from './tree-id.tiny.ts';
 
 const sha1 = 'a'.repeat(40);
 const sha256 = '0123456789abcdef'.repeat(4);
 
 describe('object ids', () => {
-	it.each([parseTreeId, parseBlobId, parseCommitId])('accept SHA-1 and SHA-256 ids', (parse) => {
-		expect(parse(sha1)).toEqual({ ok: true, value: sha1 });
-		expect(parse(sha256)).toEqual({ ok: true, value: sha256 });
-	});
+	it.each([parseTreeId, parseBlobId, parseCommitId, parseObjectId])(
+		'accept SHA-1 and SHA-256 ids',
+		(parse) => {
+			expect(parse(sha1)).toEqual({ ok: true, value: sha1 });
+			expect(parse(sha256)).toEqual({ ok: true, value: sha256 });
+		}
+	);
 
 	it.each(['', 'abc1234', 'A'.repeat(40), 'g'.repeat(40), 'a'.repeat(41), `${sha1}\n`])(
 		'reject %j',
@@ -20,6 +24,7 @@ describe('object ids', () => {
 			expect(parseTreeId(value).ok).toBe(false);
 			expect(parseBlobId(value).ok).toBe(false);
 			expect(parseCommitId(value).ok).toBe(false);
+			expect(parseObjectId(value).ok).toBe(false);
 		}
 	);
 

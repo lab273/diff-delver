@@ -29,6 +29,7 @@ import {
 	WORKING_TREE,
 	type GitSourceSpec
 } from '#lib/core/sources/git-source-spec.ts';
+import type { GitSourceText } from '#lib/core/sources/git-source-text.tiny.ts';
 import type { GitSourceError } from './git-source-error.ts';
 import {
 	gitCwd,
@@ -333,6 +334,6 @@ export async function suggestSource(
 }
 
 /** The candidate's source in its written form, for a link or a command line. */
-export function candidateSourceText(candidate: SourceCandidate): string {
+export function candidateSourceText(candidate: SourceCandidate): GitSourceText {
 	return formatGitSourceSpec(candidate.spec);
 }

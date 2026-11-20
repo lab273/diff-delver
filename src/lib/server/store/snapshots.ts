@@ -16,6 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { objectCountOf, type ObjectCount } from '#lib/core/object-count.tiny.ts';
+import { parseObjectId, type AnyObjectId, type ObjectId } from '#lib/core/object-id.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { parseSnapshotId, type SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import type { StoreId } from '#lib/core/store-id.tiny.ts';
@@ -90,7 +91,7 @@ const UNPACK_LIMIT = 100;
  */
 export async function copyObjects(
 	writer: StoreWriter,
-	ids: readonly string[],
+	ids: readonly AnyObjectId[],
 	copyFrom: AbsolutePath
 ): Promise<Result<ObjectCount, StoreError>> {
 	const { store } = writer;
@@ -158,7 +159,7 @@ export async function copyTrees(
 		return listed.error.kind === 'BadRevision'
 			? err({
 					kind: 'MissingObject',
-					object: /bad object ([0-9a-f]+)/.exec(listed.error.stderr)?.[1],
+					object: objectIdIn(/bad object ([0-9a-f]+)/.exec(listed.error.stderr)?.[1]),
 					stderr: listed.error.stderr
 				})
 			: listed;
@@ -167,8 +168,16 @@ export async function copyTrees(
 	const ids = listed.value.stdout
 		.toString('utf8')
 		.split('\n')
-		.filter((id) => id !== '');
+		.flatMap((line) => {
+			const id = parseObjectId(line);
+			return id.ok ? [id.value] : [];
+		});
 	return copyObjects(writer, ids, copyFrom);
+}
+
+function objectIdIn(text: string | undefined): ObjectId | undefined {
+	const id = parseObjectId(text ?? '');
+	return id.ok ? id.value : undefined;
 }
 
 function snapshotRef(id: SnapshotId): string {

@@ -170,9 +170,9 @@ export async function locateRepository(
 }
 
 /** The shared index files a split index refers to, which git touches when it reads the index. */
-export async function sharedIndexFiles(repo: LocalRepository): Promise<readonly string[]> {
+export async function sharedIndexFiles(repo: LocalRepository): Promise<readonly AbsolutePath[]> {
 	const names = await readdir(repo.gitDir).catch(() => []);
 	return names
 		.filter((name) => name.startsWith('sharedindex.'))
-		.map((name) => join(repo.gitDir, name));
+		.map((name) => absolute(join(repo.gitDir, name)));
 }

@@ -11,6 +11,7 @@
  *   request from `to` into `from` shows.
  */
 import type { FileCount } from '../file-count.tiny.ts';
+import { gitSourceText, type GitSourceText } from './git-source-text.tiny.ts';
 import { err, ok, type Result } from '../result.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import { HEAD, parseRevision, type InvalidRevision, type Revision } from '../revision.tiny.ts';
@@ -83,16 +84,16 @@ export function parseGitSourceSpec(text: string): Result<GitSourceSpec, InvalidS
  * same source: `working-tree`, `staged`, the revision, or `from...to`. Use it
  * wherever a source is stored or compared as text, such as a report's identity.
  */
-export function formatGitSourceSpec(spec: GitSourceSpec): string {
+export function formatGitSourceSpec(spec: GitSourceSpec): GitSourceText {
 	switch (spec.kind) {
 		case 'working-tree':
-			return 'working-tree';
+			return gitSourceText('working-tree');
 		case 'staged':
-			return 'staged';
+			return gitSourceText('staged');
 		case 'commit':
-			return spec.revision;
+			return gitSourceText(spec.revision);
 		case 'range':
-			return `${spec.from}...${spec.to}`;
+			return gitSourceText(`${spec.from}...${spec.to}`);
 	}
 }
 

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { defaultDataDirectory, describeNoDataDirectory } from './data-directory.ts';
+import { defaultDataDirectory, describeNoDataDirectory, type Platform } from './data-directory.ts';
 
-const dir = (platform: string, home: string | undefined, variables: Record<string, string> = {}) =>
-	defaultDataDirectory({ platform, home, variables });
+const dir = (
+	platform: Platform,
+	home: string | undefined,
+	variables: Record<string, string> = {}
+) => defaultDataDirectory({ platform, home, variables });
 
 describe('defaultDataDirectory', () => {
 	it('follows the XDG specification on Linux', () => {

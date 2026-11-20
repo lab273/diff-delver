@@ -32,6 +32,7 @@ import {
 } from '#lib/core/git-version.tiny.ts';
 import { firstLineOf, gitStderr, type GitStderr } from '#lib/core/git-stderr.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
+import { parseObjectId, type AnyObjectId } from '#lib/core/object-id.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 
 export interface GitCommand {
@@ -101,7 +102,7 @@ export interface BadRevision {
 export interface MissingObject {
 	readonly kind: 'MissingObject';
 	/** The object id, when git named it. */
-	readonly object: string | undefined;
+	readonly object: AnyObjectId | undefined;
 	readonly stderr: GitStderr;
 }
 
@@ -249,7 +250,8 @@ function spawnGit(command: GitCommand): Promise<Result<GitOutput, GitError>> {
 				const match = MISSING_OBJECT.exec(errText);
 				// Only the group of the phrase that matched holds the id.
 				const ids: readonly (string | undefined)[] = match?.slice(1) ?? [];
-				const object = ids.find((id) => id !== undefined);
+				const named = parseObjectId(ids.find((id) => id !== undefined) ?? '');
+				const object = named.ok ? named.value : undefined;
 				resolve(err({ kind: 'MissingObject', object, stderr: errText }));
 			} else if (BAD_REVISION.test(errText)) {
 				resolve(err({ kind: 'BadRevision', args: command.args, stderr: errText }));

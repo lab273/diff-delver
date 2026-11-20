@@ -19,9 +19,11 @@
  * still does so, as it would on `git add`.
  */
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { parseBlobId, type BlobId } from '#lib/core/blob-id.tiny.ts';
 import type { CommitId } from '#lib/core/commit-id.tiny.ts';
-import { repoPathFromBytes } from '#lib/core/path-bytes.ts';
-import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
+import { escapedRepoPath, repoPathFromBytes } from '#lib/core/path-bytes.ts';
+import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
+import { repositoryNameOf } from '#lib/core/repository-name.tiny.ts';
 import { EMPTY_TREE } from '#lib/core/object-format.ts';
 import { objectCountOf, type ObjectCount } from '#lib/core/object-count.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
@@ -173,17 +175,18 @@ async function writeTree(
 /** The blobs the private index names, which `git add` may read. Submodule entries name commits, not blobs. */
 async function indexBlobs(
 	scratch: ScratchIndex
-): Promise<Result<readonly string[], GitSourceError>> {
+): Promise<Result<readonly BlobId[], GitSourceError>> {
 	const listed = await runGit({
 		cwd: scratch.gitDir,
 		args: ['ls-files', '--stage', '-z'],
 		env: { GIT_INDEX_FILE: scratch.index }
 	});
 	if (!listed.ok) return listed;
-	const blobs = new Set<string>();
+	const blobs = new Set<BlobId>();
 	for (const record of listed.value.stdout.toString('latin1').split('\0')) {
 		const [mode, id] = record.split(' ');
-		if (mode !== undefined && id !== undefined && mode !== '160000') blobs.add(id);
+		const blob = parseBlobId(id ?? '');
+		if (mode !== undefined && mode !== '160000' && blob.ok) blobs.add(blob.value);
 	}
 	return ok([...blobs]);
 }
@@ -206,9 +209,9 @@ async function addAll(
 	writer: StoreWriter
 ): Promise<{
 	readonly added: Awaited<ReturnType<typeof gitIn>>;
-	readonly vanished: readonly string[];
+	readonly vanished: readonly RepoPath[];
 }> {
-	const vanished: string[] = [];
+	const vanished: RepoPath[] = [];
 	for (;;) {
 		const added = await gitIn(
 			repo,
@@ -224,10 +227,11 @@ async function addAll(
 			],
 			{ env: writing(scratch, writer) }
 		);
-		const gone =
+		const named =
 			added.ok || added.error.kind !== 'GitFailed'
 				? undefined
-				: VANISHED.exec(added.error.stderr)?.[1];
+				: parseRepoPath(VANISHED.exec(added.error.stderr)?.[1] ?? '');
+		const gone = named?.ok === true ? named.value : undefined;
 		if (gone === undefined || vanished.includes(gone) || vanished.length === MAX_VANISHED) {
 			return { added, vanished };
 		}
@@ -251,7 +255,7 @@ async function workingTreeTree(
 	const { added, vanished } = await addAll(repo, workTree, scratch, writer);
 	const leftOut: ReviewerMessage[] = vanished.map((gone) =>
 		reviewerMessage(
-			`Not included: ${gone}, which was deleted while the snapshot was being taken. Refresh to include its change.`
+			`Not included: ${escapedRepoPath(gone)}, which was deleted while the snapshot was being taken. Refresh to include its change.`
 		)
 	);
 	// With --ignore-errors, git adds everything it can and exits 1 if some file could not be.
@@ -268,7 +272,7 @@ async function workingTreeTree(
 	for (const path of changing.value.changing) {
 		leftOut.push(
 			reviewerMessage(
-				`${path} kept changing while the snapshot was being taken, so it may hold part of an edit. Refresh to get its final version.`
+				`${escapedRepoPath(path)} kept changing while the snapshot was being taken, so it may hold part of an edit. Refresh to get its final version.`
 			)
 		);
 	}
@@ -299,7 +303,7 @@ function nulSeparated(output: Buffer): Buffer[] {
 
 interface Settled {
 	/** Paths still changing after the last round. */
-	readonly changing: readonly string[];
+	readonly changing: readonly RepoPath[];
 	/** Every file git refused, in the first `git add` or while settling. */
 	readonly refusals: readonly AddRefusal[];
 	/** git refused a file for a reason not recognised. */
@@ -337,7 +341,10 @@ async function settle(
 		);
 		const settled = (changing: readonly Buffer[]): Result<Settled, GitSourceError> =>
 			ok({
-				changing: changing.map((path) => path.toString('utf8')),
+				changing: changing.flatMap((path) => {
+					const parsed = repoPathFromBytes(path);
+					return parsed.ok ? [parsed.value] : [];
+				}),
 				refusals: [...refusals.values()].toSorted((a, b) =>
 					a.path < b.path ? -1 : a.path > b.path ? 1 : 0
 				),
@@ -443,7 +450,12 @@ export async function snapshotGitSource(
 ): Promise<Result<GitSnapshot, GitSourceError>> {
 	const identity = await sourceIdentity(repo, spec);
 	if (!identity.ok) return identity;
-	const store = await ensureStore(dataDirectory, repo.storeId, repo.objectFormat, repo.commonDir);
+	const store = await ensureStore(
+		dataDirectory,
+		repo.storeId,
+		repo.objectFormat,
+		repositoryNameOf(repo.commonDir)
+	);
 	if (!store.ok) return store;
 	await removeStaleScratchIndexes();
 	let sides: Sides | undefined;

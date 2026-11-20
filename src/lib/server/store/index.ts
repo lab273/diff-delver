@@ -4,7 +4,7 @@
  * Import the store from here.
  *
  * ```ts
- * const store = await ensureStore(dataDir, storeId, 'sha1', '/path/to/repo');
+ * const store = await ensureStore(dataDir, storeId, 'sha1', repositoryNameOf(repoDir));
  * const taken = await takeSnapshot(store.value, async (writer) => ok({ base, head, copyFrom }));
  * const diff = await readSnapshotDiff(taken.value.snapshot);
  * const file = await readSnapshotFile(taken.value.snapshot, 'new', path);
