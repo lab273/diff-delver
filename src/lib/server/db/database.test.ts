@@ -20,8 +20,10 @@ import {
 	LATEST_VERSION,
 	MIGRATIONS,
 	type DatabaseError,
-	type Migration
+	type Migration,
+	type TableName
 } from './index.ts';
+import { sqliteError } from './database.ts';
 import { schemaVersionOf } from '#lib/core/schema-version.tiny.ts';
 import { insertReport, reportById, setReportState } from './tables/reports.ts';
 import { insertRevision } from './tables/revisions.ts';
@@ -336,6 +338,39 @@ describe('the database', () => {
 			}
 		}
 	);
+
+	it('says what to do with a damaged row in words that fit its table', () => {
+		const advice = (table: TableName): string =>
+			describeDatabaseError({ kind: 'StoredRowInvalid', table, detail: 'column x: bad' });
+		const ofReports: TableName[] = [
+			'reports',
+			'revisions',
+			'sections',
+			'assignments',
+			'reviewed_marks'
+		];
+		for (const table of ofReports) {
+			expect(advice(table)).toMatch(/Delete that report from the list of reports/);
+		}
+		const ofNone: TableName[] = ['schema_migrations', 'unreferenced_snapshots'];
+		for (const table of ofNone) {
+			expect(advice(table)).not.toMatch(/Delete/);
+			expect(advice(table)).toMatch(
+				/Restore the database from a backup, or move it out of the way/
+			);
+		}
+	});
+
+	it('says plainly that the disk is full, rather than to try again', () => {
+		const file = absolutePath('/data/diff-delver.sqlite');
+		const full = Object.assign(new Error('database or disk is full'), {
+			errcode: 13,
+			errstr: 'database or disk is full'
+		});
+		const error = sqliteError(file, full);
+		expect(error).toMatchObject({ kind: 'DatabaseUnusable', problem: 'disk-full' });
+		expect(describeDatabaseError(error)).toMatch(/disk that holds it is full.*Free some space/);
+	});
 
 	it('reads a row that does not hold what its table should as an error naming the table', async () => {
 		const db = await opened();

@@ -66,6 +66,7 @@ const SQLITE_BUSY = 5;
 const SQLITE_LOCKED = 6;
 const SQLITE_READONLY = 8;
 const SQLITE_CORRUPT = 11;
+const SQLITE_FULL = 13;
 const SQLITE_CANTOPEN = 14;
 const SQLITE_NOTADB = 26;
 
@@ -88,6 +89,8 @@ export function sqliteError(file: AbsolutePath, error: unknown): DatabaseError {
 			return { kind: 'DatabaseUnusable', file, problem: 'cannot-open', reason };
 		case SQLITE_READONLY:
 			return { kind: 'DatabaseUnusable', file, problem: 'read-only', reason };
+		case SQLITE_FULL:
+			return { kind: 'DatabaseUnusable', file, problem: 'disk-full', reason };
 		default:
 			return { kind: 'DatabaseFailed', file, reason };
 	}

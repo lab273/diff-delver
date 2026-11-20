@@ -23,7 +23,7 @@ export type TableName =
 export interface DatabaseUnusable {
 	readonly kind: 'DatabaseUnusable';
 	readonly file: AbsolutePath;
-	readonly problem: 'cannot-open' | 'read-only';
+	readonly problem: 'cannot-open' | 'read-only' | 'disk-full';
 	readonly reason: string;
 }
 
@@ -93,13 +93,7 @@ export type DatabaseError =
 export function describeDatabaseError(error: DatabaseError): ReviewerMessage {
 	switch (error.kind) {
 		case 'DatabaseUnusable':
-			return error.problem === 'read-only'
-				? reviewerMessage(
-						`diff delver can read its database ${error.file} but cannot write to it: the file or its folder is read-only. Make both writable for yourself (for example with "chmod u+w" on each), or start diff delver with another data folder.`
-					)
-				: reviewerMessage(
-						`diff delver could not open its database ${error.file} (${error.reason}). Check that its folder exists, that you can write to it and that the disk is not full, then try again.`
-					);
+			return unusable(error);
 		case 'NotADatabase':
 			return reviewerMessage(
 				`${error.file} is not diff delver's database: it is some other file, or a database of another program. Move it out of the way (diff delver will make a new, empty database), or start diff delver with another data folder.`
@@ -122,11 +116,43 @@ export function describeDatabaseError(error: DatabaseError): ReviewerMessage {
 			);
 		case 'StoredRowInvalid':
 			return reviewerMessage(
-				`A saved entry in diff delver's database (table ${error.table}) could not be read: ${error.detail}. The database has been damaged or changed by hand. Delete the affected report, or restore the database from a backup; if it happens again, please report it as a bug.`
+				`A saved entry in diff delver's database (table ${error.table}) could not be read: ${error.detail}. The database has been damaged or changed by hand. ${storedRowAdvice(error.table)} If it happens again, please report it as a bug.`
 			);
 		case 'DatabaseFailed':
 			return reviewerMessage(
-				`diff delver's database ${error.file} failed: ${error.reason}. Try again; if it keeps failing, check that the disk is not full and that the file can be written.`
+				`diff delver's database ${error.file} failed: ${error.reason}. Nothing was half saved. Try again; if it keeps failing, please report it as a bug.`
 			);
+	}
+}
+
+function unusable(error: DatabaseUnusable): ReviewerMessage {
+	switch (error.problem) {
+		case 'read-only':
+			return reviewerMessage(
+				`diff delver can read its database ${error.file} but cannot write to it: the file or its folder is read-only. Make both writable for yourself (for example with "chmod u+w" on each), or start diff delver with another data folder.`
+			);
+		case 'disk-full':
+			return reviewerMessage(
+				`diff delver could not save to its database ${error.file}: the disk that holds it is full. Free some space on it, then try again; nothing was half saved.`
+			);
+		case 'cannot-open':
+			return reviewerMessage(
+				`diff delver could not open its database ${error.file} (${error.reason}). Check that its folder exists, that you can write to it and that the disk is not full, then try again.`
+			);
+	}
+}
+
+/** What to do about a damaged row: delete its report where it has one, or deal with the file. */
+function storedRowAdvice(table: TableName): string {
+	switch (table) {
+		case 'reports':
+		case 'revisions':
+		case 'sections':
+		case 'assignments':
+		case 'reviewed_marks':
+			return 'Delete that report from the list of reports, where it shows as damaged, or restore the database from a backup.';
+		case 'schema_migrations':
+		case 'unreferenced_snapshots':
+			return 'Restore the database from a backup, or move it out of the way to start again with no reports; the snapshots in the data folder are not affected.';
 	}
 }

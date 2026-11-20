@@ -106,11 +106,11 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 			);
 		case 'AnotherReportOpen':
 			return reviewerMessage(
-				`This report cannot be reopened while another report of the same changes is open (${error.open}). Carry on in that one, or close it first.`
+				'This report cannot be reopened while another report of the same changes is open. Carry on in that one, or close it first.'
 			);
 		case 'ReportHasNoRevision':
 			return reviewerMessage(
-				`Report ${error.report} has no saved snapshot of its changes, so the database has been changed by hand or damaged. Delete the report and open the source again.`
+				'This report has no saved version of its changes, so the database has been changed by hand or damaged. Delete it from the list of reports and open its source again.'
 			);
 		case 'RepositoryReplaced':
 			return reviewerMessage(

@@ -49,7 +49,7 @@ import { reviewProgress, unitProgressOf, type Progress } from '#lib/core/review/
 import { NO_MARKS, type ReviewedMarks } from '#lib/core/review/reviewed-marks.ts';
 import { andThen, err, ok, type Result } from '#lib/core/result.ts';
 import { repositoryNameOf } from '#lib/core/repository-name.tiny.ts';
-import type { ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { FIRST_REVISION } from '#lib/core/revision-number.tiny.ts';
 import type { SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import type { SourceIdentity } from '#lib/core/source-identity.tiny.ts';
@@ -117,7 +117,8 @@ import {
 	openSnapshotRef,
 	openStore,
 	readSnapshotDiff,
-	type Snapshot
+	type Snapshot,
+	type StoreError
 } from '../store/index.ts';
 import { describeReportError, type ReportError } from './report-error.ts';
 
@@ -304,6 +305,13 @@ interface Remembered {
 	readonly revision: Revision['id'];
 	readonly fingerprint: SourceIdentity;
 	readonly outcome: SourceCheck;
+}
+
+/** What a delete says when its rows went but its snapshots could not be removed yet. */
+function notFreed(error: StoreError): ReviewerMessage {
+	return reviewerMessage(
+		`The report was deleted, but the space its saved changes use could not be freed yet; diff delver frees it by itself later. What went wrong: ${describeStoreError(error)}`
+	);
 }
 
 function worktreeOf(repo: LocalRepository): AbsolutePath {
@@ -1017,15 +1025,17 @@ export class ReportService {
 		let count = 0;
 		for (const [storeId, ids] of byStore) {
 			const store = await openStore(this.#dataDirectory, storeId);
+			// A store that is gone holds nothing to remove.
+			if (!store.ok && store.error.kind === 'StoreNotFound') continue;
 			if (!store.ok)
-				return { snapshots: snapshotCountOf(count), storeProblem: describeStoreError(store.error) };
+				return { snapshots: snapshotCountOf(count), storeProblem: notFreed(store.error) };
 			for (const id of ids) {
 				this.#diffs.delete(`${storeId}/${id}`);
 				const deleted = await deleteSnapshot(store.value, id);
 				if (!deleted.ok && deleted.error.kind !== 'SnapshotNotFound') {
 					return {
 						snapshots: snapshotCountOf(count),
-						storeProblem: describeStoreError(deleted.error)
+						storeProblem: notFreed(deleted.error)
 					};
 				}
 				count += 1;
@@ -1034,7 +1044,7 @@ export class ReportService {
 			if (!collected.ok)
 				return {
 					snapshots: snapshotCountOf(count),
-					storeProblem: describeStoreError(collected.error)
+					storeProblem: notFreed(collected.error)
 				};
 		}
 		return { snapshots: snapshotCountOf(count), storeProblem: undefined };

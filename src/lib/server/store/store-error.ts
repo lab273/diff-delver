@@ -60,7 +60,7 @@ export function describeStoreError(error: StoreError): ReviewerMessage {
 			);
 		case 'StoreDamaged':
 			return reviewerMessage(
-				`diff delver's saved copy of this repository (store ${error.store}) is damaged: ${error.detail}. Delete it from the Storage page and open the repository again.`
+				`diff delver's saved copy of this repository is damaged: ${error.detail}. Move the folder stores/${error.store}.git in diff delver's data folder out of the way, then open the repository again: diff delver makes a new copy, and reports whose changes were saved in the old one will say so.`
 			);
 		case 'GitNotFound':
 		case 'GitTooOld':

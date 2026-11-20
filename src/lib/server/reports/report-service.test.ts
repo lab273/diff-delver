@@ -1,5 +1,5 @@
 import { randomIds } from '#lib/server/system.ts';
-import { rm } from 'node:fs/promises';
+import { chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
@@ -520,7 +520,7 @@ describe('the report service', () => {
 			"UPDATE revisions SET left_out = 'not JSON' WHERE id = 'v_1'",
 			'table revisions'
 		],
-		['its revisions are gone, so it', "DELETE FROM revisions WHERE id = 'v_1'", 'no saved snapshot']
+		['its revisions are gone, so it', "DELETE FROM revisions WHERE id = 'v_1'", 'no saved version']
 	])(
 		'lists a report as damaged when %s cannot be read, beside the others, and deletes it',
 		async (_what, damage, problem) => {
@@ -553,7 +553,7 @@ describe('the report service', () => {
 			expect(value(await service.deleteReport(damaged)).storeProblem).toBeUndefined();
 			expect(value(service.list()).map((r) => [r.kind, r.id])).toEqual([['report', good]]);
 			expect(failure(await service.load(damaged)).kind).toBe('ReportNotFound');
-			expect(await snapshotCount(data)).toBe(problem === 'no saved snapshot' ? 2 : 1);
+			expect(await snapshotCount(data)).toBe(problem === 'no saved version' ? 2 : 1);
 			service.close();
 		}
 	);
@@ -592,6 +592,50 @@ describe('the report service', () => {
 		expect(closed).toMatchObject({ kind: 'SnapshotGone', open: false });
 		expect(describeReportError(closed)).toMatch(/Delete it/);
 		expect(describeReportError(closed)).not.toMatch(/Open Uncommitted changes again/);
+		service.close();
+	});
+
+	it('deletes a report whose saved copy is already gone without calling that a problem', async () => {
+		const { repo, data, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await rm(join(data, 'stores'), { recursive: true, force: true });
+		expect(value(await service.deleteReport(id))).toEqual({
+			snapshots: 0,
+			storeProblem: undefined
+		});
+		service.close();
+	});
+
+	it('says a report was deleted, and its space is freed later, when its snapshot cannot be removed yet', async () => {
+		const { repo, data, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		const [store] = value(await listStores(data));
+		if (store === undefined) throw new Error('no store');
+		// git cannot take the lock it needs to delete the snapshot's ref.
+		await chmod(store.dir, 0o555);
+		try {
+			const deleted = value(await service.deleteReport(id));
+			expect(deleted.storeProblem).toMatch(
+				/^The report was deleted, but the space its saved changes use could not be freed yet.*frees it by itself later/
+			);
+			expect(deleted.storeProblem).not.toMatch(/Open the/);
+		} finally {
+			await chmod(store.dir, 0o755);
+		}
+		expect(failure(await service.load(id)).kind).toBe('ReportNotFound');
+		service.close();
+	});
+
+	it('names no internal ids in what it tells the reviewer about another open report or a missing revision', async () => {
+		const { repo, service } = await setUp();
+		const first = created(value(await service.open(repo.dir, spec('working-tree'))));
+		value(service.closeReport(first));
+		const second = created(value(await service.open(repo.dir, spec('working-tree'))));
+		const refused = describeReportError(failure(service.reopenReport(first)));
+		expect(refused).not.toContain(second);
+		expect(describeReportError({ kind: 'ReportHasNoRevision', report: first })).not.toContain(
+			first
+		);
 		service.close();
 	});
 
