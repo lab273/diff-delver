@@ -452,6 +452,15 @@ An item with only a file or glob takes whatever in it is still uncategorised, wh
 keeps large diffs cheap: assign whole files where that is right, and spend line
 ranges on the mixed ones.
 
+A line range takes the changed lines inside it. It may span unchanged lines, so
+`+40..+62` works when a few of those lines are context. It is rejected only when it
+contains no changed line at all, and the rejection names the nearest changed lines.
+Every answer says how many lines each item took and, when an item took none, why,
+so an agent can see a slip without being refused for it.
+
+A path that is not valid UTF-8 is still one file with one exact identity. It is
+shown with its odd bytes escaped, and the agent addresses it in that escaped form.
+
 The report is a draft until `get_coverage` shows nothing uncategorised. The UI can
 be opened at any time and shows the draft state.
 
