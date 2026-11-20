@@ -21,7 +21,11 @@
  * another in the same call is rejected, and a rejected item changes nothing.
  * The input state is never changed.
  */
-import { parseAgentMarkdown, type AgentMarkdown } from '../agent-markdown.tiny.ts';
+import {
+	MAX_AGENT_MARKDOWN_LENGTH,
+	parseAgentMarkdown,
+	type AgentMarkdown
+} from '../agent-markdown.tiny.ts';
 import { compileGlob, parseGlobPattern, type GlobPattern } from '../glob-pattern.tiny.ts';
 import { describeGlobProblem, type GlobProblem } from '../glob.ts';
 import { parseHunkId, type HunkId } from '../hunk-id.tiny.ts';
@@ -169,6 +173,8 @@ export type AssignRejection =
 			readonly known: readonly SectionId[];
 	  }
 	| { readonly kind: 'MissingReason' }
+	/** The reason is there but cannot be kept: too long, or not well-formed text. */
+	| { readonly kind: 'InvalidReason'; readonly problem: 'too-long' | 'malformed' }
 	| { readonly kind: 'InvalidRole'; readonly role: string };
 
 // --- Outcome -------------------------------------------------------------------
@@ -285,7 +291,11 @@ export function parseAssignRequest(request: AssignRequest): Result<AssignItem, A
 	let destination: Destination | undefined;
 	if (request.section === IGNORED_SECTION) {
 		const reason = parseAgentMarkdown(request.reason ?? '');
-		if (!reason.ok) return err({ kind: 'MissingReason' });
+		if (!reason.ok) {
+			return reason.error.reason === 'blank'
+				? err({ kind: 'MissingReason' })
+				: err({ kind: 'InvalidReason', problem: reason.error.reason });
+		}
 		destination = { kind: 'ignored', reason: reason.value };
 	} else if (request.section !== undefined) {
 		if (request.reason !== undefined) {
@@ -383,6 +393,7 @@ function withDiffContext(diff: Diff, rejection: AssignRejection): AssignRejectio
 		case 'InvalidSectionId':
 		case 'UnknownSection':
 		case 'MissingReason':
+		case 'InvalidReason':
 		case 'InvalidRole':
 			return rejection;
 	}
@@ -851,6 +862,10 @@ function rejectionText(rejection: AssignRejection): string {
 				: `There is no section "${rejection.section}". Create it with upsert_sections first.`;
 		case 'MissingReason':
 			return 'Ignoring lines needs a "reason" saying why they need no review.';
+		case 'InvalidReason':
+			return rejection.problem === 'too-long'
+				? `The "reason" is too long: keep it under ${String(MAX_AGENT_MARKDOWN_LENGTH)} characters, a sentence or two saying why these lines need no review.`
+				: 'The "reason" is not well-formed text: it holds a lone UTF-16 surrogate, which cannot be stored or shown. Write it again as plain text.';
 		case 'InvalidRole':
 			return `${quoted(rejection.role)} is not a role. Use "code", "test" or "snapshot".`;
 	}

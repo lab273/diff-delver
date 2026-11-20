@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { timed } from '../../../../tests/support/measured-time.ts';
+import { MAX_AGENT_MARKDOWN_LENGTH } from '../agent-markdown.tiny.ts';
 import { measurementName } from '../measurement-name.tiny.ts';
 import { millisecondsOf } from '../milliseconds.tiny.ts';
 import {
@@ -459,6 +460,20 @@ describe('assign rejections', () => {
 		[{ file: 'src/app.ts', role: 'docs' }, 'InvalidRole']
 	])('rejects %j as %s', (request, kind) => {
 		expect(reject(request)?.kind).toBe(kind);
+	});
+
+	it('says what is wrong with a reason that is too long or not well-formed text', () => {
+		const tooLong = reject({
+			file: 'src/app.ts',
+			section: 'ignored',
+			reason: 'x'.repeat(MAX_AGENT_MARKDOWN_LENGTH + 1)
+		});
+		expect(tooLong).toEqual({ kind: 'InvalidReason', problem: 'too-long' });
+		expect(tooLong && describeRejection(tooLong)).toMatch(/too long/);
+		expect(tooLong && describeRejection(tooLong)).not.toMatch(/needs a "reason"/);
+		const lone = reject({ file: 'src/app.ts', section: 'ignored', reason: 'why \uD800' });
+		expect(lone).toEqual({ kind: 'InvalidReason', problem: 'malformed' });
+		expect(lone && describeRejection(lone)).toMatch(/not well-formed/);
 	});
 
 	it('says a malformed hunk id is not a hunk id, and lists the real ones', () => {
