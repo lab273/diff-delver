@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
@@ -246,9 +246,30 @@ describe('the database', () => {
 		const dir = await tempDirectory();
 		await writeFile(join(dir, 'file'), '');
 		const error = failure(await Database.open(absolutePath(join(dir, 'file', 'data')), clock()));
-		expect(error.kind).toBe('DatabaseUnusable');
+		expect(error).toMatchObject({ kind: 'DatabaseUnusable', problem: 'cannot-open' });
 		expect(describeDatabaseError(error)).toMatch(/could not open its database/);
 	});
+
+	it.each(['the file', 'its folder'])(
+		'says where the database is and what to do when %s is read-only',
+		async (which) => {
+			const dir = await tempDirectory();
+			(await opened(dir)).close();
+			const file = join(dir, DATABASE_FILE);
+			const target = which === 'the file' ? file : dir;
+			await chmod(target, which === 'the file' ? 0o444 : 0o555);
+			try {
+				const error = failure(await Database.open(dir, clock()));
+				expect(error).toMatchObject({ kind: 'DatabaseUnusable', file, problem: 'read-only' });
+				const message = describeDatabaseError(error);
+				expect(message).toContain(file);
+				expect(message).toMatch(/cannot write to it.*read-only.*writable/);
+				expect(message).not.toMatch(/Try again/);
+			} finally {
+				await chmod(target, which === 'the file' ? 0o644 : 0o755);
+			}
+		}
+	);
 
 	it('reads a row that does not hold what its table should as an error naming the table', async () => {
 		const db = await opened();

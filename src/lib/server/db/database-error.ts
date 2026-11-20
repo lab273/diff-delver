@@ -16,10 +16,14 @@ export type TableName =
 	| 'reviewed_marks'
 	| 'unreferenced_snapshots';
 
-/** The file could not be opened or made: a missing folder, no permission, a full disk. */
+/**
+ * The file could not be opened or made (a missing folder, no permission, a full
+ * disk), or it can be read but not written.
+ */
 export interface DatabaseUnusable {
 	readonly kind: 'DatabaseUnusable';
 	readonly file: AbsolutePath;
+	readonly problem: 'cannot-open' | 'read-only';
 	readonly reason: string;
 }
 
@@ -89,9 +93,13 @@ export type DatabaseError =
 export function describeDatabaseError(error: DatabaseError): ReviewerMessage {
 	switch (error.kind) {
 		case 'DatabaseUnusable':
-			return reviewerMessage(
-				`diff delver could not open its database ${error.file} (${error.reason}). Check that its folder exists, that you can write to it and that the disk is not full, then try again.`
-			);
+			return error.problem === 'read-only'
+				? reviewerMessage(
+						`diff delver can read its database ${error.file} but cannot write to it: the file or its folder is read-only. Make both writable for yourself (for example with "chmod u+w" on each), or start diff delver with another data folder.`
+					)
+				: reviewerMessage(
+						`diff delver could not open its database ${error.file} (${error.reason}). Check that its folder exists, that you can write to it and that the disk is not full, then try again.`
+					);
 		case 'NotADatabase':
 			return reviewerMessage(
 				`${error.file} is not diff delver's database: it is some other file, or a database of another program. Move it out of the way (diff delver will make a new, empty database), or start diff delver with another data folder.`

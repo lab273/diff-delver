@@ -64,6 +64,7 @@ const PRAGMAS = [
 /** SQLite's primary result codes that diff delver tells apart (the low byte of `errcode`). */
 const SQLITE_BUSY = 5;
 const SQLITE_LOCKED = 6;
+const SQLITE_READONLY = 8;
 const SQLITE_CORRUPT = 11;
 const SQLITE_CANTOPEN = 14;
 const SQLITE_NOTADB = 26;
@@ -84,7 +85,9 @@ export function sqliteError(file: AbsolutePath, error: unknown): DatabaseError {
 		case SQLITE_LOCKED:
 			return { kind: 'DatabaseBusy', file };
 		case SQLITE_CANTOPEN:
-			return { kind: 'DatabaseUnusable', file, reason };
+			return { kind: 'DatabaseUnusable', file, problem: 'cannot-open', reason };
+		case SQLITE_READONLY:
+			return { kind: 'DatabaseUnusable', file, problem: 'read-only', reason };
 		default:
 			return { kind: 'DatabaseFailed', file, reason };
 	}
@@ -116,7 +119,12 @@ export class Database {
 		try {
 			await mkdir(dirname(file), { recursive: true, mode: 0o700 });
 		} catch (error) {
-			return err({ kind: 'DatabaseUnusable', file, reason: messageOf(error) });
+			return err({
+				kind: 'DatabaseUnusable',
+				file,
+				problem: 'cannot-open',
+				reason: messageOf(error)
+			});
 		}
 		let connection: DatabaseSync;
 		try {
@@ -135,6 +143,17 @@ export class Database {
 		if (!migrated.ok) {
 			database.close();
 			return migrated;
+		}
+		// SQLite opens a file it cannot write read-only and says so only at the
+		// first write; find out now, while the reviewer is starting diff delver.
+		const writable = database.write((q) => {
+			const version = Number(q.get('PRAGMA user_version')?.user_version ?? 0);
+			q.exec(`PRAGMA user_version = ${String(version)}`);
+			return ok(undefined);
+		});
+		if (!writable.ok) {
+			database.close();
+			return writable;
 		}
 		return ok(database);
 	}
