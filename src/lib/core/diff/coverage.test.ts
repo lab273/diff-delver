@@ -113,6 +113,26 @@ describe('coverage', () => {
 		]);
 	});
 
+	it('does not warn about a run split only between reasons for ignoring it', () => {
+		const state = stateAfter([
+			{ file: 'src/app.ts', lines: '-2..-3', section: 'ignored', reason: 'Generated' },
+			{ file: 'src/app.ts', lines: '+2..+4', section: 'ignored', reason: 'Vendored' }
+		]);
+		expect(kinds(coverage(diff, state).warnings)).not.toContain('SplitChangeRun');
+	});
+
+	it('names Ignored once when a run is split between a section and two ignored reasons', () => {
+		const state = stateAfter([
+			{ file: 'src/app.ts', lines: '-2', section: 'ignored', reason: 'Generated' },
+			{ file: 'src/app.ts', lines: '-3', section: 'ignored', reason: 'Vendored' },
+			{ file: 'src/app.ts', lines: '+2..+4', section: 'alpha' }
+		]);
+		const [split] = coverage(diff, state).warnings.filter((w) => w.kind === 'SplitChangeRun');
+		expect(split === undefined ? '' : describeWarning(split)).toContain(
+			'are split between Ignored and section "alpha".'
+		);
+	});
+
 	it('warns about test lines in no section, but not ones a rule ignored', () => {
 		const tests = coverage(diff, initialState(diff)).warnings.filter(
 			(w) => w.kind === 'TestsOutsideSections'

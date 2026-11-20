@@ -199,6 +199,16 @@ function linesWhere(
 	];
 }
 
+/**
+ * Whether two buckets count as one for a split run. Every ignored bucket is the
+ * same here: lines ignored for different reasons are all left out of the review,
+ * so the run does not read badly, and the warning would only say "Ignored and
+ * Ignored".
+ */
+function sameForSplit(a: Bucket, b: Bucket): boolean {
+	return (a.kind === 'ignored' && b.kind === 'ignored') || sameBucket(a, b);
+}
+
 function splitRuns(
 	file: DiffFile,
 	old: RangeMap<Assignment>,
@@ -210,7 +220,7 @@ function splitRuns(
 		const collect = (map: RangeMap<Assignment>, lines: RangeSet): void => {
 			if (lines.min === undefined || lines.max === undefined) return;
 			for (const value of map.valuesOverlapping(lines.min, lines.max)) {
-				if (!buckets.some((b) => sameBucket(b, value.bucket))) buckets.push(value.bucket);
+				if (!buckets.some((b) => sameForSplit(b, value.bucket))) buckets.push(value.bucket);
 			}
 		};
 		collect(old, run.old);
