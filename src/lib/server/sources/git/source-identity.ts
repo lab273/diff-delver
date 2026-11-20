@@ -73,18 +73,20 @@ async function onDisk(
 	return Promise.all(
 		status.entries.map(async (entry) => {
 			const at = entryOnDisk(repo, entry);
-			const info = await lstat(at, { bigint: true }).catch(() => undefined);
-			const stats =
-				info === undefined
-					? 'absent'
-					: `${String(info.mode)} ${String(info.size)} ${String(info.mtimeNs)} ${String(info.ctimeNs)} ${String(info.ino)}`;
+			// For a submodule or a nested repository only its checked-out commit is snapshotted.
 			const nested =
 				entry.submoduleMoved || (entry.kind === 'untracked' && entry.path.at(-1) === 0x2f);
-			if (!nested) return stats;
-			const dir = parseAbsolutePath(at.toString('utf8'));
-			if (!dir.ok) return stats;
-			const head = await gitIn(repo, dir.value, ['rev-parse', '--verify', '--quiet', 'HEAD']);
-			return `${stats} ${head.ok ? head.value.stdout.toString('utf8').trim() : 'none'}`;
+			if (nested) {
+				const dir = parseAbsolutePath(at.toString('utf8'));
+				const head = dir.ok
+					? await gitIn(repo, dir.value, ['rev-parse', '--verify', '--quiet', 'HEAD'])
+					: undefined;
+				return `repository at ${head?.ok === true ? head.value.stdout.toString('utf8').trim() : 'none'}`;
+			}
+			const info = await lstat(at, { bigint: true }).catch(() => undefined);
+			return info === undefined
+				? 'absent'
+				: `${String(info.mode)} ${String(info.size)} ${String(info.mtimeNs)} ${String(info.ctimeNs)} ${String(info.ino)}`;
 		})
 	);
 }
