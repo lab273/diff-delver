@@ -15,7 +15,13 @@
  * The browser is given the token once, in the address the command opens
  * (`?token=…`). That request is answered with a redirect to the same address
  * without it, setting a cookie for this daemon alone, so the token neither stays
- * in the address bar or the history nor leaks in a `Referer`.
+ * in the address bar or the history nor leaks in a `Referer`. The redirect only
+ * ever goes to a path of this daemon (`localPath`), whatever the request said.
+ *
+ * Accepted: browsers send a host's cookies to every port of that host, so
+ * another server on 127.0.0.1 that the person's browser visits would receive
+ * this daemon's cookie. For a tool one person runs on their own machine, that
+ * is accepted rather than guarded against.
  */
 import { isToken, type DaemonToken } from '../daemon-token.tiny.ts';
 import type { PortNumber } from '../port-number.tiny.ts';
@@ -100,6 +106,21 @@ function withoutToken(target: string): { readonly location: string; readonly tok
 	return { location: kept.length === 0 ? path : `${path}?${kept.join('&')}`, token };
 }
 
+/**
+ * `location` as a path of this daemon, for a redirect: one leading slash, so a
+ * browser can never read it as another site (`//evil.example`, `/\evil.example`,
+ * `https://…`). Anything that is not a plain path, such as one with a backslash
+ * or a control character, which browsers treat as a slash or drop, is home.
+ */
+export function localPath(location: string): string {
+	for (let i = 0; i < location.length; i += 1) {
+		const code = location.charCodeAt(i);
+		if (code <= 0x20 || code === 0x7f || code === 0x5c) return '/';
+	}
+	if (!location.startsWith('/')) return '/';
+	return `/${location.replace(/^\/+/, '')}`;
+}
+
 /** Whether `target` carries the token parameter at all. */
 function hasTokenParameter(target: string): boolean {
 	const queryAt = target.indexOf('?');
@@ -123,7 +144,7 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 		if (!isToken(settings.token, token)) return { kind: 'refuse', refusal: 'wrong-token' };
 		return {
 			kind: 'enter',
-			location: location === '' ? '/' : location,
+			location: localPath(location),
 			setCookie: `${tokenCookieName(settings.port)}=${settings.token}; Path=/; HttpOnly; SameSite=Strict`
 		};
 	}

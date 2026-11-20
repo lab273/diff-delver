@@ -71,6 +71,29 @@ describe('the request gate', () => {
 		).toMatchObject({ kind: 'enter', location: '/start?directory=%2Frepo&x=1' });
 	});
 
+	it('sends the browser only to a path of its own, whatever the address held', () => {
+		const at = (target: string): string => {
+			const decision = gateRequest(request({ target }), settings);
+			if (decision.kind !== 'enter') throw new Error(`not let in: ${target}`);
+			return decision.location;
+		};
+		expect(at(`//evil.example?token=${token}`)).toBe('/evil.example');
+		expect(at(`///evil.example/x?token=${token}&a=1`)).toBe('/evil.example/x?a=1');
+		expect(at(`/\\evil.example?token=${token}`)).toBe('/');
+		expect(at(`/\t/evil.example?token=${token}`)).toBe('/');
+		expect(at(`https://evil.example/?token=${token}`)).toBe('/');
+		expect(at(`?token=${token}`)).toBe('/');
+		fc.assert(
+			fc.property(fc.string({ unit: 'binary' }), fc.string(), (path, query) => {
+				const location = at(`${path}?${query.replaceAll('&', '')}&token=${token}`);
+				// A browser reads it against the daemon's own address and stays there.
+				const resolved = new URL(location, `http://${host}/somewhere/`);
+				expect(resolved.origin).toBe(`http://${host}`);
+				expect(location).toMatch(/^\/(?![/\\])/);
+			})
+		);
+	});
+
 	it('says a link with another daemon’s token is out of date', () => {
 		expect(gateRequest(request({ target: `/?token=${other}` }), settings)).toEqual({
 			kind: 'refuse',
