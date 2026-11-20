@@ -28,7 +28,7 @@ what do they do next?
 - Node 26, the current LTS line. Newer LTS lines are fine.
 - pnpm.
 - git, and jj for the jj source and its tests.
-- beads (`bd`), the issue tracker, 1.3.4 or newer; its wrapper's tests run it.
+- beads (`bd`), the issue tracker, 1.3.4 or newer. It is needed only to track work, not to build or test.
 
 `.nvmrc` pins the Node line and `package.json` pins pnpm (`packageManager`). After
 cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.

@@ -1,7 +1,7 @@
 /**
  * When `pnpm bd push` tries again, and what it says when it gives up
- * (scripts/bd-push.ts). The push is a scripted function here; the real one is
- * run against a throwaway database in scripts/bd.test.ts.
+ * (scripts/bd-push.ts). The push is a scripted function here; the wrapper is
+ * not tested against a real `bd`.
  */
 import { attemptCountOf } from '../src/lib/core/attempt-count.tiny.ts';
 import { fieldPath } from '../src/lib/core/field-path.tiny.ts';
