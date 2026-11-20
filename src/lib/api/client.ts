@@ -165,12 +165,11 @@ export class ApiClient {
 		return this.#call('POST', '/api/open', OpenResponseSchema, request);
 	}
 
-	suggest(directory: string): Promise<Result<SuggestResponse, ApiError>> {
-		return this.#call(
-			'GET',
-			`/api/suggest?${new URLSearchParams({ directory }).toString()}`,
-			SuggestResponseSchema
-		);
+	/** What could be opened in a folder; with `asked`, also whether that source can be. */
+	suggest(directory: string, asked?: string): Promise<Result<SuggestResponse, ApiError>> {
+		const query = new URLSearchParams({ directory });
+		if (asked !== undefined) query.set('asked', asked);
+		return this.#call('GET', `/api/suggest?${query.toString()}`, SuggestResponseSchema);
 	}
 
 	loadDiff(id: ReportId): Promise<Result<DiffPage, ApiError>> {

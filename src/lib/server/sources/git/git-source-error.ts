@@ -98,7 +98,7 @@ export function describeGitSourceError(error: GitSourceError): ReviewerMessage {
 			);
 		case 'UnknownRevision':
 			return reviewerMessage(
-				`git does not know "${error.revision}" in ${error.repository}. Check the name (git branch --all lists branches), or fetch it first, then try again.`
+				`git does not know "${error.revision}" in this repository. Check the name (git branch --all lists branches), or fetch it first, then try again.`
 			);
 		case 'NoCommitsYet':
 			return reviewerMessage(

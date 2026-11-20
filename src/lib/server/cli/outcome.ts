@@ -82,7 +82,12 @@ export async function openOutcome(
 ): Promise<CommandOutcome> {
 	const opened = await client.open({ directory, source: formatGitSourceSpec(source) });
 	if (!opened.ok) {
-		return { lines: [describeApiError(opened.error)], page: startPage(directory), exitCode: 1 };
+		// The page says what was asked for and why it could not be opened, then what can be.
+		return {
+			lines: [describeApiError(opened.error)],
+			page: startPage(directory, source),
+			exitCode: 1
+		};
 	}
 	return described(opened.value, directory, source);
 }

@@ -166,6 +166,17 @@ describe('the diff-delver command', () => {
 		);
 		expect(commit.code).toBe(0);
 		expect(commit.stdout).toContain(': The last commit, 1 file changed, 1 line added.');
+
+		// A mistyped source opens the page that says what was asked for and why it failed.
+		const mistyped = await run(
+			['open', 'mian...HEAD', '--no-open', '--data-directory', data],
+			repo.dir,
+			who
+		);
+		expect(mistyped.code).toBe(1);
+		expect(mistyped.stderr).toContain('mian');
+		expect(addressIn(mistyped.stdout).pathname).toBe('/start');
+		expect(addressIn(mistyped.stdout).searchParams.get('asked')).toBe('mian...HEAD');
 	});
 
 	it('says plainly when the folder is not a repository, and opens the page that says so', async () => {

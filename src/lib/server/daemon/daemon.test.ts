@@ -111,6 +111,11 @@ describe('the daemon', () => {
 			kind: 'nothing',
 			candidates: [{ source: 'HEAD', description: 'The last commit (1 file)' }]
 		});
+		// A source that cannot be opened: the chooser is told why, in plain words.
+		const mistyped = value(await client.suggest(repo.dir, 'mian...HEAD'));
+		expect(mistyped.asked?.problem).toMatch(/mian/);
+		expect(value(await client.suggest(repo.dir, 'staged')).asked).toEqual({ problem: null });
+		expect(value(await client.suggest(repo.dir)).asked).toBeNull();
 		const badSource = await client.open({ directory: repo.dir, source: '-x' });
 		expect(badSource).toMatchObject({ ok: false, error: { status: 422 } });
 	});

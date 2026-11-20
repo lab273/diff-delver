@@ -125,7 +125,10 @@ export function startView(outcome: StartOutcome): StartResponse {
 	}
 }
 
-export function suggestView(suggested: SuggestedSource): SuggestResponse {
+export function suggestView(
+	suggested: SuggestedSource,
+	asked: SuggestResponse['asked'] = null
+): SuggestResponse {
 	const repo = suggested.repository;
 	const repository = repositoryLabel(repo.workTree ?? repo.gitDir);
 	const s = suggested.suggestion;
@@ -133,6 +136,7 @@ export function suggestView(suggested: SuggestedSource): SuggestResponse {
 		case 'one':
 			return {
 				repository,
+				asked,
 				suggestion: {
 					kind: 'one',
 					candidate: candidateView(s.candidate),
@@ -142,11 +146,13 @@ export function suggestView(suggested: SuggestedSource): SuggestResponse {
 		case 'choose':
 			return {
 				repository,
+				asked,
 				suggestion: { kind: 'choose', candidates: s.candidates.map(candidateView) }
 			};
 		case 'nothing':
 			return {
 				repository,
+				asked,
 				suggestion: {
 					kind: 'nothing',
 					reason: s.reason,

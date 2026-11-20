@@ -1,7 +1,8 @@
 <!--
 	What the command opens when it cannot open one diff straight away: a short
-	chooser when several changes could be reviewed, or why there is nothing to
-	review here, with what to do instead. It never opens anything by itself.
+	chooser when several changes could be reviewed, why there is nothing to
+	review here, or why what was asked for could not be opened, with what to do
+	instead. It never opens anything by itself.
 -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
@@ -60,8 +61,16 @@
 	<p>{describeApiError(data.suggested.error)}</p>
 	<p><a href={resolve('/')}>See the diffs you have opened before</a></p>
 {:else}
-	{@const { repository, suggestion } = data.suggested.value}
-	{#if data.asked !== undefined}
+	{@const { repository, suggestion, asked } = data.suggested.value}
+	{@const instead = data.asked !== undefined || suggestion.kind === 'nothing'}
+	{#if asked?.problem != null}
+		<h1>
+			{data.asked === undefined
+				? `What you asked for could not be opened in ${repository}`
+				: `${describeGitSource(data.asked)} could not be opened in ${repository}`}
+		</h1>
+		<p>{asked.problem}</p>
+	{:else if data.asked !== undefined}
 		<h1>Nothing to review in {repository}: {describeGitSource(data.asked)}</h1>
 		<p>{describeNothingToReview(data.asked)}</p>
 	{:else if suggestion.kind === 'nothing'}
@@ -69,11 +78,15 @@
 		<p>{suggestion.reason}</p>
 	{:else}
 		<h1>What would you like to review in {repository}?</h1>
-		<p>There are several changes here. Choose one to open it.</p>
+		<p>
+			{candidates.length === 1
+				? 'This can be reviewed here. Choose it to open it.'
+				: 'There are several changes here. Choose one to open it.'}
+		</p>
 	{/if}
 
 	{#if candidates.length > 0}
-		{#if data.asked !== undefined || suggestion.kind === 'nothing'}
+		{#if instead}
 			<h2>You could review instead</h2>
 		{/if}
 		<ul class="candidates">
@@ -91,6 +104,8 @@
 				</li>
 			{/each}
 		</ul>
+	{:else if data.asked !== undefined}
+		<p>There is nothing else to review here either.</p>
 	{/if}
 	{#if problem !== ''}
 		<Notice tone="danger" heading="That could not be opened">

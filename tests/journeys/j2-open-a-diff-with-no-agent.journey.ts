@@ -24,6 +24,26 @@ test.describe('J2 Open a diff with no agent', () => {
 		await journey.expectVisible(journey.within(notSorted).byText('src/discount.ts'));
 		await journey.step('The branch compared with main');
 
+		// A mistyped branch: the page says what was asked for and why it could not
+		// be opened, then offers the one thing that can be.
+		const mistyped = await journey.command(['open', 'mian...discounts'], feature);
+		expect(mistyped.output).toContain('mian');
+		await journey.open(mistyped.address);
+		await journey.expectVisible(
+			journey.byRole('heading', {
+				level: 1,
+				name: 'discounts compared with mian could not be opened in feature-branch'
+			})
+		);
+		await journey.expectVisible(journey.byText(/^git does not know "mian" in this repository\./));
+		await journey.expectVisible(
+			journey.byRole('heading', { level: 2, name: 'You could review instead' })
+		);
+		await journey.expectVisible(
+			journey.byRole('button', { name: 'discounts compared with main (2 files)' })
+		);
+		await journey.step('A source that could not be opened');
+
 		// Ahead of both main and master: either could be the main branch, so it asks.
 		const two = await journey.repository('two-main-branches');
 		const choosing = await journey.command([], two);

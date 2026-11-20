@@ -4,10 +4,11 @@ import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ fetch, url }) => {
 	const directory = url.searchParams.get('directory') ?? '';
-	const asked = parseGitSourceSpec(url.searchParams.get('asked') ?? '');
+	const askedText = url.searchParams.get('asked') ?? undefined;
+	const asked = parseGitSourceSpec(askedText ?? '');
 	return {
 		directory,
 		asked: asked.ok ? asked.value : undefined,
-		suggested: await pageClient(fetch).suggest(directory)
+		suggested: await pageClient(fetch).suggest(directory, askedText)
 	};
 };

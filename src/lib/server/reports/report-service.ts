@@ -441,6 +441,21 @@ export class ReportService {
 	}
 
 	/**
+	 * Whether a source can be read in the repository at `directory`, without
+	 * opening it or writing anything: for the page that says why it could not be
+	 * opened. Says what is wrong as `open` would, such as a branch git does not know.
+	 */
+	async checkSource(
+		directory: AbsolutePath,
+		spec: GitSourceSpec
+	): Promise<Result<void, ReportError>> {
+		const repo = await locateRepository(directory, this.#repository);
+		if (!repo.ok) return repo;
+		const identity = await sourceIdentity(repo.value, spec);
+		return identity.ok ? ok(undefined) : identity;
+	}
+
+	/**
 	 * Opens a source in the repository at `directory`: resumes its open report,
 	 * or takes a snapshot and makes a new report with revision 1, everything
 	 * uncategorised except what the built-in rules ignore.

@@ -165,6 +165,11 @@ export type OpenResponse = z.output<typeof OpenResponseSchema>;
 /** GET /api/suggest?directory=…: what could be opened in a folder, without opening anything. */
 export const SuggestResponseSchema = z.object({
 	repository: message,
+	/**
+	 * The source that was asked for, when one was: `problem` says why it cannot be
+	 * opened, or is null when it can be read and simply has nothing to review.
+	 */
+	asked: z.object({ problem: message.nullable() }).nullable(),
 	suggestion: z.discriminatedUnion('kind', [
 		z.object({
 			kind: z.literal('one'),
