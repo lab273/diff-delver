@@ -1,1 +1,33 @@
 .claude
+
+# Dependencies
+node_modules
+
+# Build and framework output
+.svelte-kit
+build
+/package
+.output
+.vercel
+.netlify
+.wrangler
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Test output
+test-results
+playwright-report
+blob-report
+coverage
+.vitest-results
+.verify
+
+# Environment
+.env
+.env.*
+!.env.example
+!.env.test
+
+# OS and editors
+.DS_Store
+Thumbs.db
