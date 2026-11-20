@@ -7,6 +7,7 @@ import { defineConfig, includeIgnoreFile } from 'eslint/config';
 import globals from 'globals';
 import ts from 'typescript-eslint';
 import { corePurityPlugin } from './scripts/eslint-core-purity.ts';
+import { JOURNEY_RESTRICTED_SYNTAX } from './scripts/eslint-journey-rules.ts';
 
 const gitignorePath = path.resolve(import.meta.dirname, '.gitignore');
 
@@ -57,22 +58,6 @@ const IMPURE = 'Core is pure: pass this in from the edge.';
 
 /** Journey tests: every step goes through the journey helper, by keyboard only. */
 const JOURNEY_FILES = ['tests/journeys/**/*.ts'];
-
-const KEYBOARD_ONLY =
-	'Journeys use the keyboard only (README, "Checking the experience"): use journey.press, journey.type and journey.activate.';
-
-/** Ways to reach the page other than the journey helper's keyboard methods. */
-const JOURNEY_INPUT_SYNTAX = [
-	{
-		selector:
-			"CallExpression[callee.property.name=/^(click|dblclick|fill|clear|hover|tap|check|uncheck|setChecked|selectOption|selectText|dragTo|dragAndDrop|setInputFiles|dispatchEvent|press|pressSequentially|type|focus|blur)$/]:not([callee.object.name='journey'])",
-		message: KEYBOARD_ONLY
-	},
-	{
-		selector: 'MemberExpression[property.name=/^(mouse|touchscreen|keyboard)$/]',
-		message: KEYBOARD_ONLY
-	}
-];
 
 /** Syntax core code must not use, because it reads the clock or loads code at run time. */
 const CORE_IMPURE_SYNTAX = [
@@ -240,10 +225,17 @@ export default defineConfig(
 								'Journeys import test and expect from tests/support/journey.ts, whose steps check every screen.'
 						}
 					],
-					patterns: LABEL_MAKERS
+					patterns: [
+						...LABEL_MAKERS,
+						{
+							regex: '^(?!\\.\\./support/journey\\.ts$)',
+							message:
+								'Journeys import only tests/support/journey.ts, which gives them everything they may use.'
+						}
+					]
 				}
 			],
-			'no-restricted-syntax': ['error', NO_TYPE_PREDICATES, ...JOURNEY_INPUT_SYNTAX]
+			'no-restricted-syntax': ['error', NO_TYPE_PREDICATES, ...JOURNEY_RESTRICTED_SYNTAX]
 		}
 	},
 	{
