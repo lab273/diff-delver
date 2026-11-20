@@ -13,7 +13,7 @@ import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
 import { ok, type Result } from '#lib/core/result.ts';
 import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 import { parseGitSourceSpec, type GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
-import { listSnapshots, listStores } from '#lib/server/store/index.ts';
+import { deleteSnapshot, listSnapshots, listStores } from '#lib/server/store/index.ts';
 import { snapshotGitSource } from '#lib/server/sources/git/index.ts';
 import { oddPathBytes } from '../../../../tests/support/diff-fixtures.ts';
 import { listingsAround } from '../../../../tests/support/directory-listing.ts';
@@ -840,6 +840,49 @@ describe('the report service', () => {
 		expect(failure(result.unknownRange).kind).toBe('UnknownRevision');
 		await repo.git('add', 'src/app.ts');
 		expect(value(await check('staged'))).toBe('changes');
+		service.close();
+	});
+
+	it('never removes the snapshot a check keeps for the next update, however long it waits', async () => {
+		const { repo, data, clock, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await repo.write('src/app.ts', 'one\n2\nthree\nfour\nfive\n');
+		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'changed', files: 1 });
+		// No version refers to it, and it has waited past the grace period: it is still kept.
+		value(await service.tidyStores());
+		clock.advance(GRACE_PERIOD);
+		clock.advance(1);
+		expect(value(await service.removeUnusedSnapshots())).toEqual([]);
+		value(await service.tidyStores());
+		expect(await snapshotCount(data)).toBe(2);
+		// The update uses it while a tidy runs beside it, and the new version can be read.
+		const [updated] = await Promise.all([service.update(id), service.tidyStores()]);
+		expect(value(updated).kind).toBe('updated');
+		const page = value(await service.load(id));
+		expect(page.revision.snapshot).toBe('00000000000000000000000000000002');
+		clock.advance(GRACE_PERIOD);
+		clock.advance(1);
+		value(await service.tidyStores());
+		expect(value(await service.load(id)).revision.snapshot).toBe(page.revision.snapshot);
+		service.close();
+	});
+
+	it('takes a fresh snapshot for an update when the one a check kept has gone', async () => {
+		const { repo, data, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await repo.write('src/app.ts', 'one\n2\nthree\nfour\nfive\n');
+		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'changed', files: 1 });
+		const [store] = value(await listStores(data));
+		if (store === undefined) throw new Error('no store');
+		const kept = value(await listSnapshots(store)).find(
+			(s) => s.id === '00000000000000000000000000000002'
+		);
+		if (kept === undefined) throw new Error('the check kept no snapshot');
+		value(await deleteSnapshot(store, kept.id));
+		expect(value(await service.update(id)).kind).toBe('updated');
+		const page = value(await service.load(id));
+		expect(page.revision.snapshot).toBe('00000000000000000000000000000003');
+		expect(page.diff.files.length).toBeGreaterThan(0);
 		service.close();
 	});
 

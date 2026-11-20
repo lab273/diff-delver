@@ -425,6 +425,11 @@ function notFreed(error: StoreError): ReviewerMessage {
 	);
 }
 
+/** How `#held` names a snapshot. */
+function heldKey(store: StoreId, snapshot: SnapshotId): string {
+	return `${store}/${snapshot}`;
+}
+
 function worktreeOf(repo: LocalRepository): AbsolutePath {
 	return repo.workTree ?? repo.gitDir;
 }
@@ -528,6 +533,12 @@ export class ReportService {
 	readonly #repository: RepositoryOptions;
 	readonly #diffs = new Map<string, Promise<Result<Diff, ReportError>>>();
 	readonly #checks = new Map<ReportId, Remembered>();
+	/**
+	 * Snapshots taken and not yet referred to by a revision or deleted, as
+	 * `store/snapshot`: the one a check keeps for the next update, and any an
+	 * open, a check or an update is using. Tidying never removes them.
+	 */
+	readonly #held = new Set<string>();
 	/** Stores snapshots were discarded from since they were last collected. */
 	readonly #discarded = new Set<StoreId>();
 	/** Checks under way, by report and revision, so callers at the same time share one. */
@@ -940,7 +951,9 @@ export class ReportService {
 	 * Removes snapshots no revision refers to that have gone unreferenced for
 	 * longer than the store's grace period, such as one a crash left between
 	 * taking a snapshot and recording its revision, then collects the store.
-	 * The daemon calls this now and then; it returns what it removed.
+	 * Never one this service holds (`#held`): the snapshot a check keeps for the
+	 * next update, or one an open, a check or an update is using. The daemon
+	 * calls this now and then; it returns what it removed.
 	 */
 	async removeUnusedSnapshots(): Promise<Result<readonly StoredSnapshot[], ReportError>> {
 		const stores = await listStores(this.#dataDirectory);
@@ -953,6 +966,9 @@ export class ReportService {
 			const due = this.#db.write((q) =>
 				andThen(snapshotsInUse(q), (inUse): Result<readonly SnapshotId[], ReportError> => {
 					const used = new Set(inUse.filter((s) => s.store === store.id).map((s) => s.snapshot));
+					for (const id of listed.value.map((s) => s.id)) {
+						if (this.#held.has(heldKey(store.id, id))) used.add(id);
+					}
 					const present = new Set(listed.value.map((s) => s.id));
 					for (const id of present) if (!used.has(id)) noticeSnapshot(q, store.id, id, now);
 					return andThen(sightingsIn(q, store.id), (sightings) => {
@@ -1024,6 +1040,19 @@ export class ReportService {
 	async #discard(store: Snapshot['store'], id: SnapshotId): Promise<void> {
 		this.#discarded.add(store.id);
 		await deleteSnapshot(store, id);
+		this.#held.delete(heldKey(store.id, id));
+	}
+
+	/** Takes a snapshot of a source, held from tidying until a revision refers to it or it is discarded. */
+	async #takeSnapshot(
+		repo: LocalRepository,
+		spec: GitSourceSpec
+	): Promise<Result<GitSnapshot, ReportError>> {
+		const id = this.#ids.snapshotId();
+		this.#held.add(heldKey(repo.storeId, id));
+		const taken = await snapshotGitSource(this.#dataDirectory, repo, spec, id);
+		if (!taken.ok) this.#held.delete(heldKey(repo.storeId, id));
+		return taken;
 	}
 
 	#logOnce(line: string): void {
@@ -1131,7 +1160,7 @@ export class ReportService {
 		identity: ReportIdentity,
 		replacing: ReportId | undefined
 	): Promise<Result<OpenOutcome, ReportError>> {
-		const taken = await snapshotGitSource(this.#dataDirectory, repo, spec, this.#ids.snapshotId());
+		const taken = await this.#takeSnapshot(repo, spec);
 		if (!taken.ok) return taken;
 		const { snapshot } = taken.value;
 		const discard = async <T>(result: Result<T, ReportError>): Promise<Result<T, ReportError>> => {
@@ -1205,6 +1234,8 @@ export class ReportService {
 			if (!found.ok) return discard(found);
 			return discard(await this.#resume(found.value, repo));
 		}
+		// Its revision refers to it now.
+		this.#held.delete(heldKey(snapshot.store.id, snapshot.id));
 		return ok({
 			kind: 'created',
 			report: summaryOf(report, revision),
@@ -1278,7 +1309,7 @@ export class ReportService {
 		const kept = await this.#keptProbe(report.id, revision.id, fingerprint);
 		if (kept !== undefined) return ok({ kind: 'changed', prepared: kept });
 		const spec = report.source.spec;
-		const taken = await snapshotGitSource(this.#dataDirectory, repo, spec, this.#ids.snapshotId());
+		const taken = await this.#takeSnapshot(repo, spec);
 		if (!taken.ok) return taken;
 		const { snapshot } = taken.value;
 		const discard = async <T>(result: Result<T, ReportError>): Promise<Result<T, ReportError>> => {
@@ -1417,6 +1448,8 @@ export class ReportService {
 				continue;
 			}
 			const made = written.value;
+			// Its revision refers to it now.
+			this.#held.delete(heldKey(snapshot.store.id, snapshot.id));
 			await this.#remember(id, {
 				revision: made.revision.id,
 				fingerprint: prepared.taken.identity,
