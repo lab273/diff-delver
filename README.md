@@ -96,9 +96,9 @@ Comments cannot switch lint rules off (`noInlineConfig`); fix the code instead.
   even when a later one repairs it.
 - **If `main` breaks, that comes first.** Fix it or revert the commit before
   anything else.
-- **Speed is a feature of the suite.** A change that makes the suite slower needs
-  the same justification as one that makes the product slower. The budgets are
-  under [Testing](#testing).
+- **Speed is a feature of the suite, and coverage comes first.** Write tests so
+  they run fast; never remove, shrink or skip a test that is needed in order to
+  save time. The limits are under [Testing](#testing) and they are guidance.
 - **Not published to npm.** The package is private and stays that way. Never run
   a publish command and never reserve the name on a registry.
 - **Work is tracked in beads.** See [Tracking work](#tracking-work).
@@ -250,8 +250,9 @@ No module mocking, and no fake git, file system or database.
 3. **Journeys**: the end-to-end tests above.
 
 **Keeping it fast.** Every commit runs the whole suite, so a slow suite slows
-every change. Real tests and fast tests are both required; these are the means of
-having both:
+every change. Real tests and fast tests are both wanted. When the two pull apart,
+the test wins: a necessary test stays, however long it takes, and the work goes
+into making it faster, not into removing it. These are the means of having both:
 
 - Most logic lives in the pure core, where a test takes milliseconds. The slower
   layers check wiring, not rules.
@@ -268,18 +269,22 @@ having both:
   browsers and the large-repository measurements. They run on a schedule and
   before a release.
 
-Starting budgets, to be tightened once there is code to measure:
+Each type of test has a time limit, as guidance:
 
-| What | Budget |
+| Type of test | Guidance for one test |
 |---|---|
-| The whole per-commit check on a laptop | 90 seconds |
-| All core tests | 5 seconds |
-| One core test | 250 ms |
-| One integration test | 3 seconds |
-| One journey test | 20 seconds |
+| Core | 250 ms |
+| Integration | 3 seconds |
+| Journey | 20 seconds |
 
-A test over its budget fails. The run prints its total time and its slowest
-tests, so a slowdown is seen in the commit that causes it.
+- A test over its limit is reported as a warning, not a failure. Treat the warning
+  as a prompt to look for a faster way to test the same thing, or to move the
+  test to the layer whose limit fits it. If neither is possible, the test stays.
+- There is no limit on the whole suite. `pnpm verify` prints its total time and
+  its slowest tests, and warns when the run has become unreasonably long, so a
+  slowdown is seen in the commit that causes it.
+- A much higher hard timeout remains on every test, only so that a test that
+  hangs fails instead of blocking the run.
 
 ### Checking the experience
 
