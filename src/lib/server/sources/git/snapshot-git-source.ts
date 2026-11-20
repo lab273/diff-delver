@@ -24,6 +24,11 @@ import { EMPTY_TREE } from '#lib/core/object-format.ts';
 import { objectCountOf, type ObjectCount } from '#lib/core/object-count.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import {
+	describeAddRefusals,
+	parseAddRefusals,
+	type AddRefusal
+} from '#lib/core/sources/git-add-refusal.ts';
 import type { GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import type { SourceIdentity } from '#lib/core/source-identity.tiny.ts';
 import { parseTreeId, type TreeId } from '#lib/core/tree-id.tiny.ts';
@@ -56,7 +61,7 @@ export interface GitSnapshot {
 	readonly headCommit: CommitId | undefined;
 	/** How many objects were copied into the store. */
 	readonly copied: ObjectCount;
-	/** Files of the working tree git could not add, in git's words, such as an unreadable file. */
+	/** Files of the working tree that could not be included, one sentence each, such as an unreadable file. */
 	readonly leftOut: readonly ReviewerMessage[];
 }
 
@@ -209,18 +214,18 @@ async function workingTreeTree(
 			`Not included: ${gone}, which was deleted while the snapshot was being taken. Refresh to include its change.`
 		)
 	);
-	if (!added.ok) {
-		// With --ignore-errors, git adds everything it can and exits 1 if some file could not be.
-		if (added.error.kind !== 'GitFailed' || added.error.exitCode !== 1) return added;
-		for (const line of added.error.stderr.split('\n')) {
-			if (line.startsWith('error: ')) {
-				leftOut.push(reviewerMessage(`Not included: ${line.slice('error: '.length)}`));
-			}
-		}
-	}
-	const changing = await settle(repo, workTree, scratch, writer);
+	// With --ignore-errors, git adds everything it can and exits 1 if some file could not be.
+	if (!added.ok && (added.error.kind !== 'GitFailed' || added.error.exitCode !== 1)) return added;
+	const refused = parseAddRefusals(stderrOf(added));
+	const changing = await settle(repo, workTree, scratch, writer, refused.refusals);
 	if (!changing.ok) return changing;
-	for (const path of changing.value) {
+	leftOut.push(
+		...describeAddRefusals({
+			refusals: changing.value.refusals,
+			unrecognised: refused.unrecognised || changing.value.unrecognised
+		})
+	);
+	for (const path of changing.value.changing) {
 		leftOut.push(
 			reviewerMessage(
 				`${path} kept changing while the snapshot was being taken, so it may hold part of an edit. Refresh to get its final version.`
@@ -234,19 +239,50 @@ async function workingTreeTree(
 /** How many times files that changed during `git add` are added again. */
 const SETTLE_ROUNDS = 3;
 
+/** What git printed to stderr, whether it succeeded or failed. */
+function stderrOf(run: Awaited<ReturnType<typeof gitIn>>): string {
+	if (run.ok) return run.value.stderr;
+	return 'stderr' in run.error ? run.error.stderr : '';
+}
+
+/** The records of NUL-separated output, as bytes. */
+function nulSeparated(output: Buffer): Buffer[] {
+	const records: Buffer[] = [];
+	for (let at = 0; at < output.length;) {
+		const end = output.indexOf(0, at);
+		const stop = end === -1 ? output.length : end;
+		if (stop > at) records.push(output.subarray(at, stop));
+		at = stop + 1;
+	}
+	return records;
+}
+
+interface Settled {
+	/** Paths still changing after the last round. */
+	readonly changing: readonly string[];
+	/** Every file git refused, in the first `git add` or while settling. */
+	readonly refusals: readonly AddRefusal[];
+	/** git refused a file for a reason not recognised. */
+	readonly unrecognised: boolean;
+}
+
 /**
  * Adds again the files that changed while `git add` read them, until the private
  * index matches the working tree. git reads as many bytes as the file had when it
  * looked at it, so a file replaced in between can be caught cut short; `git
  * diff-files` finds every file whose content no longer matches what was stored.
- * Returns the paths still changing after the last round.
+ * A file git refused differs too, since the index keeps its old version; it is
+ * not added again, and not reported as changing.
  */
 async function settle(
 	repo: LocalRepository,
 	workTree: AbsolutePath,
 	scratch: ScratchIndex,
-	writer: StoreWriter
-): Promise<Result<readonly string[], GitSourceError>> {
+	writer: StoreWriter,
+	refusedFirst: readonly AddRefusal[]
+): Promise<Result<Settled, GitSourceError>> {
+	const refusals = new Map(refusedFirst.map((refusal) => [String(refusal.path), refusal]));
+	let unrecognised = false;
 	for (let round = 0; ; round += 1) {
 		const differing = await gitIn(
 			repo,
@@ -255,16 +291,20 @@ async function settle(
 			{ env: writing(scratch, writer) }
 		);
 		if (!differing.ok) return differing;
-		const paths = differing.value.stdout;
-		if (paths.length === 0) return ok([]);
-		if (round === SETTLE_ROUNDS) {
-			return ok(
-				paths
-					.toString('utf8')
-					.split('\0')
-					.filter((path) => path !== '')
-			);
-		}
+		// Compared as text: git prints a refused path to stderr, decoded the same way.
+		const paths = nulSeparated(differing.value.stdout).filter(
+			(path) => !refusals.has(path.toString('utf8'))
+		);
+		const settled = (changing: readonly Buffer[]): Result<Settled, GitSourceError> =>
+			ok({
+				changing: changing.map((path) => path.toString('utf8')),
+				refusals: [...refusals.values()].toSorted((a, b) =>
+					a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+				),
+				unrecognised
+			});
+		if (paths.length === 0) return settled([]);
+		if (round === SETTLE_ROUNDS) return settled(paths);
 		const again = await gitIn(
 			repo,
 			workTree,
@@ -276,10 +316,16 @@ async function settle(
 				'--pathspec-from-file=-',
 				'--pathspec-file-nul'
 			],
-			{ env: { ...writing(scratch, writer), GIT_LITERAL_PATHSPECS: '1' }, input: paths }
+			{
+				env: { ...writing(scratch, writer), GIT_LITERAL_PATHSPECS: '1' },
+				input: Buffer.concat(paths.flatMap((path) => [path, Buffer.from([0])]))
+			}
 		);
-		// A file deleted meanwhile, or one that cannot be read, is found again next round.
+		// A file deleted meanwhile is found again next round; one git refuses now is left out.
 		if (!again.ok && again.error.kind !== 'GitFailed') return again;
+		const refusedNow = parseAddRefusals(stderrOf(again));
+		for (const refusal of refusedNow.refusals) refusals.set(String(refusal.path), refusal);
+		unrecognised ||= refusedNow.unrecognised;
 	}
 }
 

@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process';
 import { chmod, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { escapedRepoPath, repoPathFromBytes } from '#lib/core/path-bytes.ts';
 import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
@@ -20,6 +22,8 @@ import {
 	snapshotGitSource,
 	type GitSourceError
 } from './index.ts';
+
+const run = promisify(execFile);
 
 function path(text: string): RepoPath {
 	return value(parseRepoPath(text));
@@ -178,8 +182,34 @@ describe('a working-tree snapshot', () => {
 		expect(changes['tracked.txt']).toBe('modified');
 		expect(changes['unreadable.txt']).toBeUndefined();
 		expect(changes['empty-nested']).toBeUndefined();
-		expect(taken.leftOut.join('\n')).toMatch(/unreadable\.txt/);
-		expect(taken.leftOut.join('\n')).toMatch(/empty-nested/);
+		expect(taken.leftOut).toEqual([
+			'Not included: empty-nested, a repository inside this one with no commits yet, so there is no commit to record for it. Make a commit in it, or remove it, then refresh.',
+			'Not included: unreadable.txt, which could not be read (permission denied). Check that you can read it, then refresh.'
+		]);
+	});
+
+	it('says once, in plain words, why each file could not be included', async () => {
+		const repo = await emptyRepo();
+		await repo.write('a.txt', 'one\n');
+		await repo.write('fifo', 'a file for now\n');
+		await repo.write('ok.txt', 'one\n');
+		await repo.commit('base');
+		await repo.write('a.txt', 'edited, then made unreadable\n');
+		await chmod(join(repo.dir, 'a.txt'), 0o000);
+		await repo.write('untracked.txt', 'unreadable too\n');
+		await chmod(join(repo.dir, 'untracked.txt'), 0o000);
+		await repo.remove('fifo');
+		await run('mkfifo', [join(repo.dir, 'fifo')]);
+		await repo.write('ok.txt', 'two\n');
+		const taken = value(await take(repo.dir, 'working-tree', await reviewer()));
+		await chmod(join(repo.dir, 'a.txt'), 0o644);
+		await chmod(join(repo.dir, 'untracked.txt'), 0o644);
+		expect(taken.leftOut).toEqual([
+			'Not included: a.txt, which could not be read (permission denied). Check that you can read it, then refresh.',
+			'Not included: fifo, which is not a file, folder or symbolic link (it may be a named pipe, a socket or a device), so it cannot be part of a snapshot.',
+			'Not included: untracked.txt, which could not be read (permission denied). Check that you can read it, then refresh.'
+		]);
+		expect(await changesOf(taken.snapshot)).toEqual({ 'ok.txt': 'modified' });
 	});
 
 	it('keeps paths that are not UTF-8 exact', async () => {
