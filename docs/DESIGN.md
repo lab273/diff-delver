@@ -309,13 +309,23 @@ A report's identity comes from its source:
 | GitHub PR | host, owner, repo, number |
 | jj change | repo and change id, so an amended change is the same report |
 | jj revset or git range | repo and the two ends as written, e.g. `main...feature-x` |
+| a single commit | repo and the commit as written |
+
+An end written relative to where a worktree is, such as `HEAD`, means a different
+commit in each worktree, so the worktree is then part of the identity too.
 | git working tree or staged | repo and worktree path |
 
-A report is **open** or **closed**. It closes when the PR is merged or closed, when
-the diff becomes empty (committed, merged or discarded), or when the reviewer closes
-it. `create_report` on a source with an open report resumes it. On a source whose
-last report is closed, it starts a new one. This matters most for working-tree
-reports, where the same source holds unrelated work from one day to the next.
+A report is **open** or **closed**. `create_report` on a source with an open report
+resumes it. On a source whose last report is closed, it starts a new one. This
+matters most for working-tree reports, where the same source holds unrelated work
+from one day to the next.
+
+A report never closes under the person reading it. When its source has nothing left
+to review (the changes were committed, merged or discarded, or the PR was merged or
+closed), the page says so in a banner, keeps showing what was being read, and
+offers the next step: close it, or open what the changes became, such as the commit
+they went into. It closes when the reviewer closes it, or when its source is next
+opened and has nothing to review.
 
 Closed reports stay in the list and stay readable.
 
@@ -364,8 +374,10 @@ What belongs to a review:
 
 What does not:
 
-- **Reviewed marks.** These accumulate on the report. The review records a copy
-  of them at the moment of submission.
+- **Reviewed marks.** These accumulate on the report: they are stored with each
+  revision and carried forward to the next, so the report's progress is that of
+  its current revision. The review records a copy of them at the moment of
+  submission.
 - **Requests to the agent and its answers.** These are conversation, not feedback
   to the author. They stay on the report unless the reviewer promotes one.
 
@@ -690,7 +702,9 @@ How it is measured:
 - Figures are computed in the background when a snapshot is added or removed and
   cached. They never block opening a report.
 - Space is returned to the disk when the store is next collected, which deleting a
-  report triggers.
+  report triggers. Objects written within the last hour are kept through a
+  collection, so deleting a fresh report frees its space up to an hour later. The
+  confirmation says "frees about 40 MB", and says "within an hour" when that applies.
 
 ## 10. User journeys
 
