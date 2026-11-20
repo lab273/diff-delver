@@ -32,6 +32,10 @@ export function absolutePath(path: string): AbsolutePath {
 	return parsed.value;
 }
 
+export interface RepoOptions {
+	readonly objectFormat?: 'sha1' | 'sha256';
+}
+
 export class GitRepo {
 	readonly dir: AbsolutePath;
 	/** Submodule entries, re-applied to the index on every commit. */
@@ -43,10 +47,7 @@ export class GitRepo {
 	}
 
 	/** Creates an empty repository with `main` as its branch, in a directory that need not exist. */
-	static async init(
-		dir: AbsolutePath,
-		options: { readonly objectFormat?: 'sha1' | 'sha256' } = {}
-	): Promise<GitRepo> {
+	static async init(dir: AbsolutePath, options: RepoOptions = {}): Promise<GitRepo> {
 		await mkdir(dir, { recursive: true });
 		const repo = new GitRepo(dir);
 		await repo.git(
@@ -153,4 +154,24 @@ export class GitRepo {
 		if (!commit.ok || !tree.ok) throw new Error(`Unexpected rev-parse output for ${revision}`);
 		return { commit: commit.value, tree: tree.value };
 	}
+}
+
+/** A named repository and the script that builds it. */
+export interface Fixture {
+	readonly name: string;
+	/**
+	 * Builds the repository. Tag the commits that tests need and read them back
+	 * with `repo.snapshot(tag)`.
+	 */
+	readonly build: (repo: GitRepo) => Promise<void>;
+	readonly options: RepoOptions;
+}
+
+/** Names a fixture repository and the script that builds it. */
+export function defineFixture(
+	name: string,
+	build: (repo: GitRepo) => Promise<void>,
+	options: RepoOptions = {}
+): Fixture {
+	return { name, build, options };
 }

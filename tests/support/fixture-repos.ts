@@ -10,7 +10,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { access, cp, mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { inject, onTestFinished } from 'vitest';
-import { absolutePath, GitRepo } from './git-repo.ts';
+import { absolutePath, GitRepo, type Fixture } from './git-repo.ts';
+
+export { defineFixture, type Fixture } from './git-repo.ts';
 
 declare module 'vitest' {
 	export interface ProvidedContext {
@@ -19,26 +21,15 @@ declare module 'vitest' {
 	}
 }
 
-export interface Fixture {
-	readonly name: string;
-	/**
-	 * Builds the repository. Tag the commits that tests need and read them back
-	 * with `repo.snapshot(tag)`.
-	 */
-	readonly build: (repo: GitRepo) => Promise<void>;
-}
-
-/** Names a fixture repository and the script that builds it. */
-export function defineFixture(name: string, build: (repo: GitRepo) => Promise<void>): Fixture {
-	return { name, build };
-}
-
 const templates = new Map<string, Promise<string>>();
 
 /** A private copy of the fixture for the current test. */
 export async function useFixture(fixture: Fixture): Promise<GitRepo> {
 	const root = inject('fixtureRoot');
-	const key = `${fixture.name}-${createHash('sha256').update(fixture.build.toString()).digest('hex').slice(0, 12)}`;
+	const key = `${fixture.name}-${createHash('sha256')
+		.update(JSON.stringify(fixture.options) + fixture.build.toString())
+		.digest('hex')
+		.slice(0, 12)}`;
 	let template = templates.get(key);
 	if (template === undefined) {
 		template = buildTemplate(root, key, fixture);
@@ -63,7 +54,7 @@ async function buildTemplate(root: string, key: string, fixture: Fixture): Promi
 	const done = join(root, 'templates', key);
 	if (await exists(done)) return done;
 	const building = join(root, 'building', randomUUID());
-	await fixture.build(await GitRepo.init(absolutePath(building)));
+	await fixture.build(await GitRepo.init(absolutePath(building), fixture.options));
 	await mkdir(join(root, 'templates'), { recursive: true });
 	try {
 		await rename(building, done);

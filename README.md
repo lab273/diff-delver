@@ -45,6 +45,7 @@ cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
 | `pnpm lint` | ESLint, with warnings counted as failures. |
 | `pnpm check` | `svelte-check`: types in TypeScript and Svelte files. |
 | `pnpm format` | Rewrites files with Prettier. `pnpm format:check` only checks. |
+| `pnpm fixtures:capture` | Rebuilds the diff fixture repositories with real git and records git's output as the core parser's fixtures. Run it after changing a fixture or the diff command. |
 
 ### Layout
 
@@ -55,9 +56,11 @@ cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
 | `src/routes/` | The UI and the HTTP routes. |
 | `src/**/*.test.ts` outside core | The `integration` Vitest project (3 seconds per test). |
 | `tests/journeys/` | One Playwright file per journey, `j<N>-<name>.journey.ts`, with the journey's name as its `describe`. They run in Chromium against one production build on a free port, 20 seconds per test. |
-| `src/lib/server/git/` | Running git. `run-git.ts` runs one command, isolated from the machine's git config, and returns typed errors; everything that calls git goes through it. |
-| `tests/support/` | Shared test helpers. `accessibility.ts` scans the current screen with axe; every journey calls it on every screen it reaches. `git-repo.ts` builds real repositories with real git, with a fixed identity and dates. `fixture-repos.ts` gives each integration test its own copy of a named fixture repository (`defineFixture`, `useFixture`), built once per run, or a fresh empty one (`emptyRepo`). |
+| `src/lib/core/diff/` | The diff model (DESIGN 4): reading git's diff output, change units, assignment, coverage, slices and the agent-facing diff text. `fixtures/` holds git output recorded by `pnpm fixtures:capture`; never edit it by hand. |
+| `src/lib/server/git/` | Running git. `run-git.ts` runs one command, isolated from the machine's git config, and returns typed errors; everything that calls git goes through it. `read-diff.ts` reads the diff between two trees with the one fixed diff command. |
+| `tests/support/` | Shared test helpers. `accessibility.ts` scans the current screen with axe; every journey calls it on every screen it reaches. `git-repo.ts` builds real repositories with real git, with a fixed identity and dates. `fixture-repos.ts` gives each integration test its own copy of a named fixture repository (`defineFixture`, `useFixture`), built once per run, or a fresh empty one (`emptyRepo`). `diff-fixtures.ts` defines the repositories with every awkward kind of change. |
 | `scripts/verify.ts` | The `pnpm verify` runner. |
+| `scripts/capture-diff-fixtures.ts` | The `pnpm fixtures:capture` script. |
 | `.github/workflows/verify.yml` | CI: `pnpm verify` on every commit of every push to `main`. |
 
 **Tiny-type files.** A tiny type and its parse function live in their own file
