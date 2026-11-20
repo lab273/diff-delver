@@ -15,7 +15,8 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter()
+			// A prefix of its own, so the reviewer's PORT, ORIGIN or BODY_SIZE_LIMIT never reach it.
+			adapter: adapter({ envPrefix: 'DIFF_DELVER_APP_' })
 		})
 	],
 	test: {
@@ -47,6 +48,9 @@ export default defineConfig({
 					include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
 					exclude: [`${CORE_TEST_DIRECTORY}**`],
 					globalSetup: ['tests/support/vitest-global-setup.ts'],
+					// The production build, which the daemon tests serve, runs as Node runs it,
+					// not through Vite's transform, as the command does.
+					server: { deps: { external: [/\/build\//] } },
 					testTimeout: TIME_LIMITS.integration.hangTimeout,
 					hookTimeout: TIME_LIMITS.integration.hangTimeout,
 					allowOnly: false

@@ -4,11 +4,15 @@ import { defineConfig, devices } from '@playwright/test';
 import { TIME_LIMITS, WAIT_HANG_TIMEOUTS } from './scripts/test-time-limits.ts';
 
 /**
- * Journeys run against one production build (`build/`, made by `vite build`),
- * served by the Node adapter on a free port, in Chromium only.
+ * Journeys run against one production build (`build/`, made by `pnpm build`), in
+ * Chromium only. Each journey starts a daemon of its own on that build, in its
+ * worker's process, on a free port, with its own data folder, clock and ids
+ * (tests/support/journey-world.ts), so there is no web server here.
  *
- * Playwright loads this file in the runner and again in every worker. The port is
- * chosen once, in the runner, and handed to the workers through the environment.
+ * `baseURL` is only an origin for the journey helper's own tests, which plant
+ * their pages there; nothing listens on it. Playwright loads this file in the
+ * runner and again in every worker, so the port is chosen once, in the runner,
+ * and handed to the workers through the environment.
  */
 const PORT_VARIABLE = 'DIFF_DELVER_JOURNEY_PORT';
 
@@ -107,14 +111,5 @@ export default defineConfig({
 				}
 			}
 		}
-	],
-	webServer: {
-		command: 'node build',
-		url: baseURL,
-		reuseExistingServer: false,
-		timeout: WAIT_HANG_TIMEOUTS.serverStart,
-		stdout: 'ignore',
-		stderr: 'pipe',
-		env: { HOST: '127.0.0.1', PORT: port, ORIGIN: baseURL, TZ: 'UTC' }
-	}
+	]
 });

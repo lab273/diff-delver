@@ -1,0 +1,254 @@
+/**
+ * The daemon's HTTP API: one Zod schema for each request and each response,
+ * written once. The routes parse what they are sent with the request schemas and
+ * build values of the response types; the client (`client.ts`) parses what it
+ * receives with the response schemas, so the page and any test get the same
+ * domain values, tiny types included, that the route sent.
+ *
+ * Optional values are `null` in JSON, never left out, so a value and its JSON
+ * have the same keys.
+ */
+import { z } from 'zod';
+import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
+import { parseCodeVersion } from '#lib/core/code-version.tiny.ts';
+import { parseFileCount } from '#lib/core/file-count.tiny.ts';
+import { parseLineCount } from '#lib/core/line-count.tiny.ts';
+import { parseEscapedPath } from '#lib/core/path-bytes.ts';
+import { parseReportId } from '#lib/core/report-id.tiny.ts';
+import { ok, err, type Result } from '#lib/core/result.ts';
+import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import { parseSectionTitle } from '#lib/core/section-title.tiny.ts';
+import type { GitSourceText } from '#lib/core/sources/git-source-text.tiny.ts';
+import { formatGitSourceSpec, parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
+import { parseTimestamp } from '#lib/core/timestamp.tiny.ts';
+import { parseUnitCount } from '#lib/core/unit-count.tiny.ts';
+
+/** A value made by a tiny type's parse function. */
+function parsed<I, T>(base: z.ZodType<I>, parse: (value: I) => Result<T, unknown>): z.ZodType<T> {
+	return base.transform((value, context) => {
+		const result = parse(value);
+		if (result.ok) return result.value;
+		context.addIssue({ code: 'custom', message: `${JSON.stringify(value)} is not valid here` });
+		return z.NEVER;
+	});
+}
+
+function sourceText(text: string): Result<GitSourceText, unknown> {
+	const spec = parseGitSourceSpec(text);
+	return spec.ok ? ok(formatGitSourceSpec(spec.value)) : err(spec.error);
+}
+
+const message = z.string().transform(reviewerMessage);
+const reportId = parsed(z.string(), parseReportId);
+const timestamp = parsed(z.number(), parseTimestamp);
+const fileCount = parsed(z.number(), parseFileCount);
+const lineCount = parsed(z.number(), parseLineCount);
+const unitCount = parsed(z.number(), parseUnitCount);
+const escapedPath = parsed(z.string(), parseEscapedPath);
+const absolutePath: z.ZodType<AbsolutePath> = parsed(z.string(), parseAbsolutePath);
+/** A source in its one written form (`formatGitSourceSpec`), such as `working-tree` or `main...feature`. */
+const source = parsed(z.string(), sourceText);
+
+// ── Shared parts ─────────────────────────────────────────────────────────────
+
+export const DiffSummarySchema = z.object({
+	id: reportId,
+	/** The source in plain words: "Uncommitted changes". */
+	title: message,
+	/** The repository's folder name. */
+	repository: message,
+	state: z.discriminatedUnion('kind', [
+		z.object({ kind: z.literal('open') }),
+		z.object({ kind: z.literal('closed'), reason: message })
+	]),
+	lastActivityAt: timestamp,
+	size: z.object({ files: fileCount, added: lineCount, removed: lineCount }),
+	/** In words: "3 files changed, 40 lines added and 12 removed". */
+	sizeText: message,
+	progress: z.object({
+		counted: unitCount,
+		reviewed: unitCount,
+		ignored: unitCount,
+		uncategorised: unitCount
+	}),
+	/** In words: "12 of 42 changes reviewed". */
+	progressText: message,
+	/** How many files could not be included. */
+	leftOut: fileCount
+});
+export type DiffSummary = z.output<typeof DiffSummarySchema>;
+
+/** Something to open, as a chooser offers it. */
+export const CandidateSchema = z.object({
+	source,
+	/** In plain words, with its size: "Uncommitted changes (12 files)". */
+	description: message
+});
+export type Candidate = z.output<typeof CandidateSchema>;
+
+/** A source to offer instead, such as the commit the changes went into. */
+export const NextSourceSchema = z.object({ source, offer: message });
+export type NextSourceOffer = z.output<typeof NextSourceSchema>;
+
+const OpenedSchema = z.object({
+	kind: z.literal('opened'),
+	diff: DiffSummarySchema,
+	/** It was open already and has been resumed. */
+	resumed: z.boolean(),
+	/** Resumed, and its source has changed since. */
+	changed: z.boolean()
+});
+
+const NothingToReviewSchema = z.object({
+	kind: z.literal('nothing'),
+	/** The source in plain words, when one was asked for. */
+	source: message.nullable(),
+	/** Why there is nothing, and what to do instead. */
+	reason: message,
+	/** Files that could not be included, which may be why it looks empty. */
+	leftOut: z.array(message),
+	/** What to offer instead, when it can be told. */
+	next: NextSourceSchema.nullable(),
+	/** Other sources that could still be opened. */
+	candidates: z.array(CandidateSchema)
+});
+
+// ── Requests and responses ───────────────────────────────────────────────────
+
+/** GET /api/diffs: every diff, most recently active first. */
+export const DiffListSchema = z.object({
+	/** The daemon's time, for "5 minutes ago". */
+	now: timestamp,
+	diffs: z.array(
+		z.discriminatedUnion('kind', [
+			DiffSummarySchema.extend({ kind: z.literal('diff') }),
+			z.object({
+				kind: z.literal('damaged'),
+				/** Null when even its id cannot be read; such an entry cannot be deleted from here. */
+				id: reportId.nullable(),
+				problem: message
+			})
+		])
+	)
+});
+export type DiffList = z.output<typeof DiffListSchema>;
+export type ListedDiff = DiffList['diffs'][number];
+
+/** POST /api/start: what `diff-delver` with no arguments opens in a folder. */
+export const StartRequestSchema = z.object({ directory: absolutePath });
+export type StartRequest = z.input<typeof StartRequestSchema>;
+
+export const StartResponseSchema = z.discriminatedUnion('kind', [
+	OpenedSchema,
+	z.object({
+		kind: z.literal('choose'),
+		repository: message,
+		candidates: z.array(CandidateSchema)
+	}),
+	NothingToReviewSchema
+]);
+export type StartResponse = z.output<typeof StartResponseSchema>;
+
+/** POST /api/open: one source in a folder. */
+export const OpenRequestSchema = z.object({ directory: absolutePath, source: z.string() });
+export type OpenRequest = z.input<typeof OpenRequestSchema>;
+
+export const OpenResponseSchema = z.discriminatedUnion('kind', [
+	OpenedSchema,
+	NothingToReviewSchema
+]);
+export type OpenResponse = z.output<typeof OpenResponseSchema>;
+
+/** GET /api/suggest?directory=…: what could be opened in a folder, without opening anything. */
+export const SuggestResponseSchema = z.object({
+	repository: message,
+	suggestion: z.discriminatedUnion('kind', [
+		z.object({
+			kind: z.literal('one'),
+			candidate: CandidateSchema,
+			others: z.array(CandidateSchema)
+		}),
+		z.object({ kind: z.literal('choose'), candidates: z.array(CandidateSchema) }),
+		z.object({ kind: z.literal('nothing'), reason: message, candidates: z.array(CandidateSchema) })
+	])
+});
+export type SuggestResponse = z.output<typeof SuggestResponseSchema>;
+
+const IgnoreReasonSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('stated'), text: message }),
+	/** The agent's own words, shown as the agent's and as text. */
+	z.object({ kind: z.literal('agent'), reason: parsed(z.string(), parseAgentMarkdown) })
+]);
+
+const ListedFileSchema = z.object({
+	path: escapedPath,
+	status: z.enum(['added', 'deleted', 'modified', 'renamed', 'copied', 'type-changed']),
+	from: escapedPath.nullable(),
+	content: z.enum(['text', 'binary', 'submodule']),
+	added: lineCount,
+	removed: lineCount,
+	ignored: z.array(IgnoreReasonSchema)
+});
+export type ListedFileView = z.output<typeof ListedFileSchema>;
+
+/** GET /api/diffs/:id: a diff's page. */
+export const DiffPageSchema = z.object({
+	now: timestamp,
+	summary: DiffSummarySchema,
+	/** The folder the diff was opened in, to open what its changes became. Never shown. */
+	directory: absolutePath,
+	/** Files that could not be included, one sentence each. */
+	leftOut: z.array(message),
+	groups: z.array(
+		z.object({
+			group: z.discriminatedUnion('kind', [
+				z.object({ kind: z.literal('section'), title: parsed(z.string(), parseSectionTitle) }),
+				z.object({ kind: z.literal('ignored') }),
+				z.object({ kind: z.literal('uncategorised') })
+			]),
+			files: z.array(ListedFileSchema)
+		})
+	),
+	/** Whether any section exists, to explain "Not sorted yet". */
+	sorted: z.boolean()
+});
+export type DiffPage = z.output<typeof DiffPageSchema>;
+
+/** GET /api/diffs/:id/changes: whether the diff's source has moved on. */
+export const ChangeCheckSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('unchanged') }),
+	z.object({ kind: z.literal('changed') }),
+	z.object({ kind: z.literal('nothing-left'), reason: message, next: NextSourceSchema.nullable() }),
+	z.object({ kind: z.literal('closed') })
+]);
+export type ChangeCheckResponse = z.output<typeof ChangeCheckSchema>;
+
+/** POST /api/diffs/:id/close and /reopen. */
+export const StateChangeSchema = z.object({ diff: DiffSummarySchema });
+export type StateChange = z.output<typeof StateChangeSchema>;
+
+/** DELETE /api/diffs/:id. */
+export const DeletedSchema = z.object({
+	/** Set when the diff went but its space could not be freed yet; it is freed later by itself. */
+	problem: message.nullable()
+});
+export type DeletedResponse = z.output<typeof DeletedSchema>;
+
+/** GET /api/daemon: which build the daemon runs, for the command. */
+export const DaemonInfoSchema = z.object({ version: parsed(z.string(), parseCodeVersion) });
+export type DaemonInfo = z.output<typeof DaemonInfoSchema>;
+
+/** POST /api/daemon/stop. */
+export const StoppingSchema = z.object({ stopping: z.literal(true) });
+export type Stopping = z.output<typeof StoppingSchema>;
+
+/** What every refused request answers with: what happened and what to do next. */
+export const ApiErrorBodySchema = z.object({
+	error: z.object({
+		/** The kind of error, such as `ReportNotFound`. */
+		kind: z.string(),
+		message
+	})
+});
+export type ApiErrorBody = z.output<typeof ApiErrorBodySchema>;

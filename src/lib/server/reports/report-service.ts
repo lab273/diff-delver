@@ -104,7 +104,8 @@ import {
 	suggestSource,
 	type LocalRepository,
 	type RepositoryOptions,
-	type SourceCandidate
+	type SourceCandidate,
+	type SuggestedSource
 } from '../sources/git/index.ts';
 import {
 	collectGarbage,
@@ -211,7 +212,12 @@ export type StartOutcome =
 			/** Other sources worth offering beside it. */
 			readonly others: readonly SourceCandidate[];
 	  }
-	| { readonly kind: 'choose'; readonly candidates: readonly SourceCandidate[] }
+	| {
+			readonly kind: 'choose';
+			/** The repository's folder name, for the chooser's heading. */
+			readonly repository: ReviewerMessage;
+			readonly candidates: readonly SourceCandidate[];
+	  }
 	| {
 			readonly kind: 'nothing';
 			readonly reason: ReviewerMessage;
@@ -412,7 +418,11 @@ export class ReportService {
 					: opened;
 			}
 			case 'choose':
-				return ok({ kind: 'choose', candidates: suggestion.candidates });
+				return ok({
+					kind: 'choose',
+					repository: repositoryLabel(worktreeOf(repository)),
+					candidates: suggestion.candidates
+				});
 			case 'nothing':
 				return ok({
 					kind: 'nothing',
@@ -420,6 +430,14 @@ export class ReportService {
 					candidates: suggestion.candidates
 				});
 		}
+	}
+
+	/**
+	 * What the no-argument start would offer in `directory`, without opening
+	 * anything: for the chooser page, which may be reloaded.
+	 */
+	async suggest(directory: AbsolutePath): Promise<Result<SuggestedSource, ReportError>> {
+		return suggestSource(directory, this.#repository);
 	}
 
 	/**

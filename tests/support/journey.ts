@@ -65,11 +65,17 @@ import {
 import { comparePngPixels } from '../../scripts/png-pixels.ts';
 import { stepNumberOf } from '../../src/lib/core/step-number.tiny.ts';
 import { expectAccessible } from './accessibility.ts';
+import {
+	JOURNEY_TIME,
+	makeJourneyWorld,
+	type JourneyRepositoryName,
+	type JourneyWorld
+} from './journey-world.ts';
 
 export { expect };
 
-/** The time the page's clock shows for the whole journey. */
-export const JOURNEY_TIME = new Date('2026-01-15T09:30:00Z');
+/** The time the page's clock, and the daemon's, show for the whole journey. */
+export { JOURNEY_TIME };
 
 /** The only font families text may be drawn in: the ones bundled with the app. */
 const BUNDLED_FONTS: readonly string[] = ['Inter', 'JetBrains Mono'];
@@ -168,6 +174,18 @@ export interface ControlState {
  * fails only once the hang timeout passes (scripts/test-time-limits.ts).
  */
 export interface Journey extends Finder {
+	/**
+	 * A private copy of a named repository (tests/support/journey-world.ts), to run
+	 * the command in. The page names it by its folder, which is the fixture's name.
+	 */
+	repository(name: JourneyRepositoryName): Promise<JourneyRepository>;
+	/**
+	 * What running `diff-delver <args>` in `where` does, against this journey's own
+	 * daemon: what it prints, and the address it opens, with which `open` goes
+	 * where the person's browser would be sent. Without `where`, it runs in an
+	 * empty folder that is not a repository.
+	 */
+	command(args: readonly string[], where?: JourneyRepository): Promise<CommandRun>;
 	/** Opens a page of the app by its path, as a person does from a link: `/`, `/reports/1`. */
 	open(path: string): Promise<void>;
 	/** Checks the screen as it is now, as the next numbered step (see above). */
@@ -238,6 +256,19 @@ export interface Journey extends Finder {
  * `link "Start reviewing"`. The first line of its ARIA snapshot, without the
  * colon that introduces its children (a link's address, a list's items).
  */
+/** A repository a journey asked for. Only the helper knows where it is. */
+export interface JourneyRepository {
+	readonly description: string;
+}
+
+/** What the command printed, and where it sends the browser. */
+export interface CommandRun {
+	readonly output: string;
+	readonly address: string;
+}
+
+const REPOSITORY_PATHS = new WeakMap<JourneyRepository, string>();
+
 async function roleAndName(locator: Locator): Promise<string> {
 	const first = (await locator.ariaSnapshot()).split('\n')[0] ?? '';
 	return first.replace(/^- /, '').replace(/:$/, '');
@@ -552,7 +583,8 @@ export async function startJourney(
 	page: Page,
 	testInfo: TestInfo,
 	baseURL: string | undefined,
-	options: JourneyOptions = { screenshots: 'check' }
+	options: JourneyOptions = { screenshots: 'check' },
+	world?: JourneyWorld
 ): Promise<RunningJourney> {
 	const journeyName = journeySlug(testInfo.file);
 	const browserErrors: string[] = [];
@@ -634,7 +666,23 @@ export async function startJourney(
 
 	const journey: Journey = {
 		async open(path) {
-			await page.goto(path);
+			await page.goto(new URL(path, origin).href);
+		},
+		async repository(name) {
+			if (world === undefined)
+				throw new Error('This journey has no world to make repositories in.');
+			const repo: JourneyRepository = Object.freeze({ description: `the ${name} repository` });
+			REPOSITORY_PATHS.set(repo, await world.repository(name));
+			return repo;
+		},
+		async command(args, where) {
+			if (world === undefined)
+				throw new Error('This journey has no daemon to run the command against.');
+			const directory = where === undefined ? undefined : REPOSITORY_PATHS.get(where);
+			if (where !== undefined && directory === undefined) {
+				throw new Error(`${where.description} was not made by journey.repository.`);
+			}
+			return world.command(args, directory);
 		},
 		async step(name) {
 			const slug = stepSlug(name);
@@ -825,9 +873,21 @@ export async function startJourney(
 }
 
 export const test = base.extend<{ journey: Journey }>({
-	journey: async ({ page, baseURL }, use, testInfo) => {
-		const running = await startJourney(page, testInfo, baseURL);
-		await use(running.journey);
-		await running.finish();
+	journey: async ({ page }, use, testInfo) => {
+		// A daemon of the journey's own, with its own data folder, clock and ids.
+		const world = await makeJourneyWorld();
+		try {
+			const running = await startJourney(
+				page,
+				testInfo,
+				world.daemon.origin,
+				{ screenshots: 'check' },
+				world
+			);
+			await use(running.journey);
+			await running.finish();
+		} finally {
+			await world.close();
+		}
 	}
 });

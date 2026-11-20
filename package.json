@@ -5,18 +5,31 @@
 	"license": "AGPL-3.0-only",
 	"private": true,
 	"type": "module",
+	"bin": {
+		"diff-delver": "bin/diff-delver.js"
+	},
+	"files": [
+		"bin",
+		"build",
+		"LICENSE",
+		"README.md"
+	],
 	"engines": {
 		"node": ">=26"
 	},
 	"packageManager": "pnpm@12.4.2",
 	"imports": {
-		"#lib/*": "./src/lib/*"
+		"#lib/*": "./src/lib/*",
+		"#build/handler.js": {
+			"types": "./src/build-handler.d.ts",
+			"default": "./build/handler.js"
+		}
 	},
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build",
+		"build": "vite build && vite build --config vite.cli.config.ts",
 		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo \"\"",
+		"prepare": "svelte-kit sync && vite build && vite build --config vite.cli.config.ts",
 		"verify": "node scripts/verify.ts",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -27,7 +40,7 @@
 		"test:core": "vitest run --project core",
 		"test:integration": "vitest run --project integration",
 		"test:watch": "vitest",
-		"test:journeys": "vite build && playwright test",
+		"test:journeys": "pnpm build && playwright test",
 		"journeys:update": "node scripts/journeys.ts update",
 		"journeys:repeat": "node scripts/journeys.ts repeat",
 		"fixtures:capture": "node scripts/capture-diff-fixtures.ts",

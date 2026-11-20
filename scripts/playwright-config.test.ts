@@ -11,11 +11,9 @@ describe('playwright.config.ts', () => {
 	it('takes every timeout from the table of hang timeouts', () => {
 		expect(config.timeout).toBe(TIME_LIMITS.journey.hangTimeout);
 		expect(config.expect?.timeout).toBe(WAIT_HANG_TIMEOUTS.expectPolling);
-		const servers = [config.webServer ?? []].flat();
-		expect(servers.map((server) => server.timeout)).toEqual([WAIT_HANG_TIMEOUTS.serverStart]);
 	});
 
-	it('gives the built app minutes to start, not Playwright’s default of one', () => {
-		expect(WAIT_HANG_TIMEOUTS.serverStart).toBeGreaterThanOrEqual(5 * 60_000);
+	it('starts no web server: each journey starts a daemon of its own', () => {
+		expect(config.webServer).toBeUndefined();
 	});
 });

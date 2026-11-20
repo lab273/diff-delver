@@ -85,8 +85,17 @@ async function journeys(
 	env: Record<string, string>,
 	extra: readonly string[] = []
 ): Promise<number> {
+	// The whole build, as pnpm build makes it: the app, then the command.
 	const built = await run(bin('vite'), ['build', '--logLevel', 'warn']);
 	if (built !== 0) return built;
+	const command = await run(bin('vite'), [
+		'build',
+		'--config',
+		'vite.cli.config.ts',
+		'--logLevel',
+		'warn'
+	]);
+	if (command !== 0) return command;
 	return run(bin('playwright'), ['test', '--reporter=list,json', ...extra], {
 		PLAYWRIGHT_JSON_OUTPUT_FILE: report,
 		...env

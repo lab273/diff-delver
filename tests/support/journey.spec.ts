@@ -11,6 +11,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, test as base, type Page } from '@playwright/test';
 import { startJourney, type Journey } from './journey.ts';
+import { makeJourneyWorld } from './journey-world.ts';
 
 const FONTS = join(import.meta.dirname, '..', '..', 'node_modules', '@fontsource');
 
@@ -55,13 +56,33 @@ async function serve(page: Page, html: string): Promise<string> {
 	return `${HELPER}/page`;
 }
 
-const test = base.extend<{ planted: (html: string) => Promise<Journey> }>({
+const test = base.extend<{
+	planted: (html: string) => Promise<Journey>;
+	onTheApp: Journey;
+}>({
 	planted: async ({ page, baseURL }, use, testInfo) => {
 		const running = await startJourney(page, testInfo, baseURL, { screenshots: 'take' });
 		await use(async (html) => {
 			await running.journey.open(await serve(page, html));
 			return running.journey;
 		});
+	},
+	// The app's own start page, served by a daemon of the test's own, as a journey's is.
+	onTheApp: async ({ page }, use, testInfo) => {
+		const world = await makeJourneyWorld();
+		try {
+			const running = await startJourney(
+				page,
+				testInfo,
+				world.daemon.origin,
+				{ screenshots: 'take' },
+				world
+			);
+			await running.journey.open((await running.journey.command(['serve'])).address);
+			await use(running.journey);
+		} finally {
+			await world.close();
+		}
 	}
 });
 
@@ -282,10 +303,8 @@ test.describe('the journey helper finds text drawn in a font that is not bundled
 test.describe("the app's own styles", () => {
 	test('draw form controls in the page font, not the browser’s', async ({
 		page,
-		baseURL
-	}, testInfo) => {
-		const { journey } = await startJourney(page, testInfo, baseURL, { screenshots: 'take' });
-		await journey.open('/');
+		onTheApp: journey
+	}) => {
 		// The app has no form yet; these stand in for the first one.
 		await page.locator('main').evaluate((main) => {
 			main.insertAdjacentHTML(
@@ -365,10 +384,8 @@ test.describe('the journey helper checks that emphasis has a face of its own', (
 
 	test("passes the app's emphasis, in its text and its code", async ({
 		page,
-		baseURL
-	}, testInfo) => {
-		const { journey } = await startJourney(page, testInfo, baseURL, { screenshots: 'take' });
-		await journey.open('/');
+		onTheApp: journey
+	}) => {
 		await page.locator('main').evaluate((main) => {
 			main.insertAdjacentHTML(
 				'beforeend',

@@ -1,0 +1,200 @@
+/**
+ * The `diff-delver` command (DESIGN 3). What it prints is for a person: one or
+ * two plain lines saying what it did and where, and errors that say what
+ * happened and what to do next, never a stack trace. It never asks a question.
+ *
+ * `bin/diff-delver.js` runs this from the build (`vite.cli.config.ts`).
+ */
+import { resolve } from 'node:path';
+import { ApiClient } from '#lib/api/client.ts';
+import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import {
+	DATA_DIRECTORY_VARIABLE,
+	describeCommandLineError,
+	HELP_TEXT,
+	parseCommandLine,
+	type Invocation
+} from '#lib/core/cli/command-line.ts';
+import { describeNoDataDirectory } from '#lib/core/data-directory.ts';
+import { err, ok, type Result } from '#lib/core/result.ts';
+import { loadAppHandler } from '../daemon/app-handler.ts';
+import {
+	addressFor,
+	describeDaemonStartError,
+	startDaemon,
+	type DaemonConnection
+} from '../daemon/daemon.ts';
+import {
+	describeLaunchError,
+	ensureDaemon,
+	stopDaemon,
+	type ReadySignal
+} from '../daemon/launcher.ts';
+import { machineDataDirectory } from '../store/index.ts';
+import { randomIds, systemClock } from '../system.ts';
+import { codeVersion } from '../version.ts';
+import { openBrowser } from './open-browser.ts';
+import { openOutcome, startOutcome, type CommandOutcome } from './outcome.ts';
+
+export interface Terminal {
+	readonly print: (line: string) => void;
+	readonly printError: (line: string) => void;
+}
+
+const terminal: Terminal = {
+	print: (line) => {
+		process.stdout.write(`${line}\n`);
+	},
+	printError: (line) => {
+		process.stderr.write(`${line}\n`);
+	}
+};
+
+function dataDirectoryOf(invocation: Invocation, cwd: string): Result<AbsolutePath, string> {
+	const given = invocation.dataDirectory ?? process.env[DATA_DIRECTORY_VARIABLE];
+	if (given !== undefined && given !== '') {
+		const path = parseAbsolutePath(resolve(cwd, given));
+		return path.ok
+			? ok(path.value)
+			: err(`${given} cannot be used as a data folder: give a folder.`);
+	}
+	const machine = machineDataDirectory();
+	return machine.ok ? machine : err(describeNoDataDirectory(machine.error));
+}
+
+/** Tells the command that started this daemon in the background how starting went. */
+function signalParent(signal: ReadySignal): void {
+	if (process.send === undefined) return;
+	process.send(signal, undefined, {}, () => {
+		if (process.connected) process.disconnect?.();
+	});
+}
+
+async function serve(dataDirectory: AbsolutePath, background: boolean): Promise<number> {
+	const app = await loadAppHandler();
+	const started = await startDaemon({
+		dataDirectory,
+		clock: systemClock,
+		ids: randomIds,
+		version: codeVersion(),
+		app
+	});
+	if (!started.ok) {
+		// Started in the background by a command that raced another: the daemon that
+		// won serves it, so starting succeeded.
+		if (background && started.error.kind === 'AlreadyRunning') {
+			signalParent({ kind: 'ready' });
+			return 0;
+		}
+		const message = describeDaemonStartError(started.error);
+		if (background) signalParent({ kind: 'failed', message });
+		terminal.printError(message);
+		return 1;
+	}
+	const daemon = started.value;
+	for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+		process.once(signal, () => {
+			void daemon.stop();
+		});
+	}
+	if (background) {
+		console.log(`diff delver started at ${daemon.origin}, serving ${dataDirectory}.`);
+		signalParent({ kind: 'ready' });
+	} else {
+		terminal.print(`diff delver is running at ${addressFor(daemon, '/')}`);
+		terminal.print('Press Ctrl+C to stop it.');
+	}
+	await daemon.stopped;
+	if (!background) terminal.print('diff delver has stopped.');
+	return 0;
+}
+
+async function show(
+	connection: DaemonConnection,
+	outcome: CommandOutcome,
+	noOpen: boolean
+): Promise<number> {
+	for (const line of outcome.lines)
+		(outcome.exitCode === 0 ? terminal.print : terminal.printError)(line);
+	const address = addressFor(connection, outcome.page);
+	if (!noOpen && (await openBrowser(address))) {
+		terminal.print(`Opened in your browser: ${address}`);
+	} else {
+		terminal.print(`Open this in your browser: ${address}`);
+	}
+	return outcome.exitCode;
+}
+
+export async function main(args: readonly string[], cwd: string, entry: string): Promise<number> {
+	const parsed = parseCommandLine(args);
+	if (!parsed.ok) {
+		terminal.printError(describeCommandLineError(parsed.error));
+		return 2;
+	}
+	const invocation = parsed.value;
+	const { command } = invocation;
+	switch (command.kind) {
+		case 'help':
+			terminal.print(HELP_TEXT);
+			return 0;
+		case 'version':
+			terminal.print(`diff-delver ${codeVersion()}`);
+			return 0;
+		case 'serve':
+		case 'stop':
+		case 'start':
+		case 'open':
+			break;
+	}
+	const dataDirectory = dataDirectoryOf(invocation, cwd);
+	if (!dataDirectory.ok) {
+		terminal.printError(dataDirectory.error);
+		return 1;
+	}
+	switch (command.kind) {
+		case 'serve':
+			return serve(dataDirectory.value, process.send !== undefined);
+		case 'stop': {
+			const stopped = await stopDaemon(dataDirectory.value);
+			switch (stopped) {
+				case 'stopped':
+					terminal.print('diff delver has stopped.');
+					return 0;
+				case 'not-running':
+					terminal.print('diff delver is not running.');
+					return 0;
+				case 'would-not-stop':
+					terminal.printError(
+						'diff delver did not stop when asked. End its process, which daemon.lock in its data folder names, then try again.'
+					);
+					return 1;
+			}
+			break;
+		}
+		case 'start':
+		case 'open': {
+			const directory = parseAbsolutePath(resolve(cwd));
+			if (!directory.ok) {
+				terminal.printError('diff delver cannot tell which folder it was run in.');
+				return 1;
+			}
+			const launched = await ensureDaemon(dataDirectory.value, codeVersion(), entry);
+			if (!launched.ok) {
+				terminal.printError(describeLaunchError(launched.error));
+				return 1;
+			}
+			const { connection, replaced } = launched.value;
+			if (replaced === 'other-version') {
+				terminal.print(
+					'A different version of diff delver was running; it has been restarted. Pages it had open need opening again.'
+				);
+			}
+			const client = new ApiClient({ fetch, base: connection.origin, token: connection.token });
+			const outcome =
+				command.kind === 'start'
+					? await startOutcome(client, directory.value)
+					: await openOutcome(client, directory.value, command.source);
+			return show(connection, outcome, invocation.noOpen);
+		}
+	}
+}

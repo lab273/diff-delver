@@ -35,15 +35,13 @@ export const TIME_LIMITS: Readonly<Record<TestLayer, TimeLimit>> = {
 
 /**
  * Hang timeouts for waits inside a journey run, which are not tests and have no
- * guidance of their own. Playwright's defaults (5 seconds for an `expect`, 60 for
- * the built app to start answering) are timing limits a slow, busy machine can
- * reach with nothing wrong, so they are raised to hang timeouts here.
+ * guidance of their own. Playwright's default of 5 seconds for an `expect` is a
+ * timing limit a slow, busy machine can reach with nothing wrong, so it is raised
+ * to a hang timeout here.
  */
 export const WAIT_HANG_TIMEOUTS = {
 	/** How long one `expect` keeps polling for its condition, such as an element becoming visible. */
-	expectPolling: millisecondsOf(60_000),
-	/** How long the built app (`node build`) may take to start answering before the run fails. */
-	serverStart: millisecondsOf(300_000)
+	expectPolling: millisecondsOf(60_000)
 } as const;
 
 /** Where the core Vitest project's tests live (vite.config.ts); every other Vitest test is integration. */

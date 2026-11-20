@@ -74,6 +74,17 @@ const steps: readonly Step[] = [
 		]
 	},
 	{
+		name: 'Production build',
+		// The app, then the command (vite.cli.config.ts), as pnpm build makes them.
+		commands: [
+			{ program: bin('vite'), args: ['build', '--logLevel', 'warn'] },
+			{
+				program: bin('vite'),
+				args: ['build', '--config', 'vite.cli.config.ts', '--logLevel', 'warn']
+			}
+		]
+	},
+	{
 		name: 'Unit and integration tests',
 		commands: [
 			{
@@ -81,10 +92,6 @@ const steps: readonly Step[] = [
 				args: ['run', '--reporter=default', '--reporter=json', `--outputFile.json=${vitestReport}`]
 			}
 		]
-	},
-	{
-		name: 'Production build',
-		commands: [{ program: bin('vite'), args: ['build', '--logLevel', 'warn'] }]
 	},
 	{
 		name: 'Journeys',

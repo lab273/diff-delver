@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	// The bundled fonts, served with the app: no network requests at run time.
 	// Regular and bold, upright and italic, for text and for code: with
 	// font-synthesis: none (src/app.css) a face that is not here is never faked,
@@ -22,4 +23,34 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-{@render children()}
+<header>
+	<a href={resolve('/')} class="product">diff delver</a>
+</header>
+
+<main>
+	{@render children()}
+</main>
+
+<style>
+	header {
+		border-bottom: 1px solid var(--color-border);
+		background: var(--color-subtle);
+		padding: 0.75rem 1.5rem;
+	}
+
+	.product {
+		color: var(--color-text);
+		font-weight: 700;
+		text-decoration: none;
+	}
+
+	.product:hover {
+		text-decoration: underline;
+	}
+
+	main {
+		max-width: 56rem;
+		margin: 0 auto;
+		padding: 2rem 1.5rem 4rem;
+	}
+</style>

@@ -1,14 +1,22 @@
 /**
- * Playwright global setup: prepares the journey browser's one system font, says
+ * Playwright global setup: makes the run's folder for the journeys' repositories
+ * and daemons (tests/support/journey-world.ts), removed when the run ends;
+ * prepares the journey browser's one system font, says
  * loudly when the run rewrites the committed screenshots instead of checking
  * them, and says once, in one line, when this machine is not the reference
  * platform and so the screenshots are not compared.
  */
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { screenshotMode, UPDATE_MODE_NOTICE } from '../../scripts/journey-screenshots.ts';
 import { COMPARES_SCREENSHOTS } from './journey.ts';
 import { prepareJourneyFonts } from './journey-fonts.ts';
+import { JOURNEY_ROOT_VARIABLE } from './journey-world.ts';
 
-export default function setup(): void {
+export default async function setup(): Promise<() => Promise<void>> {
+	const root = await mkdtemp(join(tmpdir(), 'diff-delver-journeys-'));
+	process.env[JOURNEY_ROOT_VARIABLE] = root;
 	prepareJourneyFonts();
 	if (screenshotMode(process.env) === 'update') console.log(UPDATE_MODE_NOTICE);
 	if (!COMPARES_SCREENSHOTS) {
@@ -17,4 +25,5 @@ export default function setup(): void {
 				`${process.platform}, so every other check runs but the image comparison is skipped.`
 		);
 	}
+	return () => rm(root, { recursive: true, force: true });
 }
