@@ -1,0 +1,179 @@
+/**
+ * Synthetic `git diff-tree -r -z --patch-with-raw` output, for property tests and
+ * size tests of the pure diff model. It follows the format of the recorded real
+ * output in `src/lib/core/diff/fixtures/`, so the same parser reads both.
+ *
+ * Pure: no Node imports, so core tests can use it.
+ */
+import fc from 'fast-check';
+import { describeDiffOutputError } from '#lib/core/diff/diff-output-error.ts';
+import { parseDiffTreeOutput } from '#lib/core/diff/diff-tree-output.ts';
+import { makeDiff, type Diff } from '#lib/core/diff/diff.ts';
+
+export type LineKind = ' ' | '+' | '-';
+
+export interface SyntheticHunk {
+	/** Unchanged lines skipped before the hunk starts. */
+	readonly gap: number;
+	readonly lines: readonly LineKind[];
+}
+
+export type SyntheticFile =
+	| { readonly path: string; readonly change: 'modified'; readonly hunks: readonly SyntheticHunk[] }
+	| { readonly path: string; readonly change: 'added' | 'deleted'; readonly lines: number }
+	| { readonly path: string; readonly change: 'binary' | 'empty-added' | 'mode' };
+
+const BLOB_A = 'a'.repeat(40);
+const BLOB_B = 'b'.repeat(40);
+const NONE = '0'.repeat(40);
+
+function rawRecord(file: SyntheticFile): string {
+	const [oldMode, newMode, oldBlob, newBlob, status] = ((): readonly string[] => {
+		switch (file.change) {
+			case 'modified':
+			case 'binary':
+				return ['100644', '100644', BLOB_A, BLOB_B, 'M'];
+			case 'mode':
+				return ['100644', '100755', BLOB_A, BLOB_A, 'M'];
+			case 'added':
+				return ['000000', '100644', NONE, BLOB_B, 'A'];
+			case 'empty-added':
+				return ['000000', '100644', NONE, 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391', 'A'];
+			case 'deleted':
+				return ['100644', '000000', BLOB_A, NONE, 'D'];
+		}
+	})();
+	return `:${oldMode ?? ''} ${newMode ?? ''} ${oldBlob ?? ''} ${newBlob ?? ''} ${status ?? ''}\0${file.path}\0`;
+}
+
+function header(start: number, length: number): string {
+	return length === 1 ? String(start) : `${String(start)},${String(length)}`;
+}
+
+function patch(file: SyntheticFile): string {
+	const head = `diff --git a/${file.path} b/${file.path}\n`;
+	switch (file.change) {
+		case 'binary':
+			return `${head}index ${BLOB_A}..${BLOB_B} 100644\nBinary files a/${file.path} and b/${file.path} differ\n`;
+		case 'mode':
+			return `${head}old mode 100644\nnew mode 100755\n`;
+		case 'empty-added':
+			return `${head}new file mode 100644\nindex ${NONE}..e69de29\n`;
+		case 'added':
+			return (
+				`${head}new file mode 100644\n--- /dev/null\n+++ b/${file.path}\n` +
+				`@@ -0,0 +${header(1, file.lines)} @@\n` +
+				Array.from({ length: file.lines }, (_, i) => `+added ${String(i + 1)}\n`).join('')
+			);
+		case 'deleted':
+			return (
+				`${head}deleted file mode 100644\n--- a/${file.path}\n+++ /dev/null\n` +
+				`@@ -${header(1, file.lines)} +0,0 @@\n` +
+				Array.from({ length: file.lines }, (_, i) => `-deleted ${String(i + 1)}\n`).join('')
+			);
+		case 'modified': {
+			const parts = [`${head}--- a/${file.path}\n+++ b/${file.path}\n`];
+			let oldNext = 1;
+			let newNext = 1;
+			for (const hunk of file.hunks) {
+				oldNext += hunk.gap;
+				newNext += hunk.gap;
+				const oldLength = hunk.lines.filter((k) => k !== '+').length;
+				const newLength = hunk.lines.filter((k) => k !== '-').length;
+				const oldStart = oldLength === 0 ? oldNext - 1 : oldNext;
+				const newStart = newLength === 0 ? newNext - 1 : newNext;
+				parts.push(
+					`@@ -${header(oldStart, oldLength)} +${header(newStart, newLength)} @@ heading\n`
+				);
+				for (const kind of hunk.lines) parts.push(`${kind}text\n`);
+				oldNext += oldLength;
+				newNext += newLength;
+			}
+			return parts.join('');
+		}
+	}
+}
+
+/** The diff-tree output git would write for these files, which must be sorted by path. */
+export function syntheticDiffTreeOutput(files: readonly SyntheticFile[]): string {
+	if (files.length === 0) return '';
+	return `${files.map(rawRecord).join('')}\0${files.map(patch).join('')}`;
+}
+
+/** The model of a synthetic diff. Throws if the model rejects it, which is a bug. */
+export function syntheticDiff(files: readonly SyntheticFile[]): Diff {
+	const parsed = parseDiffTreeOutput(syntheticDiffTreeOutput(files));
+	if (!parsed.ok) throw new Error(describeDiffOutputError(parsed.error));
+	const diff = makeDiff(parsed.value);
+	if (!diff.ok) throw new Error(`Duplicate path ${diff.error.path}`);
+	return diff.value;
+}
+
+// --- fast-check arbitraries -----------------------------------------------------
+
+const hunk: fc.Arbitrary<SyntheticHunk> = fc
+	.record({
+		gap: fc.integer({ min: 0, max: 5 }),
+		lines: fc.array(fc.constantFrom<LineKind>(' ', '+', '-', '+', '-'), {
+			minLength: 1,
+			maxLength: 12
+		})
+	})
+	.filter((h) => h.lines.some((k) => k !== ' '));
+
+/** Paths with directories, extensions and names that the built-in rules care about. */
+const PATHS = [
+	'README.md',
+	'package-lock.json',
+	'src/app.ts',
+	'src/app.test.ts',
+	'src/lib/util.ts',
+	'src/__snapshots__/app.test.ts.snap',
+	'docs/guide.md',
+	'assets/logo.png',
+	'tests/e2e/login.ts',
+	'vendor/lib/a.go'
+];
+
+const file = (path: string): fc.Arbitrary<SyntheticFile> =>
+	fc.oneof(
+		{
+			weight: 6,
+			arbitrary: fc
+				.array(hunk, { minLength: 1, maxLength: 4 })
+				.map((hunks) => ({ path, change: 'modified' as const, hunks }))
+		},
+		{
+			weight: 1,
+			arbitrary: fc
+				.integer({ min: 1, max: 8 })
+				.map((lines) => ({ path, change: 'added' as const, lines }))
+		},
+		{
+			weight: 1,
+			arbitrary: fc
+				.integer({ min: 1, max: 8 })
+				.map((lines) => ({ path, change: 'deleted' as const, lines }))
+		},
+		{
+			weight: 1,
+			arbitrary: fc
+				.constantFrom('binary' as const, 'empty-added' as const, 'mode' as const)
+				.map((change) => ({ path, change }))
+		}
+	);
+
+/** A random diff of up to all the paths above. */
+export const arbitraryDiff: fc.Arbitrary<Diff> = fc
+	.subarray([...PATHS].sort(), { minLength: 1 })
+	.chain((paths) => fc.tuple(...paths.map(file)))
+	.map((files) => syntheticDiff(files));
+
+/** Paths that are not in any synthetic diff, for testing rejections. */
+export const MISSING_PATHS = ['nope.ts', 'src/missing.ts'];
+
+/** Globs, some of which match synthetic paths and some of which do not. */
+export const GLOBS = ['*.ts', 'src/**', '**/*.md', 'nothing/**', '*.png', '[', 'vendor/'];
+
+/** Section ids, the ignored bucket, and ids that are not valid. */
+export const SECTIONS = ['alpha', 'beta', 'gamma', 'ignored', 'Not An Id'];
