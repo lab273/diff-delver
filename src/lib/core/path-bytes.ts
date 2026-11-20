@@ -11,22 +11,16 @@
  * - distinct byte strings give distinct paths;
  * - `repoPathBytes` gives the exact bytes back, to read the file from a tree.
  *
- * People and agents see the escaped form: each odd byte as `\xHH`, and, in such a
- * path only, each backslash doubled so the form reads back unambiguously. `assign`
- * accepts that form. A valid path is shown as it is.
+ * People and agents see the escaped form (`escaped-path.tiny.ts`): a path with
+ * no backslash and no odd bytes as it is; any other with each odd byte as `\xHH`
+ * and each backslash doubled, so that no two paths look the same.
+ * `resolveEscapedPath` reads the form back, and `assign` accepts it.
  */
-import { escapedPathFrom, type EscapedPath } from './escaped-path.tiny.ts';
-import {
-	codeOf,
-	decodePathBytes,
-	encodePathText,
-	ESCAPE_BASE,
-	hasOddBytes,
-	isEscape
-} from './path-codec.ts';
+import { decodePathBytes, encodePathText, ESCAPE_BASE, hasOddBytes } from './path-codec.ts';
 import { parseRepoPath, type InvalidRepoPath, type RepoPath } from './repo-path.tiny.ts';
 import type { Result } from './result.ts';
 
+export { escapedRepoPath, type EscapedPath } from './escaped-path.tiny.ts';
 export { decodePathBytes, encodePathText, hasOddBytes };
 
 /** A path from git's bytes, exact whatever the bytes are. */
@@ -40,29 +34,25 @@ export function repoPathBytes(path: RepoPath): Uint8Array {
 }
 
 /**
- * The path as people and agents see it: unchanged when it is valid UTF-8;
- * otherwise each odd byte as `\xHH` and each backslash as `\\`.
+ * The path an escaped form stands for (`escapedRepoPath`), or undefined when it
+ * stands for no valid path.
+ *
+ * - Text with no backslash is a plain path.
+ * - Text whose every backslash starts `\\` or `\xHH` (HH from 80 to FF, either
+ *   case) is an escaped form, and is read back. Odd bytes that turn out to spell
+ *   valid UTF-8 are read as that text, which is the path those bytes are.
+ * - Any other text with a backslash, such as `src\app.ts`, is the escaped form of
+ *   no path, so it is taken as the literal path, as a person would mean it.
  */
-export function escapedRepoPath(path: RepoPath): EscapedPath {
-	if (!hasOddBytes(path)) return escapedPathFrom(path);
-	let out = '';
-	for (const char of path) {
-		const code = codeOf(char);
-		if (isEscape(code)) out += `\\x${(code - ESCAPE_BASE).toString(16).toUpperCase()}`;
-		else if (char === '\\') out += '\\\\';
-		else out += char;
-	}
-	return escapedPathFrom(out);
+export function resolveEscapedPath(text: string): RepoPath | undefined {
+	const read = readEscapes(text);
+	const path = parseRepoPath(read === undefined ? text : decodePathBytes(encodePathText(read)));
+	return path.ok ? path.value : undefined;
 }
 
-/**
- * Reads the escaped form back into the path it stands for. Undefined when the
- * text is not the escaped form of a path with odd bytes: it has no `\xHH` for a
- * byte from 80 to FF, or a backslash that starts neither `\\` nor such a byte.
- */
-export function unescapeRepoPath(text: string): RepoPath | undefined {
+/** The text with its escapes read, or undefined when a backslash starts no escape. */
+function readEscapes(text: string): string | undefined {
 	let out = '';
-	let odd = false;
 	for (let i = 0; i < text.length; i += 1) {
 		const c = text[i] ?? '';
 		if (c !== '\\') {
@@ -75,17 +65,12 @@ export function unescapeRepoPath(text: string): RepoPath | undefined {
 			i += 1;
 		} else if (next === 'x') {
 			const hex = text.slice(i + 2, i + 4);
-			if (!/^[0-9A-Fa-f]{2}$/.test(hex)) return undefined;
-			const byte = Number.parseInt(hex, 16);
-			if (byte < 0x80) return undefined;
-			out += String.fromCharCode(ESCAPE_BASE + byte);
-			odd = true;
+			if (!/^[89A-Fa-f][0-9A-Fa-f]$/.test(hex)) return undefined;
+			out += String.fromCharCode(ESCAPE_BASE + Number.parseInt(hex, 16));
 			i += 3;
 		} else {
 			return undefined;
 		}
 	}
-	if (!odd) return undefined;
-	const path = parseRepoPath(out);
-	return path.ok ? path.value : undefined;
+	return out;
 }

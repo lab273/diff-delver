@@ -25,7 +25,7 @@ import { parseHunkId, type HunkId } from '../hunk-id.tiny.ts';
 import { formatLineRanges, lineRangesOf, type LineRange } from '../line-range.ts';
 import { RangeSet } from '../range-set.ts';
 import { itemIndexAt, type ItemIndex } from '../item-index.tiny.ts';
-import { unescapeRepoPath } from '../path-bytes.ts';
+import { resolveEscapedPath } from '../path-bytes.ts';
 import { textForAgent, type TextForAgent } from '../text-for-agent.tiny.ts';
 import { addUnits, NO_UNITS, ONE_UNIT, unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
@@ -591,23 +591,23 @@ const MAX_SIMILAR = 5;
 
 function findFile(diff: Diff, path: RepoPath): Result<DiffFile, AssignRejection> {
 	for (const candidate of pathsMeant(path)) {
-		const parsed = parseRepoPath(candidate);
-		const file = parsed.ok ? diff.byPath.get(parsed.value) : undefined;
+		const file = diff.byPath.get(candidate);
 		if (file !== undefined) return ok(file);
 	}
 	return err({ kind: 'UnknownFile', file: path, similar: similarPaths(diff, path) });
 }
 
 /**
- * The paths a `file` value can stand for, in order: the value itself; the path
- * whose escaped form it is, for a path that is not UTF-8 (`path-bytes.ts`); and
- * both again for what a JSON string holds, when the agent sent the quoted form
- * from the agent text, quotes and all.
+ * The paths a `file` value can stand for, in order: the path whose escaped form
+ * it is (`resolveEscapedPath`), and the same for what a JSON string holds, when
+ * the agent sent the quoted form from the agent text, quotes and all. The value
+ * is never also taken literally when it is an escaped form, so `a\\xFF` names
+ * the file whose name ends in the byte FF, never a file literally named so.
  */
-function pathsMeant(text: string): readonly string[] {
-	const meant = [text];
-	const unescaped = unescapeRepoPath(text);
-	if (unescaped !== undefined) meant.push(unescaped);
+function pathsMeant(text: string): readonly RepoPath[] {
+	const meant: RepoPath[] = [];
+	const resolved = resolveEscapedPath(text);
+	if (resolved !== undefined) meant.push(resolved);
 	if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
 		const inner = jsonStringValue(text);
 		if (inner !== undefined) meant.push(...pathsMeant(inner));

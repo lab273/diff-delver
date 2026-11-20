@@ -6,7 +6,7 @@ import {
 	hasOddBytes,
 	repoPathBytes,
 	repoPathFromBytes,
-	unescapeRepoPath
+	resolveEscapedPath
 } from './path-bytes.ts';
 import { parseRepoPath, type RepoPath } from './repo-path.tiny.ts';
 
@@ -14,6 +14,12 @@ const bytes = (...parts: readonly (string | number)[]): Uint8Array =>
 	new Uint8Array(
 		parts.flatMap((p) => (typeof p === 'number' ? [p] : [...new TextEncoder().encode(p)]))
 	);
+
+function repoPath(text: string): RepoPath {
+	const parsed = parseRepoPath(text);
+	if (!parsed.ok) throw new Error(`bad test path ${text}`);
+	return parsed.value;
+}
 
 function pathOf(value: Uint8Array): RepoPath {
 	const parsed = repoPathFromBytes(value);
@@ -57,18 +63,69 @@ describe('paths from bytes', () => {
 	it('escapes the odd bytes for display, and reads the escaped form back', () => {
 		const odd = pathOf(bytes('a\\b/caf', 0xe9, '.txt'));
 		expect(escapedRepoPath(odd)).toBe('a\\\\b/caf\\xE9.txt');
-		expect(unescapeRepoPath('a\\\\b/caf\\xE9.txt')).toBe(odd);
-		expect(unescapeRepoPath('a\\\\b/caf\\xe9.txt')).toBe(odd);
+		expect(resolveEscapedPath('a\\\\b/caf\\xE9.txt')).toBe(odd);
+		expect(resolveEscapedPath('a\\\\b/caf\\xe9.txt')).toBe(odd);
 	});
 
-	it('shows a valid path unchanged and does not read it as an escaped one', () => {
-		const plain = parseRepoPath('caf\\x41.txt');
-		if (!plain.ok) throw new Error('bad path');
-		expect(escapedRepoPath(plain.value)).toBe('caf\\x41.txt');
-		// \x41 is ASCII, which is never escaped, so this names no odd path.
-		expect(unescapeRepoPath('caf\\x41.txt')).toBeUndefined();
-		expect(unescapeRepoPath('plain.txt')).toBeUndefined();
-		expect(unescapeRepoPath('bad\\q\\xE9')).toBeUndefined();
+	it('shows a path without backslashes or odd bytes unchanged', () => {
+		for (const text of ['plain.txt', 'odd names/ünïcödé "quoted".txt', 'tab\there', '\u{10080}']) {
+			expect(escapedRepoPath(repoPath(text))).toBe(text);
+			expect(resolveEscapedPath(text)).toBe(text);
+		}
+	});
+
+	it('escapes the backslashes of a valid path that has any, so it cannot pass for an odd one', () => {
+		const literal = repoPath('caf\\xE9.txt');
+		const odd = pathOf(bytes('caf', 0xe9, '.txt'));
+		expect(escapedRepoPath(literal)).toBe('caf\\\\xE9.txt');
+		expect(escapedRepoPath(odd)).toBe('caf\\xE9.txt');
+		expect(resolveEscapedPath('caf\\\\xE9.txt')).toBe(literal);
+		expect(resolveEscapedPath('caf\\xE9.txt')).toBe(odd);
+	});
+
+	it('takes text whose backslashes start no escape as the literal path', () => {
+		// \x41 is ASCII, which is never escaped, and \q is no escape at all.
+		expect(resolveEscapedPath('caf\\x41.txt')).toBe('caf\\x41.txt');
+		expect(resolveEscapedPath('src\\app.ts')).toBe('src\\app.ts');
+		expect(resolveEscapedPath('bad\\q\\xE9')).toBe('bad\\q\\xE9');
+		expect(resolveEscapedPath('end\\')).toBe('end\\');
+	});
+
+	it('reads escaped bytes that spell valid UTF-8 as that text, and refuses what is no path', () => {
+		expect(resolveEscapedPath('caf\\xC3\\xA9.txt')).toBe('café.txt');
+		expect(resolveEscapedPath('a/\\x2E')).toBe('a/\\x2E');
+		expect(resolveEscapedPath('a//b')).toBeUndefined();
+	});
+
+	it('gives distinct paths distinct escaped forms, each read back to its path', () => {
+		const unit = fc.constantFrom(
+			'\\',
+			'x',
+			'X',
+			'E',
+			'e',
+			'9',
+			'8',
+			'F',
+			'a',
+			'/',
+			'é',
+			'\uDC80',
+			'\uDCE9',
+			'\uDCFF',
+			'\uDCC3'
+		);
+		const path = fc.array(unit, { minLength: 1, maxLength: 8 }).chain((u) => {
+			const parsed = parseRepoPath(u.join(''));
+			return parsed.ok ? fc.constant(parsed.value) : fc.constant(repoPath('fallback'));
+		});
+		fc.assert(
+			fc.property(path, path, (p, q) => {
+				expect(resolveEscapedPath(escapedRepoPath(p))).toBe(p);
+				if (p !== q) expect(escapedRepoPath(p)).not.toBe(escapedRepoPath(q));
+			}),
+			{ numRuns: 5000 }
+		);
 	});
 
 	it('treats overlong forms, encoded surrogates and stray bytes as odd bytes', () => {
@@ -95,8 +152,8 @@ describe('paths from bytes', () => {
 			fc.property(segmentBytes, (raw) => {
 				const path = pathOf(raw);
 				expect(repoPathBytes(path)).toEqual(raw);
-				if (hasOddBytes(path)) expect(unescapeRepoPath(escapedRepoPath(path))).toBe(path);
-				else expect(escapedRepoPath(path)).toBe(path);
+				expect(resolveEscapedPath(escapedRepoPath(path))).toBe(path);
+				if (!hasOddBytes(path) && !path.includes('\\')) expect(escapedRepoPath(path)).toBe(path);
 				const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 				let valid: string | undefined;
 				try {

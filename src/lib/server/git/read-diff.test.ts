@@ -2,7 +2,10 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { FileDiff } from '#lib/core/diff/file-diff.ts';
 import { parseTreeId } from '#lib/core/tree-id.tiny.ts';
+import { assign } from '#lib/core/diff/assign.ts';
 import { makeDiff } from '#lib/core/diff/diff.ts';
+import { initialState } from '#lib/core/diff/state.ts';
+import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import { escapedRepoPath, repoPathBytes } from '#lib/core/path-bytes.ts';
 import {
 	awkwardChanges,
@@ -157,13 +160,32 @@ describe('readDiff', () => {
 		const repo = await useFixture(oddPathBytes);
 		const head = await repo.snapshot('head');
 		const files = await diffOf(oddPathBytes);
+		// The file literally named `caf\xE9.txt` and the one whose name holds the
+		// byte E9 look different, and each is assigned by its own form.
 		expect(files.map((f) => escapedRepoPath(f.path))).toEqual([
-			'caf\\xE9.txt',
+			'caf\\\\xE9.txt',
 			'caf\\xE8.txt',
 			'caf\\xE9.txt',
 			'dir\\xFF/inner.txt'
 		]);
-		expect(makeDiff(files).ok).toBe(true);
+		const diff = makeDiff(files);
+		if (!diff.ok) throw new Error('makeDiff failed');
+		const outcome = assign(diff.value, initialState(diff.value), [
+			{ file: 'caf\\xE9.txt', section: 'odd' },
+			{ file: 'caf\\\\xE9.txt', section: 'literal' }
+		]);
+		expect(outcome.rejected).toEqual([]);
+		const bucketOf = (path: RepoPath): string => {
+			const file = outcome.state.files.get(path);
+			const bucket = file?.kind === 'lines' ? file.new.get(2)?.bucket : undefined;
+			return bucket?.kind === 'section' ? bucket.section : String(bucket?.kind);
+		};
+		expect(files.map((f) => bucketOf(f.path))).toEqual([
+			'literal',
+			'uncategorised',
+			'odd',
+			'uncategorised'
+		]);
 		expect(files.map((f) => repoPathBytes(f.path))).toEqual([
 			pathBytes('caf\\xE9.txt'),
 			pathBytes('caf', 0xe8, '.txt'),

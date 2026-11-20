@@ -53,7 +53,7 @@ export {
 	hasOddBytes,
 	repoPathBytes,
 	repoPathFromBytes,
-	unescapeRepoPath
+	resolveEscapedPath
 } from '../path-bytes.ts';
 export type { Role } from '../role.tiny.ts';
 export { parseRole, ROLES } from '../role.tiny.ts';
