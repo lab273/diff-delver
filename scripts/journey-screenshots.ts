@@ -1,0 +1,143 @@
+/**
+ * The committed journey screenshots (README, "Checking the experience"): where
+ * each step's images live and what they are called, which images a run produced,
+ * and which committed ones no step produces any more. Pure; the journey helper
+ * (tests/support/journey.ts) and `pnpm journeys:*` (scripts/journeys.ts) use it.
+ *
+ * Every image is in one directory, named so that a listing reads as the journeys:
+ *
+ *     j0-first-run.01.start-page.dark.png
+ *     j0-first-run.01.start-page.light.png
+ *     j0-first-run.02.….png
+ */
+
+import { err, ok, type Result } from '../src/lib/core/result.ts';
+
+/** Where the committed images are, relative to the repository. */
+export const SCREENSHOT_DIRECTORY = 'tests/journeys/screenshots';
+
+/** The annotation each step adds to its test for every image it produced or checked. */
+export const SCREENSHOT_ANNOTATION = 'journey-screenshot';
+
+/** Both colour schemes, in the order a step takes them. */
+export const THEMES = ['light', 'dark'] as const;
+export type Theme = (typeof THEMES)[number];
+
+/** The longest step slug, so that names stay readable in a listing. */
+const MAX_SLUG_LENGTH = 60;
+
+/** Why a step name cannot name an image. */
+export interface InvalidStepName {
+	readonly kind: 'InvalidStepName';
+	readonly name: string;
+}
+
+/**
+ * The step name as it appears in a file name: lower case, words joined with
+ * hyphens. "Start page" becomes `start-page`.
+ */
+export function stepSlug(name: string): Result<string, InvalidStepName> {
+	const slug = name
+		.normalize('NFKD')
+		.replace(/[̀-ͯ]/g, '')
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-|-$/g, '');
+	if (slug === '' || slug.length > MAX_SLUG_LENGTH) {
+		return err({ kind: 'InvalidStepName', name });
+	}
+	return ok(slug);
+}
+
+/** The journey's name as files use it: its test file's name, `j0-first-run.journey.ts` → `j0-first-run`. */
+export function journeySlug(testFile: string): string {
+	const base = testFile.split(/[/\\]/).at(-1) ?? testFile;
+	return base.replace(/\.journey\.ts$/, '');
+}
+
+/** The image file name of one step in one theme. Steps are numbered from 1. */
+export function screenshotName(journey: string, step: number, slug: string, theme: Theme): string {
+	return `${journey}.${String(step).padStart(2, '0')}.${slug}.${theme}.png`;
+}
+
+/** What a complete run left wrong in the screenshot directory. */
+export interface ScreenshotAudit {
+	/** Committed images that no step produced. */
+	readonly stale: readonly string[];
+	/** Names more than one step produced, so they would overwrite each other. */
+	readonly duplicates: readonly string[];
+}
+
+/** Compares the images a complete run produced with the ones in the directory. */
+export function auditScreenshots(
+	produced: readonly string[],
+	committed: readonly string[]
+): ScreenshotAudit {
+	const seen = new Set<string>();
+	const duplicates = new Set<string>();
+	for (const name of produced) {
+		if (seen.has(name)) duplicates.add(name);
+		seen.add(name);
+	}
+	return {
+		stale: committed.filter((name) => name.endsWith('.png') && !seen.has(name)).sort(),
+		duplicates: [...duplicates].sort()
+	};
+}
+
+/** What to tell the person about an audit, one line per problem; empty when all is well. */
+export function describeAudit(audit: ScreenshotAudit): readonly string[] {
+	return [
+		...audit.stale.map(
+			(name) =>
+				`${SCREENSHOT_DIRECTORY}/${name} is committed, but no journey step produces it any more. ` +
+				'Run pnpm journeys:update to remove it, and commit the removal.'
+		),
+		...audit.duplicates.map(
+			(name) =>
+				`${name} is produced by more than one step. Each journey file holds one test, ` +
+				'so give the other test its own journey file.'
+		)
+	];
+}
+
+// --- Reading the Playwright report ------------------------------------------------------
+
+function fields(value: unknown): ReadonlyMap<string, unknown> {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return new Map();
+	return new Map<string, unknown>(Object.entries(value));
+}
+
+function list(value: unknown): readonly unknown[] {
+	return Array.isArray(value) ? value : [];
+}
+
+/**
+ * Every screenshot name the steps of a run recorded, from a Playwright JSON
+ * report, once per attempt that recorded it. Undefined when there is no readable
+ * report, so a missing report is never mistaken for a run with no images.
+ */
+export function producedScreenshots(report: unknown): readonly string[] | undefined {
+	const root = fields(report);
+	if (!root.has('suites')) return undefined;
+	const names: string[] = [];
+	const visit = (suite: unknown): void => {
+		const s = fields(suite);
+		for (const spec of list(s.get('specs'))) {
+			for (const test of list(fields(spec).get('tests'))) {
+				// Retries would record the same names again; only the last attempt counts.
+				const result = list(fields(test).get('results')).at(-1);
+				for (const annotation of list(fields(result).get('annotations'))) {
+					const a = fields(annotation);
+					const description = a.get('description');
+					if (a.get('type') === SCREENSHOT_ANNOTATION && typeof description === 'string') {
+						names.push(description);
+					}
+				}
+			}
+		}
+		for (const child of list(s.get('suites'))) visit(child);
+	};
+	for (const suite of list(root.get('suites'))) visit(suite);
+	return names;
+}

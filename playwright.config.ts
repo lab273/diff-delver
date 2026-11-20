@@ -1,4 +1,5 @@
 import { createServer } from 'node:net';
+import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 import { TIME_LIMITS } from './scripts/test-time-limits.ts';
 
@@ -39,6 +40,29 @@ const HANG_TIMEOUT_MS = TIME_LIMITS.journey.hangTimeout;
 // busy machine can reach with nothing wrong, so it is raised to a hang timeout too.
 const EXPECT_HANG_TIMEOUT_MS = 60_000;
 
+/**
+ * What the journey browser runs with, so the same commit draws the same pixels on
+ * every run and every Linux machine (README, "Checking the experience").
+ */
+const DETERMINISTIC_CHROMIUM_ARGS = [
+	// Glyph outlines unhinted and greyscale-antialiased, never shaped to the
+	// machine's display: no hinting, no LCD subpixel text, no subpixel positioning.
+	'--font-render-hinting=none',
+	'--disable-lcd-text',
+	'--disable-font-subpixel-positioning',
+	// Colours in sRGB whatever the machine's display profile.
+	'--force-color-profile=srgb',
+	// Raster on the CPU with Skia's portable code, not code picked at run time for
+	// this CPU's vector instructions, so a different processor draws the same.
+	'--disable-gpu',
+	'--disable-skia-runtime-opts',
+	// The whole page drawn before a frame is shown, and no scrollbars.
+	'--disable-partial-raster',
+	'--run-all-compositor-stages-before-draw',
+	'--hide-scrollbars',
+	'--force-device-scale-factor=1'
+];
+
 export default defineConfig({
 	testDir: 'tests/journeys',
 	testMatch: '**/*.journey.ts',
@@ -49,17 +73,50 @@ export default defineConfig({
 	forbidOnly: true,
 	retries: 0,
 	reporter: process.env['CI'] !== undefined ? [['list'], ['github']] : 'list',
+	globalSetup: './tests/support/journey-global-setup.ts',
 	use: {
 		baseURL,
 		trace: 'retain-on-failure'
 	},
-	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+	projects: [
+		{
+			name: 'chromium',
+			use: {
+				...devices['Desktop Chrome'],
+				// Headless with no channel: the pinned headless shell Playwright installs
+				// for its version, never a system Chrome.
+				headless: true,
+				viewport: { width: 1280, height: 800 },
+				deviceScaleFactor: 1,
+				isMobile: false,
+				hasTouch: false,
+				locale: 'en-GB',
+				timezoneId: 'UTC',
+				colorScheme: 'light',
+				reducedMotion: 'reduce',
+				forcedColors: 'none',
+				contrast: 'no-preference',
+				launchOptions: {
+					args: DETERMINISTIC_CHROMIUM_ARGS,
+					env: {
+						...process.env,
+						FONTCONFIG_FILE: join(import.meta.dirname, 'tests/support/fontconfig/fonts.conf'),
+						// The language and timezone of the browser process itself, not only
+						// what the page is told. C.UTF-8 exists on every Linux machine.
+						LANG: 'C.UTF-8',
+						LC_ALL: 'C.UTF-8',
+						TZ: 'UTC'
+					}
+				}
+			}
+		}
+	],
 	webServer: {
 		command: 'node build',
 		url: baseURL,
 		reuseExistingServer: false,
 		stdout: 'ignore',
 		stderr: 'pipe',
-		env: { HOST: '127.0.0.1', PORT: port, ORIGIN: baseURL }
+		env: { HOST: '127.0.0.1', PORT: port, ORIGIN: baseURL, TZ: 'UTC' }
 	}
 });

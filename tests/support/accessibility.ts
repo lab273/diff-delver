@@ -6,7 +6,7 @@ const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
 /**
  * Scans what is on the page now and fails with a readable list of problems.
- * Call it once on every screen a journey reaches.
+ * Every journey step calls it (tests/support/journey.ts), in both colour schemes.
  */
 export async function expectAccessible(page: Page): Promise<void> {
 	const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
@@ -16,12 +16,4 @@ export async function expectAccessible(page: Page): Promise<void> {
 			violation.nodes.map((node) => `    ${node.target.join(' ')}`).join('\n')
 	);
 	expect(problems, `Accessibility problems on ${page.url()}`).toEqual([]);
-}
-
-/** Scans the page in the light theme and again in the dark theme. */
-export async function expectAccessibleInBothThemes(page: Page): Promise<void> {
-	for (const colorScheme of ['light', 'dark'] as const) {
-		await page.emulateMedia({ colorScheme });
-		await expectAccessible(page);
-	}
 }

@@ -3,7 +3,13 @@
 	--color-text: #1f2328;
 	--color-muted: #59636e;
 	--color-background: #ffffff;
-	--font-body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	/*
+	 * Only the fonts bundled with the app (src/routes/+layout.svelte imports them),
+	 * so text looks the same on every machine and the journey screenshots are
+	 * reproducible. No system family is listed, not even a generic one.
+	 */
+	--font-body: 'Inter';
+	--font-code: 'JetBrains Mono';
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,6 +25,15 @@ html {
 	color: var(--color-text);
 	font-family: var(--font-body);
 	line-height: 1.5;
+	/* Only the weights and styles that are bundled; never a faked bold or italic. */
+	font-synthesis: none;
+}
+
+code,
+kbd,
+pre,
+samp {
+	font-family: var(--font-code);
 }
 
 body {

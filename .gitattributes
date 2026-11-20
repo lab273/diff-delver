@@ -1,2 +1,4 @@
 # Recorded git output: kept byte for byte, CRLF and NUL included.
 src/lib/core/diff/fixtures/** -text
+# Journey screenshots, compared pixel for pixel.
+tests/journeys/screenshots/*.png binary

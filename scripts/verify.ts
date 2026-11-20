@@ -86,6 +86,11 @@ const steps: readonly Step[] = [
 				program: bin('playwright'),
 				args: ['test', `--reporter=${inCi ? 'list,github,json' : 'list,json'}`],
 				env: { PLAYWRIGHT_JSON_OUTPUT_FILE: playwrightReport }
+			},
+			// Committed screenshots that no step produces any more fail too.
+			{
+				program: process.execPath,
+				args: [join(root, 'scripts', 'journeys.ts'), 'check', playwrightReport]
 			}
 		]
 	}
