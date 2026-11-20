@@ -1,10 +1,11 @@
 import { defineConfig } from 'vitest/config';
 import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
+import { CORE_TEST_DIRECTORY, TIME_LIMITS } from './scripts/test-time-limits.ts';
 
-// Per-test budgets from the README, "Testing". A test over its budget fails.
-const CORE_TEST_BUDGET_MS = 250;
-const INTEGRATION_TEST_BUDGET_MS = 3_000;
+// Tests are held to time guidance, which `pnpm verify` reports as warnings. The
+// timeouts here are only the hang timeouts, far above the guidance, so that a test
+// that hangs fails instead of blocking the run (scripts/test-time-limits.ts).
 
 export default defineConfig({
 	plugins: [
@@ -30,9 +31,9 @@ export default defineConfig({
 				test: {
 					name: 'core',
 					environment: 'node',
-					include: ['src/lib/core/**/*.test.ts'],
-					testTimeout: CORE_TEST_BUDGET_MS,
-					hookTimeout: CORE_TEST_BUDGET_MS,
+					include: [`${CORE_TEST_DIRECTORY}**/*.test.ts`],
+					testTimeout: TIME_LIMITS.core.hangTimeout,
+					hookTimeout: TIME_LIMITS.core.hangTimeout,
 					allowOnly: false,
 					expect: { requireAssertions: true }
 				}
@@ -44,10 +45,10 @@ export default defineConfig({
 					name: 'integration',
 					environment: 'node',
 					include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
-					exclude: ['src/lib/core/**'],
+					exclude: [`${CORE_TEST_DIRECTORY}**`],
 					globalSetup: ['tests/support/vitest-global-setup.ts'],
-					testTimeout: INTEGRATION_TEST_BUDGET_MS,
-					hookTimeout: INTEGRATION_TEST_BUDGET_MS,
+					testTimeout: TIME_LIMITS.integration.hangTimeout,
+					hookTimeout: TIME_LIMITS.integration.hangTimeout,
 					allowOnly: false
 				}
 			}

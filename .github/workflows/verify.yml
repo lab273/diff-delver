@@ -51,9 +51,6 @@ jobs:
       fail-fast: false
       matrix:
         batch: ${{ fromJSON(needs.commits.outputs.batches) }}
-    env:
-      # CI machines are slower than the laptop the 90 second budget is set for.
-      VERIFY_BUDGET_SECONDS: 240
     steps:
       - uses: actions/checkout@v6
         with:

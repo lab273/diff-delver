@@ -1,18 +1,36 @@
 /**
  * `pnpm verify`: everything a commit must pass, in order, stopping at the first
- * failure. Prints how long each step took and the slowest tests, and fails if the
- * whole run is over its time budget.
- *
- * Budgets come from the README, "Testing". The total budget is for a laptop; slower
- * machines such as CI set VERIFY_BUDGET_SECONDS.
+ * failure. Prints how long each step took, the slowest tests, and a warning for
+ * every test over the time guidance for its type and for a run that has become
+ * unreasonably long. Time never fails the run (README, "Testing"); only a test that
+ * hangs past its hang timeout does, and that is the test failing.
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { millisecondsOf, type Milliseconds } from '../src/lib/core/milliseconds.tiny.ts';
+import { TIME_LIMITS } from './test-time-limits.ts';
+import {
+	describeTimeWarning,
+	formatMs,
+	formatSeconds,
+	playwrightTimings,
+	slowest,
+	timeWarnings,
+	vitestTimings,
+	warningFile,
+	type TestTiming
+} from './test-timings.ts';
 
-const DEFAULT_TOTAL_BUDGET_SECONDS = 90;
-const CORE_SUITE_BUDGET_MS = 5_000;
+/**
+ * Past this, the whole run counts as unreasonably long and verify warns. Two
+ * minutes: about ten times a run today, so only a real slowdown reaches it, and
+ * the point at which running verify before every commit starts to be put off.
+ * CI machines, several times slower, stay under it. Override with
+ * VERIFY_WARN_AFTER_SECONDS.
+ */
+const DEFAULT_WARN_AFTER_SECONDS = 120;
 const SLOWEST_SHOWN = 5;
 
 const root = join(import.meta.dirname, '..');
@@ -33,6 +51,7 @@ interface Step {
 }
 
 const inCi = process.env['CI'] !== undefined;
+const inGitHubActions = process.env['GITHUB_ACTIONS'] === 'true';
 
 const steps: readonly Step[] = [
 	{ name: 'Format', commands: [{ program: bin('prettier'), args: ['--check', '.'] }] },
@@ -89,42 +108,15 @@ function run(command: Command): Promise<number> {
 	});
 }
 
-interface Timing {
+interface StepTiming {
 	readonly name: string;
-	readonly ms: number;
+	readonly ms: Milliseconds;
 }
 
-const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
-const millis = (ms: number): string => `${Math.round(ms)} ms`;
+const elapsedSince = (started: number): Milliseconds => millisecondsOf(performance.now() - started);
 
 function heading(text: string): void {
 	console.log(`\n\u001b[1m${text}\u001b[0m`);
-}
-
-// --- Reading the test reports ---------------------------------------------------
-
-/** A JSON object's fields. */
-type Json = ReadonlyMap<string, unknown>;
-
-/** The fields of a JSON object, or undefined when the value is not one. */
-function asRecord(value: unknown): Json | undefined {
-	if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
-	const fields: [string, unknown][] = Object.entries(value);
-	return new Map(fields);
-}
-
-function records(value: unknown): readonly Json[] {
-	if (!Array.isArray(value)) return [];
-	const items: readonly unknown[] = value;
-	return items.flatMap((item) => asRecord(item) ?? []);
-}
-
-function text(value: unknown): string {
-	return typeof value === 'string' ? value : '';
-}
-
-function number(value: unknown): number {
-	return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 function readJson(path: string): unknown {
@@ -136,76 +128,43 @@ function readJson(path: string): unknown {
 	}
 }
 
-interface TestTiming extends Timing {
-	readonly file: string;
-}
-
-function vitestTimings(): readonly TestTiming[] {
-	const report = asRecord(readJson(vitestReport));
-	if (report === undefined) return [];
-	return records(report.get('testResults')).flatMap((file) =>
-		records(file.get('assertionResults')).map((test) => ({
-			file: text(file.get('name')).replace(`${root}/`, ''),
-			name: text(test.get('fullName')),
-			ms: number(test.get('duration'))
-		}))
-	);
-}
-
-function playwrightTimings(): readonly TestTiming[] {
-	const report = asRecord(readJson(playwrightReport));
-	if (report === undefined) return [];
-	const timings: TestTiming[] = [];
-	const visit = (suite: Json, titles: readonly string[]): void => {
-		const here = [...titles, text(suite.get('title'))].filter((t) => t !== '');
-		for (const spec of records(suite.get('specs'))) {
-			for (const test of records(spec.get('tests'))) {
-				const ms = records(test.get('results')).reduce(
-					(sum, r) => sum + number(r.get('duration')),
-					0
-				);
-				timings.push({
-					file: text(spec.get('file')),
-					name: [...here.slice(1), text(spec.get('title'))].join(' > '),
-					ms
-				});
-			}
-		}
-		for (const child of records(suite.get('suites'))) visit(child, here);
-	};
-	for (const suite of records(report.get('suites'))) visit(suite, []);
-	return timings;
-}
-
 function printSlowest(title: string, timings: readonly TestTiming[]): void {
 	if (timings.length === 0) return;
 	heading(title);
-	const slowest = [...timings].sort((a, b) => b.ms - a.ms).slice(0, SLOWEST_SHOWN);
-	for (const t of slowest) {
-		console.log(`  ${millis(t.ms).padStart(8)}  ${t.file} > ${t.name}`);
+	for (const t of slowest(timings, SLOWEST_SHOWN)) {
+		console.log(`  ${formatMs(t.ms).padStart(8)}  ${t.file} > ${t.name}`);
 	}
+}
+
+/** GitHub's workflow command syntax: `%`, CR and LF escaped in the message. */
+function gitHubEscape(text: string): string {
+	return text.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
 }
 
 // --- Main -----------------------------------------------------------------------
 
-function totalBudgetMs(): number {
-	const raw = process.env['VERIFY_BUDGET_SECONDS'];
-	if (raw === undefined || raw === '') return DEFAULT_TOTAL_BUDGET_SECONDS * 1000;
+function warnAfter(): Milliseconds {
+	const raw = process.env['VERIFY_WARN_AFTER_SECONDS'];
+	if (raw === undefined || raw === '') return millisecondsOf(DEFAULT_WARN_AFTER_SECONDS * 1000);
 	const parsed = Number(raw);
 	if (!Number.isFinite(parsed) || parsed <= 0) {
-		console.error(`VERIFY_BUDGET_SECONDS must be a positive number of seconds, not "${raw}".`);
+		console.error(
+			`VERIFY_WARN_AFTER_SECONDS must be a positive number of seconds, not "${raw}". ` +
+				'Set it to a number such as 300, or unset it to use the default of ' +
+				`${String(DEFAULT_WARN_AFTER_SECONDS)}.`
+		);
 		process.exit(2);
 	}
-	return parsed * 1000;
+	return millisecondsOf(parsed * 1000);
 }
 
 async function main(): Promise<number> {
-	const budgetMs = totalBudgetMs();
+	const runGuidance = warnAfter();
 	rmSync(reportDir, { recursive: true, force: true });
 	mkdirSync(reportDir, { recursive: true });
 
 	const started = performance.now();
-	const timings: Timing[] = [];
+	const timings: StepTiming[] = [];
 	let failedStep: string | undefined;
 
 	for (const step of steps) {
@@ -216,45 +175,48 @@ async function main(): Promise<number> {
 			code = await run(command);
 			if (code !== 0) break;
 		}
-		timings.push({ name: step.name, ms: performance.now() - stepStarted });
+		timings.push({ name: step.name, ms: elapsedSince(stepStarted) });
 		if (code !== 0) {
 			failedStep = step.name;
 			break;
 		}
 	}
-	const totalMs = performance.now() - started;
+	const totalMs = elapsedSince(started);
 
 	heading('Time per step');
-	for (const t of timings) console.log(`  ${seconds(t.ms).padStart(8)}  ${t.name}`);
+	for (const t of timings) console.log(`  ${formatSeconds(t.ms).padStart(8)}  ${t.name}`);
 
-	const unitTimings = vitestTimings();
+	const unitTimings = vitestTimings(readJson(vitestReport), root);
+	const journeyTimings = playwrightTimings(readJson(playwrightReport), root);
 	printSlowest('Slowest unit and integration tests', unitTimings);
-	printSlowest('Slowest journeys', playwrightTimings());
+	printSlowest('Slowest journeys', journeyTimings);
 
-	const problems: string[] = [];
-	if (failedStep !== undefined) problems.push(`${failedStep} failed. See its output above.`);
-
-	const coreMs = unitTimings
-		.filter((t) => t.file.startsWith('src/lib/core/'))
-		.reduce((sum, t) => sum + t.ms, 0);
-	if (coreMs > CORE_SUITE_BUDGET_MS) {
-		problems.push(
-			`The core tests took ${seconds(coreMs)} together, over their budget of ${seconds(CORE_SUITE_BUDGET_MS)}.`
+	const warnings = timeWarnings([...unitTimings, ...journeyTimings], TIME_LIMITS, {
+		ms: totalMs,
+		guidance: runGuidance
+	});
+	if (warnings.length > 0) {
+		heading(
+			`\u001b[33m⚠ ${String(warnings.length)} over the time guidance (README, "Testing"). ` +
+				'They do not fail the run; each is a prompt to look for a faster way.\u001b[0m'
 		);
-	}
-	if (totalMs > budgetMs) {
-		problems.push(
-			`The whole check took ${seconds(totalMs)}, over its budget of ${seconds(budgetMs)}. ` +
-				'Find the slow step above; on a slower machine, set VERIFY_BUDGET_SECONDS.'
-		);
+		for (const warning of warnings) {
+			const message = describeTimeWarning(warning);
+			console.log(`\u001b[33m  ⚠ ${message}\u001b[0m`);
+			if (inGitHubActions) {
+				const file = warningFile(warning);
+				const where = file === undefined ? '' : `file=${file},`;
+				console.log(`::warning ${where}title=Over the time guidance::${gitHubEscape(message)}`);
+			}
+		}
 	}
 
-	heading(`Total ${seconds(totalMs)} (budget ${seconds(budgetMs)})`);
-	if (problems.length === 0) {
+	heading(`Total ${formatSeconds(totalMs)}`);
+	if (failedStep === undefined) {
 		console.log('\u001b[32m✔ verify passed\u001b[0m');
 		return 0;
 	}
-	for (const problem of problems) console.error(`\u001b[31m✘ ${problem}\u001b[0m`);
+	console.error(`\u001b[31m✘ ${failedStep} failed. See its output above.\u001b[0m`);
 	return 1;
 }
 

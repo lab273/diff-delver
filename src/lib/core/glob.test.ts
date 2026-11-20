@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { now } from '../../../tests/support/stopwatch.ts';
+import { TIME_LIMITS } from '../../../scripts/test-time-limits.ts';
+import { timed } from '../../../tests/support/measured-time.ts';
 import { compileGlob, parseGlobPattern } from './glob-pattern.tiny.ts';
 import {
 	compileGlobProgram,
@@ -158,6 +159,9 @@ function pseudoRandomPath(length: number): string {
 	return out;
 }
 
+/** The core guidance for one test, which one match of these should stay well inside. */
+const CORE_GUIDANCE = TIME_LIMITS.core.guidance;
+
 describe('glob matching time', () => {
 	/** Runs a pattern against a path and checks the work against the bound. */
 	function run(pattern: string, path: string): boolean {
@@ -169,7 +173,8 @@ describe('glob matching time', () => {
 	}
 
 	// Each of these took seconds or never finished as a backtracking regular expression.
-	it.each([
+	// The step bound is what holds them; the time is guidance, reported by verify.
+	it.for<readonly [string, string, string, boolean]>([
 		['12 stars', '*a'.repeat(12) + '*b', 'a'.repeat(40), false],
 		['40 stars', '*a'.repeat(40) + '*b', 'a'.repeat(4000), false],
 		['40 stars that match', '*a'.repeat(40) + '*', 'a'.repeat(4000), true],
@@ -185,10 +190,9 @@ describe('glob matching time', () => {
 		['40 mixed stars', '**/*a'.repeat(40) + 'b', 'a/'.repeat(2000) + 'a', false],
 		// A set of states for each of 2^20 tails, far more than are kept.
 		['a star and 20 marks', '*a' + '?'.repeat(20) + 'c', pseudoRandomPath(4000), false]
-	])('%s finish quickly on a long path', (_name, pattern, path, expected) => {
-		const started = now();
-		expect(run(pattern, path)).toBe(expected);
-		expect(now() - started).toBeLessThan(250);
+	])('%s finish quickly on a long path', ([, pattern, path, expected], { task }) => {
+		const matched = timed(task, 'matching', CORE_GUIDANCE, () => run(pattern, path));
+		expect(matched).toBe(expected);
 	});
 
 	it('never takes more steps than the bound, whatever the pattern and path', () => {
@@ -255,11 +259,12 @@ describe('glob matching time', () => {
 		);
 	});
 
-	it('runs the worst pattern of the longest length against a 4,096-character path within the core limit', () => {
+	it('runs the worst pattern of the longest length against a 4,096-character path within the step bound', ({
+		task
+	}) => {
 		const pattern = '*a'.repeat(MAX_GLOB_LENGTH / 2 - 1) + '*b';
 		expect(Array.from(pattern)).toHaveLength(MAX_GLOB_LENGTH);
-		const started = now();
-		expect(run(pattern, 'a'.repeat(4096))).toBe(false);
-		expect(now() - started).toBeLessThan(250);
+		const matched = timed(task, 'matching', CORE_GUIDANCE, () => run(pattern, 'a'.repeat(4096)));
+		expect(matched).toBe(false);
 	});
 });

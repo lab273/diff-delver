@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { now } from '../../../../tests/support/stopwatch.ts';
+import { timed } from '../../../../tests/support/measured-time.ts';
+import { millisecondsOf } from '../milliseconds.tiny.ts';
 import {
 	arbitraryDiff,
 	GLOBS,
@@ -203,7 +204,9 @@ describe('assign', () => {
 		]);
 	});
 
-	it('matches a pathological glob against many long paths quickly, and refuses an overlong one', () => {
+	it('matches a pathological glob against many long paths quickly, and refuses an overlong one', ({
+		task
+	}) => {
 		const long = syntheticDiff(
 			Array.from({ length: 200 }, (_, i) => ({
 				path: `${'a/'.repeat(100)}${'a'.repeat(200)}${String(i)}`,
@@ -211,13 +214,13 @@ describe('assign', () => {
 				lines: 1
 			}))
 		);
-		const started = now();
-		const outcome = assign(long, initialState(long), [
-			{ glob: `${'*a'.repeat(12)}*b`, section: 'alpha' },
-			{ glob: `${'**/'.repeat(30)}z`, section: 'alpha' },
-			{ glob: 'a'.repeat(300), section: 'alpha' }
-		]);
-		expect(now() - started).toBeLessThan(250);
+		const outcome = timed(task, 'assigning', millisecondsOf(250), () =>
+			assign(long, initialState(long), [
+				{ glob: `${'*a'.repeat(12)}*b`, section: 'alpha' },
+				{ glob: `${'**/'.repeat(30)}z`, section: 'alpha' },
+				{ glob: 'a'.repeat(300), section: 'alpha' }
+			])
+		);
 		expect(outcome.rejected.map((r) => [r.index, r.rejection.kind])).toEqual([
 			[0, 'GlobMatchesNothing'],
 			[1, 'GlobMatchesNothing'],
@@ -390,15 +393,15 @@ describe('assign rejections', () => {
 			return describeRejection(rejection);
 		};
 
-		it('keeps a refusal of 5,000 empty ranges short, and builds it quickly', () => {
+		it('keeps a refusal of 5,000 empty ranges short, and builds it quickly', ({ task }) => {
 			const changed = huge.files[0]?.changed.new;
 			const unchanged: string[] = [];
 			for (let n = 1; unchanged.length < 5_000; n += 1) {
 				if (changed?.has(n) !== true) unchanged.push(`+${String(n)}`);
 			}
-			const started = now();
-			const text = message({ file: 'huge.ts', lines: unchanged.join(','), section: 'alpha' });
-			expect(now() - started).toBeLessThan(100);
+			const text = timed(task, 'building the refusal', millisecondsOf(100), () =>
+				message({ file: 'huge.ts', lines: unchanged.join(','), section: 'alpha' })
+			);
 			expect(text.length).toBeLessThan(600);
 			expect(text).toContain('+1,+2,+4,+5,+6,+8,+9,+10,+12,+13 and 4990 more hold no changed line');
 			expect(text).toContain('Nearby: +3,+7,+11,+15,+19,+23,+27,+31,+35,+39.');
