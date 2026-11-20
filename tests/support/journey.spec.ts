@@ -16,7 +16,8 @@ const FONTS = join(import.meta.dirname, '..', '..', 'node_modules', '@fontsource
 
 /** The fonts a planted page may use, served at the app's address like the app's own. */
 const FONT_FILES: Readonly<Record<string, string>> = {
-	'inter-400.woff2': join(FONTS, 'inter/files/inter-latin-400-normal.woff2')
+	'inter-400.woff2': join(FONTS, 'inter/files/inter-latin-400-normal.woff2'),
+	'inter-700.woff2': join(FONTS, 'inter/files/inter-latin-700-normal.woff2')
 };
 
 const HELPER = '/__journey-helper';
@@ -30,6 +31,7 @@ function pageWith(body: string, style = ''): string {
 <title>Planted page</title>
 <style>
 @font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; src: url(${HELPER}/inter-400.woff2) format('woff2'); unicode-range: U+0000-00FF, U+2000-206F; }
+@font-face { font-family: 'Inter'; font-weight: 700; font-style: normal; src: url(${HELPER}/inter-700.woff2) format('woff2'); unicode-range: U+0000-00FF, U+2000-206F; }
 html { font-family: 'Inter'; font-synthesis: none; }
 button, input, select, textarea { font: inherit; }
 ${style}
@@ -285,4 +287,39 @@ test('the journey helper checks fonts in the dark colour scheme too', async ({ p
 		)
 	);
 	await expect(journey.step('Dark font')).rejects.toThrow(/\(dark\).*<p> has 4 character/s);
+});
+
+test.describe('the journey helper checks that emphasis has a face of its own', () => {
+	test('fails on italic text with no bundled italic face', async ({ planted }) => {
+		const journey = await planted(pageWith('<h1>Plain</h1><p><em>Slanted</em></p>'));
+		await expect(journey.step('Italic')).rejects.toThrow(
+			'<em> is set in italic 400 "Inter", but no bundled face of "Inter" is italic 400'
+		);
+	});
+
+	test('fails on bold text in a weight with no bundled face', async ({ planted }) => {
+		const journey = await planted(
+			pageWith('<h1>Plain</h1><p><strong>Heavy</strong></p>', 'strong { font-weight: 900; }')
+		);
+		await expect(journey.step('Heavy')).rejects.toThrow(
+			'<strong> is set in 900 "Inter", but no bundled face of "Inter" is 900'
+		);
+	});
+
+	test("passes the app's emphasis, in its text and its code", async ({
+		page,
+		baseURL
+	}, testInfo) => {
+		const { journey } = await startJourney(page, testInfo, baseURL, { screenshots: 'take' });
+		await journey.open('/');
+		await page.locator('main').evaluate((main) => {
+			main.insertAdjacentHTML(
+				'beforeend',
+				'<p><em>Slanted</em>, <strong>bold</strong>, <strong><em>both</em></strong>, ' +
+					'<code>code</code>, <em><code>slanted code</code></em>, ' +
+					'<strong><code>bold code</code></strong>, <strong><em><code>both</code></em></strong></p>'
+			);
+		});
+		await journey.step('Emphasis');
+	});
 });

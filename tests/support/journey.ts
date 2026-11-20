@@ -17,9 +17,11 @@
  *   (tests/journeys/screenshots/), and an accessibility scan of the whole page. A
  *   journey that needs to show more scrolls with the keyboard and takes another
  *   step, so a step costs about the same however long the page is;
- * - text drawn only in the bundled fonts, every character covered by them, and
- *   drawn only once they have loaded;
- * - no error in the browser console and no request to anywhere but the app;
+ * - in both schemes too, text drawn only in the bundled fonts, every character
+ *   covered by them, italic and bold text each in a bundled face of its own (the
+ *   app never fakes one), and drawn only once they have loaded;
+ * - no error in the browser console and no request to anywhere but the app,
+ *   checked again when the journey finishes;
  * - the journey so far done with the keyboard only.
  *
  * A journey gets no Playwright page, context or locator: only the `Journey`
@@ -417,8 +419,31 @@ async function charactersNotCovered(page: Page): Promise<readonly string[]> {
 				}
 				ranges.set(family, list);
 			}
+			const faces = [...doc.fonts];
+			/** Whether a face of the family has this style and weight, so the browser need not fake one. */
+			const hasFace = (family: string, style: string, weight: number): boolean =>
+				faces.some((face) => {
+					if (unquote(face.family) !== family) return false;
+					const italic = face.style !== 'normal';
+					if (italic !== (style !== 'normal')) return false;
+					const [low = 0, high = low] = face.weight.split(/\s+/).map(Number);
+					return weight >= low && weight <= high;
+				});
 			const report = (element: Element, text: string, pseudo?: string): void => {
-				const family = unquote(getComputedStyle(element, pseudo).fontFamily.split(',')[0] ?? '');
+				const style = getComputedStyle(element, pseudo);
+				const family = unquote(style.fontFamily.split(',')[0] ?? '');
+				const weight = Number(style.fontWeight);
+				if (text.trim() !== '' && ranges.has(family) && !hasFace(family, style.fontStyle, weight)) {
+					// With font-synthesis: none the browser draws it in the nearest face it has,
+					// so the emphasis does not show.
+					const shape = `${style.fontStyle === 'normal' ? '' : `${style.fontStyle} `}${String(weight)}`;
+					problems.push(
+						`<${element.localName}> is set in ${shape} "${family}", but no bundled face of ` +
+							`"${family}" is ${shape}, so the browser draws it in another face and the ` +
+							'emphasis does not show. Bundle that face (src/routes/+layout.svelte), or ' +
+							'use a weight and style that is bundled.'
+					);
+				}
 				const covered = ranges.get(family) ?? [];
 				const missing = new Set<string>();
 				for (const char of text) {
