@@ -346,7 +346,9 @@ describe('the report service', () => {
 			what: 'reviewed marks',
 			path: 'gone.ts'
 		});
-		expect(describeReportError(error)).toMatch(/Delete the report and open the source again/);
+		expect(describeReportError(error)).toMatch(
+			/Delete the diff from the list of diffs and open its changes again/
+		);
 		const ticked = failure(
 			await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true)
 		);
@@ -494,7 +496,7 @@ describe('the report service', () => {
 		const second = created(value(await service.open(repo.dir, spec('working-tree'))));
 		const refused = failure(service.reopenReport(first));
 		expect(refused).toEqual({ kind: 'AnotherReportOpen', report: first, open: second });
-		expect(describeReportError(refused)).toMatch(/cannot be reopened while another report/);
+		expect(describeReportError(refused)).toMatch(/cannot be reopened while another diff/);
 
 		value(service.closeReport(second));
 		expect(value(service.reopenReport(first)).state).toEqual({ kind: 'open' });
@@ -572,7 +574,7 @@ describe('the report service', () => {
 			open: true
 		});
 		expect(describeReportError(gone)).toMatch(
-			/is gone from diff delver's data folder.*Open Uncommitted changes again to start a new report/
+			/is gone from diff delver's data folder.*Open Uncommitted changes again to start a new diff/
 		);
 		expect(
 			failure(await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true)).kind
@@ -616,7 +618,7 @@ describe('the report service', () => {
 		try {
 			const deleted = value(await service.deleteReport(id));
 			expect(deleted.storeProblem).toMatch(
-				/^The report was deleted, but the space its saved changes use could not be freed yet.*frees it by itself later/
+				/^The diff was deleted, but the space its saved changes use could not be freed yet.*frees it by itself later/
 			);
 			expect(deleted.storeProblem).not.toMatch(/Open the/);
 		} finally {
@@ -757,7 +759,7 @@ describe('the report service', () => {
 		expect(missing.kind).toBe('NotARepository');
 		expect(describeReportError(missing).length).toBeGreaterThan(20);
 		const unknown = failure(await service.load(value(parseReportId('r_404'))));
-		expect(describeReportError(unknown)).toMatch(/There is no report r_404/);
+		expect(describeReportError(unknown)).toMatch(/This diff is not in diff delver any more/);
 		service.close();
 	});
 });

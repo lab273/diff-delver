@@ -32,14 +32,14 @@ export function repositoryLabel(path: AbsolutePath): ReviewerMessage {
 export function describeClosedReason(reason: ClosedReason): ReviewerMessage {
 	switch (reason) {
 		case 'reviewer':
-			return reviewerMessage('You closed this report.');
+			return reviewerMessage('You closed this diff.');
 		case 'source-empty':
 			return reviewerMessage(
 				'Closed when its source was opened again with nothing left to review: the changes had been committed, merged or discarded.'
 			);
 		case 'snapshot-gone':
 			return reviewerMessage(
-				"Closed because diff delver's saved copy of its changes was gone from the data folder, so it could not be shown; opening its source again started a new report in its place. Delete this one; nothing in it can be shown."
+				"Closed because diff delver's saved copy of its changes was gone from the data folder, so it could not be shown; opening its changes again started a new diff in its place. Delete this one; nothing in it can be shown."
 			);
 	}
 }

@@ -77,7 +77,7 @@ export function describeStoredStateMismatch(error: StoredStateMismatch): Reviewe
 		}
 	})();
 	return reviewerMessage(
-		`The saved ${error.what} of this report ${problem} (${escapedRepoPath(error.path)}), so the database has been damaged or changed by hand. Delete the report and open the source again; if it happens again, please report it as a bug.`
+		`The saved ${error.what} of this diff ${problem} (${escapedRepoPath(error.path)}), so the database has been damaged or changed by hand. Delete the diff from the list of diffs and open its changes again; if it happens again, please report it as a bug.`
 	);
 }
 

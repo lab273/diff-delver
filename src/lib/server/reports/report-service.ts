@@ -310,7 +310,7 @@ interface Remembered {
 /** What a delete says when its rows went but its snapshots could not be removed yet. */
 function notFreed(error: StoreError): ReviewerMessage {
 	return reviewerMessage(
-		`The report was deleted, but the space its saved changes use could not be freed yet; diff delver frees it by itself later. What went wrong: ${describeStoreError(error)}`
+		`The diff was deleted, but the space its saved changes use could not be freed yet; diff delver frees it by itself later. What went wrong: ${describeStoreError(error)}`
 	);
 }
 

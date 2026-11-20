@@ -100,7 +100,7 @@ export function describeDatabaseError(error: DatabaseError): ReviewerMessage {
 			);
 		case 'DatabaseCorrupt':
 			return reviewerMessage(
-				`diff delver's database ${error.file} is damaged (${error.reason}). Restore it from a backup if you have one, or move it out of the way to start again with no reports; the snapshots in the data folder are not affected.`
+				`diff delver's database ${error.file} is damaged (${error.reason}). Restore it from a backup if you have one, or move it out of the way to start again with no diffs; the saved changes in the data folder are not affected.`
 			);
 		case 'DatabaseTooNew':
 			return reviewerMessage(
@@ -108,7 +108,7 @@ export function describeDatabaseError(error: DatabaseError): ReviewerMessage {
 			);
 		case 'MigrationFailed':
 			return reviewerMessage(
-				`diff delver could not bring its database ${error.file} up to date (change ${String(error.version)} failed: ${error.reason}). The database is as it was, so your reports are safe. Please report this as a bug; until it is fixed, use the version of diff delver you used before.`
+				`diff delver could not bring its database ${error.file} up to date (change ${String(error.version)} failed: ${error.reason}). The database is as it was, so your diffs are safe. Please report this as a bug; until it is fixed, use the version of diff delver you used before.`
 			);
 		case 'DatabaseBusy':
 			return reviewerMessage(
@@ -150,9 +150,9 @@ function storedRowAdvice(table: TableName): string {
 		case 'sections':
 		case 'assignments':
 		case 'reviewed_marks':
-			return 'Delete that report from the list of reports, where it shows as damaged, or restore the database from a backup.';
+			return 'Delete that diff from the list of diffs, where it shows as damaged, or restore the database from a backup.';
 		case 'schema_migrations':
 		case 'unreferenced_snapshots':
-			return 'Restore the database from a backup, or move it out of the way to start again with no reports; the snapshots in the data folder are not affected.';
+			return 'Restore the database from a backup, or move it out of the way to start again with no diffs; the saved changes in the data folder are not affected.';
 	}
 }

@@ -98,23 +98,23 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 	switch (error.kind) {
 		case 'ReportNotFound':
 			return reviewerMessage(
-				`There is no report ${error.report}: it may have been deleted. Open the list of reports to find the one you want, or open the source again.`
+				'This diff is not in diff delver any more: it may have been deleted. Go to the list of diffs to find the one you want, or open its changes again.'
 			);
 		case 'ReportClosed':
 			return reviewerMessage(
-				'This report is closed, so it can be read but not changed. Reopen it to carry on with it.'
+				'This diff is closed, so it can be read but not changed. Reopen it to carry on with it.'
 			);
 		case 'AnotherReportOpen':
 			return reviewerMessage(
-				'This report cannot be reopened while another report of the same changes is open. Carry on in that one, or close it first.'
+				'This diff cannot be reopened while another diff of the same changes is open. Carry on in that one, or close it first.'
 			);
 		case 'ReportHasNoRevision':
 			return reviewerMessage(
-				'This report has no saved version of its changes, so the database has been changed by hand or damaged. Delete it from the list of reports and open its source again.'
+				'This diff has no saved version of its changes, so the database has been changed by hand or damaged. Delete it from the list of diffs and open its changes again.'
 			);
 		case 'RepositoryReplaced':
 			return reviewerMessage(
-				`${error.path} now holds a different repository from the one this report was opened in, so its changes cannot be checked. Open the source again from the repository you want to review.`
+				`${error.path} now holds a different repository from the one this diff was opened in, so its changes cannot be checked. Open the changes again from the repository you want to review.`
 			);
 		case 'RevisionChangedWhileSaving':
 			return reviewerMessage(
@@ -123,8 +123,8 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'SnapshotGone':
 			return reviewerMessage(
 				error.open
-					? `The saved copy of this report's changes is gone from diff delver's data folder (it was deleted or moved), so the report cannot be shown. Open ${error.source} again to start a new report of them; this one will then be closed.`
-					: `The saved copy of this report's changes is gone from diff delver's data folder (it was deleted or moved), so the report cannot be shown, and nothing can bring it back. Delete it from the list of reports.`
+					? `The saved copy of this diff's changes is gone from diff delver's data folder (it was deleted or moved), so the diff cannot be shown. Open ${error.source} again to start a new diff of them; this one will then be closed.`
+					: `The saved copy of this diff's changes is gone from diff delver's data folder (it was deleted or moved), so the diff cannot be shown, and nothing can bring it back. Delete it from the list of diffs.`
 			);
 		case 'SectionsRefused':
 			return reviewerMessage(

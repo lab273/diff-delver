@@ -350,7 +350,7 @@ describe('the database', () => {
 			'reviewed_marks'
 		];
 		for (const table of ofReports) {
-			expect(advice(table)).toMatch(/Delete that report from the list of reports/);
+			expect(advice(table)).toMatch(/Delete that diff from the list of diffs/);
 		}
 		const ofNone: TableName[] = ['schema_migrations', 'unreferenced_snapshots'];
 		for (const table of ofNone) {
