@@ -48,7 +48,7 @@ cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
 | `pnpm lint` | ESLint, with warnings counted as failures. |
 | `pnpm check` | `svelte-check`: types in TypeScript and Svelte files. |
 | `pnpm format` | Rewrites files with Prettier. `pnpm format:check` only checks. |
-| `pnpm bd <arguments>` | beads' `bd`, with the agent identity set. `pnpm bd push` checks the issue data before publishing it. See [Tracking work](#tracking-work). |
+| `pnpm bd <arguments>` | beads' `bd`, with the agent identity set. `pnpm bd push` flags likely personal data before publishing. See [Tracking work](#tracking-work). |
 | `pnpm fixtures:capture` | Rebuilds the diff fixture repositories with real git and records git's output as the core parser's fixtures. Run it after changing a fixture or the diff command. |
 
 ### Layout
@@ -71,7 +71,7 @@ cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
 | `scripts/test-timings.ts` | Reads the test reports and works out which tests went over their guidance, for `pnpm verify`. |
 | `scripts/eslint-core-purity.ts` | The lint rule `core/purity`, for what core may not touch that the built-in rules cannot see: `Date` other than `Date.UTC` and `new Date(value)`, `Temporal.Now`, `Intl`, `Reflect.construct`, `import.meta` and locale- or timezone-dependent methods. Tested by `scripts/core-purity-rule.test.ts`. |
 | `scripts/capture-diff-fixtures.ts` | The `pnpm fixtures:capture` script. |
-| `scripts/bd.ts` | The `pnpm bd` wrapper. `bd-push.ts` decides when a push is tried again and what a refusal says; `private-data-scan.ts` finds personal and sensitive data in the issue data; `issue-tracker-identity.ts` holds the agent identity and the email allow-list. |
+| `scripts/bd.ts` | The `pnpm bd` wrapper. `bd-push.ts` decides which commands are checked first, when a push is tried again and what a finding says; `private-data-scan.ts` finds personal and sensitive data in the issue data; `issue-tracker-identity.ts` holds the agent identity and the email allow-list. |
 | `scripts/ci-commits.sh` | Lists the commits a push must verify, for CI, and splits them into jobs. Tested by `scripts/ci-commits.test.ts`, in the `integration` project. |
 | `.github/workflows/verify.yml` | CI: `pnpm verify` on every commit of every push to `main`, including every rewritten commit of a force push. |
 | `.beads/` | The beads issue tracker's settings. The issue database itself is not in git; it syncs through `pnpm bd push` and `pnpm bd dolt pull`. After cloning, `pnpm bd bootstrap` fetches it. `private-terms.txt`, if you make one, is ignored by git. |
@@ -133,7 +133,7 @@ its output and exit status through unchanged.
 | `pnpm bd update <id> --claim` | Take an issue and mark it in progress |
 | `pnpm bd note <id> "…"` | Add what was learned or decided |
 | `pnpm bd close <id> --reason "…"` | Finish it, naming the commits |
-| `pnpm bd push` | Check the issue data, then publish it (see the rules below) |
+| `pnpm bd push` | Flag likely personal data, then publish the issue data (see the rules below) |
 
 How we use it:
 
@@ -156,15 +156,19 @@ edit, so a later correction does not remove what was written.
 - beads copies the git identity into every issue (`user.email` into `owner`,
   `user.name` into `created_by`). `pnpm bd` always runs it with the agent
   identity instead; plain `bd` does not, so do not use it to change issues.
-- `pnpm bd push` (and `pnpm bd dolt push`) publishes only issue data that passes
-  a check. It exports every record and refuses to push if any field holds an
-  email address not on the allow-list in `scripts/issue-tracker-identity.ts`,
-  something that looks like a secret, a home-directory path, or a term from
-  `.beads/private-terms.txt`: a file of your own, one term per line, matched as
-  whole words in any case, and never committed. It lists each finding with the
-  issue and field. If something personal has got in, do not push; say so,
-  because removing it means rebuilding the database. A push that times out on
-  the network is tried again a few times.
+- That rule is the control. `pnpm bd push` is a helper for honest mistakes: any
+  `pnpm bd` command with `push` or `sync` among its arguments first exports the
+  current issue data and flags any field that holds an email address not on the
+  allow-list in `scripts/issue-tracker-identity.ts`, something that looks like a
+  secret, a home-directory path, or a term from `.beads/private-terms.txt` (a file
+  of your own, one term per line, matched as whole words in any case, never
+  committed). It lists each finding with the issue and field, secrets masked, and
+  stops; add `--anyway` to push regardless. It does not check history, tables the
+  export leaves out, or anything pushed another way: plain `bd`, unusual
+  spellings, or beads' own automatic push (`dolt.auto-push`, which stays off). If
+  something personal has got in, do not push; tell the project owner, because
+  removing it means rebuilding the database. A push that times out on the
+  network is tried again a few times.
 
 beads' usage metrics are switched off on the project's machines
 (`bd config set metrics.disabled true`), and `pnpm bd` sets `DO_NOT_TRACK` as well.

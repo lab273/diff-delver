@@ -3,10 +3,13 @@
  * set, so no personal name or email address is copied into an issue (README,
  * "Tracking work"). Arguments, output and exit status pass through unchanged.
  *
- * `pnpm bd push` (or `pnpm bd dolt push`) publishes the issue data only
- * after checking it: it exports every record, scans it for personal or sensitive
- * data (scripts/private-data-scan.ts) and refuses to push if anything is found.
- * A push that times out on the network is tried again a few times.
+ * A command with `push` or `sync` among its arguments, such as `pnpm bd push`,
+ * `pnpm bd dolt push` or `pnpm bd sync`, checks the issue data first: it exports
+ * every record, scans it for what looks personal or sensitive
+ * (scripts/private-data-scan.ts), and stops if anything is found, unless the
+ * command is given again with `--anyway`. It is a helper for honest mistakes, not
+ * a guarantee: it reads only the current data, and anything else passes straight
+ * through. A push that times out on the network is tried again a few times.
  */
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -22,12 +25,15 @@ import {
 	PRIVATE_TERMS_FILE
 } from './issue-tracker-identity.ts';
 import {
+	ANYWAY,
+	commandLine,
 	describePushProblem,
+	planCommand,
 	pushWithRetries,
 	type PushAttempt,
 	type PushProblem
 } from './bd-push.ts';
-import { parsePrivateTerms, scanExport } from './private-data-scan.ts';
+import { describeFinding, parsePrivateTerms, scanExport } from './private-data-scan.ts';
 
 /** The environment every bd command runs with. */
 function bdEnvironment(): NodeJS.ProcessEnv {
@@ -97,8 +103,15 @@ async function readPrivateTerms(): Promise<readonly string[]> {
 	}
 }
 
-/** Exports, checks and pushes. `extra` goes to `bd dolt push`, e.g. `--remote`. */
-async function push(extra: readonly string[]): Promise<Result<number, PushProblem>> {
+/**
+ * Exports the issue data and scans it. Gives a problem if something is found,
+ * unless `anyway`, when it lists what was found and carries on. `again` is the
+ * command to give with --anyway.
+ */
+async function check(
+	anyway: boolean,
+	again: readonly string[]
+): Promise<Result<void, PushProblem>> {
 	const scratch = await mkdtemp(join(tmpdir(), 'diff-delver-issues-'));
 	try {
 		const file = join(scratch, 'issues.jsonl');
@@ -110,45 +123,73 @@ async function push(extra: readonly string[]): Promise<Result<number, PushProble
 			allowedEmails: ALLOWED_EMAILS,
 			privateTerms: await readPrivateTerms()
 		});
-		if (findings.length > 0) return err({ kind: 'FoundPrivateData', findings });
-		console.log('Checked the issue data: nothing personal or sensitive found. Pushing.');
-
-		const attempt = async (): Promise<PushAttempt> => {
-			const ran = await runBd(['dolt', 'push', ...extra], 'capture');
-			// bd ran for the export a moment ago, so it can only be gone if it was removed since.
-			return ran.ok ? ran.value : { code: exitCode(127), output: '' };
-		};
-		return await pushWithRetries(
-			attempt,
-			(ms) => sleep(ms),
-			(text) => {
-				console.error(text);
-			}
+		if (findings.length === 0) {
+			console.log('Checked the issue data: nothing personal or sensitive found.');
+			return ok(undefined);
+		}
+		if (!anyway) {
+			return err({ kind: 'FoundPrivateData', findings, anyway: commandLine([...again, ANYWAY]) });
+		}
+		console.error(
+			[
+				`Going ahead with --anyway, although the issue data holds ${String(findings.length)} ` +
+					'thing(s) that look personal or sensitive:',
+				...findings.map((finding) => `  ${describeFinding(finding)}`)
+			].join('\n')
 		);
+		return ok(undefined);
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}
 }
 
-/** `push` and `dolt push` both go through the check; the arguments after them go to bd. */
-function pushArguments(args: readonly string[]): readonly string[] | undefined {
-	if (args[0] === 'push') return args.slice(1);
-	if (args[0] === 'dolt' && args[1] === 'push') return args.slice(2);
-	return undefined;
+/** Pushes with `bd dolt push`, `extra` going to it, trying again after a timeout. */
+async function push(extra: readonly string[]): Promise<Result<number, PushProblem>> {
+	const attempt = async (): Promise<PushAttempt> => {
+		const ran = await runBd(['dolt', 'push', ...extra], 'capture');
+		// bd ran for the export a moment ago, so it can only be gone if it was removed since.
+		return ran.ok ? ran.value : { code: exitCode(127), output: '' };
+	};
+	return pushWithRetries(
+		attempt,
+		(ms) => sleep(ms),
+		(text) => {
+			console.error(text);
+		}
+	);
 }
 
-async function main(args: readonly string[]): Promise<ExitCode> {
-	const pushExtra = pushArguments(args);
-	if (pushExtra === undefined) {
-		const ran = await runBd(args, 'inherit');
-		if (ran.ok) return ran.value.code;
-		console.error(describePushProblem(ran.error));
-		return exitCode(127);
+async function passThrough(args: readonly string[]): Promise<ExitCode> {
+	const ran = await runBd(args, 'inherit');
+	if (ran.ok) return ran.value.code;
+	console.error(describePushProblem(ran.error));
+	return exitCode(127);
+}
+
+async function main(given: readonly string[]): Promise<ExitCode> {
+	const plan = planCommand(given);
+	switch (plan.kind) {
+		case 'PassThrough':
+			return passThrough(plan.args);
+		case 'Push':
+		case 'CheckThenRun': {
+			const again = given.filter((arg) => arg !== ANYWAY);
+			const checked = await check(plan.anyway, again);
+			if (!checked.ok) {
+				console.error(`\n${describePushProblem(checked.error)}`);
+				return FAILED;
+			}
+			if (plan.kind === 'CheckThenRun') return passThrough(plan.args);
+			const pushed = await push(plan.extra);
+			if (pushed.ok) return exitCode(0);
+			console.error(`\n${describePushProblem(pushed.error)}`);
+			return FAILED;
+		}
+		default: {
+			const unknown: never = plan;
+			return unknown;
+		}
 	}
-	const pushed = await push(pushExtra);
-	if (pushed.ok) return exitCode(0);
-	console.error(`\n${describePushProblem(pushed.error)}`);
-	return FAILED;
 }
 
 process.exitCode = await main(process.argv.slice(2));

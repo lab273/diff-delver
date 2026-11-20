@@ -163,7 +163,7 @@ describe.concurrent('pnpm bd', () => {
 		expect(await readdir(remote)).not.toEqual([]);
 	});
 
-	it('refuses to push an email address, naming the issue and field, and pushes nothing', async ({
+	it('stops before a push that would publish an email address, naming the issue and field', async ({
 		expect
 	}) => {
 		const { db, home, remote } = await database();
@@ -177,22 +177,34 @@ describe.concurrent('pnpm bd', () => {
 		const id = /"id": "([^"]+)"/.exec(created.stdout)?.[1];
 		expect(id).toBeDefined();
 
-		for (const args of [['push'], ['dolt', 'push']]) {
-			const refused = await wrapper(db, home, args);
-			expect(refused.code).toBe(1);
-			expect(refused.stderr).toContain('Nothing was pushed');
-			expect(refused.stderr).toContain(`${String(id)} description: an email address`);
+		// `-C . dolt push` and `sync` were once pushed without the check.
+		for (const args of [['push'], ['dolt', 'push'], ['-C', '.', 'dolt', 'push'], ['sync']]) {
+			const stopped = await wrapper(db, home, args);
+			expect(stopped.code, args.join(' ')).toBe(1);
+			expect(stopped.stderr).toContain('Nothing was pushed');
+			expect(stopped.stderr).toContain(`${String(id)} description: an email address`);
+			expect(stopped.stderr).toContain(`anyway with: pnpm bd ${args.join(' ')} --anyway`);
 		}
 		expect(await readdir(remote)).toEqual([]);
 	});
 
-	it('refuses to push a term from the private-terms file, in any case', async ({ expect }) => {
+	it('pushes anyway when told to, listing what it found', async ({ expect }) => {
+		const { db, home, remote } = await database();
+		await wrapper(db, home, ['create', 'Ask', '-d', 'Mail jo@example.com']);
+		const pushed = await wrapper(db, home, ['push', '--anyway']);
+		expect(pushed.code, pushed.stderr).toBe(0);
+		expect(pushed.stderr).toContain('Going ahead with --anyway');
+		expect(pushed.stderr).toContain('description: an email address');
+		expect(await readdir(remote)).not.toEqual([]);
+	});
+
+	it('stops on a term from the private-terms file, in any case', async ({ expect }) => {
 		const { db, home, remote } = await database();
 		await writeFile(join(db, '.beads', 'private-terms.txt'), '# clients\nAcme Widgets\n');
 		await wrapper(db, home, ['create', 'Report for ACME WIDGETS']);
-		const refused = await wrapper(db, home, ['push']);
-		expect(refused.code).toBe(1);
-		expect(refused.stderr).toContain('title: a term from the private-terms file: ACME WIDGETS');
+		const stopped = await wrapper(db, home, ['push']);
+		expect(stopped.code).toBe(1);
+		expect(stopped.stderr).toContain('title: a term from the private-terms file: ACME WIDGETS');
 		expect(await readdir(remote)).toEqual([]);
 	});
 });

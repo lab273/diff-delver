@@ -6,7 +6,9 @@
 import { describe, expect, it } from 'vitest';
 import { parseExitCode, type ExitCode } from '../src/lib/core/exit-code.tiny.ts';
 import {
+	commandLine,
 	describePushProblem,
+	planCommand,
 	isNetworkTimeout,
 	pushWithRetries,
 	type PushAttempt
@@ -116,17 +118,62 @@ describe('pushWithRetries', () => {
 	});
 });
 
+describe('planCommand', () => {
+	it('checks, then pushes with retries, for push and dolt push', () => {
+		expect(planCommand(['push'])).toEqual({ kind: 'Push', extra: [], anyway: false });
+		expect(planCommand(['dolt', 'push', '--remote', 'x'])).toEqual({
+			kind: 'Push',
+			extra: ['--remote', 'x'],
+			anyway: false
+		});
+	});
+
+	it('checks first for any command with push or sync among its arguments', () => {
+		for (const args of [['-C', '.', 'dolt', 'push'], ['sync'], ['federation', 'sync']]) {
+			expect(planCommand(args)).toEqual({ kind: 'CheckThenRun', args, anyway: false });
+		}
+	});
+
+	it('passes everything else straight through', () => {
+		expect(planCommand(['create', 'push the fix'])).toEqual({
+			kind: 'PassThrough',
+			args: ['create', 'push the fix']
+		});
+		expect(planCommand([])).toEqual({ kind: 'PassThrough', args: [] });
+	});
+
+	it('takes --anyway out wherever it is, and never passes it to bd', () => {
+		expect(planCommand(['push', '--anyway'])).toEqual({ kind: 'Push', extra: [], anyway: true });
+		expect(planCommand(['--anyway', 'sync'])).toEqual({
+			kind: 'CheckThenRun',
+			args: ['sync'],
+			anyway: true
+		});
+	});
+});
+
+describe('commandLine', () => {
+	it('gives the command as it can be typed again', () => {
+		expect(commandLine(['push', '--anyway'])).toBe('pnpm bd push --anyway');
+		expect(commandLine(['-C', 'my dir', 'sync', "it's"])).toBe(
+			"pnpm bd -C 'my dir' sync 'it'\\''s'"
+		);
+	});
+});
+
 describe('describePushProblem', () => {
-	it('lists every finding and says nothing was pushed and what to do', () => {
+	it('lists every finding, says nothing was pushed, and how to push anyway', () => {
 		const text = describePushProblem({
 			kind: 'FoundPrivateData',
-			findings: [{ issue: 'dd-1', field: 'notes', kind: 'Email', shown: 'a@example.com' }]
+			findings: [{ issue: 'dd-1', field: 'notes', kind: 'Email', shown: 'a@example.com' }],
+			anyway: 'pnpm bd push --anyway'
 		});
 		expect(text).toContain('Nothing was pushed');
 		expect(text).toContain(
 			'dd-1 notes: an email address that is not on the allow-list: a@example.com'
 		);
 		expect(text).toContain('tell the project owner');
+		expect(text).toContain('push\nanyway with: pnpm bd push --anyway');
 	});
 
 	it.each([
