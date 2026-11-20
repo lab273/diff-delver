@@ -17,7 +17,7 @@
  * is given with the last commit as a candidate.
  */
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
-import type { CommitId } from '#lib/core/commit-id.tiny.ts';
+import { parseCommitId, type CommitId } from '#lib/core/commit-id.tiny.ts';
 import { fileCountOf, type FileCount } from '#lib/core/file-count.tiny.ts';
 import { ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
@@ -157,8 +157,8 @@ async function mergeBaseOf(
 ): Promise<Result<CommitId | undefined, GitSourceError>> {
 	const base = await gitIn(repo, gitCwd(repo), ['merge-base', a, b]);
 	if (!base.ok) return base.error.kind === 'GitFailed' ? ok(undefined) : base;
-	const id = await resolveCommit(repo, revision(base.value.stdout.toString('utf8').trim()));
-	return id.ok ? ok(id.value) : ok(undefined);
+	const id = parseCommitId(base.value.stdout.toString('utf8').trim());
+	return ok(id.ok ? id.value : undefined);
 }
 
 /** The current branch compared with `from`, if it has commits `from` lacks. */

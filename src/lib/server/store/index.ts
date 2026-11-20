@@ -12,6 +12,7 @@
  *
  * Sources build on `takeSnapshot`; the git source is in `#lib/server/sources/git`.
  */
+export { machineDataDirectory } from './data-directory.ts';
 export type { Store } from './store.ts';
 export {
 	collectGarbage,
