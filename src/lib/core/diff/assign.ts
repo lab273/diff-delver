@@ -109,6 +109,14 @@ export type AssignRejection =
 			readonly similar: readonly RepoPath[];
 	  }
 	| {
+			/** Strings in `hunks` that are not hunk ids at all, such as `1` or `H2`. */
+			readonly kind: 'MalformedHunkId';
+			readonly file: RepoPath;
+			readonly hunks: readonly string[];
+			/** The file's hunk ids, filled in from the diff. */
+			readonly known: readonly HunkId[];
+	  }
+	| {
 			readonly kind: 'UnknownHunk';
 			readonly file: RepoPath;
 			readonly hunks: readonly string[];
@@ -171,7 +179,10 @@ export function assign(
 	requests: readonly AssignRequest[],
 	options: AssignOptions = {}
 ): AssignOutcome {
-	const parsed = requests.map(parseAssignRequest);
+	const parsed = requests.map((request) => {
+		const item = parseAssignRequest(request);
+		return item.ok ? item : err(withDiffContext(diff, item.error));
+	});
 	return applyItems(diff, state, parsed, options);
 }
 
@@ -278,7 +289,7 @@ function parseTarget(request: AssignRequest): Result<AssignTarget, AssignRejecti
 			else bad.push(hunk);
 		}
 		if (bad.length > 0)
-			return err({ kind: 'UnknownHunk', file: path.value, hunks: bad, known: [] });
+			return err({ kind: 'MalformedHunkId', file: path.value, hunks: bad, known: [] });
 		return ok({ kind: 'hunks', path: path.value, hunks: ids });
 	}
 	if (lines !== undefined) {
@@ -287,6 +298,34 @@ function parseTarget(request: AssignRequest): Result<AssignTarget, AssignRejecti
 		return ok({ kind: 'lines', path: path.value, ranges: ranges.value });
 	}
 	return ok({ kind: 'file', path: path.value });
+}
+
+/**
+ * Completes a rejection found without the diff with what the diff knows: a file
+ * that is not in it is reported as unknown first, and a malformed hunk id gets
+ * the file's real hunk ids.
+ */
+function withDiffContext(diff: Diff, rejection: AssignRejection): AssignRejection {
+	switch (rejection.kind) {
+		case 'MalformedHunkId': {
+			const file = findFile(diff, rejection.file);
+			if (!file.ok) return file.error;
+			return { ...rejection, known: [...file.value.hunks.keys()] };
+		}
+		case 'InvalidItem':
+		case 'UnknownFile':
+		case 'UnknownHunk':
+		case 'NotChangedLines':
+		case 'NoLinesInFile':
+		case 'MalformedLines':
+		case 'MalformedGlob':
+		case 'GlobMatchesNothing':
+		case 'InvalidSectionId':
+		case 'UnknownSection':
+		case 'MissingReason':
+		case 'InvalidRole':
+			return rejection;
+	}
 }
 
 // --- Applying an item ----------------------------------------------------------
@@ -519,6 +558,15 @@ function rejectionText(rejection: AssignRejection): string {
 			return rejection.similar.length > 0
 				? `${JSON.stringify(rejection.file)} is not a changed file in this diff. Did you mean ${rejection.similar.map(agentPath).join(' or ')}?`
 				: `${JSON.stringify(rejection.file)} is not a changed file in this diff. Use a path from get_manifest; a deleted file goes by its old path, any other file by its new path.`;
+		case 'MalformedHunkId': {
+			const bad = rejection.hunks.map((h) => JSON.stringify(h)).join(', ');
+			const what = rejection.hunks.length === 1 ? 'is not a hunk id' : 'are not hunk ids';
+			const ids =
+				'Hunk ids are "h" and a number, as each hunk is labelled in get_diff ("@@ h1 -38,3 +38,4 @@").';
+			return rejection.known.length > 0
+				? `${bad} ${what}. ${ids} ${agentPath(rejection.file)} has hunks ${rejection.known.join(', ')}.`
+				: `${bad} ${what}. ${ids} ${agentPath(rejection.file)} has no hunks, because its change has no lines: assign the whole file instead.`;
+		}
 		case 'UnknownHunk':
 			return rejection.known.length > 0
 				? `${agentPath(rejection.file)} has no hunk ${rejection.hunks.join(', ')}. Its hunks are ${rejection.known.join(', ')}.`

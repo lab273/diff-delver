@@ -222,7 +222,7 @@ describe('assign rejections', () => {
 		[{ file: 'src/app.ts', section: 'alpha', reason: 'why' }, 'InvalidItem'],
 		[{ file: 'app.ts', section: 'alpha' }, 'UnknownFile'],
 		[{ file: 'src/app.ts', hunks: ['h1', 'h7'], section: 'alpha' }, 'UnknownHunk'],
-		[{ file: 'src/app.ts', hunks: ['first'], section: 'alpha' }, 'UnknownHunk'],
+		[{ file: 'src/app.ts', hunks: ['first'], section: 'alpha' }, 'MalformedHunkId'],
 		[{ file: 'assets/logo.png', lines: '+1', section: 'alpha' }, 'NoLinesInFile'],
 		[{ file: 'src/app.ts', lines: '2..3', section: 'alpha' }, 'MalformedLines'],
 		[{ glob: '[', section: 'alpha' }, 'MalformedGlob'],
@@ -234,6 +234,36 @@ describe('assign rejections', () => {
 		[{ file: 'src/app.ts', role: 'docs' }, 'InvalidRole']
 	])('rejects %j as %s', (request, kind) => {
 		expect(reject(request)?.kind).toBe(kind);
+	});
+
+	it('says a malformed hunk id is not a hunk id, and lists the real ones', () => {
+		for (const hunks of [['1'], ['H2'], ['h1', 'hunk 2']]) {
+			const rejection = reject({ file: 'src/app.ts', hunks, section: 'alpha' });
+			expect(rejection).toEqual({
+				kind: 'MalformedHunkId',
+				file: 'src/app.ts',
+				hunks: hunks.filter((h) => h !== 'h1'),
+				known: ['h1', 'h2']
+			});
+			const message = rejection === undefined ? '' : describeRejection(rejection);
+			expect(message).toContain('not a hunk id');
+			expect(message).toContain('h1, h2');
+			expect(message).not.toContain('no lines');
+		}
+	});
+
+	it('says a file with no lines has no hunks when given a malformed hunk id', () => {
+		const rejection = reject({ file: 'assets/logo.png', hunks: ['1'], section: 'alpha' });
+		expect(rejection).toMatchObject({ kind: 'MalformedHunkId', known: [] });
+		expect(rejection && describeRejection(rejection)).toMatch(/whole file/);
+	});
+
+	it('reports a malformed hunk id in a file that is not in the diff as an unknown file', () => {
+		expect(reject({ file: 'app.ts', hunks: ['1'], section: 'alpha' })).toEqual({
+			kind: 'UnknownFile',
+			file: 'app.ts',
+			similar: ['src/app.ts']
+		});
 	});
 
 	it('suggests the path the agent probably meant', () => {
@@ -250,6 +280,7 @@ describe('assign rejections', () => {
 			{ file: 'app.ts', section: 'alpha' },
 			{ file: 'nope/x.ts', section: 'alpha' },
 			{ file: 'src/app.ts', hunks: ['h7'], section: 'alpha' },
+			{ file: 'src/app.ts', hunks: ['1'], section: 'alpha' },
 			{ file: 'assets/logo.png', hunks: ['h1'], section: 'alpha' },
 			{ file: 'src/app.ts', lines: '+1', section: 'alpha' },
 			{ file: 'assets/logo.png', lines: '+1', section: 'alpha' },
