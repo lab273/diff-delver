@@ -18,7 +18,7 @@
  */
 import { parseAgentMarkdown, type AgentMarkdown } from '../agent-markdown.tiny.ts';
 import { compileGlob, parseGlobPattern, type GlobPattern } from '../glob-pattern.tiny.ts';
-import type { GlobProblem } from '../glob.ts';
+import { describeGlobProblem, type GlobProblem } from '../glob.ts';
 import { parseHunkId, type HunkId } from '../hunk-id.tiny.ts';
 import { formatLineRanges, lineRangesOf, type LineRange } from '../line-range.ts';
 import { RangeSet } from '../range-set.ts';
@@ -488,7 +488,7 @@ export function describeRejection(rejection: AssignRejection): string {
 		case 'MalformedLines':
 			return `"lines" could not be read at "${rejection.part}" (${rejection.problem}). Write ranges such as "+40..+62,-38..-45", or "+40" for one line.`;
 		case 'MalformedGlob':
-			return `The glob "${rejection.glob}" is not valid (${rejection.problem}).`;
+			return `The glob "${rejection.glob}" is not valid: ${describeGlobProblem(rejection.problem)}. Nothing was assigned for this item.`;
 		case 'GlobMatchesNothing':
 			return `The glob "${rejection.glob}" matches no changed file. A pattern with a "/" is matched from the root; one without matches file names at any depth.`;
 		case 'InvalidSectionId':

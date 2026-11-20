@@ -47,7 +47,23 @@ describe('glob patterns', () => {
 		['src/**', 'src/new\nline.txt', true],
 		['**/x.txt', 'a\u2028b/x.txt', true],
 		['*.txt', 'odd\ndir/a\rb.txt', true],
-		['src/**/*.ts', 'src/a\u2029/b.ts', true]
+		['src/**/*.ts', 'src/a\u2029/b.ts', true],
+		// Inside a class every member is literal, escaped or not.
+		['[\\d].ts', 'd.ts', true],
+		['[\\d].ts', '1.ts', false],
+		['[\\w]', 'w', true],
+		['[\\w]', 'a', false],
+		['[\\q]', 'q', true],
+		['[\\]].txt', '].txt', true],
+		['[]a].txt', '].txt', true],
+		['[a-].txt', '-.txt', true],
+		['[-a].txt', '-.txt', true],
+		['[\\^x]', '^', true],
+		['[$.|]', '|', true],
+		['[$.|]', 'a', false],
+		['[😀]', '😀', true],
+		['[😀-😂]', '😁', true],
+		['[!😀]', '😁', true]
 	])('%s against %s is %s', (pattern, path, expected) => {
 		expect(matches(pattern, path)).toBe(expected);
 	});
@@ -56,12 +72,38 @@ describe('glob patterns', () => {
 		['', 'empty'],
 		['[abc', 'unclosed-class'],
 		['{a,b', 'unclosed-brace'],
-		['abc\\', 'trailing-escape']
+		['abc\\', 'trailing-escape'],
+		['[z-a]', 'bad-range'],
+		['x[b-a]y', 'bad-range']
 	])('rejects %j as %s', (value, problem) => {
 		expect(parseGlobPattern(value)).toEqual({
 			ok: false,
 			error: { kind: 'InvalidGlobPattern', value, problem }
 		});
+	});
+
+	it('never throws, whatever the pattern, and a pattern that parses always compiles', () => {
+		const anyString = fc.oneof(
+			fc.string({ unit: 'binary', maxLength: 12 }),
+			fc
+				.array(
+					fc.constantFrom('[', ']', '!', '^', '-', '\\', '{', '}', ',', '*', '/', 'a', 'z', 'd'),
+					{
+						maxLength: 12
+					}
+				)
+				.map((chars) => chars.join(''))
+		);
+		const path = parseRepoPath('src/a-b/[x].ts');
+		if (!path.ok) throw new Error('bad test path');
+		fc.assert(
+			fc.property(anyString, (pattern) => {
+				const glob = parseGlobPattern(pattern);
+				if (glob.ok) expect(typeof compileGlob(glob.value)(path.value)).toBe('boolean');
+				else expect(glob.error.kind).toBe('InvalidGlobPattern');
+			}),
+			{ numRuns: 2000 }
+		);
 	});
 
 	it('matches any path when the path is escaped character by character', () => {

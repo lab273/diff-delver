@@ -130,6 +130,20 @@ describe('assign', () => {
 		});
 	});
 
+	it('keeps valid items when a glob in the same call is malformed', () => {
+		const outcome = assign(diff, state, [
+			{ file: 'src/app.ts', lines: '+2', section: 'alpha' },
+			{ glob: '[z-a]', section: 'alpha' },
+			{ glob: '[\\q]', section: 'alpha' },
+			{ file: 'src/app.ts', lines: '+3', section: 'beta' }
+		]);
+		expect(outcome.accepted.map((a) => a.index)).toEqual([0, 3]);
+		expect(outcome.rejected.map((r) => [r.index, r.rejection.kind])).toEqual([
+			[1, 'MalformedGlob'],
+			[2, 'GlobMatchesNothing']
+		]);
+	});
+
 	it('applies valid items and rejects invalid ones in the same call', () => {
 		const outcome = assign(diff, state, [
 			{ file: 'src/app.ts', lines: '+2', section: 'alpha' },
@@ -197,6 +211,7 @@ describe('assign rejections', () => {
 		[{ file: 'assets/logo.png', lines: '+1', section: 'alpha' }, 'NoLinesInFile'],
 		[{ file: 'src/app.ts', lines: '2..3', section: 'alpha' }, 'MalformedLines'],
 		[{ glob: '[', section: 'alpha' }, 'MalformedGlob'],
+		[{ glob: '[z-a]', section: 'alpha' }, 'MalformedGlob'],
 		[{ glob: 'lib/**', section: 'alpha' }, 'GlobMatchesNothing'],
 		[{ file: 'src/app.ts', section: 'Session Expiry' }, 'InvalidSectionId'],
 		[{ file: 'src/app.ts', section: 'ignored' }, 'MissingReason'],
@@ -301,7 +316,35 @@ const scenario = arbitraryDiff.chain((d) =>
 	)
 );
 
+/** Any value at all in each field the agent may send, including nonsense. */
+const anyRequest: fc.Arbitrary<AssignRequest> = fc.record(
+	{
+		file: fc.oneof(fc.string({ unit: 'binary', maxLength: 10 }), fc.constantFrom('src/app.ts')),
+		glob: fc.string({ unit: 'binary', maxLength: 10 }),
+		hunks: fc.array(fc.string({ unit: 'binary', maxLength: 4 }), { maxLength: 3 }),
+		lines: fc.string({ unit: 'binary', maxLength: 12 }),
+		section: fc.oneof(fc.string({ maxLength: 8 }), fc.constantFrom(...SECTIONS)),
+		reason: fc.string({ maxLength: 8 }),
+		role: fc.string({ maxLength: 6 })
+	},
+	{ requiredKeys: [] }
+);
+
 describe('assign properties', () => {
+	it('never throws, whatever the items, and answers every item once', () => {
+		fc.assert(
+			fc.property(arbitraryDiff, fc.array(anyRequest, { maxLength: 5 }), (d, requests) => {
+				const outcome = assign(d, initialState(d), requests);
+				const answered = [...outcome.accepted, ...outcome.rejected].map((a) => a.index);
+				expect(answered.sort((a, b) => a - b)).toEqual(requests.map((_, i) => i));
+				for (const { rejection } of outcome.rejected) {
+					expect(describeRejection(rejection).length).toBeGreaterThan(0);
+				}
+			}),
+			{ numRuns: 200 }
+		);
+	});
+
 	it('keeps every change unit in exactly one bucket after any sequence of calls', () => {
 		fc.assert(
 			fc.property(scenario, ([d, calls]) => {
