@@ -4,9 +4,8 @@ import { timed } from '../../../../tests/support/measured-time.ts';
 import { measurementName } from '../measurement-name.tiny.ts';
 import { millisecondsOf } from '../milliseconds.tiny.ts';
 import {
+	arbitraryAssignScenario,
 	arbitraryDiff,
-	GLOBS,
-	MISSING_PATHS,
 	SECTIONS,
 	syntheticDiff
 } from '../../../../tests/support/synthetic-diff.ts';
@@ -21,7 +20,7 @@ import {
 	type AssignRequest
 } from './assign.ts';
 import { autoIgnore } from './auto-ignore.ts';
-import type { Diff, DiffFile } from './diff.ts';
+import type { DiffFile } from './diff.ts';
 import { initialState, sameAssignment, type Assignment, type AssignmentState } from './state.ts';
 
 // A small diff: one modified file with two hunks, one added file, one binary file.
@@ -557,45 +556,7 @@ function assignmentOf(s: AssignmentState, file: DiffFile, key: string): Assignme
 	return (side === 'old' ? assignment.old : assignment.new).get(Number(line));
 }
 
-/** A request built from what is in the diff, valid or not. */
-function arbitraryRequest(d: Diff): fc.Arbitrary<AssignRequest> {
-	const paths = [...d.files.map((f) => f.file.path), ...MISSING_PATHS];
-	const destination = fc.record(
-		{
-			section: fc.constantFrom(...SECTIONS),
-			reason: fc.constantFrom('Generated', ''),
-			role: fc.constantFrom('code', 'test', 'snapshot', 'docs')
-		},
-		{ requiredKeys: [] }
-	);
-	const label = fc.tuple(fc.constantFrom('+', '-'), fc.integer({ min: 1, max: 30 }), fc.nat(4));
-	const target = fc.oneof(
-		fc.constantFrom(...paths).map((file) => ({ file })),
-		fc.constantFrom(...GLOBS).map((glob) => ({ glob })),
-		fc
-			.tuple(
-				fc.constantFrom(...paths),
-				fc.array(fc.constantFrom('h1', 'h2', 'h3', 'h9'), { maxLength: 3 })
-			)
-			.map(([file, hunks]) => ({ file, hunks })),
-		fc
-			.tuple(fc.constantFrom(...paths), fc.array(label, { minLength: 1, maxLength: 3 }))
-			.map(([file, labels]) => ({
-				file,
-				lines: labels
-					.map(([s, n, w]) => (w === 0 ? `${s}${n}` : `${s}${n}..${s}${n + w}`))
-					.join(',')
-			}))
-	);
-	return fc.tuple(target, destination).map(([t, dest]) => ({ ...t, ...dest }));
-}
-
-const scenario = arbitraryDiff.chain((d) =>
-	fc.tuple(
-		fc.constant(d),
-		fc.array(fc.array(arbitraryRequest(d), { maxLength: 4 }), { maxLength: 6 })
-	)
-);
+const scenario = arbitraryAssignScenario;
 
 /** Any value at all in each field the agent may send, including nonsense. */
 const anyRequest: fc.Arbitrary<AssignRequest> = fc.record(

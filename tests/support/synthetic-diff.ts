@@ -9,11 +9,18 @@
 import fc from 'fast-check';
 import { describeDiffOutputError } from '#lib/core/diff/diff-output-error.ts';
 import { parseDiffTreeOutput } from '#lib/core/diff/diff-tree-output.ts';
-import { assign } from '#lib/core/diff/assign.ts';
+import { assign, type AssignRequest } from '#lib/core/diff/assign.ts';
 import { coverage } from '#lib/core/diff/coverage.ts';
 import { makeDiff, type Diff } from '#lib/core/diff/diff.ts';
 import { initialState } from '#lib/core/diff/state.ts';
 import { encodePathText } from '#lib/core/path-bytes.ts';
+import { RangeSet } from '#lib/core/range-set.ts';
+import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
+import {
+	fileReviewedOf,
+	type FileReviewed,
+	type ReviewedMarks
+} from '#lib/core/review/reviewed-marks.ts';
 
 export type LineKind = ' ' | '+' | '-';
 
@@ -185,6 +192,70 @@ export const GLOBS = ['*.ts', 'src/**', '**/*.md', 'nothing/**', '*.png', '[', '
 
 /** Section ids, the ignored bucket, and ids that are not valid. */
 export const SECTIONS = ['alpha', 'beta', 'gamma', 'ignored', 'Not An Id'];
+
+// --- assign requests -------------------------------------------------------------
+
+/** A request built from what is in the diff, valid or not. */
+export function arbitraryAssignRequest(d: Diff): fc.Arbitrary<AssignRequest> {
+	const paths = [...d.files.map((f) => f.file.path), ...MISSING_PATHS];
+	const destination = fc.record(
+		{
+			section: fc.constantFrom(...SECTIONS),
+			reason: fc.constantFrom('Generated', ''),
+			role: fc.constantFrom('code', 'test', 'snapshot', 'docs')
+		},
+		{ requiredKeys: [] }
+	);
+	const label = fc.tuple(fc.constantFrom('+', '-'), fc.integer({ min: 1, max: 30 }), fc.nat(4));
+	const target = fc.oneof(
+		fc.constantFrom(...paths).map((file) => ({ file })),
+		fc.constantFrom(...GLOBS).map((glob) => ({ glob })),
+		fc
+			.tuple(
+				fc.constantFrom(...paths),
+				fc.array(fc.constantFrom('h1', 'h2', 'h3', 'h9'), { maxLength: 3 })
+			)
+			.map(([file, hunks]) => ({ file, hunks })),
+		fc
+			.tuple(fc.constantFrom(...paths), fc.array(label, { minLength: 1, maxLength: 3 }))
+			.map(([file, labels]) => ({
+				file,
+				lines: labels
+					.map(([s, n, w]) => (w === 0 ? `${s}${n}` : `${s}${n}..${s}${n + w}`))
+					.join(',')
+			}))
+	);
+	return fc.tuple(target, destination).map(([t, dest]) => ({ ...t, ...dest }));
+}
+
+/** A random diff with a few `assign` calls of a few requests each. */
+export const arbitraryAssignScenario: fc.Arbitrary<readonly [Diff, AssignRequest[][]]> =
+	arbitraryDiff.chain((d) =>
+		fc.tuple(
+			fc.constant(d),
+			fc.array(fc.array(arbitraryAssignRequest(d), { maxLength: 4 }), { maxLength: 6 })
+		)
+	);
+
+// --- Reviewed marks ----------------------------------------------------------------
+
+/** Marks for some of the diff's units, chosen by the flags in unit order. */
+export function marksFrom(d: Diff, flags: readonly boolean[]): ReviewedMarks {
+	let at = 0;
+	const next = (): boolean => flags[at++ % Math.max(flags.length, 1)] ?? false;
+	const files = new Map<RepoPath, FileReviewed>();
+	for (const file of d.files) {
+		if (!file.hasLines) {
+			if (next()) files.set(file.file.path, { kind: 'file' });
+			continue;
+		}
+		const pick = (lines: RangeSet): RangeSet =>
+			RangeSet.fromNumbers([...lines.values()].filter(next));
+		const entry = fileReviewedOf(pick(file.changed.old), pick(file.changed.new));
+		if (entry !== undefined) files.set(file.file.path, entry);
+	}
+	return { files };
+}
 
 // --- Scale ----------------------------------------------------------------------
 

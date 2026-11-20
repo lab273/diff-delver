@@ -44,3 +44,9 @@ Thumbs.db
 .beads/last-touched
 # Terms that must never reach the issue data, kept only on this machine (pnpm bd push)
 .beads/private-terms.txt
+
+# diff delver data written by tests or a local run
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal

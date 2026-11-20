@@ -7,6 +7,7 @@
 import { compileGlobs, parseGlobPattern, type GlobMatcher } from '../glob-pattern.tiny.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import type { Role } from '../role.tiny.ts';
+import { err, ok, type Result } from '../result.ts';
 
 interface PathRule<Id extends string> {
 	readonly id: Id;
@@ -196,4 +197,15 @@ const IGNORE_RULE_NAMES: ReadonlyMap<IgnoreRuleId, IgnoreRuleName> = new Map(
 /** The name the reviewer sees for a built-in ignore rule. */
 export function ignoreRuleName(id: IgnoreRuleId): IgnoreRuleName | IgnoreRuleId {
 	return IGNORE_RULE_NAMES.get(id) ?? id;
+}
+
+export interface UnknownIgnoreRule {
+	readonly kind: 'UnknownIgnoreRule';
+	readonly value: string;
+}
+
+/** The built-in ignore rule with this id, as stored with what it ignored. */
+export function parseIgnoreRuleId(value: string): Result<IgnoreRuleId, UnknownIgnoreRule> {
+	const rule = IGNORE_RULES.find((r) => r.id === value);
+	return rule === undefined ? err({ kind: 'UnknownIgnoreRule', value }) : ok(rule.id);
 }

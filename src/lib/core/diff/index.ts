@@ -93,12 +93,19 @@ export { changedLines, makeDiff } from './diff.ts';
 // Buckets, roles and the rules that guess them.
 export type { Bucket, IgnoredBy } from './bucket.ts';
 export { ignoredBucket, sameBucket, sectionBucket, UNCATEGORISED } from './bucket.ts';
-export type { IgnoreRuleId, IgnoreRuleName, ProjectRoleRule, RoleRuleId } from './path-rules.ts';
+export type {
+	IgnoreRuleId,
+	IgnoreRuleName,
+	ProjectRoleRule,
+	RoleRuleId,
+	UnknownIgnoreRule
+} from './path-rules.ts';
 export {
 	guessRole,
 	IGNORE_RULES,
 	ignoreRuleFor,
 	ignoreRuleName,
+	parseIgnoreRuleId,
 	ROLE_RULES
 } from './path-rules.ts';
 
