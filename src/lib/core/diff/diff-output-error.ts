@@ -1,4 +1,5 @@
 import type { FileStatus } from '../file-status.tiny.ts';
+import { escapedRepoPath } from '../path-bytes.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 
 /**
@@ -10,7 +11,7 @@ export type DiffOutputError =
 	| {
 			/** The NUL-separated file listing did not have the expected shape. */
 			readonly kind: 'MalformedRawListing';
-			/** Offset in the output text where reading stopped. */
+			/** Byte offset in the output where reading stopped. */
 			readonly offset: number;
 			readonly detail: string;
 	  }
@@ -42,12 +43,12 @@ export function describeDiffOutputError(error: DiffOutputError): string {
 		'This is a bug in diff delver, not in your repository. Please report it with your git version.';
 	switch (error.kind) {
 		case 'MalformedRawListing':
-			return `git's list of changed files could not be read (at character ${error.offset}: ${error.detail}). ${report}`;
+			return `git's list of changed files could not be read (at byte ${error.offset}: ${error.detail}). ${report}`;
 		case 'MalformedPatch':
 			return `git's diff could not be read (line ${error.line}: ${error.detail}). ${report}`;
 		case 'PatchCountMismatch':
 			return `git listed ${error.listedFiles} changed files, which should give ${error.expectedPatches} patches, but its diff has ${error.foundPatches}. ${report}`;
 		case 'PatchMismatch':
-			return `git's diff of ${error.path} does not match its status (${error.status}): ${error.detail}. ${report}`;
+			return `git's diff of ${escapedRepoPath(error.path)} does not match its status (${error.status}): ${error.detail}. ${report}`;
 	}
 }

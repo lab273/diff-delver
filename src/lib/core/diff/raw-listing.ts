@@ -2,15 +2,17 @@
  * Reads the file listing from `git diff-tree -z --raw` output: the authoritative
  * statuses, paths, modes, blob ids and similarity of every changed file.
  *
- * The listing is NUL-separated, so paths are given exactly, whatever characters
- * they contain. A record is `:<old mode> <new mode> <old blob> <new blob> <status>`
+ * The listing is NUL-separated, so paths are given exactly, whatever bytes they
+ * contain. It is read as bytes: paths keep bytes that are not UTF-8 exactly
+ * (`path-bytes.ts`), and only the patch text after it is decoded, lossily. A record is `:<old mode> <new mode> <old blob> <new blob> <status>`
  * then one path, or two (source, then destination) for a rename or copy.
  */
 import { parseBlobId, type BlobId } from '../blob-id.tiny.ts';
 import { parseFileMode, type FileMode } from '../file-mode.tiny.ts';
 import { parseGitStatusLetter, type FileStatus } from '../file-status.tiny.ts';
 import { isNullObjectId } from '../object-id.ts';
-import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
+import { decodePathBytes, repoPathFromBytes } from '../path-bytes.ts';
+import type { RepoPath } from '../repo-path.tiny.ts';
 import { err, ok, type Result } from '../result.ts';
 import { parseSimilarity, type Similarity } from '../similarity.tiny.ts';
 import type { DiffOutputError } from './diff-output-error.ts';
@@ -31,29 +33,39 @@ export interface RawEntry {
 
 export interface RawListing {
 	readonly entries: readonly RawEntry[];
-	/** The rest of the output: the patch text that follows the listing. */
+	/**
+	 * The rest of the output: the patch text that follows the listing, decoded as
+	 * UTF-8 with any invalid bytes replaced. Only its line structure and the text
+	 * shown to people come from it; paths come from the listing.
+	 */
 	readonly patch: string;
 }
+
+const NUL = 0;
+const COLON = 0x3a;
+const ascii = new TextDecoder('latin1');
+const lossy = new TextDecoder('utf-8', { ignoreBOM: true });
 
 const META = /^:([0-7]{6}) ([0-7]{6}) ([0-9a-f]+) ([0-9a-f]+) ([ADMRCT])([0-9]{0,3})$/;
 
 /** Splits `--patch-with-raw -z` output into its listing and its patch text. */
-export function parseRawListing(output: string): Result<RawListing, DiffOutputError> {
+export function parseRawListing(output: Uint8Array): Result<RawListing, DiffOutputError> {
 	const entries: RawEntry[] = [];
 	let at = 0;
 	const fail = (detail: string): Result<never, DiffOutputError> =>
 		err({ kind: 'MalformedRawListing', offset: at, detail });
 
-	const field = (): string | undefined => {
-		const end = output.indexOf('\0', at);
+	const field = (): Uint8Array | undefined => {
+		const end = output.indexOf(NUL, at);
 		if (end === -1) return undefined;
-		const value = output.slice(at, end);
+		const value = output.subarray(at, end);
 		at = end + 1;
 		return value;
 	};
 
-	while (output.startsWith(':', at)) {
-		const meta = field();
+	while (output[at] === COLON) {
+		const metaBytes = field();
+		const meta = metaBytes === undefined ? undefined : ascii.decode(metaBytes);
 		const match = meta === undefined ? null : META.exec(meta);
 		if (match === null) return fail(`unreadable record ${JSON.stringify(meta)}`);
 		const [, oldMode, newMode, oldBlob, newBlob, letter, score] = match;
@@ -83,13 +95,16 @@ export function parseRawListing(output: string): Result<RawListing, DiffOutputEr
 
 	if (at === output.length) return ok({ entries, patch: '' });
 	// The listing ends with an empty record before the patch text.
-	if (output[at] !== '\0') return fail('expected the end of the listing');
-	return ok({ entries, patch: output.slice(at + 1) });
+	if (output[at] !== NUL) return fail('expected the end of the listing');
+	return ok({ entries, patch: lossy.decode(output.subarray(at + 1)) });
 }
 
-function side(path: string, mode: string, blob: string): Result<RawSide, string> {
-	const parsedPath = parseRepoPath(path);
-	if (!parsedPath.ok) return err(`bad path ${JSON.stringify(path)} (${parsedPath.error.reason})`);
+function side(path: Uint8Array, mode: string, blob: string): Result<RawSide, string> {
+	const parsedPath = repoPathFromBytes(path);
+	if (!parsedPath.ok) {
+		const shown = JSON.stringify(decodePathBytes(path));
+		return err(`bad path ${shown} (${parsedPath.error.reason})`);
+	}
 	const parsedMode = parseFileMode(mode);
 	if (!parsedMode.ok) return err(`bad mode ${mode}`);
 	if (isNullObjectId(blob))

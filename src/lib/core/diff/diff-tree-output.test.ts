@@ -6,8 +6,11 @@ import { describeDiffOutputError, type DiffOutputError } from './diff-output-err
 import { parseDiffTreeOutput } from './diff-tree-output.ts';
 import type { DiffLine, FileDiff } from './file-diff.ts';
 
+/** The recorded fixtures are UTF-8 throughout, so their text encodes back to git's exact bytes. */
+const bytesOf = (text: string): Uint8Array => new TextEncoder().encode(text);
+
 function files(output: string): readonly FileDiff[] {
-	const result = parseDiffTreeOutput(output);
+	const result = parseDiffTreeOutput(bytesOf(output));
 	if (!result.ok) throw new Error(describeDiffOutputError(result.error));
 	return result.value;
 }
@@ -185,6 +188,28 @@ describe('parseDiffTreeOutput on recorded git output', () => {
 		]);
 	});
 
+	it('keeps paths that are not UTF-8 exact and distinct', () => {
+		const listing = (byte: number): number[] => [
+			...bytesOf(`:000000 100644 ${'0'.repeat(40)} ${'b'.repeat(40)} A\0caf`),
+			byte,
+			...bytesOf('.txt\0')
+		];
+		const patch = (octal: string): string =>
+			`diff --git "a/caf\\${octal}.txt" "b/caf\\${octal}.txt"\nnew file mode 100644\n` +
+			`--- /dev/null\n+++ "b/caf\\${octal}.txt"\n@@ -0,0 +1 @@\n+x\n`;
+		const output = Uint8Array.from([
+			...listing(0xe8),
+			...listing(0xe9),
+			0,
+			...bytesOf(patch('350') + patch('351'))
+		]);
+		const result = parseDiffTreeOutput(output);
+		expect(result.ok && result.value.map((f) => f.path)).toEqual([
+			'caf\uDCE8.txt',
+			'caf\uDCE9.txt'
+		]);
+	});
+
 	it('reads a deleted empty file and an added one as file-level changes', () => {
 		expect(file('empty-deleted').content).toEqual({ kind: 'text', hunks: [] });
 		const [added] = files(emptyAdded);
@@ -208,7 +233,7 @@ describe('parseDiffTreeOutput on recorded git output', () => {
 
 describe('parseDiffTreeOutput on damaged output', () => {
 	const kind = (output: string): DiffOutputError['kind'] | undefined => {
-		const result = parseDiffTreeOutput(output);
+		const result = parseDiffTreeOutput(bytesOf(output));
 		return result.ok ? undefined : result.error.kind;
 	};
 	const [listing = '', patch = ''] = sha256.split('\0\0');

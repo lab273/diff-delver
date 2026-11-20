@@ -16,8 +16,10 @@ import type { FileContent, FileDiff, FileVersion } from './file-diff.ts';
 import { parsePatch, type PatchSection } from './patch.ts';
 import { parseRawListing, type RawEntry, type RawSide } from './raw-listing.ts';
 
-/** Reads `git diff-tree -r -z --patch-with-raw` output. */
-export function parseDiffTreeOutput(output: string): Result<readonly FileDiff[], DiffOutputError> {
+/** Reads `git diff-tree -r -z --patch-with-raw` output, as the bytes git wrote. */
+export function parseDiffTreeOutput(
+	output: Uint8Array
+): Result<readonly FileDiff[], DiffOutputError> {
 	const listing = parseRawListing(output);
 	if (!listing.ok) return listing;
 	const sections = parsePatch(listing.value.patch);

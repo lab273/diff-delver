@@ -34,6 +34,13 @@ export { formatLineRange, formatLineRanges, lineRangesOf, parseLineRange } from 
 export type { LineText } from '../line-text.tiny.ts';
 export type { RepoPath } from '../repo-path.tiny.ts';
 export { parseRepoPath } from '../repo-path.tiny.ts';
+export {
+	escapedRepoPath,
+	hasOddBytes,
+	repoPathBytes,
+	repoPathFromBytes,
+	unescapeRepoPath
+} from '../path-bytes.ts';
 export type { Role } from '../role.tiny.ts';
 export { parseRole, ROLES } from '../role.tiny.ts';
 export type { SectionId } from '../section-id.tiny.ts';

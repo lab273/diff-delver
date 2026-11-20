@@ -15,10 +15,15 @@
  *      }
  * ```
  *
- * A path that holds a quote, a backslash, a control character or surrounding
- * spaces is written as a JSON string, so the agent can copy it exactly.
+ * A path is shown in its escaped form (`path-bytes.ts`): bytes that are not UTF-8
+ * as `\xHH`. A path whose shown form holds a quote, a backslash, a control
+ * character, a line or paragraph separator or surrounding spaces is written as a
+ * JSON string, so the agent can copy it exactly; `assign` accepts what that string
+ * holds. So `caf\xE9.txt`, with a byte E9 that is not UTF-8, is written
+ * `"caf\\xE9.txt"`, and the agent sends `"file": "caf\\xE9.txt"`.
  */
 import { fileModeKind, type FileMode, type FileModeKind } from '../file-mode.tiny.ts';
+import { escapedRepoPath } from '../path-bytes.ts';
 import type { DiffFile } from './diff.ts';
 import type { DiffLine, FileDiff, Hunk, HunkSpan } from './file-diff.ts';
 
@@ -30,11 +35,20 @@ export interface AgentTextOptions {
 /** Lines longer than this are cut by default. Minified code would otherwise flood the agent. */
 export const DEFAULT_MAX_LINE_LENGTH = 500;
 
-/** How a path is written for the agent: as it is, or as a JSON string when it needs quoting. */
+/** How a path is written for the agent: escaped, and as a JSON string when it needs quoting. */
 export function agentPath(path: string): string {
-	// Quotes, backslashes and control characters (newline, tab, ...) would make it ambiguous.
-	const needsQuoting = /["\\\p{Cc}]/u.test(path) || path.trim() !== path;
-	return needsQuoting ? JSON.stringify(path) : path;
+	const shown = escapedRepoPath(path);
+	// Quotes, backslashes, control characters (newline, tab, ...) and line or
+	// paragraph separators would make it ambiguous or break the line.
+	const needsQuoting = /["\\\p{Cc}\p{Zl}\p{Zp}]/u.test(shown) || shown.trim() !== shown;
+	return needsQuoting ? jsonString(shown) : shown;
+}
+
+/** JSON.stringify, with U+2028 and U+2029 escaped too, so the string stays on one line. */
+function jsonString(text: string): string {
+	return JSON.stringify(text)
+		.replace(/\u2028/g, '\\u2028')
+		.replace(/\u2029/g, '\\u2029');
 }
 
 /** One file's diff as labelled text. */

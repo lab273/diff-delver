@@ -2,14 +2,19 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { FileDiff } from '#lib/core/diff/file-diff.ts';
 import { parseTreeId } from '#lib/core/tree-id.tiny.ts';
+import { makeDiff } from '#lib/core/diff/diff.ts';
+import { escapedRepoPath, repoPathBytes } from '#lib/core/path-bytes.ts';
 import {
 	awkwardChanges,
 	emptyFileAdded,
+	oddPathBytes,
+	pathBytes,
 	sha256Repository
 } from '../../../../tests/support/diff-fixtures.ts';
 import { emptyRepo, useFixture } from '../../../../tests/support/fixture-repos.ts';
 import { absolutePath, GitRepo } from '../../../../tests/support/git-repo.ts';
 import { readDiff } from './read-diff.ts';
+import { runGit } from './run-git.ts';
 
 async function diffOf(fixture: typeof awkwardChanges): Promise<readonly FileDiff[]> {
 	const repo = await useFixture(fixture);
@@ -146,6 +151,35 @@ describe('readDiff', () => {
 		const head = await repo.commit('head');
 		const result = await readDiff(repo.dir, base.tree, head.tree);
 		expect(result.ok && result.value.map((f) => f.path)).toEqual(['t.txt']);
+	});
+
+	it('keeps paths that are not UTF-8 distinct and exact, so each file reads back', async () => {
+		const repo = await useFixture(oddPathBytes);
+		const head = await repo.snapshot('head');
+		const files = await diffOf(oddPathBytes);
+		expect(files.map((f) => escapedRepoPath(f.path))).toEqual([
+			'caf\\xE9.txt',
+			'caf\\xE8.txt',
+			'caf\\xE9.txt',
+			'dir\\xFF/inner.txt'
+		]);
+		expect(makeDiff(files).ok).toBe(true);
+		expect(files.map((f) => repoPathBytes(f.path))).toEqual([
+			pathBytes('caf\\xE9.txt'),
+			pathBytes('caf', 0xe8, '.txt'),
+			pathBytes('caf', 0xe9, '.txt'),
+			pathBytes('dir', 0xff, '/inner.txt')
+		]);
+		// Each path's bytes name its file in the head tree.
+		const request = Buffer.concat(
+			files.map((f) =>
+				Buffer.concat([Buffer.from(`${head.tree}:`), repoPathBytes(f.path), Buffer.from('\n')])
+			)
+		);
+		const read = await runGit({ cwd: repo.dir, args: ['cat-file', '--batch'], input: request });
+		const missing = read.ok ? read.value.stdout.toString('utf8').match(/missing/g) : ['git failed'];
+		expect(missing).toBeNull();
+		expect(read.ok && read.value.stdout.toString('utf8').match(/^one$/gm)?.length).toBe(4);
 	});
 
 	it('reports a tree the repository does not have', async () => {

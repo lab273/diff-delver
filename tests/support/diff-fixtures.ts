@@ -116,7 +116,39 @@ export const emptyFileAdded: Fixture = defineFixture('empty-file-added', async (
 	await repo.commit('head', 'head');
 });
 
-/** Every fixture that `scripts/capture-diff-fixtures.ts` records. */
+/** A path as bytes: text parts in UTF-8, numbers as single bytes. */
+export function pathBytes(...parts: readonly (string | number)[]): Uint8Array {
+	return Uint8Array.from(
+		parts.flatMap((p) => (typeof p === 'number' ? [p] : [...new TextEncoder().encode(p)]))
+	);
+}
+
+/**
+ * Paths that are not valid UTF-8: two that differ only in such a byte, one in a
+ * directory whose name is not UTF-8, and a valid path that looks like an escaped
+ * one. The work tree is emptied after the last commit, because copying a fixture
+ * reads file names as text; the trees hold everything the tests need.
+ */
+export const oddPathBytes: Fixture = defineFixture('odd-path-bytes', async (repo) => {
+	const paths = [
+		pathBytes('caf', 0xe9, '.txt'),
+		pathBytes('caf', 0xe8, '.txt'),
+		pathBytes('dir', 0xff, '/inner.txt'),
+		pathBytes('caf\\xE9.txt')
+	];
+	for (const path of paths) await repo.writeRaw(path, 'one\n');
+	await repo.commit('base', 'base');
+	for (const path of paths) await repo.writeRaw(path, 'one\ntwo\n');
+	await repo.commit('head', 'head');
+	await repo.removeRaw(pathBytes('dir', 0xff));
+	for (const path of paths) await repo.removeRaw(path);
+});
+
+/**
+ * Every fixture that `scripts/capture-diff-fixtures.ts` records. `oddPathBytes` is
+ * not among them: core tests load recorded output as text, which cannot hold its
+ * bytes, so it is read from the real repository instead.
+ */
 export const diffFixtures: readonly Fixture[] = [awkwardChanges, emptyFileAdded, sha256Repository];
 
 function parseCommit(value: string): CommitId {

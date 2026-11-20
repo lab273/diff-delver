@@ -13,6 +13,7 @@ import { assign } from '#lib/core/diff/assign.ts';
 import { coverage } from '#lib/core/diff/coverage.ts';
 import { makeDiff, type Diff } from '#lib/core/diff/diff.ts';
 import { initialState } from '#lib/core/diff/state.ts';
+import { encodePathText } from '#lib/core/path-bytes.ts';
 
 export type LineKind = ' ' | '+' | '-';
 
@@ -99,9 +100,10 @@ function patch(file: SyntheticFile): string {
 }
 
 /** The diff-tree output git would write for these files, which must be sorted by path. */
-export function syntheticDiffTreeOutput(files: readonly SyntheticFile[]): string {
-	if (files.length === 0) return '';
-	return `${files.map(rawRecord).join('')}\0${files.map(patch).join('')}`;
+export function syntheticDiffTreeOutput(files: readonly SyntheticFile[]): Uint8Array {
+	if (files.length === 0) return new Uint8Array();
+	// A path may hold U+DC80 to U+DCFF, which stand for bytes that are not UTF-8.
+	return encodePathText(`${files.map(rawRecord).join('')}\0${files.map(patch).join('')}`);
 }
 
 /** The model of a synthetic diff. Throws if the model rejects it, which is a bug. */
@@ -134,6 +136,8 @@ const PATHS = [
 	'src/lib/util.ts',
 	'src/__snapshots__/app.test.ts.snap',
 	'docs/guide.md',
+	// The bytes `caf`, E9, `.md`: not UTF-8 (see path-bytes.ts).
+	'docs/caf\uDCE9.md',
 	'assets/logo.png',
 	'tests/e2e/login.ts',
 	'vendor/lib/a.go'

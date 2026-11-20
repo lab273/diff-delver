@@ -22,11 +22,13 @@ import { describeGlobProblem, type GlobProblem } from '../glob.ts';
 import { parseHunkId, type HunkId } from '../hunk-id.tiny.ts';
 import { formatLineRanges, lineRangesOf, type LineRange } from '../line-range.ts';
 import { RangeSet } from '../range-set.ts';
+import { unescapeRepoPath } from '../path-bytes.ts';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
 import { err, ok, type Result } from '../result.ts';
 import { parseRole, type Role } from '../role.tiny.ts';
 import { parseSectionId, type InvalidSectionIdReason, type SectionId } from '../section-id.tiny.ts';
 import type { Side } from '../side.tiny.ts';
+import { agentPath } from './agent-text.ts';
 import { ignoredBucket, sectionBucket, type Bucket } from './bucket.ts';
 import type { Diff, DiffFile, SideLines } from './diff.ts';
 import { parseLineSpec, type MalformedLinesProblem } from './line-spec.ts';
@@ -438,9 +440,38 @@ function linesOf(ranges: readonly LineRange[]): SideLines {
 const MAX_SIMILAR = 5;
 
 function findFile(diff: Diff, path: RepoPath): Result<DiffFile, AssignRejection> {
-	const file = diff.byPath.get(path);
-	if (file !== undefined) return ok(file);
+	for (const candidate of pathsMeant(path)) {
+		const parsed = parseRepoPath(candidate);
+		const file = parsed.ok ? diff.byPath.get(parsed.value) : undefined;
+		if (file !== undefined) return ok(file);
+	}
 	return err({ kind: 'UnknownFile', file: path, similar: similarPaths(diff, path) });
+}
+
+/**
+ * The paths a `file` value can stand for, in order: the value itself; the path
+ * whose escaped form it is, for a path that is not UTF-8 (`path-bytes.ts`); and
+ * both again for what a JSON string holds, when the agent sent the quoted form
+ * from the agent text, quotes and all.
+ */
+function pathsMeant(text: string): readonly string[] {
+	const meant = [text];
+	const unescaped = unescapeRepoPath(text);
+	if (unescaped !== undefined) meant.push(unescaped);
+	if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+		const inner = jsonStringValue(text);
+		if (inner !== undefined) meant.push(...pathsMeant(inner));
+	}
+	return meant;
+}
+
+function jsonStringValue(text: string): string | undefined {
+	try {
+		const value: unknown = JSON.parse(text);
+		return typeof value === 'string' ? value : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /** Paths the agent may have meant: a renamed file's new path, or the same file name elsewhere. */
@@ -475,16 +506,16 @@ export function describeRejection(rejection: AssignRejection): string {
 			return INVALID_ITEM_MESSAGES[rejection.problem];
 		case 'UnknownFile':
 			return rejection.similar.length > 0
-				? `"${rejection.file}" is not a changed file in this diff. Did you mean ${rejection.similar.map((p) => `"${p}"`).join(' or ')}?`
-				: `"${rejection.file}" is not a changed file in this diff. Use a path from get_manifest; a deleted file goes by its old path, any other file by its new path.`;
+				? `${JSON.stringify(rejection.file)} is not a changed file in this diff. Did you mean ${rejection.similar.map(agentPath).join(' or ')}?`
+				: `${JSON.stringify(rejection.file)} is not a changed file in this diff. Use a path from get_manifest; a deleted file goes by its old path, any other file by its new path.`;
 		case 'UnknownHunk':
 			return rejection.known.length > 0
-				? `${rejection.file} has no hunk ${rejection.hunks.join(', ')}. Its hunks are ${rejection.known.join(', ')}.`
-				: `${rejection.file} has no hunk ${rejection.hunks.join(', ')}: its change has no lines. Assign the whole file instead.`;
+				? `${agentPath(rejection.file)} has no hunk ${rejection.hunks.join(', ')}. Its hunks are ${rejection.known.join(', ')}.`
+				: `${agentPath(rejection.file)} has no hunk ${rejection.hunks.join(', ')}: its change has no lines. Assign the whole file instead.`;
 		case 'NotChangedLines':
-			return `${rejection.file}: ${formatLineRanges(rejection.notChanged)} are not changed lines, so they cannot be assigned. The changed lines are ${formatLineRanges(rejection.changed)}. Use the +/- labels from get_diff.`;
+			return `${agentPath(rejection.file)}: ${formatLineRanges(rejection.notChanged)} are not changed lines, so they cannot be assigned. The changed lines are ${formatLineRanges(rejection.changed)}. Use the +/- labels from get_diff.`;
 		case 'NoLinesInFile':
-			return `${rejection.file} has no changed lines (it is binary, renamed, a mode change, a submodule or an empty file). Assign the whole file instead.`;
+			return `${agentPath(rejection.file)} has no changed lines (it is binary, renamed, a mode change, a submodule or an empty file). Assign the whole file instead.`;
 		case 'MalformedLines':
 			return `"lines" could not be read at "${rejection.part}" (${rejection.problem}). Write ranges such as "+40..+62,-38..-45", or "+40" for one line.`;
 		case 'MalformedGlob':

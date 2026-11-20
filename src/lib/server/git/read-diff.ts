@@ -155,5 +155,5 @@ export async function readDiff(
 ): Promise<Result<readonly FileDiff[], ReadDiffError>> {
 	const output = await runDiffTree(repository, base, head);
 	if (!output.ok) return err(output.error);
-	return parseDiffTreeOutput(output.value.toString('utf8'));
+	return parseDiffTreeOutput(output.value);
 }

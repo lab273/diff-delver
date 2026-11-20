@@ -144,6 +144,21 @@ describe('assign', () => {
 		]);
 	});
 
+	it('accepts a path that is not UTF-8 in its escaped form, plain or JSON-quoted', () => {
+		const odd = syntheticDiff([
+			{ path: 'caf\uDCE8.txt', change: 'added', lines: 1 },
+			{ path: 'caf\uDCE9.txt', change: 'added', lines: 2 }
+		]);
+		const outcome = assign(odd, initialState(odd), [
+			{ file: 'caf\\xE9.txt', section: 'alpha' },
+			{ file: '"caf\\\\xE8.txt"', section: 'beta' }
+		]);
+		expect(outcome.rejected).toEqual([]);
+		expect(outcome.accepted.map((a) => a.units)).toEqual([2, 1]);
+		expect(bucketOf(outcome.state, 'caf\uDCE9.txt', 'new', 1)).toBe('alpha');
+		expect(bucketOf(outcome.state, 'caf\uDCE8.txt', 'new', 1)).toBe('beta');
+	});
+
 	it('applies valid items and rejects invalid ones in the same call', () => {
 		const outcome = assign(diff, state, [
 			{ file: 'src/app.ts', lines: '+2', section: 'alpha' },

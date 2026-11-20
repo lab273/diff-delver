@@ -106,6 +106,22 @@ export class GitRepo {
 		await symlink(target, this.#path(path));
 	}
 
+	/**
+	 * Writes a file whose path is given as bytes, which need not be UTF-8, creating
+	 * its directories.
+	 */
+	async writeRaw(path: Uint8Array, content: string | Uint8Array): Promise<void> {
+		const full = Buffer.concat([Buffer.from(`${this.dir}/`), path]);
+		const slash = full.lastIndexOf(0x2f);
+		await mkdir(full.subarray(0, slash), { recursive: true });
+		await writeFile(full, content);
+	}
+
+	/** Removes a file or directory whose path is given as bytes. */
+	async removeRaw(path: Uint8Array): Promise<void> {
+		await rm(Buffer.concat([Buffer.from(`${this.dir}/`), path]), { recursive: true, force: true });
+	}
+
 	async setExecutable(path: string, executable: boolean): Promise<void> {
 		await chmod(this.#path(path), executable ? 0o755 : 0o644);
 	}

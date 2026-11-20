@@ -9,7 +9,7 @@ import { makeDiff, type Diff, type DiffFile } from './diff.ts';
 import { initialState } from './state.ts';
 
 function awkwardDiff(): Diff {
-	const files = parseDiffTreeOutput(awkward);
+	const files = parseDiffTreeOutput(new TextEncoder().encode(awkward));
 	if (!files.ok) throw new Error('fixture does not parse');
 	const diff = makeDiff(files.value);
 	if (!diff.ok) throw new Error('fixture does not index');
@@ -90,6 +90,8 @@ describe('renderAgentFile', () => {
 		expect(agentPath('odd names/ünïcödé "quoted".txt')).toBe(
 			'"odd names/ünïcödé \\"quoted\\".txt"'
 		);
+		expect(agentPath('caf\uDCE9.txt')).toBe('"caf\\\\xE9.txt"');
+		expect(agentPath('a\u2028b.txt')).toBe('"a\\u2028b.txt"');
 		expect(renderAgentFile(file('odd names/ünïcödé "quoted".txt')).split('\n')[1]).toBe(
 			'renamed from odd names/with space.txt (100% similar), no changed lines: assign the whole file'
 		);

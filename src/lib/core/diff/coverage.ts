@@ -9,6 +9,7 @@ import type { RangeMap } from '../range-map.ts';
 import { RangeSet } from '../range-set.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import type { SectionId } from '../section-id.tiny.ts';
+import { agentPath } from './agent-text.ts';
 import { sameBucket, type Bucket } from './bucket.ts';
 import type { Diff, DiffFile } from './diff.ts';
 import { ignoreRuleName } from './path-rules.ts';
@@ -248,9 +249,9 @@ export function describeBucket(bucket: Bucket): string {
 function describeUnits(units: FileUnits): string {
 	switch (units.kind) {
 		case 'file':
-			return `${units.path} (the whole file)`;
+			return `${agentPath(units.path)} (the whole file)`;
 		case 'lines':
-			return `${units.path} ${formatLineRanges(units.ranges)}`;
+			return `${agentPath(units.path)} ${formatLineRanges(units.ranges)}`;
 	}
 }
 
@@ -262,7 +263,7 @@ export function describeWarning(warning: CoverageWarning): string {
 		case 'OversizedSection':
 			return `Section "${warning.section}" has ${warning.units} changed lines, more than ${warning.limit}. Consider splitting it so each part can be reviewed in one sitting.`;
 		case 'SplitChangeRun':
-			return `${warning.path} ${warning.hunk}: the adjacent changed lines ${formatLineRanges(warning.ranges)} are split between ${warning.buckets.map(describeBucket).join(' and ')}. This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.`;
+			return `${agentPath(warning.path)} ${warning.hunk}: the adjacent changed lines ${formatLineRanges(warning.ranges)} are split between ${warning.buckets.map(describeBucket).join(' and ')}. This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.`;
 		case 'TestsOutsideSections':
 			return `${describeUnits(warning.units)}: test lines in no section. Assign them to the section they test, or to a section of their own.`;
 	}
