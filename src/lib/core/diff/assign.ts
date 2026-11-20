@@ -7,7 +7,9 @@
  * - A whole file or a glob of files takes only what is still uncategorised in
  *   those files, so it never undoes earlier, finer work.
  * - Hunk ids or line ranges within a file move exactly those units, wherever they
- *   were: the last write wins.
+ *   were: the last write wins. A line range takes the changed lines inside it and
+ *   may span unchanged lines (DESIGN 7.1); a range that holds no changed line on
+ *   its side is rejected, naming the nearest changed lines.
  * - An item with a role and no section sets the role of every unit it targets,
  *   and leaves their buckets alone. With a section, the role is set on the units
  *   the item takes.
@@ -33,7 +35,7 @@ import { parseSectionId, type InvalidSectionIdReason, type SectionId } from '../
 import type { Side } from '../side.tiny.ts';
 import { agentPath } from './agent-text.ts';
 import { ignoredBucket, sectionBucket, type Bucket } from './bucket.ts';
-import type { Diff, DiffFile, SideLines } from './diff.ts';
+import { changedLines, type Diff, type DiffFile, type SideLines } from './diff.ts';
 import { parseLineSpec, type MalformedLinesProblem } from './line-spec.ts';
 import { countUncategorised } from './totals.ts';
 import {
@@ -123,12 +125,20 @@ export type AssignRejection =
 			readonly known: readonly HunkId[];
 	  }
 	| {
-			readonly kind: 'NotChangedLines';
+			/**
+			 * A requested range holds no changed line on its side. A range may span
+			 * unchanged lines and takes the changed ones inside it; only one that
+			 * holds none at all is a slip worth refusing.
+			 */
+			readonly kind: 'NoChangedLines';
 			readonly file: RepoPath;
-			/** The requested lines that are not changed lines. */
-			readonly notChanged: readonly LineRange[];
-			/** Every changed line of the file, for reference. */
-			readonly changed: readonly LineRange[];
+			/** The requested ranges that hold no changed line. */
+			readonly ranges: readonly LineRange[];
+			/**
+			 * A few changed lines nearest those ranges: on the same side, or on the
+			 * other side when that side has none.
+			 */
+			readonly nearest: readonly LineRange[];
 	  }
 	| {
 			/** Line ranges were given for a file whose change has no lines (binary, rename, ...). */
@@ -315,7 +325,7 @@ function withDiffContext(diff: Diff, rejection: AssignRejection): AssignRejectio
 		case 'InvalidItem':
 		case 'UnknownFile':
 		case 'UnknownHunk':
-		case 'NotChangedLines':
+		case 'NoChangedLines':
 		case 'NoLinesInFile':
 		case 'MalformedLines':
 		case 'MalformedGlob':
@@ -457,25 +467,59 @@ function resolveTarget(
 			const file = findFile(diff, target.path);
 			if (!file.ok) return file;
 			if (!file.value.hasLines) return err({ kind: 'NoLinesInFile', file: target.path });
-			const wanted = linesOf(target.ranges);
-			const notChanged = [
-				...lineRangesOf('old', wanted.old.subtract(file.value.changed.old)),
-				...lineRangesOf('new', wanted.new.subtract(file.value.changed.new))
-			];
-			if (notChanged.length > 0) {
+			const changed = file.value.changed;
+			const empty = target.ranges.filter(
+				(range) =>
+					changedLines(file.value, range.side).intersect(RangeSet.of(range.first, range.last))
+						.isEmpty
+			);
+			if (empty.length > 0) {
 				return err({
-					kind: 'NotChangedLines',
+					kind: 'NoChangedLines',
 					file: target.path,
-					notChanged,
-					changed: [
-						...lineRangesOf('old', file.value.changed.old),
-						...lineRangesOf('new', file.value.changed.new)
-					]
+					ranges: empty,
+					nearest: nearestChanged(changed, empty)
 				});
 			}
-			return ok(new Map([[file.value, { kind: 'lines', lines: wanted } as const]]));
+			// Unchanged lines in the ranges belong to no unit, so applying them takes nothing.
+			return ok(new Map([[file.value, { kind: 'lines', lines: linesOf(target.ranges) } as const]]));
 		}
 	}
+}
+
+/** How many changed lines on each side of a range a rejection names. */
+const NEAREST_EACH_WAY = 2;
+
+/**
+ * A few changed lines around each range that holds none: the nearest intervals
+ * before and after it on its side, or, when that side has no changed lines at
+ * all, the first ones on the other side. Bounded, so a large file does not flood
+ * the agent.
+ */
+function nearestChanged(changed: SideLines, ranges: readonly LineRange[]): readonly LineRange[] {
+	const found: LineRange[] = [];
+	const seen = new Set<string>();
+	const add = (range: LineRange): void => {
+		const key = `${range.side}:${range.first}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		found.push(range);
+	};
+	for (const range of ranges) {
+		const own = range.side === 'old' ? changed.old : changed.new;
+		if (own.isEmpty) {
+			const other: Side = range.side === 'old' ? 'new' : 'old';
+			const lines = lineRangesOf(other, other === 'old' ? changed.old : changed.new);
+			for (const r of lines.slice(0, 2 * NEAREST_EACH_WAY)) add(r);
+			continue;
+		}
+		const all = lineRangesOf(range.side, own);
+		const before = all.filter((r) => r.last < range.first).slice(-NEAREST_EACH_WAY);
+		const after = all.filter((r) => r.first > range.last).slice(0, NEAREST_EACH_WAY);
+		for (const r of [...before, ...after]) add(r);
+	}
+	const order = (r: LineRange): number => (r.side === 'old' ? 0 : 1);
+	return found.sort((a, b) => order(a) - order(b) || a.first - b.first);
 }
 
 function linesOf(ranges: readonly LineRange[]): SideLines {
@@ -571,8 +615,21 @@ function rejectionText(rejection: AssignRejection): string {
 			return rejection.known.length > 0
 				? `${agentPath(rejection.file)} has no hunk ${rejection.hunks.join(', ')}. Its hunks are ${rejection.known.join(', ')}.`
 				: `${agentPath(rejection.file)} has no hunk ${rejection.hunks.join(', ')}: its change has no lines. Assign the whole file instead.`;
-		case 'NotChangedLines':
-			return `${agentPath(rejection.file)}: ${formatLineRanges(rejection.notChanged)} are not changed lines, so they cannot be assigned. The changed lines are ${formatLineRanges(rejection.changed)}. Use the +/- labels from get_diff.`;
+		case 'NoChangedLines': {
+			const file = agentPath(rejection.file);
+			const requested = formatLineRanges(rejection.ranges);
+			const sides = new Set(rejection.ranges.map((r) => r.side));
+			const nearestSides = new Set(rejection.nearest.map((r) => r.side));
+			const missingSide = [...sides].find((side) => !nearestSides.has(side));
+			const nearest =
+				rejection.nearest.length === 0 ? '' : ` Nearby: ${formatLineRanges(rejection.nearest)}.`;
+			if (missingSide !== undefined) {
+				const name = missingSide === 'old' ? 'deleted' : 'added';
+				const sign = missingSide === 'old' ? '-' : '+';
+				return `${file} has no ${name} lines, so ${requested} takes nothing; "${sign}" labels ${name} lines. Its changed lines include ${formatLineRanges(rejection.nearest)}. Nothing was assigned for this item.`;
+			}
+			return `${file}: ${requested} holds no changed line, so nothing was assigned for this item. A range takes the changed lines inside it and may span unchanged ones, but it must hold at least one.${nearest} Use the +/- labels from get_diff.`;
+		}
 		case 'NoLinesInFile':
 			return `${agentPath(rejection.file)} has no changed lines (it is binary, renamed, a mode change, a submodule or an empty file). Assign the whole file instead.`;
 		case 'MalformedLines':

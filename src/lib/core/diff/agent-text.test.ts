@@ -137,6 +137,38 @@ describe('the agent text round trip', () => {
 		expect(lineUnits).toBe(d.files.reduce((n, f) => n + (f.hasLines ? f.unitCount : 0), 0));
 	};
 
+	it('takes exactly each hunk when given the spans from its header, context and all', () => {
+		fc.assert(
+			fc.property(arbitraryDiff, (d) => {
+				const requests: AssignRequest[] = [];
+				for (const block of renderAgentDiff(d.files).split(/\n\n(?=## )/)) {
+					const [heading = '', ...rest] = block.split('\n');
+					const quoted = heading.slice(3);
+					const path = quoted.startsWith('"') ? String(JSON.parse(quoted)) : quoted;
+					for (const line of rest) {
+						const match = /^@@ h\d+ -(\d+),(\d+) \+(\d+),(\d+) @@/.exec(line);
+						if (match === null) continue;
+						const [, os = '', ol = '', ns = '', nl = ''] = match;
+						const body = rest.slice(rest.indexOf(line) + 1);
+						const end = body.findIndex((l) => l.startsWith('@@ '));
+						const hunk = end === -1 ? body : body.slice(0, end);
+						const spans: string[] = [];
+						if (hunk.some((l) => l.startsWith('-')))
+							spans.push(`-${os}..-${String(Number(os) + Number(ol) - 1)}`);
+						if (hunk.some((l) => l.startsWith('+')))
+							spans.push(`+${ns}..+${String(Number(ns) + Number(nl) - 1)}`);
+						requests.push({ file: path, lines: spans.join(','), section: 'by-span' });
+					}
+				}
+				const outcome = assign(d, initialState(d), requests);
+				expect(outcome.rejected).toEqual([]);
+				const lineUnits = d.files.reduce((n, f) => n + (f.hasLines ? f.unitCount : 0), 0);
+				expect(outcome.accepted.reduce((n, a) => n + a.units, 0)).toBe(lineUnits);
+			}),
+			{ numRuns: 60 }
+		);
+	});
+
 	it('accepts every label of the recorded awkward diff', () => {
 		roundTrip(diff);
 	});

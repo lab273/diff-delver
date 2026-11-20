@@ -99,6 +99,21 @@ describe('assign', () => {
 		expect(bucketOf(second.state, 'src/app.ts', 'new', 4)).toBe('beta');
 	});
 
+	it('takes the changed lines inside a range that also spans unchanged lines', () => {
+		const outcome = assign(diff, state, [
+			{ file: 'src/app.ts', lines: '+1..+3', section: 'alpha' },
+			{ file: 'src/app.ts', lines: '-1..-9,+4..+20', section: 'beta' }
+		]);
+		expect(outcome.rejected).toEqual([]);
+		expect(outcome.accepted).toEqual([
+			{ index: 0, units: 2 },
+			{ index: 1, units: 4 }
+		]);
+		expect(bucketOf(outcome.state, 'src/app.ts', 'new', 3)).toBe('alpha');
+		expect(bucketOf(outcome.state, 'src/app.ts', 'new', 11)).toBe('beta');
+		expect(outcome.uncategorised).toBe(diff.unitCount - 6);
+	});
+
 	it('lets line ranges move lines that are already assigned', () => {
 		const first = assign(diff, state, [{ file: 'src/app.ts', section: 'alpha' }]);
 		const second = assign(diff, first.state, [
@@ -196,20 +211,49 @@ describe('assign rejections', () => {
 		return outcome.rejected[0]?.rejection;
 	};
 
-	it('says which requested lines are not changed lines', () => {
+	it('rejects a range with no changed line in it, naming the nearest changed lines', () => {
 		expect(reject({ file: 'src/app.ts', lines: '+1..+3,-4', section: 'alpha' })).toEqual({
-			kind: 'NotChangedLines',
+			kind: 'NoChangedLines',
 			file: 'src/app.ts',
-			notChanged: [
-				{ side: 'old', first: 4, last: 4 },
-				{ side: 'new', first: 1, last: 1 }
-			],
-			changed: [
-				{ side: 'old', first: 2, last: 3 },
+			ranges: [{ side: 'old', first: 4, last: 4 }],
+			nearest: [{ side: 'old', first: 2, last: 3 }]
+		});
+		expect(reject({ file: 'src/app.ts', lines: '+5..+9', section: 'alpha' })).toEqual({
+			kind: 'NoChangedLines',
+			file: 'src/app.ts',
+			ranges: [{ side: 'new', first: 5, last: 9 }],
+			nearest: [
 				{ side: 'new', first: 2, last: 4 },
 				{ side: 'new', first: 11, last: 11 }
 			]
 		});
+	});
+
+	it('names the changed lines on the other side when a side has none', () => {
+		const rejection = reject({ file: 'src/app.test.ts', lines: '-1', section: 'alpha' });
+		expect(rejection).toEqual({
+			kind: 'NoChangedLines',
+			file: 'src/app.test.ts',
+			ranges: [{ side: 'old', first: 1, last: 1 }],
+			nearest: [{ side: 'new', first: 1, last: 4 }]
+		});
+		expect(rejection && describeRejection(rejection)).toContain('has no deleted lines');
+	});
+
+	it('names only a few changed lines near the request, however large the file', () => {
+		const big = syntheticDiff([
+			{
+				path: 'big.ts',
+				change: 'modified',
+				hunks: Array.from({ length: 400 }, () => ({ gap: 1, lines: [' ', '+', ' '] as const }))
+			}
+		]);
+		const outcome = assign(big, initialState(big), [
+			{ file: 'big.ts', lines: '+601', section: 'alpha' }
+		]);
+		const rejection = outcome.rejected[0]?.rejection;
+		expect(rejection?.kind === 'NoChangedLines' && rejection.nearest.length).toBe(4);
+		expect(rejection && describeRejection(rejection).length).toBeLessThan(400);
 	});
 
 	it.each<[AssignRequest, AssignRejection['kind']]>([
@@ -452,6 +496,14 @@ describe('assign properties', () => {
 						}
 					}
 					expect(outcome.accepted[0]?.units ?? 0).toBe(taken);
+					// A line range is refused only when it holds no changed line on its side.
+					const file = d.files.find((f) => f.file.path === request.file);
+					if (request.lines !== undefined && file?.hasLines === true) {
+						const empty = rangesWithoutChanges(file, request.lines);
+						const refused = outcome.rejected[0]?.rejection.kind === 'NoChangedLines';
+						if (refused) expect(empty).toBe(true);
+						if (accepted) expect(empty).toBe(false);
+					}
 					s = outcome.state;
 				}
 			}),
@@ -459,6 +511,19 @@ describe('assign properties', () => {
 		);
 	});
 });
+
+/** Whether any range of a well-formed `lines` value holds no changed line of the file. */
+function rangesWithoutChanges(file: DiffFile, lines: string): boolean {
+	return lines.split(',').some((part) => {
+		const match = /^([+-])(\d+)(?:\.\.[+-](\d+))?$/.exec(part);
+		if (match === null) return false;
+		const set = match[1] === '+' ? file.changed.new : file.changed.old;
+		const first = Number(match[2]);
+		const last = Number(match[3] ?? match[2]);
+		for (let n = first; n <= last; n += 1) if (set.has(n)) return false;
+		return true;
+	});
+}
 
 /**
  * An independent model of which units a request targets in a file, before the
