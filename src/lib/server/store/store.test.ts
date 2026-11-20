@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
@@ -89,6 +89,22 @@ async function snapshotOf(
 ): Promise<TakenSnapshot> {
 	const copyFrom = await objectsOf(repo);
 	return value(await takeSnapshot(target, () => Promise.resolve(ok({ base, head, copyFrom }))));
+}
+
+/** Makes every object file of the store look `hours` old, as if written that long ago. */
+async function ageObjects(target: Store, hours: number): Promise<void> {
+	const then = new Date(Date.now() - hours * 3_600_000);
+	const objects = join(target.dir, 'objects');
+	for (const entry of await readdir(objects, { recursive: true, withFileTypes: true })) {
+		if (entry.isFile()) await utimes(join(entry.parentPath, entry.name), then, then);
+	}
+}
+
+/** Writes a blob into the store that no snapshot refers to. */
+async function unpinnedBlob(target: Store, content: string): Promise<string> {
+	return value(
+		await runGitText({ cwd: target.dir, args: ['hash-object', '-w', '--stdin'], input: content })
+	);
 }
 
 async function hasObject(target: Store, id: string): Promise<boolean> {
@@ -318,12 +334,23 @@ describe('the snapshot store', () => {
 		expect(value(await listSnapshots(target)).map((s) => s.id)).toEqual([kept.id]);
 
 		expect(await hasObject(target, dropped.head)).toBe(true);
+		await ageObjects(target, 2);
 		value(await collectGarbage(target));
 		expect(await hasObject(target, dropped.head)).toBe(false);
 		expect(await hasObject(target, kept.head)).toBe(true);
 		expect(value(await readSnapshotDiff(kept))).toEqual(
 			value(await readDiff(repo.dir, base.tree, head.tree))
 		);
+	});
+
+	it('keeps objects no snapshot pins yet for an hour, so another process taking one keeps them', async () => {
+		const target = await store();
+		const old = await unpinnedBlob(target, 'written two hours ago, never pinned\n');
+		await ageObjects(target, 2);
+		const fresh = await unpinnedBlob(target, 'written just now, not pinned yet\n');
+		value(await collectGarbage(target));
+		expect(await hasObject(target, fresh)).toBe(true);
+		expect(await hasObject(target, old)).toBe(false);
 	});
 
 	it('is created once even when many snapshots make it at the same time, and is listed', async () => {

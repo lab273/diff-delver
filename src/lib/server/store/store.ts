@@ -5,13 +5,15 @@
  * A store is created on first use, atomically: it is built in a private folder
  * and renamed into place, so two snapshots that create it at once both end up
  * using the one that won. Its config is diff delver's: automatic garbage
- * collection off (collection is `collectGarbage`'s job, under the store lock), no
+ * collection off (collection is `collectGarbage`'s job, under the store lock and
+ * with a grace period for other processes), no
  * reflogs, and `diffdelver.repository` naming the repository it holds, for the
  * Storage page. Nothing in it changes a diff, so the diff runs in it directly.
  */
 import { mkdir, mkdtemp, readdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { millisecondsOf } from '#lib/core/milliseconds.tiny.ts';
 import { parseObjectFormat, type ObjectFormat } from '#lib/core/object-format.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { parseStoreId, type StoreId } from '#lib/core/store-id.tiny.ts';
@@ -166,13 +168,27 @@ export async function listStores(
 }
 
 /**
- * Removes every object no snapshot refers to any more and repacks the rest, so
- * deleted snapshots give their space back (DESIGN 9.1). Waits for everything
- * else using the store to finish, and holds it until done.
+ * How long an object no snapshot refers to is kept, and how long a leftover
+ * folder from a store being made is left alone. Another process may be taking
+ * a snapshot: between writing its trees and pinning them they are unreferenced,
+ * and the store lock only orders this process's own work. An hour is far longer
+ * than any snapshot takes, so no lock between processes is needed.
+ */
+export const GRACE_PERIOD = millisecondsOf(60 * 60 * 1000);
+
+/**
+ * Removes every object no snapshot has referred to for `GRACE_PERIOD` and
+ * repacks the rest, so deleted snapshots give their space back (DESIGN 9.1).
+ * Waits for everything else in this process using the store to finish, and
+ * holds it until done.
  */
 export async function collectGarbage(store: Store): Promise<Result<void, StoreError>> {
 	return withStoreLock(store.dir, 'exclusive', async () => {
-		const gc = await runGitText({ cwd: store.dir, args: ['gc', '--quiet', '--prune=now'] });
+		const seconds = String(Math.round(GRACE_PERIOD / 1000));
+		const gc = await runGitText({
+			cwd: store.dir,
+			args: ['gc', '--quiet', `--prune=${seconds}.seconds.ago`]
+		});
 		return gc.ok ? ok(undefined) : gc;
 	});
 }
