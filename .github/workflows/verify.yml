@@ -20,7 +20,7 @@ jobs:
     name: List the pushed commits
     runs-on: ubuntu-latest
     outputs:
-      commits: ${{ steps.list.outputs.commits }}
+      batches: ${{ steps.list.outputs.batches }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -28,38 +28,35 @@ jobs:
       - id: list
         name: List commits
         env:
+          EVENT: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after || github.sha }}
-        run: |
-          # A new branch, a manual run, or a force push whose old head is gone:
-          # check the head commit only.
-          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
-            || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            commits="$AFTER"
-          else
-            commits="$(git rev-list --reverse "$BEFORE..$AFTER")"
-          fi
-          if [ -z "$commits" ]; then commits="$AFTER"; fi
-          echo "Commits to verify:"
-          echo "$commits"
-          echo "commits=$(echo "$commits" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+          BRANCH: ${{ github.ref_name }}
+          REMOTE: origin
+          # GitHub's limit on jobs in one matrix. More commits share jobs.
+          MAX_JOBS: 256
+        # Which commits, and why, is described in the script; its tests are next to it.
+        run: echo "batches=$(scripts/ci-commits.sh)" >> "$GITHUB_OUTPUT"
 
   verify:
-    name: Verify ${{ matrix.commit }}
+    name: Verify ${{ matrix.batch.name }}
     needs: commits
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Per commit in the batch; most batches hold one.
+    timeout-minutes: ${{ 15 * matrix.batch.size }}
     strategy:
       fail-fast: false
       matrix:
-        commit: ${{ fromJSON(needs.commits.outputs.commits) }}
+        batch: ${{ fromJSON(needs.commits.outputs.batches) }}
     env:
       # CI machines are slower than the laptop the 90 second budget is set for.
       VERIFY_BUDGET_SECONDS: 240
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ matrix.commit }}
+          ref: ${{ matrix.batch.first }}
+          # A batch of several commits checks each of them out in turn.
+          fetch-depth: ${{ matrix.batch.size > 1 && '0' || '1' }}
 
       # Reads the pnpm version from package.json "packageManager".
       - uses: pnpm/action-setup@v6
@@ -90,13 +87,35 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm exec playwright install-deps chromium
 
-      - run: pnpm verify
+      # Each commit on its own, in order. A failure does not stop the rest of the
+      # batch, so every failing commit is named. Node and pnpm are the versions the
+      # batch's first commit asks for; the dependencies are each commit's own.
+      - name: Verify each commit
+        env:
+          COMMITS: ${{ matrix.batch.commits }}
+        run: |
+          failed=""
+          for commit in $COMMITS; do
+            echo "::group::Verify $commit"
+            git checkout --quiet --detach "$commit"
+            if pnpm install --frozen-lockfile && pnpm exec playwright install chromium && pnpm verify; then
+              echo "$commit passed"
+            else
+              echo "::error::$commit failed pnpm verify"
+              failed="$failed $commit"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "Failed:$failed"
+            exit 1
+          fi
 
       - name: Keep the journey traces
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: journeys-${{ matrix.commit }}
+          name: journeys-${{ matrix.batch.first }}
           path: test-results
           if-no-files-found: ignore
           retention-days: 7

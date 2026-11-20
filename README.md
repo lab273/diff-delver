@@ -54,7 +54,7 @@ cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
 | `src/lib/core/` | Pure domain code: tiny types, the line model, coverage, export rendering. No Node built-ins (with or without `node:`), SvelteKit, Svelte, browser or server imports, and no clock, randomness, timers or environment: no `process`, `new Date()`, `Date.now`, `performance`, `crypto`, `Math.random` or `globalThis`; lint enforces this. Tests sit next to the code as `*.test.ts` and form the `core` Vitest project (250 ms per test, 5 seconds in all). |
 | `src/lib/server/` | Daemon-side code: sources, the snapshot store, the database, MCP. |
 | `src/routes/` | The UI and the HTTP routes. |
-| `src/**/*.test.ts` outside core | The `integration` Vitest project (3 seconds per test). `src/lib/scale.test.ts` measures the pure diff model at full size here, for the larger budget. |
+| `src/**/*.test.ts` outside core, and `scripts/**/*.test.ts` | The `integration` Vitest project (3 seconds per test). `src/lib/scale.test.ts` measures the pure diff model at full size here, for the larger budget. |
 | `tests/journeys/` | One Playwright file per journey, `j<N>-<name>.journey.ts`, with the journey's name as its `describe`. They run in Chromium against one production build on a free port, 20 seconds per test. |
 | `src/lib/core/diff/` | The diff model (DESIGN 4): reading git's diff output, change units, assignment, coverage, slices and the agent-facing diff text. Import it from `#lib/core/diff/index.ts`, its one entry point. `fixtures/` holds git output recorded by `pnpm fixtures:capture`; never edit it by hand. |
 | `src/lib/core/range-set.ts`, `range-map.ts` | Sets of whole numbers and maps from them, stored as intervals. Line assignments are stored in them, and reviewed marks should be too. |
@@ -62,7 +62,8 @@ cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
 | `tests/support/` | Shared test helpers. `accessibility.ts` scans the current screen with axe; every journey calls it on every screen it reaches. `git-repo.ts` builds real repositories with real git, with a fixed identity and dates. `fixture-repos.ts` gives each integration test its own copy of a named fixture repository (`defineFixture`, `useFixture`), built once per run, or a fresh empty one (`emptyRepo`). `diff-fixtures.ts` defines the repositories with every awkward kind of change. `synthetic-diff.ts` writes diff output for property and size tests, and is pure, so core tests may use it. `stopwatch.ts` is the real clock, for the size tests that measure elapsed time. |
 | `scripts/verify.ts` | The `pnpm verify` runner. |
 | `scripts/capture-diff-fixtures.ts` | The `pnpm fixtures:capture` script. |
-| `.github/workflows/verify.yml` | CI: `pnpm verify` on every commit of every push to `main`. |
+| `scripts/ci-commits.sh` | Lists the commits a push must verify, for CI, and splits them into jobs. Tested by `scripts/ci-commits.test.ts`, in the `integration` project. |
+| `.github/workflows/verify.yml` | CI: `pnpm verify` on every commit of every push to `main`, including every rewritten commit of a force push. |
 | `.beads/` | The beads issue tracker's settings. The issue database itself is not in git; it syncs through `bd dolt push` and `bd dolt pull`. After cloning, `bd bootstrap` fetches it. |
 
 **Tiny-type files.** A tiny type and its parse function live in their own file
