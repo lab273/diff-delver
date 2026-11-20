@@ -18,6 +18,14 @@
  * left to review; it never closes under the person reading it (DESIGN 6.1).
  * Opening an open report's source resumes it, and opening a source whose last
  * report is closed starts a new one.
+ *
+ * A report is brought up to date only when asked (DESIGN 6.2): `update`, or
+ * opening its source again, which is a request to see the files as they are
+ * now. Either takes a new snapshot (or the one `checkForChanges` took to see
+ * the change, when it is still the one needed), carries the sections, the
+ * agent's sorting and the reviewer's marks over to it (`#lib/core/update`),
+ * and makes the next revision in one transaction. Earlier revisions stay
+ * stored, with their snapshots.
  */
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { Clock } from '#lib/core/clock.ts';
@@ -27,6 +35,7 @@ import { makeDiff, type Diff } from '#lib/core/diff/diff.ts';
 import type { ViewKind } from '#lib/core/diff/slices.ts';
 import { initialState, type AssignmentState } from '#lib/core/diff/state.ts';
 import type { IdSource } from '#lib/core/ids.ts';
+import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { ReportIdentity } from '#lib/core/report-identity.tiny.ts';
 import {
@@ -50,7 +59,11 @@ import { NO_MARKS, type ReviewedMarks } from '#lib/core/review/reviewed-marks.ts
 import { andThen, err, ok, type Result } from '#lib/core/result.ts';
 import { repositoryNameOf } from '#lib/core/repository-name.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
-import { FIRST_REVISION } from '#lib/core/revision-number.tiny.ts';
+import {
+	FIRST_REVISION,
+	nextRevisionNumber,
+	type RevisionNumber
+} from '#lib/core/revision-number.tiny.ts';
 import type { SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import type { SourceIdentity } from '#lib/core/source-identity.tiny.ts';
 import { describeGitSource, type GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
@@ -60,9 +73,17 @@ import {
 	changedAssignmentPaths,
 	reviewedMarksFromRows,
 	reviewedRowsOf,
+	unitRowsOf,
+	unitSetFromRows,
 	type AssignmentRow,
-	type ReviewedRow
+	type ReviewedRow,
+	type UnitRow
 } from '#lib/core/storage/stored-units.ts';
+import type { UnitSet } from '#lib/core/diff/unit-set.ts';
+import { carryOver } from '#lib/core/update/carry-over.ts';
+import type { TreeChanges } from '#lib/core/update/line-map.ts';
+import type { UpdateSummary } from '#lib/core/update/update-summary.ts';
+import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 import type { StoreId } from '#lib/core/store-id.tiny.ts';
 import { timeBetween } from '#lib/core/timestamp.tiny.ts';
 import { fileCountOf, type FileCount } from '#lib/core/file-count.tiny.ts';
@@ -80,7 +101,9 @@ import {
 	setReportState,
 	touchReport
 } from '../db/tables/reports.ts';
+import { insertNewUnitRows, newUnitRowsFor } from '../db/tables/new-units.ts';
 import { replaceReviewedRows, reviewedRowsFor } from '../db/tables/reviewed-marks.ts';
+import { insertRevisionUpdate, revisionUpdateFor } from '../db/tables/revision-updates.ts';
 import {
 	currentRevision,
 	currentRevisions,
@@ -102,6 +125,7 @@ import {
 	snapshotGitSource,
 	sourceIdentity,
 	suggestSource,
+	type GitSnapshot,
 	type LocalRepository,
 	type RepositoryOptions,
 	type SourceCandidate,
@@ -118,6 +142,7 @@ import {
 	openSnapshotRef,
 	openStore,
 	readSnapshotDiff,
+	readTreeDiff,
 	type Snapshot,
 	type StoreError
 } from '../store/index.ts';
@@ -158,6 +183,7 @@ export interface ReportSummary {
  */
 export type ListedReport = ({ readonly kind: 'report' } & ReportSummary) | DamagedReport;
 
+/**
 /** A report whose saved rows cannot be read. `deleteReport` removes it. */
 export interface DamagedReport {
 	readonly kind: 'damaged';
@@ -181,8 +207,16 @@ export type OpenOutcome =
 			 */
 			readonly closed: ReportId | undefined;
 	  }
-	/** The source's open report. `changed` says the source has moved on since its revision. */
-	| { readonly kind: 'resumed'; readonly report: ReportSummary; readonly changed: boolean }
+	/**
+	 * The source's open report, brought up to date first when its source had
+	 * moved on: `update` says what the update did, and is undefined when nothing
+	 * had changed.
+	 */
+	| {
+			readonly kind: 'resumed';
+			readonly report: ReportSummary;
+			readonly update: UpdateSummary | undefined;
+	  }
 	/** The source has nothing to review, so there is no report to show. */
 	| {
 			readonly kind: 'nothing-to-review';
@@ -243,7 +277,31 @@ export interface LoadedReport {
 	readonly progress: Progress;
 	/** Files that could not be included, one sentence each. */
 	readonly leftOut: readonly ReviewerMessage[];
+	/** What the update that made the current revision did; undefined for a first revision. */
+	readonly update: LastUpdate | undefined;
+	/** The units new since the previous revision; empty for a first revision. */
+	readonly fresh: UnitSet;
 }
+
+/** What the update that made a report's current revision did, for its page. */
+export interface LastUpdate {
+	/** The revision it made, which the page calls the version. */
+	readonly revision: RevisionNumber;
+	readonly at: Timestamp;
+	readonly summary: UpdateSummary;
+}
+
+/** What `update` did. */
+export type UpdateOutcome =
+	/** A new revision, as the files are now. */
+	| { readonly kind: 'updated'; readonly report: ReportSummary; readonly summary: UpdateSummary }
+	/** The source has not changed since the current revision; nothing was made. */
+	| { readonly kind: 'unchanged'; readonly report: ReportSummary }
+	/**
+	 * The source has nothing left to review (DESIGN 6.1); nothing was made, and
+	 * the report stays open and readable.
+	 */
+	| ({ readonly kind: 'nothing-left'; readonly report: ReportSummary } & NothingLeft);
 
 /** What marking did. */
 export interface MarkOutcome {
@@ -257,8 +315,8 @@ export interface MarkOutcome {
 type SourceCheck =
 	/** Nothing changed, or the fingerprint raised a false alarm. */
 	| { readonly kind: 'unchanged' }
-	/** The trees differ: an update is waiting. */
-	| { readonly kind: 'changed' }
+	/** The trees differ: an update is waiting, which would change `files` files. */
+	| { readonly kind: 'changed'; readonly files: FileCount }
 	/**
 	 * The source has nothing left to review (DESIGN 6.1). The report stays open
 	 * and readable: the page says so, keeps showing what was being read, and
@@ -270,7 +328,12 @@ type SourceCheck =
 export type ChangeCheck =
 	| SourceCheck
 	/** The report is closed; closed reports are not followed. */
-	| { readonly kind: 'report-closed' };
+	| { readonly kind: 'report-closed' }
+	/**
+	 * The report has a newer revision than the one the asker has seen, such as
+	 * one the command made while a page was open: the page shows stale content.
+	 */
+	| { readonly kind: 'updated'; readonly revision: RevisionNumber };
 
 /** What deleting a report did. */
 export interface Deleted {
@@ -307,10 +370,31 @@ interface Stored {
 	readonly marked: readonly ReviewedRow[];
 }
 
+/** A new snapshot of a report's source and what carrying over to it needs, read from the store. */
+interface Prepared {
+	readonly taken: GitSnapshot;
+	readonly diff: Diff;
+	readonly heads: TreeChanges;
+	readonly bases: TreeChanges;
+	readonly generated: ReadonlySet<RepoPath>;
+}
+
+/** What a look at the source found, against the report's current revision. */
+type Probe =
+	| { readonly kind: 'unchanged' }
+	| ({ readonly kind: 'nothing-left' } & NothingLeft)
+	| { readonly kind: 'changed'; readonly prepared: Prepared };
+
+/**
+ * The last check of a report's source, for its current revision and the
+ * fingerprint it saw. For a change it keeps the snapshot it took, so the
+ * update that follows uses it instead of taking another.
+ */
 interface Remembered {
 	readonly revision: Revision['id'];
 	readonly fingerprint: SourceIdentity;
 	readonly outcome: SourceCheck;
+	readonly prepared: Prepared | undefined;
 }
 
 /** What a delete says when its rows went but its snapshots could not be removed yet. */
@@ -371,6 +455,31 @@ function stateOf(
 			)
 		)
 	);
+}
+
+/** What writing an update did: made the next revision, or found the current one had changed. */
+type Written =
+	| 'stale'
+	| {
+			readonly report: ReportSummary;
+			readonly revision: Revision;
+			readonly summary: UpdateSummary;
+	  };
+
+/** What `carryOver` needs, from the current revision and the snapshot prepared for the next. */
+function carryOverInput(
+	diff: Diff,
+	state: AssignmentState,
+	marks: ReviewedMarks,
+	prepared: Prepared
+): Parameters<typeof carryOver>[0] {
+	return {
+		previous: { diff, state, marks },
+		diff: prepared.diff,
+		heads: prepared.heads,
+		bases: prepared.bases,
+		autoIgnore: { markedGenerated: prepared.generated }
+	};
 }
 
 export class ReportService {
@@ -471,18 +580,29 @@ export class ReportService {
 	/** Everything a report page shows, from the database and the store; the repository is not touched. */
 	async load(id: ReportId): Promise<Result<LoadedReport, ReportError>> {
 		const found = this.#db.read((q) =>
-			andThen(current(q, id), (c): Result<Current & Stored, ReportError> =>
-				andThen(sectionsOf(q, c.revision.id), (sections) =>
-					andThen(assignmentRowsFor(q, c.revision.id), (rows) =>
-						andThen(reviewedRowsFor(q, c.revision.id), (marked) =>
-							ok({ ...c, sections, rows, marked })
+			andThen(
+				current(q, id),
+				(
+					c
+				): Result<
+					Current & Stored & { fresh: readonly UnitRow[]; summary: UpdateSummary | undefined },
+					ReportError
+				> =>
+					andThen(sectionsOf(q, c.revision.id), (sections) =>
+						andThen(assignmentRowsFor(q, c.revision.id), (rows) =>
+							andThen(reviewedRowsFor(q, c.revision.id), (marked) =>
+								andThen(newUnitRowsFor(q, c.revision.id), (fresh) =>
+									andThen(revisionUpdateFor(q, c.revision.id), (summary) =>
+										ok({ ...c, sections, rows, marked, fresh, summary })
+									)
+								)
+							)
 						)
 					)
-				)
 			)
 		);
 		if (!found.ok) return found;
-		const { report, revision, sections, rows, marked } = found.value;
+		const { report, revision, sections, rows, marked, summary } = found.value;
 		const snapshot = await this.#snapshotOf(report, revision);
 		if (!snapshot.ok) return snapshot;
 		const diff = await this.#diffOf(snapshot.value);
@@ -491,6 +611,8 @@ export class ReportService {
 		if (!state.ok) return state;
 		const reviewed = reviewedMarksFromRows(diff.value, marked);
 		if (!reviewed.ok) return reviewed;
+		const fresh = unitSetFromRows(diff.value, found.value.fresh, 'new changes');
+		if (!fresh.ok) return fresh;
 		return ok({
 			summary: summaryOf(report, revision),
 			report,
@@ -507,7 +629,12 @@ export class ReportService {
 				'sections',
 				sections.map((s) => s.id)
 			),
-			leftOut: revision.leftOut
+			leftOut: revision.leftOut,
+			update:
+				summary === undefined
+					? undefined
+					: { revision: revision.number, at: revision.takenAt, summary },
+			fresh: fresh.value
 		});
 	}
 
@@ -636,8 +763,8 @@ export class ReportService {
 
 	/** Closes a report at the reviewer's request. Closing a closed report changes nothing. */
 	closeReport(id: ReportId): Result<ReportSummary, ReportError> {
-		return this.#db.write((q) =>
-			andThen(current(q, id), ({ report, revision }) => {
+		const closed = this.#db.write((q) =>
+			andThen(current(q, id), ({ report, revision }): Result<ReportSummary, ReportError> => {
 				if (report.state.kind === 'closed') return ok(summaryOf(report, revision));
 				const state: ReportState = { kind: 'closed', reason: 'reviewer' };
 				const now = this.#clock.now();
@@ -645,6 +772,9 @@ export class ReportService {
 				return ok(summaryOf({ ...report, state, lastActivityAt: now }, revision));
 			})
 		);
+		// A closed report is not followed, so a snapshot kept for its update is not needed.
+		if (closed.ok) void this.#forget(id);
+		return closed;
 	}
 
 	/** Reopens a closed report, unless another report of its source is open. */
@@ -680,7 +810,7 @@ export class ReportService {
 			return ok(snapshots.filter((s) => !snapshotInUse(q, s)));
 		});
 		if (!removed.ok) return removed;
-		this.#checks.delete(id);
+		await this.#forget(id);
 		const removedSnapshots = await this.#removeSnapshots(removed.value);
 		return ok(removedSnapshots);
 	}
@@ -693,17 +823,38 @@ export class ReportService {
 	 * went; the report is not closed, so it never closes under its reader
 	 * (DESIGN 6.1). The repository is only read.
 	 */
-	async checkForChanges(id: ReportId): Promise<Result<ChangeCheck, ReportError>> {
+	async checkForChanges(
+		id: ReportId,
+		seen?: RevisionNumber
+	): Promise<Result<ChangeCheck, ReportError>> {
 		const found = this.#db.read((q) => current(q, id));
 		if (!found.ok) return found;
-		const { report } = found.value;
-		if (report.state.kind === 'closed') return ok({ kind: 'report-closed' });
-		const repo = await locateRepository(report.repositoryPath, this.#repository);
-		if (!repo.ok) return repo;
-		if (repo.value.storeId !== report.store) {
-			return err({ kind: 'RepositoryReplaced', path: report.repositoryPath });
+		const { report, revision } = found.value;
+		// A page showing an older revision must say so before anything else.
+		if (seen !== undefined && seen !== revision.number) {
+			return ok({ kind: 'updated', revision: revision.number });
 		}
+		if (report.state.kind === 'closed') return ok({ kind: 'report-closed' });
+		const repo = await this.#repositoryOf(report);
+		if (!repo.ok) return repo;
 		return this.#check(found.value, repo.value);
+	}
+
+	/**
+	 * Brings an open report up to date with its source, when asked (DESIGN 6.2):
+	 * takes a new snapshot, or uses the one `checkForChanges` took when it is
+	 * still the one needed, and when its trees differ from the current
+	 * revision's, makes the next revision with the sections, the sorting and the
+	 * reviewed marks carried over, in one transaction. Makes nothing when the
+	 * source has not changed, or has nothing left to review. A closed report is
+	 * not updated. The repository is only read.
+	 */
+	async update(id: ReportId): Promise<Result<UpdateOutcome, ReportError>> {
+		const found = this.#db.read((q) => currentOpen(q, id));
+		if (!found.ok) return found;
+		const repo = await this.#repositoryOf(found.value.report);
+		if (!repo.ok) return repo;
+		return this.#update(id, repo.value);
 	}
 
 	/**
@@ -781,7 +932,7 @@ export class ReportService {
 			return ok(undefined);
 		});
 		if (!closed.ok) return closed;
-		this.#checks.delete(report.id);
+		await this.#forget(report.id);
 		return this.#create(repo, spec, identity, report.id);
 	}
 
@@ -804,25 +955,26 @@ export class ReportService {
 	}
 
 	/**
-	 * Resumes the source's open report; when its source has nothing left to
-	 * review, closes it instead (DESIGN 6.1: it closes when its source is next
-	 * opened and has nothing to review) and says so.
+	 * Resumes the source's open report, bringing it up to date first, since
+	 * opening a source is a request to see its files as they are now (DESIGN
+	 * 6.2); when its source has nothing left to review, closes it instead
+	 * (DESIGN 6.1: it closes when its source is next opened and has nothing to
+	 * review) and says so.
 	 */
 	async #resume(found: Current, repo: LocalRepository): Promise<Result<OpenOutcome, ReportError>> {
-		const check = await this.#check(found, repo);
-		if (!check.ok) return check;
-		const resumed = (changed: boolean): Result<OpenOutcome, ReportError> =>
-			andThen(
-				this.#db.read((q) => current(q, found.report.id)),
-				(now) => ok({ kind: 'resumed', report: summaryOf(now.report, now.revision), changed })
-			);
-		switch (check.value.kind) {
+		const updated = await this.#update(found.report.id, repo);
+		if (!updated.ok) return updated;
+		switch (updated.value.kind) {
 			case 'unchanged':
-				return resumed(false);
-			case 'changed':
-				return resumed(true);
+				return ok({ kind: 'resumed', report: updated.value.report, update: undefined });
+			case 'updated':
+				return ok({
+					kind: 'resumed',
+					report: updated.value.report,
+					update: updated.value.summary
+				});
 			case 'nothing-left': {
-				const { next } = check.value;
+				const { next } = updated.value;
 				const closed = this.#db.write((q) =>
 					andThen(reportById(q, found.report.id), (report): Result<void, ReportError> => {
 						if (report?.state.kind === 'open') {
@@ -837,7 +989,7 @@ export class ReportService {
 					})
 				);
 				if (!closed.ok) return closed;
-				this.#checks.delete(found.report.id);
+				await this.#forget(found.report.id);
 				return ok({
 					kind: 'nothing-to-review',
 					source: reportTitle(found.report.source),
@@ -939,41 +1091,275 @@ export class ReportService {
 		});
 	}
 
+	/** The report's repository, if it is still the one the report was opened in. */
+	async #repositoryOf(report: Report): Promise<Result<LocalRepository, ReportError>> {
+		const repo = await locateRepository(report.repositoryPath, this.#repository);
+		if (!repo.ok) return repo;
+		if (repo.value.storeId !== report.store) {
+			return err({ kind: 'RepositoryReplaced', path: report.repositoryPath });
+		}
+		return repo;
+	}
+
 	async #check(found: Current, repo: LocalRepository): Promise<Result<SourceCheck, ReportError>> {
 		const { report, revision } = found;
-		const spec = report.source.spec;
-		const fingerprint = await sourceIdentity(repo, spec);
+		const fingerprint = await sourceIdentity(repo, report.source.spec);
 		if (!fingerprint.ok) return fingerprint;
 		if (fingerprint.value === revision.fingerprint) return ok({ kind: 'unchanged' });
 		const remembered = this.#checks.get(report.id);
 		if (remembered?.revision === revision.id && remembered.fingerprint === fingerprint.value) {
 			return ok(remembered.outcome);
 		}
-		const probe = await snapshotGitSource(this.#dataDirectory, repo, spec, this.#ids.snapshotId());
+		const probe = await this.#probe(found, repo, fingerprint.value);
 		if (!probe.ok) return probe;
-		const { snapshot } = probe.value;
-		let empty = false;
-		let outcome: SourceCheck = { kind: 'unchanged' };
-		if (snapshot.base !== revision.baseTree || snapshot.head !== revision.headTree) {
-			const files = await readSnapshotDiff(snapshot);
-			if (!files.ok) {
-				await deleteSnapshot(snapshot.store, snapshot.id);
-				return files;
+		const remember = async (
+			outcome: SourceCheck,
+			prepared: Prepared | undefined
+		): Promise<Result<SourceCheck, ReportError>> => {
+			await this.#remember(report.id, {
+				revision: revision.id,
+				fingerprint: fingerprint.value,
+				outcome,
+				prepared
+			});
+			return ok(outcome);
+		};
+		switch (probe.value.kind) {
+			case 'unchanged':
+				return remember({ kind: 'unchanged' }, undefined);
+			case 'nothing-left':
+				return remember(probe.value, undefined);
+			case 'changed': {
+				const { prepared } = probe.value;
+				const files = await this.#filesChanged(found, prepared);
+				if (!files.ok) {
+					await deleteSnapshot(prepared.taken.snapshot.store, prepared.taken.snapshot.id);
+					return files;
+				}
+				return remember({ kind: 'changed', files: files.value }, prepared);
 			}
-			empty = files.value.length === 0;
-			outcome = { kind: 'changed' };
 		}
-		// Applying an update is a later step; until then the probe is not kept.
-		await deleteSnapshot(snapshot.store, snapshot.id);
-		if (empty) {
+	}
+
+	/**
+	 * Looks at the source against the current revision, with a new snapshot or
+	 * the one the last check kept when it is still the one needed (which it
+	 * then hands over): unchanged, nothing left to review, or changed, with what
+	 * carrying over needs. A snapshot that is not handed over is deleted.
+	 */
+	async #probe(
+		found: Current,
+		repo: LocalRepository,
+		fingerprint: SourceIdentity
+	): Promise<Result<Probe, ReportError>> {
+		const { report, revision } = found;
+		const kept = await this.#keptProbe(report.id, revision.id, fingerprint);
+		if (kept !== undefined) return ok({ kind: 'changed', prepared: kept });
+		const spec = report.source.spec;
+		const taken = await snapshotGitSource(this.#dataDirectory, repo, spec, this.#ids.snapshotId());
+		if (!taken.ok) return taken;
+		const { snapshot } = taken.value;
+		const discard = async <T>(result: Result<T, ReportError>): Promise<Result<T, ReportError>> => {
+			await deleteSnapshot(snapshot.store, snapshot.id);
+			return result;
+		};
+		if (snapshot.base === revision.baseTree && snapshot.head === revision.headTree) {
+			return discard(ok({ kind: 'unchanged' }));
+		}
+		const diff = await this.#diffOf(snapshot);
+		if (!diff.ok) return discard(diff);
+		if (diff.value.files.length === 0) {
 			const uncommitted = spec.kind === 'working-tree' || spec.kind === 'staged';
 			const since: CommitsSince = uncommitted
 				? await commitsSince(repo, revision.baseCommit)
 				: { kind: 'unknown' };
-			outcome = { kind: 'nothing-left', ...nothingLeft(spec, since) };
+			return discard(ok({ kind: 'nothing-left', ...nothingLeft(spec, since) }));
 		}
-		this.#checks.set(report.id, { revision: revision.id, fingerprint: fingerprint.value, outcome });
-		return ok(outcome);
+		const related = revision.store === snapshot.store.id;
+		const changes = async (from: Revision['headTree'], to: Revision['headTree']) => {
+			if (!related) return ok<TreeChanges>({ kind: 'unrelated' });
+			const files = await readTreeDiff(snapshot.store, from, to);
+			return files.ok ? ok<TreeChanges>({ kind: 'diff', files: files.value }) : files;
+		};
+		const heads = await changes(revision.headTree, snapshot.head);
+		if (!heads.ok) return discard(heads);
+		const bases = await changes(revision.baseTree, snapshot.base);
+		if (!bases.ok) return discard(bases);
+		const generated = await generatedPaths(
+			snapshot,
+			diff.value.files.map((f) => f.file.path)
+		);
+		if (!generated.ok) return discard(generated);
+		return ok({
+			kind: 'changed',
+			prepared: {
+				taken: taken.value,
+				diff: diff.value,
+				heads: heads.value,
+				bases: bases.value,
+				generated: generated.value
+			}
+		});
+	}
+
+	/** How many files an update to `prepared` would change, from the current revision's state. */
+	async #filesChanged(found: Current, prepared: Prepared): Promise<Result<FileCount, ReportError>> {
+		const previous = await this.#snapshotOf(found.report, found.revision);
+		if (!previous.ok) return previous;
+		const diff = await this.#diffOf(previous.value);
+		if (!diff.ok) return diff;
+		return this.#db.read((q) =>
+			andThen(stateOf(q, found.revision, diff.value), ({ state, marks }) =>
+				ok(carryOver(carryOverInput(diff.value, state, marks, prepared)).summary.filesChanged)
+			)
+		);
+	}
+
+	/**
+	 * The snapshot the last check kept for this revision and fingerprint, taken
+	 * out of the memory so nothing else uses or deletes it; undefined when there
+	 * is none, or it has gone from the store since.
+	 */
+	async #keptProbe(
+		id: ReportId,
+		revision: Revision['id'],
+		fingerprint: SourceIdentity
+	): Promise<Prepared | undefined> {
+		const remembered = this.#checks.get(id);
+		const prepared = remembered?.prepared;
+		if (
+			remembered?.revision !== revision ||
+			remembered.fingerprint !== fingerprint ||
+			prepared === undefined
+		) {
+			return undefined;
+		}
+		this.#checks.set(id, { ...remembered, prepared: undefined });
+		const still = await openSnapshotRef(this.#dataDirectory, {
+			store: prepared.taken.snapshot.store.id,
+			snapshot: prepared.taken.snapshot.id
+		});
+		return still.ok ? prepared : undefined;
+	}
+
+	/** Remembers a check, deleting the snapshot an earlier one kept unless it is the same. */
+	async #remember(id: ReportId, entry: Remembered): Promise<void> {
+		const earlier = this.#checks.get(id)?.prepared;
+		this.#checks.set(id, entry);
+		if (earlier !== undefined && earlier.taken.snapshot.id !== entry.prepared?.taken.snapshot.id) {
+			await deleteSnapshot(earlier.taken.snapshot.store, earlier.taken.snapshot.id);
+		}
+	}
+
+	/** Forgets a report's last check, deleting the snapshot it kept. */
+	async #forget(id: ReportId): Promise<void> {
+		const prepared = this.#checks.get(id)?.prepared;
+		this.#checks.delete(id);
+		if (prepared !== undefined) {
+			await deleteSnapshot(prepared.taken.snapshot.store, prepared.taken.snapshot.id);
+		}
+	}
+
+	/** See `update`; the repository is the report's, already checked. */
+	async #update(id: ReportId, repo: LocalRepository): Promise<Result<UpdateOutcome, ReportError>> {
+		for (let attempt = 0; ; attempt += 1) {
+			const found = this.#db.read((q) => currentOpen(q, id));
+			if (!found.ok) return found;
+			const { report, revision } = found.value;
+			const unchanged = (): Result<UpdateOutcome, ReportError> =>
+				ok({ kind: 'unchanged', report: summaryOf(report, revision) });
+			const fingerprint = await sourceIdentity(repo, report.source.spec);
+			if (!fingerprint.ok) return fingerprint;
+			if (fingerprint.value === revision.fingerprint) return unchanged();
+			const probe = await this.#probe(found.value, repo, fingerprint.value);
+			if (!probe.ok) return probe;
+			if (probe.value.kind === 'unchanged') {
+				await this.#remember(id, {
+					revision: revision.id,
+					fingerprint: fingerprint.value,
+					outcome: { kind: 'unchanged' },
+					prepared: undefined
+				});
+				return unchanged();
+			}
+			if (probe.value.kind === 'nothing-left') {
+				const { reason, next } = probe.value;
+				return ok({ kind: 'nothing-left', report: summaryOf(report, revision), reason, next });
+			}
+			const { prepared } = probe.value;
+			const { snapshot } = prepared.taken;
+			const written = await this.#writeUpdate(found.value, prepared);
+			if (!written.ok || written.value === 'stale') {
+				await deleteSnapshot(snapshot.store, snapshot.id);
+				if (!written.ok) return written;
+				if (attempt + 1 >= RETRIES) return err({ kind: 'RevisionChangedWhileSaving', report: id });
+				continue;
+			}
+			const made = written.value;
+			await this.#remember(id, {
+				revision: made.revision.id,
+				fingerprint: prepared.taken.identity,
+				outcome: { kind: 'unchanged' },
+				prepared: undefined
+			});
+			return ok({ kind: 'updated', report: made.report, summary: made.summary });
+		}
+	}
+
+	/**
+	 * Makes the next revision from `prepared`, in one transaction: reads the
+	 * current revision's sections, state and marks, carries them over, and
+	 * stores the new revision with them. `stale` when the current revision is
+	 * no longer the one the update started from.
+	 */
+	async #writeUpdate(found: Current, prepared: Prepared): Promise<Result<Written, ReportError>> {
+		const previous = await this.#snapshotOf(found.report, found.revision);
+		if (!previous.ok) return previous;
+		const before = await this.#diffOf(previous.value);
+		if (!before.ok) return before;
+		const { taken, diff } = prepared;
+		const id = found.report.id;
+		return this.#db.write((q) =>
+			andThen(currentOpen(q, id), (now): Result<Written, ReportError> => {
+				if (now.revision.id !== found.revision.id) return ok('stale');
+				return andThen(sectionsOf(q, now.revision.id), (sections) =>
+					andThen(stateOf(q, now.revision, before.value), ({ state, marks }) => {
+						const carried = carryOver(carryOverInput(before.value, state, marks, prepared));
+						const at = this.#clock.now();
+						const revision: Revision = {
+							id: this.#ids.revisionId(),
+							report: id,
+							number: nextRevisionNumber(now.revision.number),
+							store: taken.snapshot.store.id,
+							snapshot: taken.snapshot.id,
+							baseTree: taken.snapshot.base,
+							headTree: taken.snapshot.head,
+							fingerprint: taken.identity,
+							baseCommit: taken.baseCommit,
+							headCommit: taken.headCommit,
+							leftOut: taken.leftOut,
+							takenAt: at,
+							size: diffSizeOf(diff),
+							progress: unitProgressOf(
+								reviewProgress(diff, carried.state, carried.marks, 'sections')
+							)
+						};
+						insertRevision(q, revision);
+						replaceSections(q, revision.id, sections);
+						replaceAssignmentRows(q, revision.id, 'all', assignmentRowsOf(diff, carried.state));
+						replaceReviewedRows(q, revision.id, 'all', reviewedRowsOf(carried.marks));
+						insertNewUnitRows(q, revision.id, unitRowsOf(carried.fresh));
+						insertRevisionUpdate(q, revision.id, carried.summary);
+						touchReport(q, id, at);
+						return ok({
+							report: summaryOf({ ...now.report, lastActivityAt: at }, revision),
+							revision,
+							summary: carried.summary
+						});
+					})
+				);
+			})
+		);
 	}
 
 	/**

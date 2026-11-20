@@ -442,26 +442,6 @@ function freshCounts(
 	return { toReview: unitCountOf(toReview), ignored: unitCountOf(ignored) };
 }
 
-/**
- * The units of each file of a diff that are new since its previous version and
- * not ignored, for the file list's "new since version N"; files with none are
- * left out.
- */
-export function newToReviewByFile(
-	diff: Diff,
-	state: AssignmentState,
-	fresh: UnitSet
-): ReadonlyMap<RepoPath, UnitCount> {
-	const counts = new Map<RepoPath, UnitCount>();
-	for (const [path, units] of fresh.files) {
-		const file = diff.byPath.get(path);
-		if (file === undefined) continue;
-		const { toReview } = freshCounts(state, file, units);
-		if (toReview > 0) counts.set(path, toReview);
-	}
-	return counts;
-}
-
 function sideOf(line: DiffLine): Side {
 	return line.kind === 'deleted' ? 'old' : 'new';
 }

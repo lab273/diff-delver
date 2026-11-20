@@ -32,7 +32,12 @@ import {
 import { andThen, ok } from '#lib/core/result.ts';
 import type { RevisionId } from '#lib/core/revision-id.tiny.ts';
 import { awkwardChanges } from '../../../../tests/support/diff-fixtures.ts';
-import { tempDirectory, useFixture } from '../../../../tests/support/fixture-repos.ts';
+import { emptyRepo, tempDirectory, useFixture } from '../../../../tests/support/fixture-repos.ts';
+import type { GitRepo } from '../../../../tests/support/git-repo.ts';
+import { carryOver } from '#lib/core/update/carry-over.ts';
+import { sameUnitSet } from '#lib/core/diff/unit-set.ts';
+import { generatedPaths, readTreeDiff } from '../store/index.ts';
+import type { LoadedReport } from './index.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
 import { at } from '../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../tests/support/reviewer-git.ts';
@@ -42,7 +47,11 @@ import { assignmentRowsFor } from '../db/tables/assignments.ts';
 import { reviewedRowsFor } from '../db/tables/reviewed-marks.ts';
 import { ReportService } from './index.ts';
 
+/** A change a person makes to the working tree before asking for an update. */
+type Edit = 'insert-top' | 'append' | 'change' | 'remove-file' | 'add-file' | 'lockfile' | 'touch';
+
 type Call =
+	| { readonly kind: 'update'; readonly edit: Edit }
 	| { readonly kind: 'sections'; readonly ids: readonly string[] }
 	| { readonly kind: 'assign'; readonly requests: readonly AssignRequest[] }
 	| {
@@ -57,7 +66,7 @@ function section(id: string): SectionId {
 }
 
 /** Calls of every kind against the diff, valid or not. `gamma` is never created. */
-function arbitraryCalls(diff: Diff): fc.Arbitrary<Call[]> {
+function arbitraryCalls(diff: Diff, updates = false): fc.Arbitrary<Call[]> {
 	const paths: RepoPath[] = [
 		...diff.files.map((f) => f.file.path),
 		value(parseRepoPath('not/in/the-diff.txt'))
@@ -77,7 +86,19 @@ function arbitraryCalls(diff: Diff): fc.Arbitrary<Call[]> {
 			.tuple(fc.constantFrom(...groups), fc.constantFrom(...paths))
 			.map(([group, path]): ReviewTarget => ({ kind: 'slice', group, path }))
 	);
+	const update: fc.Arbitrary<Call> = fc
+		.constantFrom<Edit>(
+			'insert-top',
+			'append',
+			'change',
+			'remove-file',
+			'add-file',
+			'lockfile',
+			'touch'
+		)
+		.map((edit): Call => ({ kind: 'update', edit }));
 	const call: fc.Arbitrary<Call> = fc.oneof(
+		{ weight: updates ? 2 : 0, arbitrary: update },
 		fc
 			.subarray(['alpha', 'beta'], { minLength: 1 })
 			.map((ids): Call => ({ kind: 'sections', ids })),
@@ -175,6 +196,8 @@ describe('the report service against the pure model', () => {
 					const model: Model = { state: start.state, marks: NO_MARKS, sections: new Set() };
 					for (const call of calls) {
 						switch (call.kind) {
+							case 'update':
+								throw new Error('This property makes no updates.');
 							case 'sections':
 								value(
 									service.upsertSections(
@@ -231,4 +254,186 @@ describe('the report service against the pure model', () => {
 		db.close();
 		service.close();
 	});
+
+	it('stores what core computes when updates come between the other calls', async () => {
+		const repo = await emptyRepo();
+		const committed = {
+			'a.ts': lines('alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta'),
+			'b.ts': lines('one', 'two', 'three'),
+			'c.ts': lines('gone soon')
+		};
+		for (const [file, text] of Object.entries(committed)) await repo.write(file, text);
+		await repo.commit('first');
+		/** The working tree, as the test knows it. */
+		const tree = new Map<string, string>();
+		/** The working tree each run starts from. */
+		const startingPoint = async (): Promise<void> => {
+			tree.clear();
+			for (const file of ['d.ts', 'pnpm-lock.yaml']) await repo.remove(file);
+			const start = {
+				...committed,
+				'a.ts': lines('alpha', 'BETA', 'gamma', 'delta', 'added', 'epsilon', 'zeta'),
+				'b.ts': lines('one', 'two', 'three', 'four')
+			};
+			for (const [file, text] of Object.entries(start)) {
+				tree.set(file, text);
+				await repo.write(file, text);
+			}
+		};
+		await startingPoint();
+		const data = await tempDirectory();
+		const who = await reviewer();
+		const service = value(
+			await ReportService.open({
+				dataDirectory: data,
+				clock: settableClock(at(0)),
+				ids: sequentialIds(),
+				repository: { gitEnv: who.gitEnv }
+			})
+		);
+		const source = value(parseGitSourceSpec('working-tree'));
+		const first = value(await service.open(repo.dir, source));
+		if (first.kind !== 'created') throw new Error(first.kind);
+		const diff = value(await service.load(first.report.id)).diff;
+		value(service.closeReport(first.report.id));
+		const db = value(await Database.open(data, settableClock(at(0))));
+
+		await fc.assert(
+			fc.asyncProperty(arbitraryCalls(diff, true), async (calls) => {
+				await startingPoint();
+				const opened = value(await service.open(repo.dir, source));
+				if (opened.kind !== 'created') throw new Error(opened.kind);
+				const id = opened.report.id;
+				try {
+					let page = value(await service.load(id));
+					const model: Model = { state: page.state, marks: NO_MARKS, sections: new Set() };
+					for (const call of calls) {
+						switch (call.kind) {
+							case 'update': {
+								await edit(repo, tree, call.edit);
+								const before = page;
+								const outcome = value(await service.update(id));
+								page = value(await service.load(id));
+								if (outcome.kind !== 'updated') {
+									expect(outcome.kind).toBe('unchanged');
+									expect(page.revision.id).toBe(before.revision.id);
+									break;
+								}
+								const expected = await expectedUpdate(before, page, model);
+								expect(sameAssignmentState(page.diff, expected.state, page.state)).toBe(true);
+								expect(sameReviewedMarks(expected.marks, page.reviewed)).toBe(true);
+								expect(sameUnitSet(expected.fresh, page.fresh)).toBe(true);
+								expect(page.update?.summary).toEqual(expected.summary);
+								// Every section is kept, in its place, whether or not anything is left in it.
+								expect(page.sections.map((x) => x.id)).toEqual([...model.sections]);
+								model.state = expected.state;
+								model.marks = expected.marks;
+								break;
+							}
+							case 'sections':
+								value(
+									service.upsertSections(
+										id,
+										call.ids.map((x) => ({ id: x, title: `Section ${x}` }))
+									)
+								);
+								for (const x of call.ids) model.sections.add(section(x));
+								break;
+							case 'assign': {
+								const expected = assign(page.diff, model.state, call.requests, {
+									knownSections: model.sections
+								});
+								const outcome = value(await service.assign(id, call.requests));
+								expect(outcome.rejected).toEqual(expected.rejected);
+								model.state = expected.state;
+								break;
+							}
+							case 'mark': {
+								const expected = markReviewed(
+									page.diff,
+									model.state,
+									model.marks,
+									call.target,
+									call.reviewed,
+									call.view
+								);
+								const outcome = await service.markReviewed(
+									id,
+									call.target,
+									call.reviewed,
+									call.view
+								);
+								if (expected.ok) model.marks = expected.value.marks;
+								else expect(outcome.ok ? undefined : outcome.error.kind).toBe(expected.error.kind);
+								break;
+							}
+						}
+						checkStored(db, service, id, page.revision.id, page.diff, model);
+					}
+					await checkLoaded(service, id, page.diff, model);
+				} finally {
+					value(service.closeReport(id));
+				}
+			}),
+			{ numRuns: 10 }
+		);
+		db.close();
+		service.close();
+	});
 });
+
+const lines = (...text: readonly string[]): string => `${text.join('\n')}\n`;
+
+/**
+ * Makes one change to the working tree, keeping `tree`, what the test knows of
+ * it, up to date. Each change is new text, so it always changes something,
+ * except `touch`, which writes a file again as it was: a false alarm.
+ */
+async function edit(repo: GitRepo, tree: Map<string, string>, what: Edit): Promise<void> {
+	const write = async (file: string, text: string | undefined): Promise<void> => {
+		if (text === undefined) {
+			tree.delete(file);
+			await repo.remove(file);
+		} else {
+			tree.set(file, text);
+			await repo.write(file, text);
+		}
+	};
+	const count = String(tree.size + (tree.get('a.ts') ?? '').length);
+	switch (what) {
+		case 'insert-top':
+			return write('a.ts', `top ${count}\n${tree.get('a.ts') ?? ''}`);
+		case 'append':
+			return write('b.ts', `${tree.get('b.ts') ?? ''}more ${count}\n`);
+		case 'change':
+			return write('a.ts', (tree.get('a.ts') ?? '').replace(/^gamma.*$/m, `gamma ${count}`));
+		case 'remove-file':
+			return write('c.ts', undefined);
+		case 'add-file':
+			return write('d.ts', `${tree.get('d.ts') ?? ''}new ${count}\n`);
+		case 'lockfile':
+			return write('pnpm-lock.yaml', `${tree.get('pnpm-lock.yaml') ?? ''}lock: ${count}\n`);
+		case 'touch':
+			return write('b.ts', tree.get('b.ts') ?? '');
+	}
+}
+
+/** What core computes for the update from `before` to `after`, from the store alone. */
+async function expectedUpdate(before: LoadedReport, after: LoadedReport, model: Model) {
+	const store = after.snapshot.store;
+	const heads = value(await readTreeDiff(store, before.revision.headTree, after.revision.headTree));
+	const bases = value(await readTreeDiff(store, before.revision.baseTree, after.revision.baseTree));
+	const generated = value(
+		await generatedPaths(
+			after.snapshot,
+			after.diff.files.map((f) => f.file.path)
+		)
+	);
+	return carryOver({
+		previous: { diff: before.diff, state: model.state, marks: model.marks },
+		diff: after.diff,
+		heads: { kind: 'diff', files: heads },
+		bases: { kind: 'diff', files: bases },
+		autoIgnore: { markedGenerated: generated }
+	});
+}

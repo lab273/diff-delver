@@ -54,7 +54,7 @@ describe('the daemon', () => {
 		expect(value(await client.start({ directory: repo.dir }))).toMatchObject({
 			kind: 'opened',
 			resumed: true,
-			changed: false
+			update: null
 		});
 
 		const listed = value(await client.listDiffs());

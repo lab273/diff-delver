@@ -14,6 +14,8 @@ export type TableName =
 	| 'sections'
 	| 'assignments'
 	| 'reviewed_marks'
+	| 'revision_updates'
+	| 'new_units'
 	| 'unreferenced_snapshots';
 
 /**
@@ -155,6 +157,10 @@ function tableInWords(table: TableName): string {
 			return 'which section each change is in';
 		case 'reviewed_marks':
 			return 'what you marked as reviewed';
+		case 'revision_updates':
+			return 'what an update of a diff changed';
+		case 'new_units':
+			return 'which changes are new since a diff’s previous version';
 		case 'schema_migrations':
 			return 'the record of the database’s own version';
 		case 'unreferenced_snapshots':
@@ -170,6 +176,8 @@ function storedRowAdvice(table: TableName): string {
 		case 'sections':
 		case 'assignments':
 		case 'reviewed_marks':
+		case 'revision_updates':
+		case 'new_units':
 			return 'Delete that diff from the list of diffs, where it shows as damaged, or restore the database from a backup.';
 		case 'schema_migrations':
 		case 'unreferenced_snapshots':

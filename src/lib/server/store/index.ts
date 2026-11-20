@@ -48,7 +48,8 @@ export {
 	listSnapshotPaths,
 	readSnapshotDiff,
 	readSnapshotFile,
-	readSnapshotLines
+	readSnapshotLines,
+	readTreeDiff
 } from './read-snapshot.ts';
 export type {
 	DataDirectoryUnusable,

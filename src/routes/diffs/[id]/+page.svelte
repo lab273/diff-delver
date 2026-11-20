@@ -1,16 +1,18 @@
 <!--
 	A diff's page, before the viewer: what it is, how big, anything left out of
-	it, whether it has changed or closed, and its files as its groups list them.
-	The next build step replaces the file list with the diff itself.
+	it, whether its files have changed (with Update) or it is closed, what the
+	last update did, and its files as its groups list them, each with what is
+	new in it since the previous version. The next build step replaces the file
+	list with the diff itself.
 -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { goto, invalidate } from '$app/navigation';
+	import { tick } from 'svelte';
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { ChangeCheckResponse, ListedFileView, NextSourceOffer } from '#lib/api/schemas.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
-	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import Notice from '#lib/ui/Notice.svelte';
 	import { pageClient } from '#lib/ui/client.ts';
@@ -25,21 +27,46 @@
 	let check: Check = $state({ kind: 'checking' });
 	let problem = $state('');
 	let busy = $state(false);
-	let renewing = $state(false);
 
-	async function checkForChanges(id: ReportId = data.id): Promise<void> {
-		const checked = await pageClient().checkForChanges(id);
+	/** Once a minute while the page is in view, besides whenever the person comes back to it. */
+	const LOOK_AGAIN_EVERY = 60_000;
+	const UPDATED_HEADING = 'updated-heading';
+
+	/**
+	 * Asks whether this diff has a newer version than the page shows, and if not,
+	 * whether its files have changed. Looking again in the background keeps what
+	 * is shown when the answer cannot be had, rather than flickering.
+	 */
+	async function checkForChanges(id: ReportId, quietly = false): Promise<void> {
+		const version = data.loaded.ok ? data.loaded.value.summary.version : undefined;
+		const checked = await pageClient().checkForChanges(id, version);
 		if (id !== data.id) return;
-		check = checked.ok
-			? checked.value
-			: { kind: 'failed', message: describeApiError(checked.error) };
+		if (checked.ok) check = checked.value;
+		else if (!quietly) check = { kind: 'failed', message: describeApiError(checked.error) };
 	}
 
-	// Again for each diff this page shows: opening another one reuses the page.
+	// Again for each diff and version this page shows: opening another one reuses the page.
 	$effect(() => {
 		const id = data.id;
 		check = { kind: 'checking' };
 		void checkForChanges(id);
+	});
+
+	// Nothing changes under the person reading: the page only says that something
+	// did, when they come back to it or now and then, and changes on their word.
+	$effect(() => {
+		const id = data.id;
+		const again = (): void => {
+			if (document.visibilityState === 'visible' && !busy) void checkForChanges(id, true);
+		};
+		window.addEventListener('focus', again);
+		document.addEventListener('visibilitychange', again);
+		const timer = setInterval(again, LOOK_AGAIN_EVERY);
+		return () => {
+			window.removeEventListener('focus', again);
+			document.removeEventListener('visibilitychange', again);
+			clearInterval(timer);
+		};
 	});
 
 	async function act(action: () => Promise<{ ok: boolean; message?: string }>): Promise<void> {
@@ -50,13 +77,49 @@
 		if (!done.ok) problem = done.message ?? '';
 	}
 
+	/** Shows the version the page now has and moves focus to what the update did. */
+	async function showNewVersion(): Promise<void> {
+		await invalidate('app:diff');
+		await tick();
+		document.getElementById(UPDATED_HEADING)?.focus();
+	}
+
+	async function showNewer(): Promise<void> {
+		await act(async () => {
+			await showNewVersion();
+			return { ok: true };
+		});
+	}
+
+	async function update(): Promise<void> {
+		await act(async () => {
+			const updated = await pageClient().updateDiff(data.id);
+			if (!updated.ok) return { ok: false, message: describeApiError(updated.error) };
+			switch (updated.value.kind) {
+				case 'updated':
+					await showNewVersion();
+					return { ok: true };
+				case 'unchanged':
+					check = { kind: 'unchanged' };
+					return { ok: true };
+				case 'nothing-left':
+					check = {
+						kind: 'nothing-left',
+						reason: updated.value.reason,
+						next: updated.value.next
+					};
+					return { ok: true };
+			}
+		});
+	}
+
 	async function setOpen(open: boolean): Promise<void> {
 		await act(async () => {
 			const client = pageClient();
 			const changed = open ? await client.reopenDiff(data.id) : await client.closeDiff(data.id);
 			if (!changed.ok) return { ok: false, message: describeApiError(changed.error) };
 			await invalidate('app:diff');
-			await checkForChanges();
+			await checkForChanges(data.id);
 			return { ok: true };
 		});
 	}
@@ -66,33 +129,6 @@
 			const opened = await pageClient().open({ directory, source: next.source });
 			if (!opened.ok) return { ok: false, message: describeApiError(opened.error) };
 			if (opened.value.kind === 'nothing') return { ok: false, message: opened.value.reason };
-			await goto(resolve('/diffs/[id]', { id: opened.value.diff.id }));
-			return { ok: true };
-		});
-	}
-
-	/**
-	 * Deletes this diff and opens its source again, as the files are now: the one
-	 * way to see a changed diff's current files until diffs can be brought up to date.
-	 */
-	async function deleteAndOpenAgain(directory: string, source: string): Promise<void> {
-		renewing = false;
-		await act(async () => {
-			const client = pageClient();
-			const deleted = await client.deleteDiff(data.id);
-			if (!deleted.ok) return { ok: false, message: describeApiError(deleted.error) };
-			const opened = await client.open({ directory, source });
-			if (!opened.ok) {
-				return {
-					ok: false,
-					message: `This diff was deleted, but it could not be opened again: ${describeApiError(opened.error)} Run diff-delver in the repository to open it.`
-				};
-			}
-			if (opened.value.kind === 'nothing') {
-				const asked = new URLSearchParams({ directory, asked: source }).toString();
-				await goto(resolve(`/start?${asked}`));
-				return { ok: true };
-			}
 			await goto(resolve('/diffs/[id]', { id: opened.value.diff.id }));
 			return { ok: true };
 		});
@@ -129,6 +165,10 @@
 	function fileCount(count: number): string {
 		return count === 1 ? '1 file' : `${String(count)} files`;
 	}
+
+	function newChanges(count: number, version: number): string {
+		return `${count === 1 ? '1 new change' : `${String(count)} new changes`} since version ${String(version - 1)}`;
+	}
 </script>
 
 <svelte:head>
@@ -146,6 +186,7 @@
 {:else}
 	{@const page = data.loaded.value}
 	{@const summary = page.summary}
+	{@const updated = page.update}
 	<div class="heading">
 		<h1>{summary.title}</h1>
 		<span class="state {summary.state.kind}">
@@ -155,11 +196,24 @@
 	<p class="details">
 		<span>{summary.repository}</span>
 		<span>{summary.sizeText}</span>
+		{#if summary.version > 1}
+			<span>Version {summary.version}</span>
+		{/if}
 		<span>Last active {describeTimeAgo(summary.lastActivityAt, page.now)}</span>
 	</p>
 	<p class="progress">{summary.progressText}</p>
 
-	{#if summary.state.kind === 'closed'}
+	{#if check.kind === 'updated'}
+		<Notice heading="This diff has a newer version">
+			<p>
+				It was updated to version {check.version} while this page was open, so what you see here, version
+				{summary.version}, is out of date.
+			</p>
+			{#snippet actions()}
+				<button type="button" disabled={busy} onclick={showNewer}>Show the new version</button>
+			{/snippet}
+		</Notice>
+	{:else if summary.state.kind === 'closed'}
 		<Notice heading="This diff is closed">
 			<p>{summary.state.reason} You can still read it.</p>
 			{#snippet actions()}
@@ -169,26 +223,17 @@
 			{/snippet}
 		</Notice>
 	{:else if check.kind === 'changed'}
-		<Notice heading="The files have changed since this diff was opened">
+		<Notice heading="Your files have changed">
 			<p>
-				What you see here is how they were then. diff delver cannot bring a diff up to date yet: to
-				see the files as they are now, delete this diff and open it again.
+				What you see here is how they were before.
+				{check.files === 0
+					? 'The changes are outside what this diff compares, so updating changes nothing you can see here.'
+					: `Update to see the ${fileCount(check.files)} that changed as they are now. What you marked as reviewed stays marked on the lines that did not change.`}
 			</p>
 			{#snippet actions()}
-				<button type="button" disabled={busy} onclick={() => (renewing = true)}>
-					Delete this diff and open it again
-				</button>
+				<button type="button" disabled={busy} onclick={update}>Update</button>
 			{/snippet}
 		</Notice>
-		<ConfirmDialog
-			bind:open={renewing}
-			heading="Delete this diff and open it again?"
-			confirm="Delete and open again"
-			onconfirm={() => deleteAndOpenAgain(page.directory, page.source)}
-		>
-			Everything diff delver keeps about this diff goes, including what you have marked as reviewed.
-			Your repository is not touched. Then the same changes are opened again, as the files are now.
-		</ConfirmDialog>
 	{:else if check.kind === 'nothing-left'}
 		{@const next = check.next}
 		<Notice heading="Nothing is left to review here">
@@ -207,10 +252,14 @@
 	{/if}
 	{#if summary.state.kind === 'open'}
 		<p class="checked" role="status">
-			{#if check.kind === 'checking'}
+			{#if busy && check.kind === 'changed'}
+				Updating to your files as they are now…
+			{:else if check.kind === 'checking'}
 				Checking for changes in the repository…
 			{:else if check.kind === 'unchanged'}
-				No changes in the repository since you opened it.
+				{summary.version === 1
+					? 'No changes in the repository since you opened it.'
+					: 'No changes in the repository since this version was taken.'}
 			{:else if check.kind === 'failed'}
 				Could not check for changes: {check.message}
 			{/if}
@@ -219,6 +268,16 @@
 	{#if problem !== ''}
 		<Notice tone="danger" heading="That did not work">
 			<p>{problem}</p>
+		</Notice>
+	{/if}
+
+	{#if updated !== null}
+		<Notice
+			tone="info"
+			headingId={UPDATED_HEADING}
+			heading="Updated to version {updated.version} {describeTimeAgo(updated.at, page.now)}"
+		>
+			<p>{updated.text}</p>
 		</Notice>
 	{/if}
 
@@ -258,6 +317,9 @@
 						<span class="change">
 							{change(file)}{content(file) === undefined ? '' : `, ${content(file) ?? ''}`}
 						</span>
+						{#if file.newChanges > 0}
+							<span class="new">{newChanges(file.newChanges, summary.version)}</span>
+						{/if}
 						{#each file.ignored as reason, r (r)}
 							<span class="reason">
 								{reason.kind === 'agent' ? `Agent: ${reason.reason}` : reason.text}
@@ -368,6 +430,15 @@
 	.reason {
 		color: var(--color-muted);
 		font-size: 0.875rem;
+	}
+
+	.new {
+		color: var(--color-accent);
+		border: 1px solid var(--color-accent);
+		border-radius: 2rem;
+		padding: 0 0.5rem;
+		font-size: 0.75rem;
+		font-weight: 700;
 	}
 
 	.reason {

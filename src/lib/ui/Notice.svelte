@@ -8,18 +8,26 @@
 	let {
 		tone = 'attention',
 		heading,
+		headingId,
 		children,
 		actions
 	}: {
-		tone?: 'attention' | 'danger';
+		/** `info` for what happened, `attention` for what needs doing, `danger` for what failed. */
+		tone?: 'info' | 'attention' | 'danger';
 		heading: string;
+		/** Given when the page moves focus to the heading, as after an action that replaced the notice. */
+		headingId?: string;
 		children: Snippet;
 		actions?: Snippet;
 	} = $props();
 </script>
 
 <section class="notice {tone}" aria-label={heading}>
-	<h2>{heading}</h2>
+	{#if headingId === undefined}
+		<h2>{heading}</h2>
+	{:else}
+		<h2 id={headingId} tabindex="-1">{heading}</h2>
+	{/if}
 	{@render children()}
 	{#if actions}
 		<div class="actions">{@render actions()}</div>
@@ -37,6 +45,11 @@
 	.attention {
 		background: var(--color-attention-background);
 		border-color: var(--color-attention-border);
+	}
+
+	.info {
+		background: var(--color-info-background);
+		border-color: var(--color-info-border);
 	}
 
 	.danger {

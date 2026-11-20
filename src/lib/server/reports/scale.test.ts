@@ -1,7 +1,8 @@
 /**
  * The report service at the size the design promises: a report of 2,000 files
  * and 200,000 changed lines is created, loaded, assigned to and ticked, from a
- * real repository through the real store and a real database. Each step's time
+ * real repository through the real store and a real database, then updated to
+ * a commit that moves every line of every file. Each step's time
  * is recorded against guidance, which `pnpm verify` reports when exceeded; the
  * database's size is checked against a bound, since a row per line instead of
  * per run would show there at once.
@@ -31,7 +32,11 @@ import { ReportService } from './index.ts';
 
 const FILES = 2_000;
 
-/** 2,000 files of 100 lines; the last commit rewrites the first 50 lines of each. */
+/**
+ * 2,000 files of 100 lines, tagged `base`; the next commit rewrites the first 50
+ * lines of each. Branch `next` adds a line at the top of every file on top of
+ * that, for an update; HEAD stays at the commit before it.
+ */
 const largeChange = defineFixture('large-change', async (repo) => {
 	const lines = (prefix: string, from: number, to: number): string =>
 		Array.from({ length: to - from + 1 }, (_, i) => `${prefix} line ${String(from + i)}\n`).join(
@@ -40,11 +45,17 @@ const largeChange = defineFixture('large-change', async (repo) => {
 	const name = (i: number): string =>
 		`src/module-${String(Math.floor(i / 100)).padStart(2, '0')}/file-${String(i).padStart(4, '0')}.ts`;
 	for (let i = 0; i < FILES; i += 1) await repo.write(name(i), lines('old', 1, 100));
-	await repo.commit('base');
+	await repo.commit('base', 'base');
 	for (let i = 0; i < FILES; i += 1) {
 		await repo.write(name(i), lines('new', 1, 50) + lines('old', 51, 100));
 	}
 	await repo.commit('head');
+	for (let i = 0; i < FILES; i += 1) {
+		await repo.write(name(i), `top\n${lines('new', 1, 50)}${lines('old', 51, 100)}`);
+	}
+	await repo.commit('next');
+	await repo.git('branch', 'next');
+	await repo.git('reset', '--quiet', '--soft', 'HEAD~1');
 });
 
 async function measure<T>(
@@ -65,7 +76,7 @@ async function measure<T>(
 }
 
 describe('the report service at full scale', () => {
-	it('creates, loads, assigns to and ticks a report of 2,000 files and 200,000 changed lines', async ({
+	it('creates, loads, assigns to, ticks and updates a report of 2,000 files and 200,000 changed lines', async ({
 		task
 	}) => {
 		const repo = await useFixture(largeChange);
@@ -84,7 +95,7 @@ describe('the report service at full scale', () => {
 		const service = await open('');
 
 		const opened = await measure(task, 'creating a report of 2,000 files', 2_000, async () =>
-			value(await service.open(repo.dir, value(parseGitSourceSpec('HEAD'))))
+			value(await service.open(repo.dir, value(parseGitSourceSpec('base...HEAD'))))
 		);
 		if (opened.kind !== 'created') throw new Error(opened.kind);
 		const id = opened.report.id;
@@ -137,6 +148,20 @@ describe('the report service at full scale', () => {
 			)
 		);
 		expect(ticked.units).toBe(100);
+
+		// The branch moves on to a commit that adds a line at the top of every file.
+		await repo.git('reset', '--quiet', '--soft', 'next');
+		const updated = await measure(task, 'updating a report of 2,000 files', 3_000, async () =>
+			value(await later.update(id))
+		);
+		if (updated.kind !== 'updated') throw new Error(updated.kind);
+		expect(updated.summary).toMatchObject({
+			filesChanged: FILES,
+			newToReview: FILES,
+			gone: 0,
+			reviewedBefore: 100,
+			reviewedKept: 100
+		});
 		later.close();
 
 		const file = join(data, DATABASE_FILE);

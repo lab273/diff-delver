@@ -18,6 +18,7 @@ import { parseLineCount } from '#lib/core/line-count.tiny.ts';
 import { parseProcessId } from '#lib/core/process-id.tiny.ts';
 import { parseEscapedPath } from '#lib/core/path-bytes.ts';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
+import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { ok, err, type Result } from '#lib/core/result.ts';
 import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { parseSectionTitle } from '#lib/core/section-title.tiny.ts';
@@ -47,6 +48,8 @@ const timestamp = parsed(z.number(), parseTimestamp);
 const fileCount = parsed(z.number(), parseFileCount);
 const lineCount = parsed(z.number(), parseLineCount);
 const unitCount = parsed(z.number(), parseUnitCount);
+/** A version of a diff, as the page numbers them: 1 for the first, 2 after the first update. */
+const version = parsed(z.number(), parseRevisionNumber);
 const escapedPath = parsed(z.string(), parseEscapedPath);
 const absolutePath: z.ZodType<AbsolutePath> = parsed(z.string(), parseAbsolutePath);
 /** A source in its one written form (`formatGitSourceSpec`), such as `working-tree` or `main...feature`. */
@@ -77,9 +80,27 @@ export const DiffSummarySchema = z.object({
 	/** In words: "12 of 42 changes reviewed". */
 	progressText: message,
 	/** How many files could not be included. */
-	leftOut: fileCount
+	leftOut: fileCount,
+	/** Which version of its files it shows. */
+	version
 });
 export type DiffSummary = z.output<typeof DiffSummarySchema>;
+
+/** What an update did, as a page or the command says it. */
+export const UpdateViewSchema = z.object({
+	/** The version it made. */
+	version,
+	filesChanged: fileCount,
+	filesGone: fileCount,
+	newToReview: unitCount,
+	newIgnored: unitCount,
+	gone: unitCount,
+	reviewedBefore: unitCount,
+	reviewedKept: unitCount,
+	/** In words: "2 files changed: 14 changes new to review. …" */
+	text: message
+});
+export type UpdateView = z.output<typeof UpdateViewSchema>;
 
 /** Something to open, as a chooser offers it. */
 export const CandidateSchema = z.object({
@@ -98,8 +119,8 @@ const OpenedSchema = z.object({
 	diff: DiffSummarySchema,
 	/** It was open already and has been resumed. */
 	resumed: z.boolean(),
-	/** Resumed, and its source has changed since. */
-	changed: z.boolean()
+	/** Resumed and brought up to date with its files: what the update did. */
+	update: UpdateViewSchema.nullable()
 });
 
 const NothingToReviewSchema = z.object({
@@ -195,7 +216,9 @@ const ListedFileSchema = z.object({
 	content: z.enum(['text', 'binary', 'submodule']),
 	added: lineCount,
 	removed: lineCount,
-	ignored: z.array(IgnoreReasonSchema)
+	ignored: z.array(IgnoreReasonSchema),
+	/** Changes new to review since the previous version: 0 in a first version. */
+	newChanges: unitCount
 });
 export type ListedFileView = z.output<typeof ListedFileSchema>;
 
@@ -220,18 +243,34 @@ export const DiffPageSchema = z.object({
 		})
 	),
 	/** Whether any section exists, to explain "Not sorted yet". */
-	sorted: z.boolean()
+	sorted: z.boolean(),
+	/** What the update that made this version did, and when; null for a first version. */
+	update: UpdateViewSchema.extend({ at: timestamp }).nullable()
 });
 export type DiffPage = z.output<typeof DiffPageSchema>;
 
-/** GET /api/diffs/:id/changes: whether the diff's source has moved on. */
+/**
+ * GET /api/diffs/:id/changes?seen=N: whether the diff has a newer version than
+ * the one a page shows, and if not, whether its source has moved on.
+ */
 export const ChangeCheckSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('unchanged') }),
-	z.object({ kind: z.literal('changed') }),
+	/** An update is waiting; it would change this many files. */
+	z.object({ kind: z.literal('changed'), files: fileCount }),
+	/** The diff has a newer version than the page shows, made elsewhere, such as by the command. */
+	z.object({ kind: z.literal('updated'), version }),
 	z.object({ kind: z.literal('nothing-left'), reason: message, next: NextSourceSchema.nullable() }),
 	z.object({ kind: z.literal('closed') })
 ]);
 export type ChangeCheckResponse = z.output<typeof ChangeCheckSchema>;
+
+/** POST /api/diffs/:id/update: brings a diff up to date with its files. */
+export const UpdateResponseSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('updated'), diff: DiffSummarySchema, update: UpdateViewSchema }),
+	z.object({ kind: z.literal('unchanged'), diff: DiffSummarySchema }),
+	z.object({ kind: z.literal('nothing-left'), reason: message, next: NextSourceSchema.nullable() })
+]);
+export type UpdateResponse = z.output<typeof UpdateResponseSchema>;
 
 /** POST /api/diffs/:id/close and /reopen. */
 export const StateChangeSchema = z.object({ diff: DiffSummarySchema });

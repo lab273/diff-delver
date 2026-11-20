@@ -5,6 +5,8 @@
  * and, in Ignored, why. A file split between groups is listed in each, with the
  * lines of that group.
  */
+import { EMPTY_UNIT_SET, fileUnitInSet, linesInSet, type UnitSet } from '../diff/unit-set.ts';
+import { unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
 import type { AgentMarkdown } from '../agent-markdown.tiny.ts';
 import type { Diff } from '../diff/diff.ts';
 import type { FileContent } from '../diff/file-diff.ts';
@@ -35,6 +37,11 @@ export interface ListedFile {
 	readonly removed: LineCount;
 	/** In Ignored: why, each reason once. Empty elsewhere. */
 	readonly ignored: readonly IgnoreReason[];
+	/**
+	 * How many of its units in this group are new since the previous version
+	 * and to be reviewed; 0 in Ignored and in a first version.
+	 */
+	readonly newChanges: UnitCount;
 }
 
 export type ListedGroup =
@@ -77,9 +84,13 @@ function sameReason(a: IgnoreReason, b: IgnoreReason): boolean {
 	}
 }
 
-function listedFile(slice: Slice): ListedFile {
+function listedFile(slice: Slice, fresh: UnitSet): ListedFile {
 	let added = 0;
 	let removed = 0;
+	let newChanges = 0;
+	const path = slice.file.path;
+	const freshOld = linesInSet(fresh, path, 'old');
+	const freshNew = linesInSet(fresh, path, 'new');
 	const reasons: IgnoreReason[] = [];
 	const note = (assignment: Assignment): void => {
 		const reason = reasonOf(assignment);
@@ -88,13 +99,19 @@ function listedFile(slice: Slice): ListedFile {
 	switch (slice.kind) {
 		case 'file':
 			note(slice.assignment);
+			if (slice.assignment.bucket.kind !== 'ignored' && fileUnitInSet(fresh, path)) {
+				newChanges += 1;
+			}
 			break;
 		case 'lines':
 			for (const hunk of slice.hunks) {
 				for (const line of hunk.lines) {
 					if (line.kind !== 'own') continue;
+					const isNew =
+						line.line.kind === 'added' ? freshNew.has(line.line.new) : freshOld.has(line.line.old);
 					if (line.line.kind === 'added') added += 1;
 					else removed += 1;
+					if (isNew && line.assignment.bucket.kind !== 'ignored') newChanges += 1;
 					note(line.assignment);
 				}
 			}
@@ -109,7 +126,8 @@ function listedFile(slice: Slice): ListedFile {
 		content: file.content.kind,
 		added: lineCount(added),
 		removed: lineCount(removed),
-		ignored: reasons
+		ignored: reasons,
+		newChanges: unitCountOf(newChanges)
 	};
 }
 
@@ -136,11 +154,16 @@ function groupOf(
 	}
 }
 
-/** The diff's groups with their files, in reading order. Empty groups are left out. */
+/**
+ * The diff's groups with their files, in reading order. Empty groups are left
+ * out. `fresh` is the units new since the previous version, which each file
+ * counts.
+ */
 export function listFiles(
 	diff: Diff,
 	state: AssignmentState,
-	sections: readonly Section[]
+	sections: readonly Section[],
+	fresh: UnitSet = EMPTY_UNIT_SET
 ): readonly ListedGroup[] {
 	const titles = new Map<string, SectionTitle>(sections.map((s) => [s.id, s.title]));
 	const view = sectionView(
@@ -151,7 +174,11 @@ export function listFiles(
 	const groups: ListedGroup[] = [];
 	for (const group of view.groups) {
 		if (group.slices.length === 0) continue;
-		const listed = groupOf(group.key, group.slices.map(listedFile), titles);
+		const listed = groupOf(
+			group.key,
+			group.slices.map((slice) => listedFile(slice, fresh)),
+			titles
+		);
 		if (listed !== undefined) groups.push(listed);
 	}
 	return groups;

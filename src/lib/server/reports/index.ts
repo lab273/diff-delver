@@ -13,6 +13,7 @@
  * await service.upsertSections(reportId, [{ id: 'auth', title: 'Sign-in' }]);
  * await service.assign(reportId, [{ file: 'src/auth.ts', section: 'auth' }]);
  * await service.markReviewed(reportId, { kind: 'file', path }, true);
+ * const updated = await service.update(reportId);          // the files as they are now
  * ```
  *
  * Every method returns a `Result`; `describeReportError` gives any error's
@@ -22,6 +23,7 @@ export type {
 	ChangeCheck,
 	DamagedReport,
 	Deleted,
+	LastUpdate,
 	ListedReport,
 	LoadedReport,
 	MarkOutcome,
@@ -29,7 +31,8 @@ export type {
 	ReportServiceOptions,
 	ReportSummary,
 	StartOutcome,
-	StoredSnapshot
+	StoredSnapshot,
+	UpdateOutcome
 } from './report-service.ts';
 export { ReportService } from './report-service.ts';
 export type {

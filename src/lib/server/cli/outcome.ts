@@ -33,10 +33,13 @@ function described(
 	switch (response.kind) {
 		case 'opened': {
 			const { diff } = response;
+			const { update } = response;
 			const lines = [
-				response.resumed
-					? `${diff.title} in ${diff.repository}, opened again where you left it (${diff.progressText.toLowerCase()}).${response.changed ? ' The files have changed since this diff was opened, and diff delver cannot bring a diff up to date yet: to see them as they are now, use “Delete this diff and open it again” on its page.' : ''}`
-					: `${diff.title} in ${diff.repository}: ${diff.sizeText.toLowerCase()}.`
+				!response.resumed
+					? `${diff.title} in ${diff.repository}: ${diff.sizeText.toLowerCase()}.`
+					: update === null
+						? `${diff.title} in ${diff.repository}, opened again where you left it (${diff.progressText.toLowerCase()}). Nothing has changed since.`
+						: `${diff.title} in ${diff.repository}, updated to your files as they are now (version ${String(update.version)}). ${update.text}`
 			];
 			if (diff.leftOut > 0) {
 				lines.push(

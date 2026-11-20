@@ -65,6 +65,7 @@ import {
 import { comparePngPixels } from '../../scripts/png-pixels.ts';
 import { stepNumberOf } from '../../src/lib/core/step-number.tiny.ts';
 import { expectAccessible } from './accessibility.ts';
+import { absolutePath, GitRepo } from './git-repo.ts';
 import {
 	JOURNEY_TIME,
 	makeJourneyWorld,
@@ -249,6 +250,18 @@ export interface Journey extends Finder {
 	 * in their editor does: `path` is inside the repository, such as `src/cart.ts`.
 	 */
 	editFile(where: JourneyRepository, path: string, text: string): Promise<void>;
+	/**
+	 * Commits everything in a repository the journey asked for, as a person does
+	 * in a terminal, with a fixed author and date so the commit's id is the same
+	 * on every run.
+	 */
+	commitAll(where: JourneyRepository, message: string): Promise<void>;
+	/**
+	 * Comes back to the page after doing something elsewhere, such as editing a
+	 * file or running the command: the page's window gets the focus, as when a
+	 * person switches back to the browser.
+	 */
+	returnToPage(): Promise<void>;
 	/**
 	 * Opens the file chooser by activating the target with the keyboard, then picks
 	 * these files in it, as a person does in the system's dialog.
@@ -846,6 +859,19 @@ export async function startJourney(
 		},
 		async readClipboard() {
 			return page.evaluate(() => navigator.clipboard.readText());
+		},
+		async commitAll(where, message) {
+			const directory = REPOSITORY_PATHS.get(where);
+			if (directory === undefined) {
+				throw new Error(`${where.description} was not made by journey.repository.`);
+			}
+			await GitRepo.open(absolutePath(directory)).commit(message);
+		},
+		async returnToPage() {
+			await page.evaluate(() => {
+				window.dispatchEvent(new FocusEvent('blur'));
+				window.dispatchEvent(new FocusEvent('focus'));
+			});
 		},
 		async editFile(where, path, text) {
 			const directory = REPOSITORY_PATHS.get(where);

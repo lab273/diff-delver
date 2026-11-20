@@ -26,6 +26,7 @@ import {
 	StateChangeSchema,
 	StoppingSchema,
 	SuggestResponseSchema,
+	UpdateResponseSchema,
 	type ChangeCheckResponse,
 	type DaemonInfo,
 	type DeletedResponse,
@@ -38,8 +39,10 @@ import {
 	type StartResponse,
 	type StateChange,
 	type Stopping,
-	type SuggestResponse
+	type SuggestResponse,
+	type UpdateResponse
 } from './schemas.ts';
+import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 
 export type ApiError =
 	/** The daemon answered with an error: its message says what happened and what to do. */
@@ -176,8 +179,18 @@ export class ApiClient {
 		return this.#call('GET', `/api/diffs/${id}`, DiffPageSchema);
 	}
 
-	checkForChanges(id: ReportId): Promise<Result<ChangeCheckResponse, ApiError>> {
-		return this.#call('GET', `/api/diffs/${id}/changes`, ChangeCheckSchema);
+	/** Whether the diff has moved on from the version `seen`, which a page shows, or its files have. */
+	checkForChanges(
+		id: ReportId,
+		seen?: RevisionNumber
+	): Promise<Result<ChangeCheckResponse, ApiError>> {
+		const query = seen === undefined ? '' : `?seen=${String(seen)}`;
+		return this.#call('GET', `/api/diffs/${id}/changes${query}`, ChangeCheckSchema);
+	}
+
+	/** Brings the diff up to date with its files. */
+	updateDiff(id: ReportId): Promise<Result<UpdateResponse, ApiError>> {
+		return this.#call('POST', `/api/diffs/${id}/update`, UpdateResponseSchema);
 	}
 
 	closeDiff(id: ReportId): Promise<Result<StateChange, ApiError>> {

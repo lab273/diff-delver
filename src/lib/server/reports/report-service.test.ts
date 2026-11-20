@@ -134,7 +134,7 @@ describe('the report service', () => {
 		const page = value(await service.load(created(opened)));
 		expect(page.revision.snapshot).toBe('00000000000000000000000000000001');
 		const again = value(await service.open(repo.dir, spec('uncommitted')));
-		expect(again).toMatchObject({ kind: 'resumed', changed: false, report: { id: 'r_1' } });
+		expect(again).toMatchObject({ kind: 'resumed', update: undefined, report: { id: 'r_1' } });
 		const list = value(service.list());
 		expect(list.map((r) => r.id)).toEqual(['r_1']);
 		service.close();
@@ -392,11 +392,14 @@ describe('the report service', () => {
 		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
 
 		await repo.write('src/app.ts', 'changed again\n');
-		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'changed' });
+		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'changed', files: 1 });
+		// Opening it again is a request to see the files as they are now: it updates.
 		expect(value(await service.open(repo.dir, spec('working-tree')))).toMatchObject({
 			kind: 'resumed',
-			changed: true
+			report: { revision: 2 },
+			update: { filesChanged: 1 }
 		});
+		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
 
 		const committed = await repo.commit('Add the fourth line');
 		const check = value(await service.checkForChanges(id));

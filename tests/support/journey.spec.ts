@@ -215,6 +215,22 @@ test.describe('the journey helper does what a person does outside the page', () 
 		await journey.step('Copied');
 	});
 
+	test('comes back to the page, which gets the focus as when the window does', async ({
+		planted
+	}) => {
+		const journey = await planted(
+			pageWith(`
+<h1>Back</h1>
+<output>Away</output>
+<script>addEventListener('focus', () => { document.querySelector('output').textContent = 'Back again'; });</script>
+`)
+		);
+		await journey.expectVisible(journey.byText('Away'));
+		await journey.returnToPage();
+		await journey.expectVisible(journey.byText('Back again'));
+		await journey.step('Back');
+	});
+
 	test('chooses a file in the file chooser, opened with the keyboard', async ({ planted }) => {
 		const journey = await planted(
 			pageWith(`
@@ -297,6 +313,17 @@ test.describe('the journey helper finds text drawn in a font that is not bundled
 			pageWith('<h1>Fonts</h1><label>Name <input value="Ada ☃"></label>')
 		);
 		await expect(journey.step('Snowman')).rejects.toThrow('<input> shows "☃"');
+	});
+});
+
+test.describe('the journey helper works in a repository as a person does', () => {
+	test('commits everything, so the command finds nothing uncommitted', async ({
+		onTheApp: journey
+	}) => {
+		const shop = await journey.repository('shop');
+		expect((await journey.command([], shop)).output).toContain('Uncommitted changes in shop');
+		await journey.commitAll(shop, 'Everything');
+		expect((await journey.command([], shop)).output).not.toContain('Uncommitted changes');
 	});
 });
 

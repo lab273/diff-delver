@@ -28,6 +28,7 @@ import { runGit } from '../git/run-git.ts';
 import type { FileLookupError, LinesError, SnapshotDiffError, StoreError } from './store-error.ts';
 import { withStoreLock } from './store-lock.ts';
 import type { Snapshot } from './snapshots.ts';
+import type { Store } from './store.ts';
 
 /** A file of one of a snapshot's trees. */
 export interface SnapshotFile {
@@ -82,6 +83,21 @@ export function readSnapshotDiff(
 ): Promise<Result<readonly FileDiff[], SnapshotDiffError>> {
 	return reading(snapshot, () =>
 		readDiffDirect(snapshot.store.dir, snapshot.base, snapshot.head, snapshot.store.objectFormat)
+	);
+}
+
+/**
+ * git's diff between any two trees of a store, such as the heads of two
+ * snapshots, with the one fixed diff command; nothing when they are the same tree.
+ */
+export function readTreeDiff(
+	store: Store,
+	from: TreeId,
+	to: TreeId
+): Promise<Result<readonly FileDiff[], SnapshotDiffError>> {
+	if (from === to) return Promise.resolve(ok([]));
+	return withStoreLock(store.dir, 'shared', () =>
+		readDiffDirect(store.dir, from, to, store.objectFormat)
 	);
 }
 

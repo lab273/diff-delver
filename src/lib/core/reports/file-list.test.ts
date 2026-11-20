@@ -42,7 +42,8 @@ describe('listFiles', () => {
 						content: 'text',
 						added: 3,
 						removed: 0,
-						ignored: [{ kind: 'stated', text: 'Lockfile' }]
+						ignored: [{ kind: 'stated', text: 'Lockfile' }],
+						newChanges: 0
 					}
 				]
 			},
@@ -56,7 +57,8 @@ describe('listFiles', () => {
 						content: 'binary',
 						added: 0,
 						removed: 0,
-						ignored: []
+						ignored: [],
+						newChanges: 0
 					},
 					{
 						path: 'src/app.ts',
@@ -65,7 +67,8 @@ describe('listFiles', () => {
 						content: 'text',
 						added: 4,
 						removed: 2,
-						ignored: []
+						ignored: [],
+						newChanges: 0
 					}
 				]
 			}

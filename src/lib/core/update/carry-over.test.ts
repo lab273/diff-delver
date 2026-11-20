@@ -17,7 +17,8 @@ import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
 import { NO_MARKS, sameReviewedMarks, type ReviewedMarks } from '../review/reviewed-marks.ts';
 import type { Side } from '../side.tiny.ts';
 import { sameAssignmentState } from '../storage/stored-units.ts';
-import { carryOver, newToReviewByFile, type CarriedOver } from './carry-over.ts';
+import { listFiles } from '../reports/file-list.ts';
+import { carryOver, type CarriedOver } from './carry-over.ts';
 import { NO_TREE_CHANGES } from './line-map.ts';
 
 function path(text: string): RepoPath {
@@ -412,7 +413,6 @@ describe('carry-over', () => {
 			by: { kind: 'rule', rule: 'lockfile' }
 		});
 		expect(r.summary).toMatchObject({ filesChanged: 1, newToReview: 0, newIgnored: 1 });
-		expect(newToReviewByFile(r.after, r.state, r.fresh).size).toBe(0);
 	});
 
 	it('keeps a file-level unit only when it is exactly the same change', () => {
@@ -464,11 +464,20 @@ describe('carry-over', () => {
 		expect(r.summary.reviewedBefore).toBe(0);
 	});
 
-	it('lists the files with changes new to review', () => {
+	it('gives the file list what is new to review in each file, but not what is ignored', () => {
 		const head = tree({ 'app.ts': [...numbered('line', 20), 'added'] });
-		const head2 = tree({ 'app.ts': [...numbered('line', 20), 'added', 'more', 'still more'] });
+		const head2 = tree({
+			'app.ts': [...numbered('line', 20), 'added', 'more', 'still more'],
+			'pnpm-lock.yaml': ['lock: 1']
+		});
 		const r = update({ base: BASE, head, head2 });
-		expect([...newToReviewByFile(r.after, r.state, r.fresh)]).toEqual([[path('app.ts'), 2]]);
+		const listed = listFiles(r.after, r.state, [], r.fresh).flatMap((g) =>
+			g.files.map((f) => [g.kind, f.path, f.newChanges])
+		);
+		expect(listed).toEqual([
+			['ignored', 'pnpm-lock.yaml', 0],
+			['uncategorised', 'app.ts', 2]
+		]);
 	});
 
 	it('works out a blank-line-only change of the same run without a meaningful anchor as new', () => {

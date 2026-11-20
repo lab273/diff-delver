@@ -172,6 +172,37 @@ ALTER TABLE reports_rebuilt RENAME TO reports;
 CREATE UNIQUE INDEX reports_one_open_per_source ON reports (identity) WHERE state = 'open';
 CREATE INDEX reports_by_activity ON reports (last_activity_at DESC, created_at DESC);
 `
+	},
+	{
+		version: schemaVersionOf(3),
+		name: 'what each update of a diff changed, and which changes are new since the version before',
+		sql: `
+-- One row for each revision an update made (DESIGN 6.2), so its page keeps
+-- saying what the update did after a reload. A first revision has none.
+CREATE TABLE revision_updates (
+	revision_id TEXT PRIMARY KEY REFERENCES revisions (id) ON DELETE CASCADE,
+	files_changed INTEGER NOT NULL CHECK (files_changed >= 0),
+	files_gone INTEGER NOT NULL CHECK (files_gone >= 0 AND files_gone <= files_changed),
+	new_to_review INTEGER NOT NULL CHECK (new_to_review >= 0),
+	new_ignored INTEGER NOT NULL CHECK (new_ignored >= 0),
+	gone_units INTEGER NOT NULL CHECK (gone_units >= 0),
+	reviewed_before INTEGER NOT NULL CHECK (reviewed_before >= 0),
+	reviewed_kept INTEGER NOT NULL CHECK (reviewed_kept >= 0 AND reviewed_kept <= reviewed_before)
+) STRICT;
+
+-- The units of a revision that the revision before it did not have, as runs
+-- of units like reviewed_marks.
+CREATE TABLE new_units (
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new', 'file')),
+	first_line INTEGER NOT NULL,
+	last_line INTEGER NOT NULL,
+	PRIMARY KEY (revision_id, path, side, first_line),
+	CHECK ((side = 'file') = (first_line = 0 AND last_line = 0)),
+	CHECK (side = 'file' OR (first_line >= 1 AND last_line >= first_line))
+) STRICT, WITHOUT ROWID;
+`
 	}
 ];
 

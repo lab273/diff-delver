@@ -1,0 +1,365 @@
+/**
+ * Bringing a diff up to date (DESIGN 6.2) through the real service, with real
+ * repositories: what is kept, what is new, and that nothing is half done.
+ */
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { describe, expect, it } from 'vitest';
+import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { settableClock } from '#lib/core/clock.ts';
+import { fileAssignment, sideMap } from '#lib/core/diff/state.ts';
+import { linesInSet } from '#lib/core/diff/unit-set.ts';
+import { sequentialIds } from '#lib/core/ids.ts';
+import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
+import type { ReportId } from '#lib/core/report-id.tiny.ts';
+import type { Side } from '#lib/core/side.tiny.ts';
+import { parseGitSourceSpec, type GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
+import { listSnapshots, listStores } from '#lib/server/store/index.ts';
+import { listingsAround } from '../../../../tests/support/directory-listing.ts';
+import { emptyRepo, tempDirectory } from '../../../../tests/support/fixture-repos.ts';
+import type { GitRepo } from '../../../../tests/support/git-repo.ts';
+import { value } from '../../../../tests/support/git-source-helpers.ts';
+import { at } from '../../../../tests/support/report-rows.ts';
+import { reviewer } from '../../../../tests/support/reviewer-git.ts';
+import { DATABASE_FILE } from '../db/index.ts';
+import {
+	describeReportError,
+	ReportService,
+	type LoadedReport,
+	type OpenOutcome
+} from './index.ts';
+
+const lines = (...text: readonly string[]): string => `${text.join('\n')}\n`;
+const numbered = (count: number): readonly string[] =>
+	Array.from({ length: count }, (_, i) => `line ${String(i + 1)}`);
+
+function spec(text: string): GitSourceSpec {
+	return value(parseGitSourceSpec(text));
+}
+
+function path(text: string): RepoPath {
+	return value(parseRepoPath(text));
+}
+
+function created(outcome: OpenOutcome): ReportId {
+	if (outcome.kind !== 'created') throw new Error(`expected a new report, got ${outcome.kind}`);
+	return outcome.report.id;
+}
+
+async function serviceFor(data: AbsolutePath): Promise<ReportService> {
+	const who = await reviewer();
+	return value(
+		await ReportService.open({
+			dataDirectory: data,
+			clock: settableClock(at(1_700_000_000_000)),
+			ids: sequentialIds(),
+			repository: { gitEnv: who.gitEnv }
+		})
+	);
+}
+
+interface Setup {
+	readonly repo: GitRepo;
+	readonly data: AbsolutePath;
+	readonly service: ReportService;
+}
+
+/** A committed app.ts of 20 lines, edited in the working tree, a new file and a lockfile. */
+async function setUp(): Promise<Setup> {
+	const repo = await emptyRepo();
+	await repo.write('src/app.ts', lines(...numbered(20)));
+	await repo.write('README.md', '# App\n');
+	await repo.commit('first');
+	await repo.write('src/app.ts', lines(...edited(numbered(20))));
+	await repo.write('src/new.ts', lines('new 1', 'new 2', 'new 3'));
+	await repo.write('package-lock.json', '{}\n');
+	const data = await tempDirectory();
+	return { repo, data, service: await serviceFor(data) };
+}
+
+/** Line 10 changed and a line added after line 5. */
+function edited(base: readonly string[]): readonly string[] {
+	return [
+		...base.slice(0, 5),
+		'added after 5',
+		...base.slice(5, 9),
+		'changed 10',
+		...base.slice(10)
+	];
+}
+
+async function snapshotCount(data: AbsolutePath): Promise<number> {
+	let count = 0;
+	for (const store of value(await listStores(data)))
+		count += value(await listSnapshots(store)).length;
+	return count;
+}
+
+/** Every row of every table, to prove an operation changed nothing. */
+function everyRow(data: AbsolutePath): Record<string, unknown> {
+	const raw = new DatabaseSync(join(data, DATABASE_FILE), { readOnly: true });
+	try {
+		const tables = raw
+			.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+			.all()
+			.map((t) => String(t.name));
+		return Object.fromEntries(
+			tables.map((name) => [
+				name,
+				raw
+					.prepare(`SELECT * FROM "${name}"`)
+					.all()
+					.map((r) => ({ ...r }))
+			])
+		);
+	} finally {
+		raw.close();
+	}
+}
+
+function marked(page: LoadedReport, file: string, side: Side): readonly number[] {
+	return [...linesInSet(page.reviewed, path(file), side).values()];
+}
+
+function fresh(page: LoadedReport, file: string, side: Side): readonly number[] {
+	return [...linesInSet(page.fresh, path(file), side).values()];
+}
+
+function bucket(page: LoadedReport, file: string, side: Side, line: number): string {
+	const f = page.diff.byPath.get(path(file));
+	if (f === undefined) throw new Error(file);
+	const assignment = fileAssignment(page.state, f);
+	if (assignment.kind !== 'lines') return 'file';
+	const b = sideMap(assignment, side).get(line)?.bucket;
+	switch (b?.kind) {
+		case 'section':
+			return b.section;
+		case 'ignored':
+			return b.by.kind === 'agent' ? `ignored: ${b.by.reason}` : `ignored by ${b.by.kind}`;
+		case 'uncategorised':
+			return 'not sorted';
+		case undefined:
+			return 'none';
+	}
+}
+
+/** Sorts r_1: app.ts in a section, a line of new.ts ignored by the agent; and marks app.ts and new.ts. */
+async function sortAndMark(service: ReportService, id: ReportId): Promise<void> {
+	value(service.upsertSections(id, [{ id: 'app', title: 'The app' }]));
+	value(service.upsertSections(id, [{ id: 'empty', title: 'Nothing left in here' }]));
+	const assigned = value(
+		await service.assign(id, [
+			{ file: 'src/app.ts', section: 'app' },
+			{ file: 'src/new.ts', lines: '+1', section: 'ignored', reason: 'Generated' },
+			{ file: 'src/new.ts', lines: '+2', section: 'empty' }
+		])
+	);
+	expect(assigned.rejected).toEqual([]);
+	value(await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true));
+	value(await service.markReviewed(id, { kind: 'file', path: path('src/new.ts') }, true));
+}
+
+describe('updating a diff', () => {
+	it('keeps sections, sorting and ticks on unchanged lines, and gives new lines as new', async () => {
+		const { repo, data, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await sortAndMark(service, id);
+		const first = value(await service.load(id));
+		expect(marked(first, 'src/app.ts', 'new')).toEqual([6, 11]);
+
+		// A line written at the top moves everything down; one more is added at the end,
+		// and new.ts loses the line that was in "empty".
+		await repo.write('src/app.ts', lines('top', ...edited(numbered(20)), 'at the end'));
+		await repo.write('src/new.ts', lines('new 1', 'new 3'));
+		const { before, after, result } = await listingsAround([repo.dir], () => service.update(id));
+		expect(after).toEqual(before);
+		const updated = value(result);
+		if (updated.kind !== 'updated') throw new Error(updated.kind);
+		expect(updated.report.revision).toBe(2);
+		expect(updated.summary).toEqual({
+			filesChanged: 2,
+			filesGone: 0,
+			newToReview: 2,
+			newIgnored: 0,
+			gone: 1,
+			reviewedBefore: 6,
+			reviewedKept: 5
+		});
+
+		const page = value(await service.load(id));
+		expect(page.revision.number).toBe(2);
+		expect(page.update).toEqual({
+			revision: 2,
+			at: page.revision.takenAt,
+			summary: updated.summary
+		});
+		// Every section is kept, with its title and place, even the one that is empty now.
+		expect(page.sections.map((s) => [s.id, s.title])).toEqual([
+			['app', 'The app'],
+			['empty', 'Nothing left in here']
+		]);
+		// The reviewed lines moved down one; the new ones are new, not sorted and not reviewed.
+		expect(marked(page, 'src/app.ts', 'new')).toEqual([7, 12]);
+		expect(marked(page, 'src/app.ts', 'old')).toEqual([10]);
+		expect(fresh(page, 'src/app.ts', 'new')).toEqual([1, 23]);
+		expect(bucket(page, 'src/app.ts', 'new', 7)).toBe('app');
+		expect(bucket(page, 'src/app.ts', 'old', 10)).toBe('app');
+		expect(bucket(page, 'src/app.ts', 'new', 1)).toBe('not sorted');
+		expect(bucket(page, 'src/new.ts', 'new', 1)).toBe('ignored: Generated');
+		expect(bucket(page, 'package-lock.json', 'new', 1)).toBe('ignored by rule');
+		expect(marked(page, 'src/new.ts', 'new')).toEqual([1, 2]);
+		expect(page.summary.progress).toMatchObject({ reviewed: 4 });
+		// The first version and its snapshot stay; nothing else was left behind.
+		expect(await snapshotCount(data)).toBe(2);
+		expect(everyRow(data)['revisions']).toHaveLength(2);
+		service.close();
+	});
+
+	it('uses the snapshot the check took, instead of taking another', async () => {
+		const { repo, data, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await repo.write('src/new.ts', lines('new 1', 'new 2', 'new 3', 'new 4'));
+		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'changed', files: 1 });
+		expect(await snapshotCount(data)).toBe(2);
+		const updated = value(await service.update(id));
+		expect(updated.kind).toBe('updated');
+		expect(await snapshotCount(data)).toBe(2);
+		// The ids come in order: the first version's snapshot, then the check's.
+		expect(value(await service.load(id)).revision.snapshot).toBe(
+			'00000000000000000000000000000002'
+		);
+		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
+		service.close();
+	});
+
+	it('makes nothing for a false alarm, says so, and deletes the snapshot it took', async () => {
+		const { repo, data, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		// Written again with the same text: the fingerprint changes, the files do not.
+		await repo.write('src/new.ts', lines('new 1', 'new 2', 'new 3'));
+		expect(value(await service.update(id))).toMatchObject({
+			kind: 'unchanged',
+			report: { revision: 1 }
+		});
+		expect(await snapshotCount(data)).toBe(1);
+		service.close();
+	});
+
+	it('makes nothing when nothing is left to review, and keeps the diff open', async () => {
+		const { repo, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		const committed = await repo.commit('Everything');
+		const outcome = value(await service.update(id));
+		expect(outcome).toMatchObject({
+			kind: 'nothing-left',
+			next: { spec: { kind: 'commit', revision: committed.commit } }
+		});
+		const page = value(await service.load(id));
+		expect(page.summary.state.kind).toBe('open');
+		expect(page.revision.number).toBe(1);
+		service.close();
+	});
+
+	it('does not update a closed diff', async () => {
+		const { repo, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		value(service.closeReport(id));
+		await repo.write('src/new.ts', 'other\n');
+		const outcome = await service.update(id);
+		if (outcome.ok) throw new Error('a closed diff was updated');
+		expect(outcome.error).toEqual({ kind: 'ReportClosed', report: id });
+		expect(describeReportError(outcome.error)).toMatch(/closed/);
+		service.close();
+	});
+
+	it('follows a file renamed between the versions', async () => {
+		const { repo, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await sortAndMark(service, id);
+		await repo.git('mv', 'src/app.ts', 'src/main.ts');
+		const updated = value(await service.update(id));
+		expect(updated).toMatchObject({
+			kind: 'updated',
+			summary: { filesChanged: 0, newToReview: 0, gone: 0 }
+		});
+		const page = value(await service.load(id));
+		expect(page.diff.byPath.get(path('src/main.ts'))?.file.status).toBe('renamed');
+		expect(marked(page, 'src/main.ts', 'new')).toEqual([6, 11]);
+		expect(marked(page, 'src/main.ts', 'old')).toEqual([10]);
+		expect(bucket(page, 'src/main.ts', 'new', 6)).toBe('app');
+		service.close();
+	});
+
+	it('keeps ticks through a rebase that moved the base under the branch', async () => {
+		const repo = await emptyRepo();
+		await repo.write('src/app.ts', lines(...numbered(30)));
+		await repo.commit('first');
+		await repo.git('checkout', '--quiet', '-b', 'feature');
+		await repo.write('src/app.ts', lines(...edited(numbered(30))));
+		await repo.commit('My change');
+		const data = await tempDirectory();
+		const service = await serviceFor(data);
+		const id = created(value(await service.open(repo.dir, spec('main...feature'))));
+		value(await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true));
+
+		// main moves on at the top of the file, and the branch is rebased onto it.
+		await repo.git('checkout', '--quiet', 'main');
+		await repo.write('src/app.ts', lines('upstream 1', 'upstream 2', ...numbered(30)));
+		await repo.commit('Upstream');
+		await repo.git('checkout', '--quiet', 'feature');
+		await repo.git('rebase', '--quiet', 'main');
+
+		const updated = value(await service.update(id));
+		expect(updated).toMatchObject({
+			kind: 'updated',
+			summary: { filesChanged: 0, newToReview: 0, gone: 0, reviewedBefore: 3, reviewedKept: 3 }
+		});
+		const page = value(await service.load(id));
+		expect(marked(page, 'src/app.ts', 'new')).toEqual([8, 13]);
+		expect(marked(page, 'src/app.ts', 'old')).toEqual([12]);
+		service.close();
+	});
+
+	it('stays whole when another call runs at the same time', async () => {
+		const { repo, data, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await repo.write('src/new.ts', lines('new 1', 'new 2', 'new 3', 'new 4'));
+		// Ticking app.ts lands before or after the update; either way it is kept.
+		const [updated, ticked, again] = await Promise.all([
+			service.update(id),
+			service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true),
+			service.update(id)
+		]);
+		expect(value(ticked).units).toBe(3);
+		const kinds = [value(updated).kind, value(again).kind].sort();
+		expect(kinds).toEqual(['unchanged', 'updated']);
+		const page = value(await service.load(id));
+		expect(page.revision.number).toBe(2);
+		expect(marked(page, 'src/app.ts', 'new')).toEqual([6, 11]);
+		// The losing update's snapshot is not left behind.
+		expect(await snapshotCount(data)).toBe(2);
+		service.close();
+	});
+
+	it('leaves the diff exactly as it was when the update fails midway', async () => {
+		const { repo, data, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await sortAndMark(service, id);
+		// A saved mark that does not fit the diff: the update reads it inside its transaction.
+		const raw = new DatabaseSync(join(data, DATABASE_FILE));
+		raw
+			.prepare(
+				"INSERT INTO reviewed_marks (revision_id, path, side, first_line, last_line) VALUES ('v_1', ?, 'new', 1, 1)"
+			)
+			.run(Buffer.from('not/in/the/diff.ts'));
+		raw.close();
+		await repo.write('src/new.ts', 'other\n');
+		const rows = everyRow(data);
+		const outcome = await service.update(id);
+		if (outcome.ok) throw new Error('the update did not fail');
+		expect(outcome.error).toMatchObject({ kind: 'StoredStateMismatch', what: 'reviewed marks' });
+		expect(everyRow(data)).toEqual(rows);
+		expect(await snapshotCount(data)).toBe(1);
+		service.close();
+	});
+});

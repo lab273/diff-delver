@@ -27,7 +27,8 @@ import {
 	type AssignmentState,
 	type FileAssignment
 } from '../diff/state.ts';
-import { fileReviewedOf, type FileReviewed, type ReviewedMarks } from '../review/reviewed-marks.ts';
+import type { ReviewedMarks } from '../review/reviewed-marks.ts';
+import { fileLinesOf, type FileUnitSet, type UnitSet } from '../diff/unit-set.ts';
 
 /** Some units of one file: a line range on one side, or its file-level unit. */
 export type StoredUnits =
@@ -40,16 +41,19 @@ export interface AssignmentRow {
 	readonly assignment: Assignment;
 }
 
-/** A run of reviewed units of one file. */
-export interface ReviewedRow {
+/** A run of units of one file in a set of units, such as the reviewed ones. */
+export interface UnitRow {
 	readonly path: RepoPath;
 	readonly units: StoredUnits;
 }
 
+/** A run of reviewed units of one file. */
+export type ReviewedRow = UnitRow;
+
 /** Rows that do not fit the diff they are stored for. */
 export interface StoredStateMismatch {
 	readonly kind: 'StoredStateMismatch';
-	readonly what: 'assignments' | 'reviewed marks';
+	readonly what: 'assignments' | 'reviewed marks' | 'new changes';
 	readonly path: RepoPath;
 	readonly problem:
 		/** A row names a file the diff does not have. */
@@ -195,13 +199,18 @@ function fileAssignmentFromRows(
 	return ok({ kind: 'lines', old: oldMap, new: newMap });
 }
 
-/** The rows of every file with marks, or only of `paths`, sorted by path as git does. */
+/** The rows of every file with marks, or only of `paths`. */
 export function reviewedRowsOf(
 	marks: ReviewedMarks,
 	paths?: ReadonlySet<RepoPath>
 ): readonly ReviewedRow[] {
-	const rows: ReviewedRow[] = [];
-	for (const [path, file] of marks.files) {
+	return unitRowsOf(marks, paths);
+}
+
+/** The rows of every file in the set, or only of `paths`. */
+export function unitRowsOf(set: UnitSet, paths?: ReadonlySet<RepoPath>): readonly UnitRow[] {
+	const rows: UnitRow[] = [];
+	for (const [path, file] of set.files) {
 		if (paths !== undefined && !paths.has(path)) continue;
 		switch (file.kind) {
 			case 'file':
@@ -222,14 +231,18 @@ export function reviewedMarksFromRows(
 	diff: Diff,
 	rows: readonly ReviewedRow[]
 ): Result<ReviewedMarks, StoredStateMismatch> {
+	return unitSetFromRows(diff, rows, 'reviewed marks');
+}
+
+/** The set of units the rows describe, checked against the diff: only its units can be in it. */
+export function unitSetFromRows(
+	diff: Diff,
+	rows: readonly UnitRow[],
+	what: 'reviewed marks' | 'new changes'
+): Result<UnitSet, StoredStateMismatch> {
 	const mismatch = (path: RepoPath, problem: StoredStateMismatch['problem']) =>
-		err<StoredStateMismatch>({
-			kind: 'StoredStateMismatch',
-			what: 'reviewed marks',
-			path,
-			problem
-		});
-	const files = new Map<RepoPath, FileReviewed>();
+		err<StoredStateMismatch>({ kind: 'StoredStateMismatch', what, path, problem });
+	const files = new Map<RepoPath, FileUnitSet>();
 	for (const [path, own] of groupByPath(rows)) {
 		const file = diff.byPath.get(path);
 		if (file === undefined) return mismatch(path, 'not-in-diff');
@@ -252,7 +265,7 @@ export function reviewedMarksFromRows(
 		if (!old.subtract(file.changed.old).isEmpty || !now.subtract(file.changed.new).isEmpty) {
 			return mismatch(path, 'units-differ');
 		}
-		const entry = fileReviewedOf(old, now);
+		const entry = fileLinesOf(old, now);
 		if (entry !== undefined) files.set(path, entry);
 	}
 	return ok({ files });

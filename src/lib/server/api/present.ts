@@ -13,8 +13,12 @@ import type {
 	NextSourceOffer,
 	OpenResponse,
 	StartResponse,
-	SuggestResponse
+	SuggestResponse,
+	UpdateResponse,
+	UpdateView
 } from '#lib/api/schemas.ts';
+import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import { describeUpdate, type UpdateSummary } from '#lib/core/update/update-summary.ts';
 import {
 	describeClosedReason,
 	describeDiffSize,
@@ -34,7 +38,8 @@ import {
 	type OpenOutcome,
 	type ReportError,
 	type ReportSummary,
-	type StartOutcome
+	type StartOutcome,
+	type UpdateOutcome
 } from '../reports/index.ts';
 import type { SourceCandidate, SuggestedSource } from '../sources/git/index.ts';
 
@@ -56,8 +61,14 @@ export function summaryView(summary: ReportSummary): DiffSummary {
 		sizeText: describeDiffSize(summary.size),
 		progress: summary.progress,
 		progressText: describeUnitProgress(summary.progress),
-		leftOut: summary.leftOut
+		leftOut: summary.leftOut,
+		version: summary.revision
 	};
+}
+
+/** What an update that made `version` did, with its words. */
+export function updateView(version: RevisionNumber, summary: UpdateSummary): UpdateView {
+	return { version, ...summary, text: describeUpdate(summary) };
 }
 
 export function listedView(listed: ListedReport): ListedDiff {
@@ -83,13 +94,14 @@ export function openView(
 ): OpenResponse {
 	switch (outcome.kind) {
 		case 'created':
-			return { kind: 'opened', diff: summaryView(outcome.report), resumed: false, changed: false };
+			return { kind: 'opened', diff: summaryView(outcome.report), resumed: false, update: null };
 		case 'resumed':
 			return {
 				kind: 'opened',
 				diff: summaryView(outcome.report),
 				resumed: true,
-				changed: outcome.changed
+				update:
+					outcome.update === undefined ? null : updateView(outcome.report.revision, outcome.update)
 			};
 		case 'nothing-to-review':
 			return {
@@ -163,13 +175,14 @@ export function suggestView(
 }
 
 export function pageView(loaded: LoadedReport, now: Timestamp): DiffPage {
+	const update = loaded.update;
 	return {
 		now,
 		summary: summaryView(loaded.summary),
 		directory: loaded.report.repositoryPath,
 		source: formatGitSourceSpec(loaded.report.source.spec),
 		leftOut: [...loaded.leftOut],
-		groups: listFiles(loaded.diff, loaded.state, loaded.sections).map((group) => ({
+		groups: listFiles(loaded.diff, loaded.state, loaded.sections, loaded.fresh).map((group) => ({
 			group:
 				group.kind === 'section' ? { kind: 'section', title: group.title } : { kind: group.kind },
 			files: group.files.map((file) => ({
@@ -179,22 +192,45 @@ export function pageView(loaded: LoadedReport, now: Timestamp): DiffPage {
 				content: file.content,
 				added: file.added,
 				removed: file.removed,
-				ignored: [...file.ignored]
+				ignored: [...file.ignored],
+				newChanges: file.newChanges
 			}))
 		})),
-		sorted: loaded.sections.length > 0
+		sorted: loaded.sections.length > 0,
+		update:
+			update === undefined
+				? null
+				: { ...updateView(update.revision, update.summary), at: update.at }
 	};
 }
 
 export function changeView(check: ChangeCheck): ChangeCheckResponse {
 	switch (check.kind) {
 		case 'unchanged':
+			return { kind: 'unchanged' };
 		case 'changed':
-			return { kind: check.kind };
+			return { kind: 'changed', files: check.files };
+		case 'updated':
+			return { kind: 'updated', version: check.revision };
 		case 'nothing-left':
 			return { kind: 'nothing-left', reason: check.reason, next: nextView(check.next) };
 		case 'report-closed':
 			return { kind: 'closed' };
+	}
+}
+
+export function updateResponseView(outcome: UpdateOutcome): UpdateResponse {
+	switch (outcome.kind) {
+		case 'updated':
+			return {
+				kind: 'updated',
+				diff: summaryView(outcome.report),
+				update: updateView(outcome.report.revision, outcome.summary)
+			};
+		case 'unchanged':
+			return { kind: 'unchanged', diff: summaryView(outcome.report) };
+		case 'nothing-left':
+			return { kind: 'nothing-left', reason: outcome.reason, next: nextView(outcome.next) };
 	}
 }
 

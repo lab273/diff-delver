@@ -140,6 +140,11 @@ describe('the database', () => {
 				version: 2,
 				name: 'reports can be closed because their snapshot is gone',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 3,
+				name: 'what each update of a diff changed, and which changes are new since the version before',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -194,7 +199,8 @@ describe('the database', () => {
 		const before = rowsOf(dir);
 
 		const db = await opened(dir);
-		expect(rowsOf(dir)).toEqual(before);
+		// Every row kept; the later migrations' tables are there, empty.
+		expect(rowsOf(dir)).toEqual({ ...before, new_units: [], revision_updates: [] });
 		const checked = value(
 			db.write((q) => {
 				const problems = q.all('PRAGMA foreign_key_check');

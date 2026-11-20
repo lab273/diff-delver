@@ -13,6 +13,9 @@
 	--color-attention-border: #d4a72c;
 	--color-danger-background: #ffebe9;
 	--color-danger-border: #ff818266;
+	--color-info-background: #ddf4ff;
+	--color-info-border: #54aeff66;
+	--color-accent: #0969da;
 	--color-button: #f6f8fa;
 	--color-button-hover: #eff2f5;
 	--color-danger-button: #cf222e;
@@ -41,6 +44,9 @@
 		--color-attention-border: #bb800966;
 		--color-danger-background: #f8514926;
 		--color-danger-border: #f8514966;
+		--color-info-background: #388bfd1a;
+		--color-info-border: #388bfd66;
+		--color-accent: #4493f8;
 		--color-button: #212830;
 		--color-button-hover: #262c36;
 		--color-danger-button: #da3633;
