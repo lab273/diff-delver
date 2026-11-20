@@ -115,16 +115,22 @@ describe('paths from bytes', () => {
 			'\uDCFF',
 			'\uDCC3'
 		);
-		const path = fc.array(unit, { minLength: 1, maxLength: 8 }).chain((u) => {
-			const parsed = parseRepoPath(u.join(''));
-			return parsed.ok ? fc.constant(parsed.value) : fc.constant(repoPath('fallback'));
-		});
+		const text = fc.array(unit, { minLength: 1, maxLength: 8 }).map((u) => u.join(''));
+		// Many paths a run, so each run checks every pair of them.
 		fc.assert(
-			fc.property(path, path, (p, q) => {
-				expect(resolveEscapedPath(escapedRepoPath(p))).toBe(p);
-				if (p !== q) expect(escapedRepoPath(p)).not.toBe(escapedRepoPath(q));
+			fc.property(fc.array(text, { maxLength: 60 }), (texts) => {
+				const byForm = new Map<string, RepoPath>();
+				for (const t of texts) {
+					const parsed = parseRepoPath(t);
+					if (!parsed.ok) continue;
+					const path = parsed.value;
+					const form = escapedRepoPath(path);
+					expect(resolveEscapedPath(form)).toBe(path);
+					expect(byForm.get(form) ?? path).toBe(path);
+					byForm.set(form, path);
+				}
 			}),
-			{ numRuns: 5000 }
+			{ numRuns: 300 }
 		);
 	});
 
