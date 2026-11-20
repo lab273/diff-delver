@@ -110,3 +110,7 @@ export { countUncategorised } from './totals.ts';
 // Coverage.
 export type { Coverage, CoverageOptions, CoverageWarning, FileUnits, Totals } from './coverage.ts';
 export { coverage, describeBucket, describeWarning } from './coverage.ts';
+
+// Slices and views.
+export type { Group, GroupKey, Slice, SliceHunk, SliceLine, View } from './slices.ts';
+export { groupKeyId, sectionView, testsSeparateView } from './slices.ts';
