@@ -51,7 +51,8 @@ import {
 	screenshotMode,
 	screenshotName,
 	stepSlug,
-	THEMES
+	THEMES,
+	type Theme
 } from '../../scripts/journey-screenshots.ts';
 import { comparePngPixels } from '../../scripts/png-pixels.ts';
 import { expectAccessible } from './accessibility.ts';
@@ -653,12 +654,16 @@ export async function startJourney(
 			const label = `Step ${String(number)}, "${name}"`;
 			await base.step(label, async () => {
 				const problems: string[] = [];
+				// Fonts and characters in both schemes: a theme can change the font too.
+				const fontProblems = new Map<string, Theme[]>();
 				for (const theme of THEMES) {
 					await page.emulateMedia({ colorScheme: theme });
 					await settle(page);
-					if (theme === THEMES[0]) {
-						problems.push(...(await fontsNotBundled(page)));
-						problems.push(...(await charactersNotCovered(page)));
+					for (const problem of [
+						...(await fontsNotBundled(page)),
+						...(await charactersNotCovered(page))
+					]) {
+						fontProblems.set(problem, [...(fontProblems.get(problem) ?? []), theme]);
 					}
 					const shot = await stableScreenshot(page);
 					if (options.screenshots === 'check') {
@@ -669,6 +674,9 @@ export async function startJourney(
 					await expectAccessible(page);
 				}
 				await page.emulateMedia({ colorScheme: THEMES[0] });
+				for (const [problem, themes] of fontProblems) {
+					problems.push(`(${themes.join(' and ')}) ${problem}`);
+				}
 				problems.push(...browserErrors.splice(0));
 				if (problems.length > 0) throw new Error(problems.join('\n\n'));
 			});
@@ -741,6 +749,15 @@ export async function startJourney(
 		journey,
 		async finish() {
 			await keyboardOnly();
+			// What the page did after the last step counts as much as what it did before.
+			await settle(page);
+			const late = browserErrors.splice(0);
+			if (late.length > 0) {
+				throw new Error(
+					`After the last step: ${late.join('; ')}. The page must log no errors and fetch ` +
+						'nothing from outside the app at any time; fix what caused it.'
+				);
+			}
 			// Said only of a journey that otherwise passed, so it never hides the real failure.
 			if (steps === 0 && testInfo.status === 'passed') {
 				throw new Error(

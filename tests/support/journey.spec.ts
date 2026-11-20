@@ -254,3 +254,35 @@ test.describe('a step on a long page', () => {
 		await journey.step('Long page');
 	});
 });
+
+test.describe('the journey helper checks what happens after the last step', () => {
+	const LATE = pageWith(`<h1>Late</h1>
+<button type="button" onclick="console.error('broke late')">Break</button>
+<button type="button" onclick="fetch('https://example.com/x').catch(() => undefined)">Fetch</button>`);
+
+	for (const [button, said] of [
+		['Break', 'console error: broke late'],
+		['Fetch', 'request to https://example.com/x, outside the app']
+	] as const) {
+		test(`fails a journey whose page does "${button}" after its last step`, async ({
+			page,
+			baseURL
+		}, testInfo) => {
+			const running = await startJourney(page, testInfo, baseURL, { screenshots: 'take' });
+			await running.journey.open(await serve(page, LATE));
+			await running.journey.step('Before');
+			await running.journey.activate(running.journey.byRole('button', { name: button }));
+			await expect(running.finish()).rejects.toThrow(said);
+		});
+	}
+});
+
+test('the journey helper checks fonts in the dark colour scheme too', async ({ planted }) => {
+	const journey = await planted(
+		pageWith(
+			'<h1>Dark</h1><p>Text</p>',
+			'@media (prefers-color-scheme: dark) { p { font-family: Georgia, serif; } }'
+		)
+	);
+	await expect(journey.step('Dark font')).rejects.toThrow(/\(dark\).*<p> has 4 character/s);
+});
