@@ -89,10 +89,36 @@ function describeItself(change: FileItselfChange): string {
 	}
 }
 
+/** Whether a file's content changed: its text has lines, or it is not text. */
+function contentChanged(file: FileDiff): boolean {
+	const content = file.content;
+	return content.kind !== 'text' || content.hunks.length > 0;
+}
+
+/**
+ * How a file's lines changed, without what changed about the file itself:
+ * "added", "deleted" or "changed". For a list's group that holds a file's
+ * lines but not its file-level unit.
+ */
+export function describeFileLines(file: FileDiff): ReviewerMessage {
+	switch (file.status) {
+		case 'added':
+			return reviewerMessage('added');
+		case 'deleted':
+			return reviewerMessage('deleted');
+		case 'modified':
+		case 'type-changed':
+		case 'renamed':
+		case 'copied':
+			return reviewerMessage('changed');
+	}
+}
+
 /**
  * How a file changed, as a list of files says it: "changed", "added",
- * "renamed from src/old.ts", "changed, made executable", "became a link",
- * "added, binary file".
+ * "renamed from src/old.ts", "changed, renamed from src/old.ts", "changed,
+ * made executable", "became a link", "added, binary file". A file whose name or
+ * mode changed says "changed" first when its content changed too.
  */
 export function describeFileChange(file: FileDiff): ReviewerMessage {
 	const parts: string[] = [];
@@ -103,16 +129,14 @@ export function describeFileChange(file: FileDiff): ReviewerMessage {
 		case 'deleted':
 			parts.push('deleted');
 			break;
-		case 'modified': {
-			const content = file.content;
-			const edited = content.kind !== 'text' || content.hunks.length > 0;
-			if (edited || fileItselfChanges(file).length === 0) parts.push('changed');
-			break;
-		}
-		case 'type-changed':
+		case 'modified':
+			if (contentChanged(file) || fileItselfChanges(file).length === 0) parts.push('changed');
 			break;
 		case 'renamed':
 		case 'copied':
+			if (contentChanged(file)) parts.push('changed');
+			break;
+		case 'type-changed':
 			break;
 	}
 	for (const change of fileItselfChanges(file)) parts.push(describeItself(change));

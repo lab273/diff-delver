@@ -159,8 +159,14 @@ const cases = {
 describe('the file-level unit', () => {
 	it.each([
 		// Something about the file itself changed, beside its lines.
-		['renamedWithEdits', true, true, 'renamed from src/old.ts', 'renamed from src/old.ts'],
-		['copiedWithEdits', true, true, 'copied from src/source.ts', 'copied from src/source.ts'],
+		['renamedWithEdits', true, true, 'renamed from src/old.ts', 'changed, renamed from src/old.ts'],
+		[
+			'copiedWithEdits',
+			true,
+			true,
+			'copied from src/source.ts',
+			'changed, copied from src/source.ts'
+		],
 		['madeExecutableWithEdits', true, true, 'made executable', 'changed, made executable'],
 		['noLongerExecutable', true, true, 'no longer executable', 'changed, no longer executable'],
 		['becameLink', true, true, 'became a link', 'became a link'],

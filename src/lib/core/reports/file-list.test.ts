@@ -98,4 +98,30 @@ describe('listFiles', () => {
 			{ kind: 'agent', reason: 'Re-exported by the build' }
 		]);
 	});
+
+	it('says in each group only what waits there, when a file’s lines and the change to the file itself are apart', () => {
+		const run = syntheticDiff([
+			{
+				path: 'run.sh',
+				change: 'modified',
+				executable: true,
+				hunks: [{ gap: 0, lines: [' ', '-', '+', ' '] }]
+			}
+		]);
+		const listed = (state: Parameters<typeof listFiles>[1]) =>
+			listFiles(run, state, [section('alpha', 'Alpha work')]).map((g) => [
+				g.kind,
+				g.files.map((f) => [f.change, f.added, f.removed])
+			]);
+		expect(listed(initialState(run))).toEqual([
+			['uncategorised', [['changed, made executable', 1, 1]]]
+		]);
+		const apart = assign(run, initialState(run), [
+			{ file: 'run.sh', lines: 'file', section: 'alpha' }
+		]).state;
+		expect(listed(apart)).toEqual([
+			['section', [['made executable', 0, 0]]],
+			['uncategorised', [['changed', 1, 1]]]
+		]);
+	});
 });

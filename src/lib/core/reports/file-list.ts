@@ -9,7 +9,7 @@ import { EMPTY_UNIT_SET, fileUnitInSet, linesInSet, type UnitSet } from '../diff
 import { unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
 import type { AgentMarkdown } from '../agent-markdown.tiny.ts';
 import type { Diff } from '../diff/diff.ts';
-import { describeFileChange } from '../diff/file-unit.ts';
+import { describeFileChange, describeFileLines, describeFileUnit } from '../diff/file-unit.ts';
 import { ignoreRuleName } from '../diff/path-rules.ts';
 import { sectionView, type GroupKey, type Slice } from '../diff/slices.ts';
 import type { AssignmentState, Assignment } from '../diff/state.ts';
@@ -28,7 +28,9 @@ export interface ListedFile {
 	readonly path: EscapedPath;
 	/**
 	 * How the file changed, in plain words: "changed", "added", "renamed from
-	 * src/old.ts", "changed, made executable", "added, binary file".
+	 * src/old.ts", "changed, made executable", "added, binary file". Only what is
+	 * in this group: "made executable" where only that waits, "changed" where
+	 * only its lines are.
 	 */
 	readonly change: ReviewerMessage;
 	/** The lines added and removed in this group. */
@@ -83,6 +85,11 @@ function sameReason(a: IgnoreReason, b: IgnoreReason): boolean {
 	}
 }
 
+/** Whether a file's change has lines at all, in this group or another. */
+function hasLinesAnywhere(file: Slice['file']): boolean {
+	return file.content.kind === 'text' && file.content.hunks.length > 0;
+}
+
 function listedFile(slice: Slice, fresh: UnitSet): ListedFile {
 	let added = 0;
 	let removed = 0;
@@ -111,9 +118,17 @@ function listedFile(slice: Slice, fresh: UnitSet): ListedFile {
 		}
 	}
 	const file = slice.file;
+	// Only what waits in this group: a file's lines and the change to the file itself may be apart.
+	const hasLines = added + removed > 0;
+	const change =
+		slice.fileUnit === undefined
+			? describeFileLines(file)
+			: hasLines || !hasLinesAnywhere(file)
+				? describeFileChange(file)
+				: describeFileUnit(file);
 	return {
 		path: escapedRepoPath(file.path),
-		change: describeFileChange(file),
+		change,
 		added: lineCount(added),
 		removed: lineCount(removed),
 		ignored: reasons,
