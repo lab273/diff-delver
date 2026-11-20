@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { FileDiff } from '#lib/core/diff/file-diff.ts';
 import { parseTreeId } from '#lib/core/tree-id.tiny.ts';
@@ -7,6 +8,7 @@ import {
 	sha256Repository
 } from '../../../../tests/support/diff-fixtures.ts';
 import { emptyRepo, useFixture } from '../../../../tests/support/fixture-repos.ts';
+import { absolutePath, GitRepo } from '../../../../tests/support/git-repo.ts';
 import { readDiff } from './read-diff.ts';
 
 async function diffOf(fixture: typeof awkwardChanges): Promise<readonly FileDiff[]> {
@@ -94,11 +96,56 @@ describe('readDiff', () => {
 			['diff.suppressBlankEmpty', 'true'],
 			['core.quotePath', 'false'],
 			['color.ui', 'always'],
-			['diff.external', 'false']
+			['diff.external', 'false'],
+			['diff.indentHeuristic', 'false'],
+			['diff.interHunkContext', '10'],
+			['diff.relative', 'true'],
+			['diff.ignoreSubmodules', 'all'],
+			['core.bigFileThreshold', '10'],
+			['diff.custom.xfuncname', '^  filler'],
+			['diff.custom.binary', 'true'],
+			['core.attributesFile', join(repo.dir, 'more-attributes')]
 		] as const) {
 			await repo.git('config', key, value);
 		}
 		expect(await readDiff(repo.dir, base.tree, head.tree)).toEqual(before);
+	});
+
+	it('is not affected by attributes in the work tree, info/attributes or core.attributesFile', async () => {
+		const repo = await useFixture(awkwardChanges);
+		const base = await repo.snapshot('base');
+		const head = await repo.snapshot('head');
+		const before = await readDiff(repo.dir, base.tree, head.tree);
+		await repo.write('.gitattributes', '*.txt -diff\n*.js diff=custom\n');
+		await repo.write('odd names/.gitattributes', '* binary\n');
+		await repo.write('.git/info/attributes', 'modified.txt binary\n*.bin diff\n*.sh -text\n');
+		await repo.write('more-attributes', 'crlf.txt -diff\n');
+		await repo.git('config', 'core.attributesFile', join(repo.dir, 'more-attributes'));
+		await repo.git('config', 'diff.custom.xfuncname', '^  filler');
+		expect(await readDiff(repo.dir, base.tree, head.tree)).toEqual(before);
+	});
+
+	it('is not affected by attributes committed in the trees it compares', async () => {
+		const repo = await emptyRepo();
+		await repo.write('.gitattributes', '*.txt -diff\n');
+		await repo.write('t.txt', 'one\n');
+		const base = await repo.commit('base');
+		await repo.write('t.txt', 'two\n');
+		const head = await repo.commit('head');
+		const result = await readDiff(repo.dir, base.tree, head.tree);
+		const [file] = result.ok ? result.value : [];
+		expect(file?.content.kind === 'text' && file.content.hunks[0]?.lines.length).toBe(2);
+	});
+
+	it('reads a repository whose path holds quotes, backslashes, colons and a newline', async () => {
+		const outer = await emptyRepo();
+		const repo = await GitRepo.init(absolutePath(join(outer.dir, 'odd "dir"\\:\nname')));
+		await repo.write('t.txt', 'one\n');
+		const base = await repo.commit('base');
+		await repo.write('t.txt', 'two\n');
+		const head = await repo.commit('head');
+		const result = await readDiff(repo.dir, base.tree, head.tree);
+		expect(result.ok && result.value.map((f) => f.path)).toEqual(['t.txt']);
 	});
 
 	it('reports a tree the repository does not have', async () => {

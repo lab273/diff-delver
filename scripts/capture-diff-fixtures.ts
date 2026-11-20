@@ -8,8 +8,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { diffTreeArgs } from '#lib/server/git/read-diff.ts';
-import { runGit } from '#lib/server/git/run-git.ts';
+import { runDiffTree } from '#lib/server/git/read-diff.ts';
 import { diffFixtures } from '../tests/support/diff-fixtures.ts';
 import { absolutePath, GitRepo } from '../tests/support/git-repo.ts';
 
@@ -21,11 +20,11 @@ try {
 		await fixture.build(repo);
 		const base = await repo.snapshot('base');
 		const head = await repo.snapshot('head');
-		const output = await runGit({ cwd: repo.dir, args: diffTreeArgs(base.tree, head.tree) });
+		const output = await runDiffTree(repo.dir, base.tree, head.tree);
 		if (!output.ok) throw new Error(`git failed for ${fixture.name}: ${output.error.kind}`);
 		const file = join(outputDir, `${fixture.name}.diff-tree`);
-		await writeFile(file, output.value.stdout);
-		console.log(`Wrote ${file} (${String(output.value.stdout.length)} bytes)`);
+		await writeFile(file, output.value);
+		console.log(`Wrote ${file} (${String(output.value.length)} bytes)`);
 	}
 } finally {
 	await rm(scratch, { recursive: true, force: true });
