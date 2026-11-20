@@ -117,6 +117,7 @@ export function describeGitSourceError(error: GitSourceError): ReviewerMessage {
 				`${error.repository} is a partial clone: some of the files or folders this needs were never downloaded, and diff delver does not download them, so that nothing is written to your repository. Review its uncommitted changes instead, or make a full clone (git clone without --filter) and open the same source there.`
 			);
 		case 'GitNotFound':
+		case 'GitTooOld':
 		case 'NotARepository':
 		case 'DubiousOwnership':
 		case 'BadRevision':

@@ -63,6 +63,7 @@ export function describeStoreError(error: StoreError): ReviewerMessage {
 				`diff delver's saved copy of this repository (store ${error.store}) is damaged: ${error.detail}. Delete it from the Storage page and open the repository again.`
 			);
 		case 'GitNotFound':
+		case 'GitTooOld':
 		case 'NotARepository':
 		case 'DubiousOwnership':
 		case 'BadRevision':
@@ -133,6 +134,7 @@ export function describeLinesError(error: LinesError): ReviewerMessage {
 				`${escapedRepoPath(error.path)} is a binary file in ${sideName(error.side)}, so it has no lines to show.`
 			);
 		case 'GitNotFound':
+		case 'GitTooOld':
 		case 'NotARepository':
 		case 'DubiousOwnership':
 		case 'BadRevision':
@@ -155,6 +157,7 @@ export function describeSnapshotDiffError(error: SnapshotDiffError): ReviewerMes
 		case 'PatchMismatch':
 			return describeDiffOutputError(error);
 		case 'GitNotFound':
+		case 'GitTooOld':
 		case 'NotARepository':
 		case 'DubiousOwnership':
 		case 'BadRevision':

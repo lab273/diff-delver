@@ -5,7 +5,14 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { absolutePath } from '../../../../tests/support/git-repo.ts';
 import { emptyRepo } from '../../../../tests/support/fixture-repos.ts';
-import { describeGitError, runGit, runGitText, type GitError } from './run-git.ts';
+import { isAtLeast, MINIMUM_GIT_VERSION, parseGitVersion } from '#lib/core/git-version.tiny.ts';
+import {
+	describeGitError,
+	installedGitVersion,
+	runGit,
+	runGitText,
+	type GitError
+} from './run-git.ts';
 
 function exitCode(value: number): ExitCode {
 	const parsed = parseExitCode(value);
@@ -120,6 +127,18 @@ describe('runGit', () => {
 		} else {
 			expect.unreachable('expected GitFailed');
 		}
+	});
+
+	it('finds the installed git new enough, and says plainly when one is too old', async () => {
+		const installed = await installedGitVersion();
+		expect(installed.ok && isAtLeast(installed.value, MINIMUM_GIT_VERSION)).toBe(true);
+		const old = parseGitVersion('git version 2.39.5');
+		if (!old.ok) throw new Error('bad test version');
+		expect(
+			describeGitError({ kind: 'GitTooOld', found: old.value, needed: MINIMUM_GIT_VERSION })
+		).toBe(
+			'diff delver needs git 2.45.0 or newer; this is git 2.39.5. Install a newer git (https://git-scm.com/downloads lists where to get one for your system), then try again.'
+		);
 	});
 
 	it('has a message for every error', () => {

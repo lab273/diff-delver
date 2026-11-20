@@ -27,7 +27,8 @@ what do they do next?
 
 - Node 26, the current LTS line. Newer LTS lines are fine.
 - pnpm.
-- git, and jj for the jj source and its tests.
+- git 2.45 or newer, and jj for the jj source and its tests. diff delver checks the
+  git version when it first runs git and says plainly if it is too old.
 - beads (`bd`), the issue tracker, 1.3.4 or newer. It is needed only to track work, not to build or test.
 
 `.nvmrc` pins the Node line and `package.json` pins pnpm (`packageManager`). After
