@@ -11,7 +11,8 @@ import { sliceCountOf, type SliceCount } from '../slice-count.tiny.ts';
 import { unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
 import type { Diff } from '../diff/diff.ts';
 import type { UnitProgress } from '../reports/report.ts';
-import { groupOf, type GroupKey, type ViewKind } from '../diff/slices.ts';
+import { groupOf, inReadingOrder, type GroupKey, type ViewKind } from '../diff/slices.ts';
+import type { SectionId } from '../section-id.tiny.ts';
 import { assignedUnits, type AssignmentState } from '../diff/state.ts';
 import { fileUnitReviewed, reviewedLines, type ReviewedMarks } from './reviewed-marks.ts';
 
@@ -41,7 +42,7 @@ export interface Progress {
 	readonly ignored: Tally;
 	/** Units nobody has sorted yet; they count in `overall`. */
 	readonly uncategorised: UnitCount;
-	/** Each group of the view that holds units. */
+	/** Each group of the view that holds units, in the order the view reads them. */
 	readonly groups: ReadonlyMap<GroupKeyId, GroupProgress>;
 	/** Each file of the diff. */
 	readonly files: ReadonlyMap<RepoPath, FileProgress>;
@@ -82,12 +83,16 @@ function countWithin(set: RangeSet, first: number, last: number): number {
 	return count;
 }
 
-/** The progress of a review: the state's groups in `view`, with the reviewer's marks. */
+/**
+ * The progress of a review: the state's groups in `view`, with the reviewer's
+ * marks. `sections` is the sections' reading order, as the views take it.
+ */
 export function reviewProgress(
 	diff: Diff,
 	state: AssignmentState,
 	marks: ReviewedMarks,
-	view: ViewKind
+	view: ViewKind,
+	sections: readonly SectionId[] = []
 ): Progress {
 	const overall = new Counter();
 	const ignored = new Counter();
@@ -138,7 +143,12 @@ export function reviewProgress(
 		overall: overall.tally,
 		ignored: ignored.tally,
 		uncategorised: unitCountOf(uncategorised),
-		groups: new Map([...groups].map(([id, g]) => [id, { key: g.key, tally: g.counter.tally }])),
+		groups: new Map(
+			inReadingOrder([...groups], ([, g]) => g.key, sections).map(([id, g]) => [
+				id,
+				{ key: g.key, tally: g.counter.tally }
+			])
+		),
 		files
 	};
 }

@@ -141,6 +141,45 @@ interface Building {
 	units: UnitCount;
 }
 
+/**
+ * Groups in reading order (see `View`): the sections in the order given, then
+ * any others in the order they come in `items`, then the test groups in the
+ * same section order, then Ignored and Uncategorised. `items` in file order
+ * gives the order the views show.
+ */
+export function inReadingOrder<T>(
+	items: readonly T[],
+	keyOf: (item: T) => GroupKey,
+	sections: readonly SectionId[]
+): T[] {
+	const sectionOrder = new Map<SectionId, number>();
+	const see = (section: SectionId): void => {
+		if (!sectionOrder.has(section)) sectionOrder.set(section, sectionOrder.size);
+	};
+	for (const section of sections) see(section);
+	for (const item of items) {
+		const key = keyOf(item);
+		if (key.kind === 'section') see(key.section);
+	}
+	for (const item of items) {
+		const key = keyOf(item);
+		if (key.kind === 'tests') see(key.section);
+	}
+	const rank = (key: GroupKey): number => {
+		switch (key.kind) {
+			case 'section':
+				return sectionOrder.get(key.section) ?? 0;
+			case 'tests':
+				return sectionOrder.size + (sectionOrder.get(key.section) ?? 0);
+			case 'ignored':
+				return 2 * sectionOrder.size;
+			case 'uncategorised':
+				return 2 * sectionOrder.size + 1;
+		}
+	};
+	return [...items].sort((a, b) => rank(keyOf(a)) - rank(keyOf(b)));
+}
+
 function project(
 	diff: Diff,
 	state: AssignmentState,
@@ -168,36 +207,13 @@ function project(
 		}
 	}
 
-	// Reading order: sections given, other sections, tests by section, ignored, uncategorised.
-	const all = [...groups.values()];
-	const sectionOrder = new Map<SectionId, number>();
-	for (const group of all) {
-		if (group.key.kind === 'section' && !sectionOrder.has(group.key.section)) {
-			sectionOrder.set(group.key.section, sectionOrder.size);
-		}
-	}
-	for (const group of all) {
-		if (group.key.kind === 'tests' && !sectionOrder.has(group.key.section)) {
-			sectionOrder.set(group.key.section, sectionOrder.size);
-		}
-	}
-	const rank = (key: GroupKey): number => {
-		switch (key.kind) {
-			case 'section':
-				return sectionOrder.get(key.section) ?? 0;
-			case 'tests':
-				return sectionOrder.size + (sectionOrder.get(key.section) ?? 0);
-			case 'ignored':
-				return 2 * sectionOrder.size;
-			case 'uncategorised':
-				return 2 * sectionOrder.size + 1;
-		}
-	};
 	ensure({ kind: 'ignored' });
 	ensure({ kind: 'uncategorised' });
-	const ordered = [...groups.values()]
-		.filter((g) => withTests || g.key.kind !== 'tests')
-		.sort((a, b) => rank(a.key) - rank(b.key));
+	const ordered = inReadingOrder(
+		[...groups.values()].filter((g) => withTests || g.key.kind !== 'tests'),
+		(g) => g.key,
+		sections
+	);
 	return { groups: ordered.map((g) => ({ key: g.key, slices: g.slices, units: g.units })) };
 }
 

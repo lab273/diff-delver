@@ -249,9 +249,19 @@ describe('the report service', () => {
 		expect(
 			[...page.progress.groups.values()].map((g) => [g.key.kind, g.tally.reviewedSlices])
 		).toEqual([
-			['ignored', 0],
+			['section', 1],
 			['section', 0],
-			['section', 1]
+			['ignored', 0]
+		]);
+		expect([...page.progress.groups.values()].map((g) => g.key)).toEqual([
+			{ kind: 'section', section: 'app' },
+			{ kind: 'section', section: 'tests' },
+			{ kind: 'ignored' }
+		]);
+		expect([...ticked.progress.groups.values()].map((g) => g.key.kind)).toEqual([
+			'section',
+			'section',
+			'ignored'
 		]);
 	});
 

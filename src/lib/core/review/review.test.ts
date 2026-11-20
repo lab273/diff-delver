@@ -7,9 +7,9 @@ import {
 } from '../../../../tests/support/synthetic-diff.ts';
 import { assign } from '../diff/assign.ts';
 import { groupKeyId } from '../group-key-id.tiny.ts';
-import { initialState, type AssignmentState } from '../diff/state.ts';
+import { assignedUnits, initialState, type AssignmentState } from '../diff/state.ts';
 import type { Diff } from '../diff/diff.ts';
-import type { GroupKey, ViewKind } from '../diff/slices.ts';
+import { sectionView, testsSeparateView, type GroupKey, type ViewKind } from '../diff/slices.ts';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
 import { parseSectionId } from '../section-id.tiny.ts';
 import { describeMarkError, markReviewed, type ReviewTarget } from './mark-reviewed.ts';
@@ -166,6 +166,51 @@ describe('review progress', () => {
 					expect(files.reduce((n, f) => n + f.tally.reviewedUnits, 0)).toBe(
 						p.overall.reviewedUnits
 					);
+				}
+			),
+			{ numRuns: 100 }
+		);
+	});
+
+	it('lists its groups in the order the view reads them, with the sections in reading order', () => {
+		const alpha = section('alpha');
+		const beta = section('beta');
+		if (alpha.kind !== 'section' || beta.kind !== 'section') throw new Error('sections');
+		const order = [beta.section, alpha.section];
+		expect(
+			[...reviewProgress(diff, state, NO_MARKS, 'sections', order).groups.values()].map((g) =>
+				groupKeyId(g.key)
+			)
+		).toEqual(
+			sectionView(diff, state, order)
+				.groups.filter((g) => g.slices.length > 0)
+				.map((g) => groupKeyId(g.key))
+		);
+		fc.assert(
+			fc.property(
+				arbitraryAssignScenario,
+				fc.constantFrom<ViewKind>('sections', 'tests-separate'),
+				fc.boolean(),
+				([d, calls], view, reversed) => {
+					let s = initialState(d);
+					for (const call of calls) s = assign(d, s, call).state;
+					const used = [
+						...new Set(
+							d.files.flatMap((f) =>
+								assignedUnits(s, f).flatMap((u) =>
+									u.assignment.bucket.kind === 'section' ? [u.assignment.bucket.section] : []
+								)
+							)
+						)
+					];
+					const sections = reversed ? used.reverse() : used.slice(1);
+					const shown = (view === 'sections' ? sectionView : testsSeparateView)(d, s, sections)
+						.groups.filter((g) => g.slices.length > 0)
+						.map((g) => groupKeyId(g.key));
+					const counted = [...reviewProgress(d, s, NO_MARKS, view, sections).groups.values()].map(
+						(g) => groupKeyId(g.key)
+					);
+					expect(counted).toEqual(shown);
 				}
 			),
 			{ numRuns: 100 }

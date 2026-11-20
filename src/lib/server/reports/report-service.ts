@@ -188,7 +188,10 @@ export interface LoadedReport {
 	readonly sections: readonly Section[];
 	readonly state: AssignmentState;
 	readonly reviewed: ReviewedMarks;
-	/** Progress in the sections view; `reviewProgress` gives it for the other view. */
+	/**
+	 * Progress in the sections view, its groups in reading order;
+	 * `reviewProgress` gives it for the other view.
+	 */
 	readonly progress: Progress;
 	/** Files that could not be included, one sentence each. */
 	readonly leftOut: readonly ReviewerMessage[];
@@ -410,7 +413,13 @@ export class ReportService {
 			sections,
 			state: state.value,
 			reviewed: reviewed.value,
-			progress: reviewProgress(diff.value, state.value, reviewed.value, 'sections'),
+			progress: reviewProgress(
+				diff.value,
+				state.value,
+				reviewed.value,
+				'sections',
+				sections.map((s) => s.id)
+			),
 			leftOut: revision.leftOut
 		});
 	}
@@ -493,23 +502,31 @@ export class ReportService {
 		view: ViewKind = 'sections'
 	): Promise<Result<MarkOutcome, ReportError>> {
 		return this.#changeState(id, (q, revision, diff, state, marks) =>
-			andThen(markReviewed(diff, state, marks, target, reviewed, view), (marked) => {
-				replaceReviewedRows(
-					q,
-					revision.id,
-					marked.files,
-					reviewedRowsOf(marked.marks, marked.files)
-				);
-				return ok({
-					result: {
-						reviewed: marked.marks,
-						progress: reviewProgress(diff, state, marked.marks, view),
-						units: marked.units
-					},
-					state,
-					marks: marked.marks
-				});
-			})
+			andThen(markReviewed(diff, state, marks, target, reviewed, view), (marked) =>
+				andThen(sectionsOf(q, revision.id), (sections) => {
+					replaceReviewedRows(
+						q,
+						revision.id,
+						marked.files,
+						reviewedRowsOf(marked.marks, marked.files)
+					);
+					return ok({
+						result: {
+							reviewed: marked.marks,
+							progress: reviewProgress(
+								diff,
+								state,
+								marked.marks,
+								view,
+								sections.map((s) => s.id)
+							),
+							units: marked.units
+						},
+						state,
+						marks: marked.marks
+					});
+				})
+			)
 		);
 	}
 
