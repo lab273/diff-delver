@@ -36,7 +36,8 @@ export default defineConfig({
 	testMatch: '**/*.journey.ts',
 	timeout: JOURNEY_BUDGET_MS,
 	fullyParallel: true,
-	forbidOnly: process.env['CI'] !== undefined,
+	// A committed `.only` would silently skip every other journey, here as in CI.
+	forbidOnly: true,
 	retries: 0,
 	reporter: process.env['CI'] !== undefined ? [['list'], ['github']] : 'list',
 	use: {

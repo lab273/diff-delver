@@ -19,6 +19,8 @@ export default defineConfig({
 	],
 	test: {
 		expect: { requireAssertions: true },
+		// A committed `.only` would silently skip the other tests, here as in CI.
+		allowOnly: false,
 		passWithNoTests: true,
 		projects: [
 			{
@@ -31,6 +33,7 @@ export default defineConfig({
 					include: ['src/lib/core/**/*.test.ts'],
 					testTimeout: CORE_TEST_BUDGET_MS,
 					hookTimeout: CORE_TEST_BUDGET_MS,
+					allowOnly: false,
 					expect: { requireAssertions: true }
 				}
 			},
@@ -44,7 +47,8 @@ export default defineConfig({
 					exclude: ['src/lib/core/**'],
 					globalSetup: ['tests/support/vitest-global-setup.ts'],
 					testTimeout: INTEGRATION_TEST_BUDGET_MS,
-					hookTimeout: INTEGRATION_TEST_BUDGET_MS
+					hookTimeout: INTEGRATION_TEST_BUDGET_MS,
+					allowOnly: false
 				}
 			}
 		]
