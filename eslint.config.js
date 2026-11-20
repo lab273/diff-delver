@@ -6,6 +6,7 @@ import svelte from 'eslint-plugin-svelte';
 import { defineConfig, includeIgnoreFile } from 'eslint/config';
 import globals from 'globals';
 import ts from 'typescript-eslint';
+import { corePurityPlugin } from './scripts/eslint-core-purity.ts';
 
 const gitignorePath = path.resolve(import.meta.dirname, '.gitignore');
 
@@ -172,6 +173,7 @@ export default defineConfig(
 	},
 	{
 		files: CORE_FILES,
+		plugins: { core: corePurityPlugin },
 		rules: {
 			'no-restricted-imports': [
 				'error',
@@ -202,7 +204,8 @@ export default defineConfig(
 				{ object: 'Date', property: 'now', message: 'Take time from the Clock.' },
 				{ object: 'Math', property: 'random', message: 'Pass randomness in from the edge.' }
 			],
-			'no-restricted-syntax': ['error', NO_TYPE_PREDICATES, ...CORE_IMPURE_SYNTAX]
+			'no-restricted-syntax': ['error', NO_TYPE_PREDICATES, ...CORE_IMPURE_SYNTAX],
+			'core/purity': 'error'
 		}
 	},
 	{
