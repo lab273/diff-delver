@@ -36,6 +36,22 @@ const NO_TYPE_PREDICATES = {
 		'A type predicate is an unchecked cast. Parse the value with its tiny type, or return the narrowed value instead.'
 };
 
+/**
+ * Tiny types that check nothing, made only where that kind of value comes from.
+ * `gitStderr` labels what git wrote to stderr, so only the module that runs git
+ * may make one; anything else could pass its own text off as git's.
+ */
+const LABEL_MAKERS = [
+	{
+		regex: 'git-stderr\\.tiny(?:\\.ts)?$',
+		importNames: ['gitStderr'],
+		message: 'Only src/lib/server/git/run-git.ts makes a GitStderr, from what git wrote.'
+	}
+];
+
+/** Files that may use a label maker: the module that makes the value, and tests. */
+const LABEL_MAKER_FILES = ['src/lib/server/git/run-git.ts', '**/*.test.ts'];
+
 const IMPURE = 'Core is pure: pass this in from the edge.';
 
 /** Syntax core code must not use, because it reads the clock or loads code at run time. */
@@ -140,6 +156,11 @@ export default defineConfig(
 		linterOptions: { noInlineConfig: true }
 	},
 	{
+		files: ['**/*.ts', '**/*.js', '**/*.svelte'],
+		ignores: LABEL_MAKER_FILES,
+		rules: { 'no-restricted-imports': ['error', { patterns: LABEL_MAKERS }] }
+	},
+	{
 		// A tiny type's parse function checks a value and then brands it.
 		files: TINY_TYPE_FILES,
 		rules: {
@@ -167,7 +188,8 @@ export default defineConfig(
 						{
 							group: ['**/server/**', '**/routes/**'],
 							message: 'Core is pure: it must not import server or UI code.'
-						}
+						},
+						...LABEL_MAKERS
 					]
 				}
 			],

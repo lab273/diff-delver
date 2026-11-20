@@ -15,13 +15,15 @@
  * `testsSeparateView` lifts the test and snapshot units of each section into a
  * Tests group of its own, sub-grouped by section.
  */
-import { groupKeyIdFrom, type GroupKeyId } from '../group-key-id.tiny.ts';
+import { groupKeyId, type GroupKeyId } from '../group-key-id.tiny.ts';
 import type { SectionId } from '../section-id.tiny.ts';
 import { addUnits, NO_UNITS, ONE_UNIT, type UnitCount } from '../unit-count.tiny.ts';
 import type { Side } from '../side.tiny.ts';
 import type { Diff, DiffFile } from './diff.ts';
 import type { AddedLine, ContextLine, DeletedLine, FileDiff, Hunk } from './file-diff.ts';
 import { fileAssignment, type Assignment, type AssignmentState } from './state.ts';
+
+export { groupKeyId };
 
 /** A group of slices in a view. */
 export type GroupKey =
@@ -118,20 +120,6 @@ function testsSeparateGroup(assignment: Assignment): GroupKey {
 	return group.kind === 'section' && assignment.role !== 'code'
 		? { kind: 'tests', section: group.section }
 		: group;
-}
-
-/** A string that is equal for equal group keys. */
-export function groupKeyId(key: GroupKey): GroupKeyId {
-	switch (key.kind) {
-		case 'section':
-			return groupKeyIdFrom(`section:${key.section}`);
-		case 'tests':
-			return groupKeyIdFrom(`tests:${key.section}`);
-		case 'ignored':
-			return groupKeyIdFrom('ignored');
-		case 'uncategorised':
-			return groupKeyIdFrom('uncategorised');
-	}
 }
 
 interface Building {

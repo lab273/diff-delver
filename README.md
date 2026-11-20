@@ -185,6 +185,9 @@ export function parseLineNumber(n: number): Result<LineNumber, InvalidLineNumber
 - The types carry the safety rules. Agent text is `AgentMarkdown` and can only
   reach the page by passing through the sanitiser, which returns `SafeHtml`.
   A `Side` is `"old" | "new"`, never a boolean.
+- `TextForAgent` and `ReviewerMessage` are labels, not checked values: any code
+  may make one, and the type only records who the text is for. `GitStderr` is a
+  label too, and lint lets only `run-git.ts` (and tests) make one.
 
 Expected to exist from the start: ids for report, revision, snapshot, review,
 section, thread, message and request; `TreeId`, `BlobId`, `CommitId`; `RepoPath`,
