@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
+import type { ProcessId } from '#lib/core/process-id.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { connectionOf, type DaemonConnection } from './daemon.ts';
@@ -200,7 +201,7 @@ export async function ensureDaemon(
 	return err({
 		kind: 'StartFailed',
 		message: reviewerMessage(
-			`diff delver started but left no lockfile in ${dataDirectory}. Try again; if it keeps happening, look in ${join(dataDirectory, LOG_NAME)}.`
+			`diff delver started, but then could not be found in its data folder ${dataDirectory}. Try again; if it keeps happening, look in ${join(dataDirectory, LOG_NAME)} for why.`
 		)
 	});
 }
@@ -210,16 +211,20 @@ export async function ensureDaemon(
  * lockfile, which it removed without signalling anything; or found a daemon
  * that would not stop.
  */
-export type StopOutcome = 'stopped' | 'not-running' | 'stale' | 'would-not-stop';
+export type StopOutcome =
+	| { readonly kind: 'stopped' }
+	| { readonly kind: 'not-running' }
+	| { readonly kind: 'stale' }
+	| { readonly kind: 'would-not-stop'; readonly pid: ProcessId };
 
 export async function stopDaemon(dataDirectory: AbsolutePath): Promise<StopOutcome> {
 	const content = await readLockfile(dataDirectory);
-	if (content.kind !== 'lock') return 'not-running';
+	if (content.kind !== 'lock') return { kind: 'not-running' };
 	if ((await probeLock(content.lock)).kind === 'gone') {
 		await removeLockfileIf(dataDirectory, content.text);
-		return 'stale';
+		return { kind: 'stale' };
 	}
 	return (await stopDaemonOf(dataDirectory, content.lock, content.text))
-		? 'stopped'
-		: 'would-not-stop';
+		? { kind: 'stopped' }
+		: { kind: 'would-not-stop', pid: content.lock.pid };
 }

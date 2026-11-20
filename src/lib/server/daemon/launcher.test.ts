@@ -35,7 +35,7 @@ describe('diff-delver stop', () => {
 		const held = await readLockfile(dataDirectory);
 		if (held.kind !== 'lock') throw new Error('no lock');
 		await writeFile(lockfilePath(dataDirectory), JSON.stringify({ ...held.lock, pid: other.pid }));
-		expect(await stopDaemon(dataDirectory)).toBe('stale');
+		expect(await stopDaemon(dataDirectory)).toEqual({ kind: 'stale' });
 		expect(await readLockfile(dataDirectory)).toEqual({ kind: 'none' });
 		expect(other.exitCode).toBeNull();
 		expect(other.signalCode).toBeNull();
@@ -46,7 +46,7 @@ describe('diff-delver stop', () => {
 	it('stops a daemon that answers', async () => {
 		const dataDirectory = await tempDirectory();
 		const daemon = await testDaemon({ dataDirectory });
-		expect(await stopDaemon(dataDirectory)).toBe('stopped');
+		expect(await stopDaemon(dataDirectory)).toEqual({ kind: 'stopped' });
 		await daemon.stopped;
 		expect(await readLockfile(dataDirectory)).toEqual({ kind: 'none' });
 	});

@@ -27,7 +27,7 @@ test.describe('J0 First run', () => {
 		const shop = await journey.repository('shop');
 		const run = await journey.command([], shop);
 		expect(run.output).toContain(
-			'shop: Uncommitted changes, 3 files changed, 11 lines added and 3 removed.'
+			'Uncommitted changes in shop: 3 files changed, 11 lines added and 3 removed.'
 		);
 		await journey.open(run.address);
 		expect(await journey.address()).toBe('/diffs/r_1');

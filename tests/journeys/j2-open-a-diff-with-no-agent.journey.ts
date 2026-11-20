@@ -10,7 +10,9 @@ test.describe('J2 Open a diff with no agent', () => {
 		// On a branch ahead of main, with nothing uncommitted: the branch compared with main.
 		const feature = await journey.repository('feature-branch');
 		const opened = await journey.command([], feature);
-		expect(opened.output).toContain('feature-branch: discounts compared with main');
+		expect(opened.output).toContain(
+			'discounts compared with main in feature-branch: 2 files changed'
+		);
 		await journey.open(opened.address);
 		await journey.expectVisible(
 			journey.byRole('heading', { level: 1, name: 'discounts compared with main' })
@@ -47,7 +49,9 @@ test.describe('J2 Open a diff with no agent', () => {
 		// Ahead of both main and master: either could be the main branch, so it asks.
 		const two = await journey.repository('two-main-branches');
 		const choosing = await journey.command([], two);
-		expect(choosing.output).toContain('several changes could be reviewed');
+		expect(choosing.output).toContain(
+			'Several changes could be reviewed in two-main-branches; choose one in your browser.'
+		);
 		await journey.open(choosing.address);
 		await journey.expectVisible(
 			journey.byRole('heading', {
@@ -76,7 +80,7 @@ test.describe('J2 Open a diff with no agent', () => {
 		// On main with nothing new: it says so, and offers the last commit.
 		const quiet = await journey.repository('nothing-new');
 		const nothing = await journey.command([], quiet);
-		expect(nothing.output).toContain('Nothing to review: There is nothing new to review');
+		expect(nothing.output).toMatch(/^There is nothing new to review/);
 		await journey.open(nothing.address);
 		await journey.expectVisible(
 			journey.byRole('heading', { level: 1, name: 'Nothing to review in nothing-new' })

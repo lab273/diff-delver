@@ -161,6 +161,7 @@ Usage:
 
 Options:
   --no-open                   Print the address instead of opening a browser.
+                              The address works once, within two minutes.
   --data-directory <folder>   Keep diff delver's data in this folder. The
                               ${DATA_DIRECTORY_VARIABLE} environment variable does
                               the same.

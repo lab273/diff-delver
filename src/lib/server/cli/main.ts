@@ -53,7 +53,7 @@ function dataDirectoryOf(invocation: Invocation, cwd: string): Result<AbsolutePa
 		const path = parseAbsolutePath(resolve(cwd, given));
 		return path.ok
 			? ok(path.value)
-			: err(`${given} cannot be used as a data folder: give a folder.`);
+			: err(`${given} cannot be used as a data folder. Give the path of a folder instead.`);
 	}
 	const machine = machineDataDirectory();
 	return machine.ok ? machine : err(describeNoDataDirectory(machine.error));
@@ -166,7 +166,7 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 			return serve(dataDirectory.value, process.send !== undefined);
 		case 'stop': {
 			const stopped = await stopDaemon(dataDirectory.value);
-			switch (stopped) {
+			switch (stopped.kind) {
 				case 'stopped':
 					terminal.print('diff delver has stopped.');
 					return 0;
@@ -180,7 +180,7 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 					return 0;
 				case 'would-not-stop':
 					terminal.printError(
-						'diff delver did not stop when asked. End its process, which daemon.lock in its data folder names, then try again.'
+						`diff delver did not stop when asked. End its process, number ${String(stopped.pid)}, then try again.`
 					);
 					return 1;
 			}
@@ -190,7 +190,9 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 		case 'open': {
 			const directory = parseAbsolutePath(resolve(cwd));
 			if (!directory.ok) {
-				terminal.printError('diff delver cannot tell which folder it was run in.');
+				terminal.printError(
+					'diff delver cannot tell which folder it was run in. Run it again from inside your repository.'
+				);
 				return 1;
 			}
 			const launched = await ensureDaemon(dataDirectory.value, codeVersion(), entry);
@@ -201,7 +203,7 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 			const { connection, replaced } = launched.value;
 			if (replaced === 'other-version') {
 				terminal.print(
-					'A different version of diff delver was running; it has been restarted. Pages it had open need opening again.'
+					'A different version of diff delver was running; this version has replaced it. Pages the old one had open need opening again.'
 				);
 			}
 			const client = new ApiClient({ fetch, base: connection.origin, token: connection.token });

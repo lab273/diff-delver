@@ -105,7 +105,7 @@ describe('the diff-delver command', () => {
 		const lines = result.stdout.trimEnd().split('\n');
 		expect(lines).toHaveLength(3);
 		expect(lines[0]).toBe(
-			`${repo.dir.split('/').at(-1) ?? ''}: Uncommitted changes, 2 files changed, 2 lines added and 1 removed.`
+			`Uncommitted changes in ${repo.dir.split('/').at(-1) ?? ''}: 2 files changed, 2 lines added and 1 removed.`
 		);
 		const address = addressIn(result.stdout);
 		expect(address.origin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
@@ -155,7 +155,7 @@ describe('the diff-delver command', () => {
 			who
 		);
 		expect(staged.code).toBe(0);
-		expect(staged.stdout).toMatch(/^Nothing to review: Nothing is staged/);
+		expect(staged.stdout).toMatch(/^Nothing is staged/);
 		expect(addressIn(staged.stdout).pathname).toBe('/start');
 		expect(addressIn(staged.stdout).searchParams.get('asked')).toBe('staged');
 
@@ -165,7 +165,7 @@ describe('the diff-delver command', () => {
 			who
 		);
 		expect(commit.code).toBe(0);
-		expect(commit.stdout).toContain(': The last commit, 1 file changed, 1 line added.');
+		expect(commit.stdout).toMatch(/^The last commit in [^:]+: 1 file changed, 1 line added\.\n/);
 
 		// A mistyped source opens the page that says what was asked for and why it failed.
 		const mistyped = await run(
@@ -280,7 +280,7 @@ describe('the diff-delver command', () => {
 		const result = await run(['--no-open', '--data-directory', data], repo.dir, who);
 		expect(result.code).toBe(0);
 		expect(result.stdout).toMatch(
-			/^A different version of diff delver was running; it has been restarted/
+			/^A different version of diff delver was running; this version has replaced it\./
 		);
 		await old.stopped;
 		const lock = await readLockfile(data);

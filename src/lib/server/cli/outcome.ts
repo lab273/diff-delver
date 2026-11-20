@@ -35,8 +35,8 @@ function described(
 			const { diff } = response;
 			const lines = [
 				response.resumed
-					? `${diff.repository}: ${diff.title}, opened again where you left it (${diff.progressText.toLowerCase()}).${response.changed ? ' The files have changed since this diff was opened, and diff delver cannot bring a diff up to date yet: to see them as they are now, use “Delete this diff and open it again” on its page.' : ''}`
-					: `${diff.repository}: ${diff.title}, ${diff.sizeText.toLowerCase()}.`
+					? `${diff.title} in ${diff.repository}, opened again where you left it (${diff.progressText.toLowerCase()}).${response.changed ? ' The files have changed since this diff was opened, and diff delver cannot bring a diff up to date yet: to see them as they are now, use “Delete this diff and open it again” on its page.' : ''}`
+					: `${diff.title} in ${diff.repository}: ${diff.sizeText.toLowerCase()}.`
 			];
 			if (diff.leftOut > 0) {
 				lines.push(
@@ -48,14 +48,14 @@ function described(
 		case 'choose':
 			return {
 				lines: [
-					`${response.repository}: several changes could be reviewed; choose one in your browser.`
+					`Several changes could be reviewed in ${response.repository}; choose one in your browser.`
 				],
 				page: startPage(directory),
 				exitCode: 0
 			};
 		case 'nothing':
 			return {
-				lines: [`Nothing to review: ${response.reason}`],
+				lines: [response.reason],
 				page: startPage(directory, asked),
 				exitCode: 0
 			};

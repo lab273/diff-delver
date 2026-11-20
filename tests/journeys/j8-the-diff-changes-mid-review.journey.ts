@@ -16,7 +16,7 @@ test.describe('J8 The diff changes mid-review', () => {
 			'export const price = (cents: number) => Math.round(cents) / 100;\n'
 		);
 		const again = await journey.command([], shop);
-		expect(again.output).toContain('shop: Uncommitted changes, opened again where you left it');
+		expect(again.output).toContain('Uncommitted changes in shop, opened again where you left it');
 		expect(again.output).toContain(
 			'The files have changed since this diff was opened, and diff delver cannot bring a diff up to date yet'
 		);
