@@ -113,6 +113,7 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'NotADatabase':
 		case 'DatabaseCorrupt':
 		case 'DatabaseTooNew':
+		case 'MigrationFailed':
 		case 'DatabaseBusy':
 		case 'StoredRowInvalid':
 		case 'DatabaseFailed':

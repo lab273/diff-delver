@@ -171,10 +171,18 @@ function inspect(
 	return appliedMigrations(q);
 }
 
-/** Brings the database's schema up to date, or says why it cannot. */
-export function migrate(database: Database, clock: Clock): Result<void, DatabaseError> {
-	const latest = LATEST_VERSION;
-	for (const migration of MIGRATIONS) {
+/**
+ * Brings the database's schema up to date with `migrations`, oldest first, or
+ * says why it cannot. A migration that fails changes nothing, so the file stays
+ * at the version before it.
+ */
+export function migrate(
+	database: Database,
+	clock: Clock,
+	migrations: readonly Migration[] = MIGRATIONS
+): Result<void, DatabaseError> {
+	const latest = newestOf(migrations.map((m) => m.version));
+	for (const migration of migrations) {
 		const applied = database.write((q): Result<void, DatabaseError> => {
 			// Read again inside the write lock, in case another copy of diff delver migrated first.
 			const done = inspect(q, database.file);
@@ -186,7 +194,16 @@ export function migrate(database: Database, clock: Clock): Result<void, Database
 			if (done.value.includes(migration.version)) return ok(undefined);
 			q.exec(RECORD_TABLE);
 			q.exec(`PRAGMA application_id = ${String(APPLICATION_ID)}`);
-			q.exec(migration.sql);
+			try {
+				q.exec(migration.sql);
+			} catch (error) {
+				return err({
+					kind: 'MigrationFailed',
+					file: database.file,
+					version: migration.version,
+					reason: error instanceof Error ? error.message : String(error)
+				});
+			}
 			recordMigration(q, migration.version, migration.name, clock.now());
 			q.exec(`PRAGMA user_version = ${String(migration.version)}`);
 			return ok(undefined);

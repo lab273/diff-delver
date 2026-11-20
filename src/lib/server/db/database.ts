@@ -24,7 +24,7 @@ import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.ti
 import type { Clock } from '#lib/core/clock.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import type { DatabaseError } from './database-error.ts';
-import { migrate } from './migrations.ts';
+import { migrate, MIGRATIONS, type Migration } from './migrations.ts';
 
 /** The database file's name in the data directory. */
 export const DATABASE_FILE = 'diff-delver.sqlite';
@@ -104,11 +104,13 @@ export class Database {
 
 	/**
 	 * Opens the database in the data directory, making the directory and the file
-	 * when they do not exist yet, and brings its schema up to date.
+	 * when they do not exist yet, and brings its schema up to date with
+	 * `migrations`: the real ones, unless a test gives its own.
 	 */
 	static async open(
 		dataDirectory: AbsolutePath,
-		clock: Clock
+		clock: Clock,
+		migrations: readonly Migration[] = MIGRATIONS
 	): Promise<Result<Database, DatabaseError>> {
 		const file = absolute(join(dataDirectory, DATABASE_FILE));
 		try {
@@ -129,7 +131,7 @@ export class Database {
 			database.close();
 			return err(sqliteError(file, error));
 		}
-		const migrated = migrate(database, clock);
+		const migrated = migrate(database, clock, migrations);
 		if (!migrated.ok) {
 			database.close();
 			return migrated;

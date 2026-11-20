@@ -46,6 +46,15 @@ export interface DatabaseTooNew {
 	readonly known: SchemaVersion;
 }
 
+/** A change to the database's schema failed, so it was not made. */
+export interface MigrationFailed {
+	readonly kind: 'MigrationFailed';
+	readonly file: AbsolutePath;
+	/** The change that failed. */
+	readonly version: SchemaVersion;
+	readonly reason: string;
+}
+
 /** Another program held the database for longer than the busy timeout. */
 export interface DatabaseBusy {
 	readonly kind: 'DatabaseBusy';
@@ -71,6 +80,7 @@ export type DatabaseError =
 	| NotADatabase
 	| DatabaseCorrupt
 	| DatabaseTooNew
+	| MigrationFailed
 	| DatabaseBusy
 	| StoredRowInvalid
 	| DatabaseFailed;
@@ -93,6 +103,10 @@ export function describeDatabaseError(error: DatabaseError): ReviewerMessage {
 		case 'DatabaseTooNew':
 			return reviewerMessage(
 				`diff delver's database ${error.file} was last used by a newer version of diff delver (database version ${String(error.version)}; this version knows up to ${String(error.known)}). Update diff delver to the newest version, or start this one with another data folder.`
+			);
+		case 'MigrationFailed':
+			return reviewerMessage(
+				`diff delver could not bring its database ${error.file} up to date (change ${String(error.version)} failed: ${error.reason}). The database is as it was, so your reports are safe. Please report this as a bug; until it is fixed, use the version of diff delver you used before.`
 			);
 		case 'DatabaseBusy':
 			return reviewerMessage(

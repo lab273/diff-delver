@@ -18,8 +18,11 @@ import {
 	DATABASE_FILE,
 	describeDatabaseError,
 	LATEST_VERSION,
-	type DatabaseError
+	MIGRATIONS,
+	type DatabaseError,
+	type Migration
 } from './index.ts';
+import { schemaVersionOf } from '#lib/core/schema-version.tiny.ts';
 import { insertReport, reportById } from './tables/reports.ts';
 import { insertRevision } from './tables/revisions.ts';
 
@@ -40,6 +43,45 @@ function store(db: Database, report: Report): Result<void, DatabaseError> {
 function failure(result: Result<unknown, DatabaseError>): DatabaseError {
 	if (result.ok) throw new Error('expected a failure');
 	return result.error;
+}
+
+/** A second schema version for the upgrade tests: a new table and a new column. */
+const VERSION_2: Migration = {
+	version: schemaVersionOf(2),
+	name: 'notes, and pinned reports',
+	sql: `
+CREATE TABLE notes (
+	report_id TEXT NOT NULL REFERENCES reports (id) ON DELETE CASCADE,
+	body TEXT NOT NULL
+) STRICT;
+ALTER TABLE reports ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+`
+};
+
+/** Everything in the file a migration could change: the schema, the version and every row. */
+function schemaAndRows(dir: AbsolutePath): unknown {
+	const raw = new DatabaseSync(join(dir, DATABASE_FILE), { readOnly: true });
+	try {
+		const schema = raw
+			.prepare('SELECT type, name, sql FROM sqlite_schema ORDER BY name')
+			.all()
+			.map((r) => ({ ...r }));
+		const rows = Object.fromEntries(
+			schema
+				.filter((t) => t.type === 'table')
+				.map((t) => [
+					String(t.name),
+					raw
+						.prepare(`SELECT * FROM "${String(t.name)}"`)
+						.all()
+						.map((r) => ({ ...r }))
+				])
+		);
+		const version = { ...raw.prepare('PRAGMA user_version').get() };
+		return { schema, rows, version };
+	} finally {
+		raw.close();
+	}
 }
 
 describe('the database', () => {
@@ -99,6 +141,73 @@ describe('the database', () => {
 		expect(describeDatabaseError(error)).toMatch(
 			/newer version of diff delver.*Update diff delver/
 		);
+	});
+
+	it('upgrades a version 1 file to a version 2 that adds a table and a column, keeping its rows', async () => {
+		const dir = await tempDirectory();
+		const id = sequentialIds().reportId();
+		const one = await opened(dir);
+		value(store(one, aReport(id)));
+		one.close();
+
+		const later = settableClock(at(1_800_000_000_000));
+		const db = value(await Database.open(dir, later, [...MIGRATIONS, VERSION_2]));
+		const read = value(
+			db.read((q) =>
+				ok({
+					migrations: q.all('SELECT version, applied_at FROM schema_migrations ORDER BY version'),
+					version: q.get('PRAGMA user_version'),
+					notes: q.all('SELECT * FROM notes'),
+					pinned: q.all('SELECT id, pinned FROM reports')
+				})
+			)
+		);
+		const report = value(db.read((q) => reportById(q, id)));
+		db.close();
+		expect(read.migrations.map((m) => ({ ...m }))).toEqual([
+			{ version: 1, applied_at: 1_700_000_000_000 },
+			{ version: 2, applied_at: 1_800_000_000_000 }
+		]);
+		expect({ ...read.version }).toEqual({ user_version: 2 });
+		expect(read.notes).toEqual([]);
+		expect(read.pinned.map((r) => ({ ...r }))).toEqual([{ id, pinned: 0 }]);
+		expect(report?.id).toBe(id);
+	});
+
+	it('leaves a version 1 file exactly at version 1 when version 2 fails halfway', async () => {
+		const dir = await tempDirectory();
+		const one = await opened(dir);
+		value(store(one, aReport(sequentialIds().reportId())));
+		one.close();
+		const before = schemaAndRows(dir);
+
+		const broken: Migration = {
+			version: schemaVersionOf(2),
+			name: 'fails after its first statements',
+			sql: `${VERSION_2.sql}\nINSERT INTO no_such_table VALUES (1);`
+		};
+		const error = failure(await Database.open(dir, clock(), [...MIGRATIONS, broken]));
+		expect(error).toMatchObject({
+			kind: 'MigrationFailed',
+			file: join(dir, DATABASE_FILE),
+			version: 2
+		});
+		expect(describeDatabaseError(error)).toMatch(/is as it was/);
+		expect(schemaAndRows(dir)).toEqual(before);
+		// And it still opens with the migrations it has.
+		(await opened(dir)).close();
+	});
+
+	it('refuses a file a list of migrations does not reach, once a newer list has upgraded it', async () => {
+		const dir = await tempDirectory();
+		value(await Database.open(dir, clock(), [...MIGRATIONS, VERSION_2])).close();
+		const error = failure(await Database.open(dir, clock()));
+		expect(error).toEqual({
+			kind: 'DatabaseTooNew',
+			file: join(dir, DATABASE_FILE),
+			version: 2,
+			known: 1
+		});
 	});
 
 	it('refuses a file that is not a database, and leaves it as it was', async () => {

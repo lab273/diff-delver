@@ -12,9 +12,11 @@ export type {
 	DatabaseFailed,
 	DatabaseTooNew,
 	DatabaseUnusable,
+	MigrationFailed,
 	NotADatabase,
 	StoredRowInvalid,
 	TableName
 } from './database-error.ts';
 export { describeDatabaseError } from './database-error.ts';
+export type { Migration } from './migrations.ts';
 export { APPLICATION_ID, LATEST_VERSION, MIGRATIONS } from './migrations.ts';
