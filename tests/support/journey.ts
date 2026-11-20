@@ -21,20 +21,17 @@
  *   covered by them, italic and bold text each in a bundled face of its own (the
  *   app never fakes one), and drawn only once they have loaded;
  * - no error in the browser console and no request to anywhere but the app,
- *   checked again when the journey finishes;
- * - the journey so far done with the keyboard only.
+ *   checked again when the journey finishes.
  *
  * A journey gets no Playwright page, context or locator: only the `Journey`
  * below. It finds things as a person does, by role, visible text or label, and
  * gets back a `Target`, which it can activate, check or read, nothing more. It
  * moves with `press`, `type` and `activate`, which use the keyboard; the two
  * things a person does outside the page have their own helpers, `readClipboard`
- * and `chooseFiles`. Lint closes the rest (scripts/eslint-journey-rules.ts).
- *
- * What reaches the page anyway is caught at the next step: input from a pointer
- * or touch, an event made by a script rather than by the browser, text that
- * arrives with no key pressed, and a form field whose value changed without a
- * key being pressed.
+ * and `chooseFiles`. Lint closes the rest (scripts/eslint-journey-rules.ts), so a
+ * journey is kept to the keyboard by what it is given, and the page is left to
+ * do whatever the app does: fill in fields, change them later, click its own
+ * hidden file input.
  *
  * What could vary is fixed at its source: the viewport, locale, timezone,
  * colour scheme, motion and the browser's rendering are set in
@@ -171,112 +168,6 @@ export interface Journey {
 	 * these files in it, as a person does in the system's dialog.
 	 */
 	chooseFiles(target: Target, files: readonly string[], key?: string): Promise<void>;
-}
-
-/**
- * Reports input that did not come from the keyboard, through `__journeyInput`,
- * and keeps what was typed into each field, for `__journeyFieldsNotTyped`.
- */
-function inputGuard(): void {
-	const report = (text: string): void => {
-		const send: unknown = Reflect.get(window, '__journeyInput');
-		if (typeof send === 'function') void Reflect.apply(send, window, [text]);
-	};
-	for (const type of ['pointerdown', 'mousedown', 'touchstart', 'wheel']) {
-		window.addEventListener(
-			type,
-			(event) => {
-				if (event.isTrusted) report(`a ${type} event`);
-			},
-			true
-		);
-	}
-	// The browser makes every event a person causes. One made by a script, such as
-	// element.click() or dispatchEvent, did not come from the keyboard.
-	for (const type of [
-		'click',
-		'auxclick',
-		'dblclick',
-		'contextmenu',
-		'beforeinput',
-		'input',
-		'change',
-		'keydown',
-		'keyup',
-		'keypress',
-		'pointerdown',
-		'pointerup',
-		'mousedown',
-		'mouseup'
-	]) {
-		window.addEventListener(
-			type,
-			(event) => {
-				if (!event.isTrusted) report(`a "${type}" event made by a script`);
-			},
-			true
-		);
-	}
-	// Typing a character sends keydown, then input, then keyup; a checkbox toggled
-	// with Space changes on the keyup itself. Text that arrives with no key at all
-	// was put there some other way, such as `fill`.
-	let keyDown = false;
-	let keyJustUp = false;
-	window.addEventListener('keydown', () => (keyDown = true), true);
-	window.addEventListener(
-		'keyup',
-		() => {
-			keyDown = false;
-			keyJustUp = true;
-			setTimeout(() => (keyJustUp = false), 0);
-		},
-		true
-	);
-	type Field = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
-	const asField = (node: unknown): Field | undefined =>
-		(node instanceof HTMLInputElement && node.type !== 'file') ||
-		node instanceof HTMLTextAreaElement ||
-		node instanceof HTMLSelectElement
-			? node
-			: undefined;
-	const valueOf = (field: Field): string =>
-		field instanceof HTMLInputElement && (field.type === 'checkbox' || field.type === 'radio')
-			? String(field.checked)
-			: field.value;
-	const defaultOf = (field: Field): string => {
-		if (field instanceof HTMLSelectElement) {
-			const chosen = [...field.options].find((option) => option.defaultSelected);
-			return chosen?.value ?? field.options[0]?.value ?? '';
-		}
-		if (
-			field instanceof HTMLInputElement &&
-			(field.type === 'checkbox' || field.type === 'radio')
-		) {
-			return String(field.defaultChecked);
-		}
-		return field.defaultValue;
-	};
-	const typed = new WeakMap<Field, string>();
-	for (const type of ['input', 'change']) {
-		window.addEventListener(
-			type,
-			(event) => {
-				const field = asField(event.target);
-				if (!event.isTrusted || field === undefined) return;
-				if (keyDown || keyJustUp) typed.set(field, valueOf(field));
-				else report('text entered without typing it');
-			},
-			true
-		);
-	}
-	// A value set by assigning to it sends no event at all, so each step compares
-	// every field with what was last typed into it, or with its starting value.
-	Reflect.set(window, '__journeyFieldsNotTyped', (): string[] =>
-		[...document.querySelectorAll('input, textarea, select')]
-			.flatMap((node) => asField(node) ?? [])
-			.filter((field) => valueOf(field) !== (typed.get(field) ?? defaultOf(field)))
-			.map((field) => `a <${field.localName}> whose value changed without typing`)
-	);
 }
 
 /** Waits until the bundled fonts are loaded and the page has drawn twice since. */
@@ -580,7 +471,7 @@ export interface RunningJourney {
 }
 
 /**
- * Sets up a journey on a fresh page: the input guard, the fixed clock, the
+ * Sets up a journey on a fresh page: the fixed clock and the
  * watch on browser errors and outside requests. The `journey` fixture uses it;
  * so do the helper's own tests, on pages they make.
  */
@@ -591,14 +482,9 @@ export async function startJourney(
 	options: JourneyOptions = { screenshots: 'check' }
 ): Promise<RunningJourney> {
 	const journeyName = journeySlug(testInfo.file);
-	const inputProblems: string[] = [];
 	const browserErrors: string[] = [];
 	let steps = 0;
 
-	await page.exposeFunction('__journeyInput', (text: unknown) => {
-		inputProblems.push(String(text));
-	});
-	await page.addInitScript(inputGuard);
 	await page.clock.setFixedTime(JOURNEY_TIME);
 	const origin = new URL(baseURL ?? 'http://127.0.0.1').origin;
 	// The app may copy to the clipboard, as a person lets it, and the journey read it back.
@@ -618,22 +504,6 @@ export async function startJourney(
 			await route.abort();
 		}
 	);
-
-	const keyboardOnly = async (): Promise<void> => {
-		const fields = await page.evaluate((): unknown => {
-			const check: unknown = Reflect.get(window, '__journeyFieldsNotTyped');
-			return typeof check === 'function' ? Reflect.apply(check, window, []) : [];
-		});
-		if (Array.isArray(fields)) inputProblems.push(...fields.map(String));
-		if (inputProblems.length === 0) return;
-		const seen = [...new Set(inputProblems)].join(', ');
-		inputProblems.length = 0;
-		throw new Error(
-			`The journey reached the page with ${seen}. Journeys use the keyboard only ` +
-				'(README, "Checking the experience"): move with journey.press, journey.type and ' +
-				'journey.activate instead of click, fill, hover, the mouse or a script.'
-		);
-	};
 
 	const isFocused = (target: Target): Promise<boolean> =>
 		locatorOf(target).evaluate((element) => element === document.activeElement);
@@ -668,7 +538,6 @@ export async function startJourney(
 			await page.goto(path);
 		},
 		async step(name) {
-			await keyboardOnly();
 			const slug = stepSlug(name);
 			if (!slug.ok) {
 				throw new Error(
@@ -774,7 +643,6 @@ export async function startJourney(
 	return {
 		journey,
 		async finish() {
-			await keyboardOnly();
 			// What the page did after the last step counts as much as what it did before.
 			await settle(page);
 			const late = browserErrors.splice(0);

@@ -72,7 +72,7 @@ const FORM = pageWith(`
 <button type="button" onclick="this.textContent = 'Pressed'">Press</button>
 `);
 
-test.describe('the journey helper keeps journeys to the keyboard', () => {
+test.describe('the journey helper acts with the keyboard', () => {
 	test('lets typing, Space on a checkbox and Enter on a button through', async ({ planted }) => {
 		const journey = await planted(FORM);
 		await journey.activate(journey.byLabel('Name'), 'Space');
@@ -83,44 +83,87 @@ test.describe('the journey helper keeps journeys to the keyboard', () => {
 		await journey.expectVisible(journey.byRole('button', { name: 'Pressed' }));
 		await journey.step('Filled in');
 	});
+});
 
-	test('fails on a click made by a script', async ({ planted, page }) => {
-		const journey = await planted(FORM);
-		await page.getByRole('button').evaluate((element) => {
-			HTMLElement.prototype.click.call(element);
-		});
-		await expect(journey.step('After')).rejects.toThrow('a "click" event made by a script');
-	});
-
-	test('fails on a value set by a script with an input event', async ({ planted, page }) => {
-		const journey = await planted(FORM);
-		await page.getByLabel('Name').evaluate((element) => {
-			if (element instanceof HTMLInputElement) element.value = 'Ada';
-			element.dispatchEvent(new Event('input', { bubbles: true }));
-		});
-		await expect(journey.step('After')).rejects.toThrow('a "input" event made by a script');
-	});
-
-	test('fails on a value set by a script with no event at all', async ({ planted, page }) => {
-		const journey = await planted(FORM);
-		await page.getByLabel('Name').evaluate((element) => {
-			if (element instanceof HTMLInputElement) element.value = 'Ada';
-		});
-		await expect(journey.step('After')).rejects.toThrow(
-			'a <input> whose value changed without typing'
+// Lint keeps a journey to the keyboard (scripts/eslint-journey-rules.ts); the
+// page is the app's own, and whatever it does to itself passes a step.
+test.describe('the journey helper lets the app do what apps do', () => {
+	test('passes a field the app filled in, as Svelte does', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>Prefilled</h1>
+<label>Name <input></label>
+<script>document.querySelector('input').value = 'Ada';</script>`)
 		);
+		await journey.step('Prefilled');
 	});
 
-	test('fails on a field filled in without typing', async ({ planted, page }) => {
-		const journey = await planted(FORM);
-		await page.getByLabel('Name').fill('Ada');
-		await expect(journey.step('After')).rejects.toThrow('text entered without typing it');
+	test('passes a value the app wrote later, with no key pressed', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>Later</h1>
+<label>Status <input></label><p></p>
+<script>setTimeout(() => {
+	document.querySelector('input').value = 'Updated';
+	document.querySelector('p').textContent = 'Written';
+}, 0);</script>`)
+		);
+		await journey.expectVisible(journey.byText('Written'));
+		await journey.step('Written later');
 	});
 
-	test('fails on a click with the mouse', async ({ planted, page }) => {
+	test('passes a field the app clears after Enter', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>Comment</h1>
+<label>Comment <input onkeydown="if (event.key === 'Enter') { document.querySelector('p').textContent = this.value; this.value = ''; }"></label><p></p>`)
+		);
+		await journey.activate(journey.byLabel('Comment'), 'Space');
+		await journey.press('Backspace');
+		await journey.type('Looks good');
+		await journey.press('Enter');
+		await journey.expectVisible(journey.byText('Looks good'));
+		await journey.step('Cleared');
+	});
+
+	test('passes a radio group moved with the arrow keys', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>View</h1>
+<fieldset><legend>View</legend>
+<label><input type="radio" name="view" value="unified" checked> Unified</label>
+<label><input type="radio" name="view" value="split"> Split</label>
+</fieldset>`)
+		);
+		await journey.activate(journey.byLabel('Unified'), 'ArrowDown');
+		await journey.step('Split chosen');
+	});
+
+	test('passes a select changed with the arrow keys', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>Sort</h1>
+<label>Sort <select><option>By section</option><option>By file</option></select></label>`)
+		);
+		await journey.activate(journey.byLabel('Sort'), 'ArrowDown');
+		await journey.step('By file');
+	});
+
+	test('passes a checkbox toggled with Space', async ({ planted }) => {
 		const journey = await planted(FORM);
-		await page.getByRole('button').click();
-		await expect(journey.step('After')).rejects.toThrow('a pointerdown event');
+		await journey.activate(journey.byLabel('Agree'), 'Space');
+		await journey.step('Agreed');
+	});
+
+	test('passes a styled file picker, a button that opens a hidden file input', async ({
+		planted
+	}) => {
+		const journey = await planted(
+			pageWith(`<h1>Open</h1>
+<input type="file" hidden onchange="document.querySelector('output').textContent = this.files[0].name">
+<button type="button" onclick="document.querySelector('input').click()">Choose a diff</button>
+<output></output>`)
+		);
+		await journey.chooseFiles(journey.byRole('button', { name: 'Choose a diff' }), [
+			join(import.meta.dirname, 'journey.spec.ts')
+		]);
+		await journey.expectVisible(journey.byText('journey.spec.ts'));
+		await journey.step('Chosen');
 	});
 });
 
