@@ -1,0 +1,492 @@
+/**
+ * Carry-over (DESIGN 6.2): when a diff is updated, the new version keeps what
+ * the reviewer and the agent did to the lines that are still the same.
+ *
+ * Given the previous version's diff, its assignment state and reviewed marks,
+ * the new diff, and git's diffs from the previous version's trees to the new
+ * ones (the two heads, and the two bases), it gives the new version's state and
+ * marks, the units that are new since the previous version, and a summary.
+ *
+ * **The rule.** A change line of the new diff is the same as a change line of the
+ * previous one when:
+ *
+ * 1. its line of the file is the same line, as git's diff between the two heads
+ *    (for an added line) or between the two bases (for a deleted line) says: that
+ *    diff leaves the line unchanged, in the same file or one it renamed, so its
+ *    text is byte for byte the same and only edits elsewhere moved its number
+ *    (`line-map.ts`); and
+ * 2. that line was a change line of the same kind in the previous diff, in the
+ *    file that is the same file: for an added line, the file at that head path;
+ *    for a deleted line, the file with that base path whose head path is the same
+ *    file's too, or which was deleted in both; and
+ * 3. it is not a weak match on its own: a line with no letter or digit (a blank
+ *    line, a lone brace) with only such lines between it and an edit git made
+ *    next to it is matched only when another line on the same side of the same
+ *    run of changed lines is matched too, and is not weak itself. git lines up
+ *    such lines across unrelated code (the `}` of a deleted function with the `}`
+ *    of a new one), so on their own they say nothing.
+ *
+ * A matched line keeps its bucket, role and reviewed mark. Anything else is new:
+ * not sorted yet, with the role its path suggests, not reviewed, and then the
+ * built-in rules and patterns ignore what they cover, as in a first version.
+ *
+ * A file-level unit (a pure rename, a mode change, a binary or empty file, a
+ * submodule) keeps its state when the file's change is exactly the same change:
+ * the same status, and the same path, mode and object on each side.
+ *
+ * When in doubt it leaves a line unreviewed: a false "reviewed" hides code from
+ * the reviewer, a false "new" costs them a second look. So a line that moved
+ * within a file is new where it is now, a file split into two has its moved
+ * lines new in the second file, and a copy is new however alike.
+ *
+ * Sections are not decided here: the new version keeps every section of the
+ * previous one, with its id, title, summary and place, even when it ends up
+ * empty (the service copies them).
+ *
+ * Work is in proportion to the number of change lines, with a binary search
+ * per line.
+ */
+import type { Diff, DiffFile } from '../diff/diff.ts';
+import type { DiffLine, FileDiff, FileVersion } from '../diff/file-diff.ts';
+import { autoIgnore, type AutoIgnoreOptions } from '../diff/auto-ignore.ts';
+import type { ProjectRoleRule } from '../diff/path-rules.ts';
+import { RangeMap, type Segment } from '../range-map.ts';
+import { RangeSet } from '../range-set.ts';
+import type { RepoPath } from '../repo-path.tiny.ts';
+import type { Side } from '../side.tiny.ts';
+import {
+	fileAssignment,
+	initialState,
+	sameAssignment,
+	sideMap,
+	type Assignment,
+	type AssignmentState,
+	type FileAssignment
+} from '../diff/state.ts';
+import {
+	fileLinesOf,
+	fileUnitInSet,
+	linesInSet,
+	unitSetSize,
+	type FileUnitSet,
+	type UnitSet
+} from '../diff/unit-set.ts';
+import { fileCountOf } from '../file-count.tiny.ts';
+import { addUnits, NO_UNITS, unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
+import type { ReviewedMarks } from '../review/reviewed-marks.ts';
+import { TreeLineMap, type TreeChanges } from './line-map.ts';
+import type { UpdateSummary } from './update-summary.ts';
+
+/** One version of a diff, with what was done to it. */
+export interface DiffVersion {
+	readonly diff: Diff;
+	readonly state: AssignmentState;
+	readonly marks: ReviewedMarks;
+}
+
+export interface CarryOverInput {
+	readonly previous: DiffVersion;
+	readonly diff: Diff;
+	/** git's diff from the previous version's head tree to the new one's. */
+	readonly heads: TreeChanges;
+	/** git's diff from the previous version's base tree to the new one's. */
+	readonly bases: TreeChanges;
+	/** What the built-in rules need about the new diff, as for a first version. */
+	readonly autoIgnore?: AutoIgnoreOptions;
+	readonly projectRoleRules?: readonly ProjectRoleRule[];
+}
+
+export interface CarriedOver {
+	readonly state: AssignmentState;
+	readonly marks: ReviewedMarks;
+	/** The units of the new diff with no match in the previous version. */
+	readonly fresh: UnitSet;
+	readonly summary: UpdateSummary;
+}
+
+/** The previous version's files, indexed for lookups by head path and by base path. */
+interface PreviousFiles {
+	readonly byNewPath: ReadonlyMap<RepoPath, DiffFile>;
+	readonly byOldPath: ReadonlyMap<RepoPath, readonly DiffFile[]>;
+}
+
+function indexPrevious(diff: Diff): PreviousFiles {
+	const byNewPath = new Map<RepoPath, DiffFile>();
+	const byOldPath = new Map<RepoPath, DiffFile[]>();
+	for (const file of diff.files) {
+		if (file.file.new !== undefined) byNewPath.set(file.file.new.path, file);
+		if (file.file.old !== undefined) {
+			const list = byOldPath.get(file.file.old.path);
+			if (list === undefined) byOldPath.set(file.file.old.path, [file]);
+			else list.push(file);
+		}
+	}
+	return { byNewPath, byOldPath };
+}
+
+/** A match for one change line: the previous file and the line's number there. */
+interface Candidate {
+	readonly previous: DiffFile;
+	readonly line: number;
+	/** Matched only by git's alignment, on a line with nothing to identify it. */
+	readonly weak: boolean;
+}
+
+/** Sorted segments for one side, merged as they come. */
+class SegmentsBuilder {
+	readonly segments: Segment<Assignment>[] = [];
+
+	add(line: number, value: Assignment): void {
+		const last = this.segments.at(-1);
+		if (last !== undefined && last.last + 1 === line && sameAssignment(last.value, value)) {
+			this.segments[this.segments.length - 1] = {
+				first: last.first,
+				last: line,
+				value: last.value
+			};
+		} else {
+			this.segments.push({ first: line, last: line, value });
+		}
+	}
+}
+
+/** What one side of one new file came to. */
+interface SideResult {
+	readonly assignments: SegmentsBuilder;
+	readonly reviewed: number[];
+	readonly fresh: number[];
+}
+
+function newSide(): SideResult {
+	return { assignments: new SegmentsBuilder(), reviewed: [], fresh: [] };
+}
+
+class CarryOver {
+	readonly #input: CarryOverInput;
+	readonly #heads: TreeLineMap;
+	readonly #bases: TreeLineMap;
+	readonly #previous: PreviousFiles;
+	readonly #initial: AssignmentState;
+	/** Units of each previous file that were matched, by its path. */
+	readonly #matched = new Map<RepoPath, number>();
+
+	constructor(input: CarryOverInput) {
+		this.#input = input;
+		this.#heads = TreeLineMap.of(input.heads);
+		this.#bases = TreeLineMap.of(input.bases);
+		this.#previous = indexPrevious(input.previous.diff);
+		this.#initial = initialState(input.diff, input.projectRoleRules);
+	}
+
+	run(): CarriedOver {
+		const files = new Map<RepoPath, FileAssignment>();
+		const marks = new Map<RepoPath, FileUnitSet>();
+		const fresh = new Map<RepoPath, FileUnitSet>();
+		const previousOf = new Map<RepoPath, DiffFile | undefined>();
+		for (const file of this.#input.diff.files) {
+			const path = file.file.path;
+			const previous = this.#previousFile(file);
+			previousOf.set(path, previous);
+			const done = file.hasLines ? this.#lines(file) : this.#fileUnit(file);
+			files.set(path, done.assignment);
+			if (done.reviewed !== undefined) marks.set(path, done.reviewed);
+			if (done.fresh !== undefined) fresh.set(path, done.fresh);
+		}
+		const sorted = autoIgnore(this.#input.diff, { files }, this.#input.autoIgnore);
+		const freshSet: UnitSet = { files: fresh };
+		const marksSet: ReviewedMarks = { files: marks };
+		return {
+			state: sorted.state,
+			marks: marksSet,
+			fresh: freshSet,
+			summary: this.#summary(sorted.state, marksSet, freshSet, previousOf)
+		};
+	}
+
+	/**
+	 * The previous version's file that this one is, for the summary: the file at
+	 * the head path it came from, or, for a deleted file, the deleted file at the
+	 * base path it came from. Undefined when it is new to the diff.
+	 */
+	#previousFile(file: DiffFile): DiffFile | undefined {
+		const now = file.file.new;
+		if (now !== undefined) {
+			const earlier = this.#heads.earlierPath(now.path);
+			return earlier === undefined ? undefined : this.#previous.byNewPath.get(earlier);
+		}
+		const old = file.file.old;
+		if (old === undefined) return undefined;
+		const earlier = this.#bases.earlierPath(old.path);
+		if (earlier === undefined) return undefined;
+		return this.#previous.byOldPath.get(earlier)?.find((f) => f.file.new === undefined);
+	}
+
+	#count(previous: DiffFile, units: number): void {
+		const path = previous.file.path;
+		this.#matched.set(path, (this.#matched.get(path) ?? 0) + units);
+	}
+
+	#fileUnit(file: DiffFile): {
+		assignment: FileAssignment;
+		reviewed: FileUnitSet | undefined;
+		fresh: FileUnitSet | undefined;
+	} {
+		const path = file.file.path;
+		const previous = this.#input.previous.diff.byPath.get(path);
+		if (previous !== undefined && !previous.hasLines && sameChange(previous.file, file.file)) {
+			this.#count(previous, 1);
+			const before = fileAssignment(this.#input.previous.state, previous);
+			const assignment = before.kind === 'file' ? before : fileAssignment(this.#initial, file);
+			return {
+				assignment,
+				reviewed: fileUnitInSet(this.#input.previous.marks, path) ? { kind: 'file' } : undefined,
+				fresh: undefined
+			};
+		}
+		return {
+			assignment: fileAssignment(this.#initial, file),
+			reviewed: undefined,
+			fresh: { kind: 'file' }
+		};
+	}
+
+	#lines(file: DiffFile): {
+		assignment: FileAssignment;
+		reviewed: FileUnitSet | undefined;
+		fresh: FileUnitSet | undefined;
+	} {
+		const initial = fileAssignment(this.#initial, file);
+		if (initial.kind !== 'lines') throw new Error('A file with lines has a lines assignment.');
+		const sides: Record<Side, SideResult> = { old: newSide(), new: newSide() };
+		const content = file.file.content;
+		if (content.kind === 'text') {
+			for (const hunk of content.hunks) {
+				let run: DiffLine[] = [];
+				for (const line of hunk.lines) {
+					if (line.kind === 'context') {
+						this.#run(file, run, initial, sides);
+						run = [];
+					} else run.push(line);
+				}
+				this.#run(file, run, initial, sides);
+			}
+		}
+		const assignment: FileAssignment = {
+			kind: 'lines',
+			old: RangeMap.fromSegments(sides.old.assignments.segments, sameAssignment),
+			new: RangeMap.fromSegments(sides.new.assignments.segments, sameAssignment)
+		};
+		return {
+			assignment,
+			reviewed: fileLinesOf(
+				RangeSet.fromNumbers(sides.old.reviewed),
+				RangeSet.fromNumbers(sides.new.reviewed)
+			),
+			fresh: fileLinesOf(
+				RangeSet.fromNumbers(sides.old.fresh),
+				RangeSet.fromNumbers(sides.new.fresh)
+			)
+		};
+	}
+
+	/** One run of changed lines between context lines: matches each, then keeps the strong ones. */
+	#run(
+		file: DiffFile,
+		run: readonly DiffLine[],
+		initial: FileAssignment & { kind: 'lines' },
+		sides: Record<Side, SideResult>
+	): void {
+		if (run.length === 0) return;
+		const candidates: (Candidate | undefined)[] = run.map((line) => this.#candidate(file, line));
+		const anchored: Record<Side, boolean> = { old: false, new: false };
+		for (const [i, line] of run.entries()) {
+			const candidate = candidates[i];
+			if (candidate !== undefined && !candidate.weak) anchored[sideOf(line)] = true;
+		}
+		for (const [i, line] of run.entries()) {
+			const side = sideOf(line);
+			const number = lineNumberOf(line);
+			const candidate = candidates[i];
+			const result = sides[side];
+			if (candidate !== undefined && (!candidate.weak || anchored[side])) {
+				const before = fileAssignment(this.#input.previous.state, candidate.previous);
+				const value =
+					before.kind === 'lines' ? sideMap(before, side).get(candidate.line) : undefined;
+				if (value !== undefined) {
+					this.#count(candidate.previous, 1);
+					result.assignments.add(number, value);
+					const marked = linesInSet(
+						this.#input.previous.marks,
+						candidate.previous.file.path,
+						side
+					).has(candidate.line);
+					if (marked) result.reviewed.push(number);
+					continue;
+				}
+			}
+			const value = sideMap(initial, side).get(number);
+			if (value === undefined) throw new Error(`Line ${String(number)} is not a change line.`);
+			result.assignments.add(number, value);
+			result.fresh.push(number);
+		}
+	}
+
+	/** Where a change line of the new diff was a change line of the previous one, if anywhere. */
+	#candidate(file: DiffFile, line: DiffLine): Candidate | undefined {
+		switch (line.kind) {
+			case 'context':
+				return undefined;
+			case 'added': {
+				const now = file.file.new;
+				if (now === undefined) return undefined;
+				const origin = this.#heads.origin(now.path, line.new);
+				if (origin === undefined) return undefined;
+				const previous = this.#previous.byNewPath.get(origin.path);
+				if (previous === undefined || !previous.changed.new.has(origin.line)) return undefined;
+				return {
+					previous,
+					line: origin.line,
+					weak: origin.weak
+				};
+			}
+			case 'deleted': {
+				const old = file.file.old;
+				if (old === undefined) return undefined;
+				const origin = this.#bases.origin(old.path, line.old);
+				if (origin === undefined) return undefined;
+				const headPath =
+					file.file.new === undefined ? undefined : this.#heads.earlierPath(file.file.new.path);
+				const previous = this.#previous.byOldPath
+					.get(origin.path)
+					?.find((f) =>
+						file.file.new === undefined
+							? f.file.new === undefined
+							: f.file.new !== undefined && f.file.new.path === headPath
+					);
+				if (previous === undefined || !previous.changed.old.has(origin.line)) return undefined;
+				return {
+					previous,
+					line: origin.line,
+					weak: origin.weak
+				};
+			}
+		}
+	}
+
+	#summary(
+		state: AssignmentState,
+		marks: ReviewedMarks,
+		fresh: UnitSet,
+		previousOf: ReadonlyMap<RepoPath, DiffFile | undefined>
+	): UpdateSummary {
+		const previous = this.#input.previous;
+		let changed = 0;
+		let newToReview = NO_UNITS;
+		let newIgnored = NO_UNITS;
+		let matched = 0;
+		const seen = new Set<RepoPath>();
+		for (const file of this.#input.diff.files) {
+			const path = file.file.path;
+			const counts = freshCounts(state, file, fresh.files.get(path));
+			newToReview = addUnits(newToReview, counts.toReview);
+			newIgnored = addUnits(newIgnored, counts.ignored);
+			const before = previousOf.get(path);
+			const lost =
+				before === undefined ? 0 : before.unitCount - (this.#matched.get(before.file.path) ?? 0);
+			if (before !== undefined) seen.add(before.file.path);
+			if (before === undefined || counts.toReview + counts.ignored > 0 || lost > 0) changed += 1;
+		}
+		for (const count of this.#matched.values()) matched += count;
+		const gone = previous.diff.files.filter((f) => !seen.has(f.file.path)).length;
+		return {
+			filesChanged: fileCountOf(changed + gone),
+			filesGone: fileCountOf(gone),
+			newToReview,
+			newIgnored,
+			gone: unitCountOf(previous.diff.unitCount - matched),
+			reviewedBefore: unitSetSize(previous.marks),
+			reviewedKept: unitSetSize(marks)
+		};
+	}
+}
+
+/** Carries the previous version's state and marks over to the new diff (see the top of this file). */
+export function carryOver(input: CarryOverInput): CarriedOver {
+	return new CarryOver(input).run();
+}
+
+/** How many of a file's new units are to review, and how many a rule or pattern ignored. */
+function freshCounts(
+	state: AssignmentState,
+	file: DiffFile,
+	fresh: FileUnitSet | undefined
+): { readonly toReview: UnitCount; readonly ignored: UnitCount } {
+	if (fresh === undefined) return { toReview: NO_UNITS, ignored: NO_UNITS };
+	const assignment = fileAssignment(state, file);
+	if (fresh.kind === 'file' || assignment.kind === 'file') {
+		const ignored = assignment.kind === 'file' && assignment.assignment.bucket.kind === 'ignored';
+		return ignored
+			? { toReview: NO_UNITS, ignored: unitCountOf(1) }
+			: { toReview: unitCountOf(1), ignored: NO_UNITS };
+	}
+	let toReview = 0;
+	let ignored = 0;
+	for (const side of ['old', 'new'] as const) {
+		const lines = side === 'old' ? fresh.old : fresh.new;
+		for (const segment of sideMap(assignment, side).within(lines)) {
+			const size = segment.last - segment.first + 1;
+			if (segment.value.bucket.kind === 'ignored') ignored += size;
+			else toReview += size;
+		}
+	}
+	return { toReview: unitCountOf(toReview), ignored: unitCountOf(ignored) };
+}
+
+/**
+ * The units of each file of a diff that are new since its previous version and
+ * not ignored, for the file list's "new since version N"; files with none are
+ * left out.
+ */
+export function newToReviewByFile(
+	diff: Diff,
+	state: AssignmentState,
+	fresh: UnitSet
+): ReadonlyMap<RepoPath, UnitCount> {
+	const counts = new Map<RepoPath, UnitCount>();
+	for (const [path, units] of fresh.files) {
+		const file = diff.byPath.get(path);
+		if (file === undefined) continue;
+		const { toReview } = freshCounts(state, file, units);
+		if (toReview > 0) counts.set(path, toReview);
+	}
+	return counts;
+}
+
+function sideOf(line: DiffLine): Side {
+	return line.kind === 'deleted' ? 'old' : 'new';
+}
+
+function lineNumberOf(line: DiffLine): number {
+	switch (line.kind) {
+		case 'added':
+		case 'context':
+			return line.new;
+		case 'deleted':
+			return line.old;
+	}
+}
+
+/** Whether two file-level changes are exactly the same change. */
+function sameChange(a: FileDiff, b: FileDiff): boolean {
+	return (
+		a.status === b.status &&
+		a.content.kind === b.content.kind &&
+		sameVersion(a.old, b.old) &&
+		sameVersion(a.new, b.new)
+	);
+}
+
+function sameVersion(a: FileVersion | undefined, b: FileVersion | undefined): boolean {
+	if (a === undefined || b === undefined) return a === b;
+	return a.path === b.path && a.mode === b.mode && a.blob === b.blob;
+}

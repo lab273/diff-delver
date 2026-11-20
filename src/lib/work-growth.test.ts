@@ -17,6 +17,8 @@ const counter = await startCountingWork();
 const { runAtScale, syntheticDiff } = await import('../../tests/support/synthetic-diff.ts');
 const { assign, describeRejection } = await import('./core/diff/assign.ts');
 const { initialState } = await import('./core/diff/state.ts');
+const { updateAtScale } = await import('../../tests/support/update-scale.ts');
+const { carryOver } = await import('./core/update/carry-over.ts');
 
 /** Most the count may grow when the input grows four times. */
 const SIX = 6;
@@ -56,6 +58,24 @@ describe('the work the diff model does grows in proportion to its input', () => 
 		const small = await counter.count(() => runAtScale(500, () => 0));
 		const large = await counter.count(() => runAtScale(2_000, () => 0));
 		expect(large.result.unitCount).toBe(200_000);
+		expect(large.blocks / small.blocks).toBeLessThan(SIX);
+	});
+
+	it('carrying 2,000 files over is about four times 500', async () => {
+		const smallInput = updateAtScale(500);
+		const largeInput = updateAtScale(2_000);
+		const small = await counter.count(() => carryOver(smallInput).summary);
+		const large = await counter.count(() => carryOver(largeInput).summary);
+		expect(large.result.reviewedKept).toBe(100_000);
+		expect(large.blocks / small.blocks).toBeLessThan(SIX);
+	});
+
+	it('carrying one file of 40,000 changed lines over is about four times 10,000', async () => {
+		const smallInput = updateAtScale(1, 200);
+		const largeInput = updateAtScale(1, 800);
+		const small = await counter.count(() => carryOver(smallInput).summary);
+		const large = await counter.count(() => carryOver(largeInput).summary);
+		expect(large.result.reviewedKept).toBe(40_000);
 		expect(large.blocks / small.blocks).toBeLessThan(SIX);
 	});
 });
