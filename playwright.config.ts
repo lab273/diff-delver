@@ -1,7 +1,7 @@
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
-import { TIME_LIMITS } from './scripts/test-time-limits.ts';
+import { TIME_LIMITS, WAIT_HANG_TIMEOUTS } from './scripts/test-time-limits.ts';
 
 /**
  * Journeys run against one production build (`build/`, made by `vite build`),
@@ -32,13 +32,9 @@ const baseURL = `http://127.0.0.1:${port}`;
 
 // A journey is held to time guidance, which `pnpm verify` reports as a warning. The
 // timeout here is only the hang timeout, far above the guidance, so that a journey
-// that hangs fails instead of blocking the run (scripts/test-time-limits.ts).
+// that hangs fails instead of blocking the run. Its own waits, for an `expect` and
+// for the app to start, have hang timeouts too (scripts/test-time-limits.ts).
 const HANG_TIMEOUT_MS = TIME_LIMITS.journey.hangTimeout;
-
-// How long one `expect` keeps polling for its condition, such as an element
-// becoming visible. Playwright's default of 5 seconds is a timing limit a slow,
-// busy machine can reach with nothing wrong, so it is raised to a hang timeout too.
-const EXPECT_HANG_TIMEOUT_MS = 60_000;
 
 /**
  * What the journey browser runs with, so the same commit draws the same pixels on
@@ -67,7 +63,7 @@ export default defineConfig({
 	testDir: 'tests/journeys',
 	testMatch: '**/*.journey.ts',
 	timeout: HANG_TIMEOUT_MS,
-	expect: { timeout: EXPECT_HANG_TIMEOUT_MS },
+	expect: { timeout: WAIT_HANG_TIMEOUTS.expectPolling },
 	fullyParallel: true,
 	// A committed `.only` would silently skip every other journey, here as in CI.
 	forbidOnly: true,
@@ -115,6 +111,7 @@ export default defineConfig({
 		command: 'node build',
 		url: baseURL,
 		reuseExistingServer: false,
+		timeout: WAIT_HANG_TIMEOUTS.serverStart,
 		stdout: 'ignore',
 		stderr: 'pipe',
 		env: { HOST: '127.0.0.1', PORT: port, ORIGIN: baseURL, TZ: 'UTC' }
