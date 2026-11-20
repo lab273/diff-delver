@@ -25,8 +25,10 @@ cut or postponed.
 
 What this commits us to:
 
-1. **One step to start.** `npx diff-delver` in a repository opens the browser on
-   the current changes, with no arguments and no configuration. With an agent, the
+1. **One step to start.** One command in a repository opens the browser on the
+   current changes, with no arguments and no configuration. The package is not
+   published to npm, so that command runs diff delver straight from its GitHub
+   repository or from a local clone. With an agent, the
    user asks in their own words and gets a link back as the first thing.
 2. **Nothing to learn twice.** Where GitHub's diff view already has a convention
    (colours, the `+` button on a line, the tick on a file), we use it.
@@ -69,7 +71,8 @@ Three rules shape the data model and the agent interface:
 | Topic | Decision |
 |---|---|
 | Deployment | Local-first. One daemon on the reviewer's machine, no accounts. |
-| Stack | SvelteKit (Svelte 5, TypeScript, `adapter-node`), shipped as one npm package. |
+| Stack | SvelteKit (Svelte 5, TypeScript, `adapter-node`), as one package. |
+| Distribution | Not published to npm. It is run from the GitHub repository or a local clone. |
 | Sources in v1 | Local git, Jujutsu (jj), GitHub pull requests. |
 | Agent access | An MCP server plus an Agent Skill. Works with subscription models because the agent calls in; the server never calls an LLM. |
 | Agent loop | Live queue: reviewer requests wait for an attached agent. If none is attached, the request can be copied to the clipboard. |
@@ -143,8 +146,10 @@ This buys three things:
 
 - A snapshot is immutable. A working-tree review does not shift while files are
   edited underneath it.
-- One diff algorithm (`git diff --histogram -M`) for all sources, so line identity
-  is consistent.
+- One diff command for all sources, so line identity is consistent: git's
+  plumbing (`diff-tree`) with every option pinned (histogram algorithm, rename
+  and copy detection, full object ids), so the result does not depend on the
+  reviewer's git configuration.
 - Any file in either tree is readable, which is what makes exploring non-diff code
   work the same way everywhere, including for a PR with no local checkout.
 
@@ -211,7 +216,9 @@ Assignments are stored as line ranges, not as a row per line.
 - **Ignored** holds everything that is deliberately not reviewed. Each entry records
   who put it there and why: a built-in rule (lockfile, `linguist-generated` in
   `.gitattributes`, vendored path, minified file), a project pattern from
-  `.diff-delver.toml`, or the agent with a written reason.
+  `.diff-delver.toml`, or the agent with a written reason. `linguist-generated`
+  cannot be told from a path, so the server reads the attributes of the head tree
+  and passes the matching paths to the model.
 - **Uncategorised** is owned by the server. It holds whatever nobody has assigned.
   It is always visible in the UI when non-empty.
 
@@ -247,8 +254,10 @@ that cover nothing in particular go in a section of their own.
 The reviewer's toggle is then a pure view change:
 
 - **With their section**: slices appear where they were assigned.
-- **Separate**: every `test` and `snapshot` line is lifted into a `Tests` group,
-  sub-grouped by the section it came from.
+- **Separate**: every `test` and `snapshot` line that sits in a section is lifted
+  into a `Tests` group, sub-grouped by the section it came from. Test lines that
+  are ignored or not yet sorted stay where they are, so "not sorted yet" always
+  means the same thing.
 
 The underlying assignment does not change, and neither does review state.
 

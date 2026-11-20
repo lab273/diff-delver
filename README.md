@@ -2,7 +2,7 @@
 
 LLM-assisted diff organisation. An agent sorts your diff into logical sections and annotates it; you do the reviewing.
 
-**Status:** early build. The project skeleton and its checks are in place; no product features yet. The design is in [docs/DESIGN.md](docs/DESIGN.md).
+**Status:** early build. The project skeleton, its checks and the pure diff model are in place; nothing a reviewer can use yet. The design is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Developer guidance
 
@@ -63,6 +63,7 @@ cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
 | `scripts/verify.ts` | The `pnpm verify` runner. |
 | `scripts/capture-diff-fixtures.ts` | The `pnpm fixtures:capture` script. |
 | `.github/workflows/verify.yml` | CI: `pnpm verify` on every commit of every push to `main`. |
+| `.beads/` | The beads issue tracker's settings. The issue database itself is not in git; it syncs through `bd dolt push` and `bd dolt pull`. After cloning, `bd bootstrap` fetches it. |
 
 **Tiny-type files.** A tiny type and its parse function live in their own file
 named `<name>.tiny.ts` under `src/lib/core/`, for example `line-number.tiny.ts`.
@@ -74,9 +75,11 @@ Comments cannot switch lint rules off (`noInlineConfig`); fix the code instead.
 
 - **Straight to `main`.** No feature branches and no pull requests. Work lands as
   a series of small commits on `main`.
-- **No code review.** Contributors are trusted to produce high-quality software.
-  The safeguards are the ones in this guidance: types, journeys, real tests and
-  the per-commit check.
+- **Reviewed before it is pushed.** Work is done in packages: a handful of commits
+  with one purpose. When a package is finished and passes `pnpm verify`, a separate
+  review agent that did not write it reviews its commits against this guidance and
+  the design. Findings are fixed in further commits, each passing `pnpm verify`.
+  Only then is the package pushed. Nothing unreviewed reaches `origin`.
 - **Every commit stands alone.** Each commit compiles, passes formatting, linting
   and type checks, and passes the whole test suite. Checking out any commit on
   `main` gives working software. There are no "fix the build" or work-in-progress
@@ -92,10 +95,61 @@ Comments cannot switch lint rules off (`noInlineConfig`); fix the code instead.
 - **Speed is a feature of the suite.** A change that makes the suite slower needs
   the same justification as one that makes the product slower. The budgets are
   under [Testing](#testing).
+- **Not published to npm.** The package is private and stays that way. Never run
+  a publish command and never reserve the name on a registry.
+- **Work is tracked in beads.** See [Tracking work](#tracking-work).
 
 The repository is used with both git and jj, and jj does not run git hooks, so the
 check cannot rely on a pre-commit hook alone. `pnpm verify` and per-commit CI are
 the mechanism.
+
+### Tracking work
+
+Issues and tasks live in [beads](https://beads.gascity.com/) (`bd`), not in
+documents, code comments or an agent's memory. If work is owed, found, blocked or
+decided, it gets a bead.
+
+| Command | What it does |
+|---|---|
+| `bd ready` | What can be worked on now: open, with nothing blocking it |
+| `bd show <id>` | One issue, with its notes and dependencies |
+| `bd create "Title" -t task -p 2 -d "…"` | A new issue. Types include `task`, `bug`, `epic` and `decision`; add `--parent <epic>` and `--deps <id>` |
+| `bd update <id> --claim` | Take an issue and mark it in progress |
+| `bd note <id> "…"` | Add what was learned or decided |
+| `bd close <id> --reason "…"` | Finish it, naming the commits |
+| `bd dolt push` | Publish the issue data (see the rules below first) |
+
+How we use it:
+
+- One epic per build step in the design, plus one for process and tooling. Tasks
+  hang off an epic and depend on what must come first, so `bd ready` is the queue.
+- Claim an issue before starting it and close it with the commit ids when it is
+  done and pushed.
+- File what you find while working on something else as a new issue instead of
+  fixing it in passing or leaving a comment in the code.
+- A question only a person can answer gets the `needs-human` label.
+
+**Nothing personal or sensitive goes in a bead.** Issue data is public: it is
+pushed to `refs/dolt/data` on `origin`, and beads keeps the full history of every
+edit, so a later correction does not remove what was written.
+
+- No personal names, personal email addresses, usernames or home-directory paths.
+  Refer to roles: "the project owner", "the reviewer".
+- No secrets, tokens, keys or passwords, and nothing from a private repository or
+  a customer.
+- beads copies the git identity into every issue (`user.email` into `owner`,
+  `user.name` into `created_by`). Always run it with the agent identity:
+
+  ```
+  export BEADS_ACTOR=plog-agents GIT_AUTHOR_EMAIL=plog-agents@lab273.com
+  ```
+
+- Before `bd dolt push`, export the data (`bd export --all -o <file>`) and check
+  it for email addresses and names. If something personal has got in, do not
+  push; say so, because removing it means rebuilding the database.
+
+beads' usage metrics are switched off on the project's machines
+(`bd config set metrics.disabled true`).
 
 ### Tiny types
 
@@ -138,8 +192,8 @@ section, thread, message and request; `TreeId`, `BlobId`, `CommitId`; `RepoPath`
 - TypeScript `strict`, plus `noUncheckedIndexedAccess` and
   `exactOptionalPropertyTypes`. No `any`. No `!`. `as` is allowed only inside a
   tiny type's parse function.
-- One schema per boundary, written once with a schema library, and the static type
-  is inferred from it. The same schema validates an MCP tool's input and produces
+- One schema per boundary, written once with Zod, and the static type is inferred
+  from it. The same schema validates an MCP tool's input and produces
   the tool's published JSON schema.
 - Variants are discriminated unions: `SourceSpec`, `Bucket`, `ThreadKind`,
   `RequestKind`, `ReportEvent`. Every `switch` over one is exhaustive, enforced
@@ -241,6 +295,16 @@ The first principle is checked, not assumed.
 - **Each build step ends with a cold walkthrough.** Someone who has not used that
   step's features tries its journeys without help. Whatever they stumble on is
   fixed or cut before the next step starts.
+- **Every journey step has a committed screenshot.** Each step of a journey saves
+  a named screenshot into the repository, so the interface can be inspected
+  without running it and a change to it shows up as a changed image in the
+  commit. `pnpm verify` fails when a step no longer matches its image; a commit
+  that changes the interface regenerates the images it affects.
+- **Journeys are deterministic.** The same commit produces the same screenshots
+  on every run and every machine of the reference platform. What could vary is
+  fixed at its source, never masked or tolerated: fonts are bundled with the app,
+  the viewport, locale, timezone and colour scheme are set, animations are off,
+  and time, ids and fixture dates are supplied by the test.
 
 ### Tooling
 

@@ -31,3 +31,14 @@ coverage
 # OS and editors
 .DS_Store
 Thumbs.db
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*
+# Local database backups and locks; the data syncs through bd dolt push
+.beads/backup/
+.beads/*.lock
+.beads/last-touched

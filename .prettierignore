@@ -10,3 +10,6 @@ bun.lockb
 
 # Prose is written by hand, not reflowed by Prettier
 *.md
+
+# The issue tracker's own files
+/.beads/
