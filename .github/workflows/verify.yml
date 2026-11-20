@@ -1,0 +1,102 @@
+# Runs `pnpm verify` on every commit that reaches main, not only the newest one,
+# so a commit that fails on its own is found even when a later one repairs it.
+# See README, "How we work".
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.event.after || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  commits:
+    name: List the pushed commits
+    runs-on: ubuntu-latest
+    outputs:
+      commits: ${{ steps.list.outputs.commits }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: list
+        name: List commits
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after || github.sha }}
+        run: |
+          # A new branch, a manual run, or a force push whose old head is gone:
+          # check the head commit only.
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            commits="$AFTER"
+          else
+            commits="$(git rev-list --reverse "$BEFORE..$AFTER")"
+          fi
+          if [ -z "$commits" ]; then commits="$AFTER"; fi
+          echo "Commits to verify:"
+          echo "$commits"
+          echo "commits=$(echo "$commits" | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify ${{ matrix.commit }}
+    needs: commits
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        commit: ${{ fromJSON(needs.commits.outputs.commits) }}
+    env:
+      # CI machines are slower than the laptop the 90 second budget is set for.
+      VERIFY_BUDGET_SECONDS: 240
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.commit }}
+
+      # Reads the pnpm version from package.json "packageManager".
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Find the Playwright version
+        id: playwright
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Playwright browser
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium
+
+      - name: Install Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Chromium's system libraries
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - run: pnpm verify
+
+      - name: Keep the journey traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: journeys-${{ matrix.commit }}
+          path: test-results
+          if-no-files-found: ignore
+          retention-days: 7
