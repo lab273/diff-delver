@@ -56,4 +56,5 @@ export type {
 	Section
 } from '#lib/core/reports/report.ts';
 export { describeClosedReason } from '#lib/core/reports/describe-report.ts';
+export type { NextSource } from '#lib/core/reports/nothing-left.ts';
 export { randomIds, systemClock } from '../system.ts';

@@ -353,7 +353,7 @@ describe('the report service', () => {
 		service.close();
 	});
 
-	it('notices a change, ignores a false alarm, and closes the report once there is nothing left', async () => {
+	it('notices a change, ignores a false alarm, and says when nothing is left without closing the report', async () => {
 		const { repo, service } = await setUp();
 		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
 		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
@@ -369,8 +369,29 @@ describe('the report service', () => {
 			changed: true
 		});
 
-		await repo.commit('done');
-		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'source-empty' });
+		const committed = await repo.commit('Add the fourth line');
+		const check = value(await service.checkForChanges(id));
+		if (check.kind !== 'nothing-left') throw new Error(check.kind);
+		expect(check.reason).toMatch(
+			/have most likely been committed, in commit [0-9a-f]{7}, “Add the fourth line”. What you were reading is still shown/
+		);
+		expect(check.next).toEqual({
+			spec: { kind: 'commit', revision: committed.commit },
+			offer: `Review commit ${committed.commit.slice(0, 7)}, “Add the fourth line”`
+		});
+		// Asking again gives the same answer, and the report is still open and readable.
+		expect(value(await service.checkForChanges(id))).toEqual(check);
+		expect(value(service.list())[0]).toMatchObject({ kind: 'report', state: { kind: 'open' } });
+		expect(value(await service.load(id)).diff.files).toHaveLength(3);
+		value(service.upsertSections(id, [{ id: 'app', title: 'App' }]));
+
+		// Opening the source again, with nothing to review, closes it and says where the changes went.
+		const reopened = value(await service.open(repo.dir, spec('working-tree')));
+		expect(reopened).toMatchObject({
+			kind: 'nothing-to-review',
+			closed: id,
+			next: { spec: { kind: 'commit', revision: committed.commit } }
+		});
 		expect(value(service.list())[0]).toMatchObject({
 			kind: 'report',
 			state: { kind: 'closed', reason: 'source-empty' }
@@ -391,6 +412,51 @@ describe('the report service', () => {
 		await repo.commit('done');
 		const outcome = value(await service.open(repo.dir, spec('working-tree')));
 		expect(outcome).toMatchObject({ kind: 'nothing-to-review', closed: id });
+		service.close();
+	});
+
+	it('offers the commits made since when the changes went into several', async () => {
+		const { repo, service } = await setUp();
+		await repo.git('add', '--all');
+		const id = created(value(await service.open(repo.dir, spec('staged'))));
+		const base = value(await service.load(id)).revision.baseCommit;
+		await repo.git('commit', '--quiet', '-m', 'The app', '--', 'src/app.ts');
+		const last = await repo.commit('The rest');
+		const check = value(await service.checkForChanges(id));
+		if (check.kind !== 'nothing-left' || base === undefined) throw new Error(check.kind);
+		expect(check.reason).toMatch(
+			/staged changes have most likely been committed, in the commits made since/
+		);
+		expect(check.next).toEqual({
+			spec: { kind: 'range', from: base, to: last.commit },
+			offer: `Review the commits made since, ${base.slice(0, 7)} to ${last.commit.slice(0, 7)}`
+		});
+		service.close();
+	});
+
+	it('offers nothing, and says so, when the changes were discarded or it cannot be told where they went', async () => {
+		const { repo, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await repo.git('stash', '--include-untracked', '--quiet');
+		const discarded = value(await service.checkForChanges(id));
+		if (discarded.kind !== 'nothing-left') throw new Error(discarded.kind);
+		expect(discarded.reason).toMatch(
+			/nothing has been committed, so they were most likely discarded/
+		);
+		expect(discarded.next).toBeUndefined();
+
+		// A branch with no history in common: where the changes went cannot be told.
+		await repo.git('checkout', '--quiet', '--orphan', 'elsewhere');
+		await repo.commit('Elsewhere');
+		const unknown = value(await service.checkForChanges(id));
+		if (unknown.kind !== 'nothing-left') throw new Error(unknown.kind);
+		expect(unknown.reason).toMatch(/may have been committed, merged or discarded/);
+		expect(unknown.next).toBeUndefined();
+		expect(value(await service.open(repo.dir, spec('working-tree')))).toMatchObject({
+			kind: 'nothing-to-review',
+			closed: id,
+			next: undefined
+		});
 		service.close();
 	});
 

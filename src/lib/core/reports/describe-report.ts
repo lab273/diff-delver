@@ -35,7 +35,7 @@ export function describeClosedReason(reason: ClosedReason): ReviewerMessage {
 			return reviewerMessage('You closed this report.');
 		case 'source-empty':
 			return reviewerMessage(
-				'Closed by itself: there was nothing left to review, because the changes were committed, merged or discarded.'
+				'Closed when its source was opened again with nothing left to review: the changes had been committed, merged or discarded.'
 			);
 		case 'snapshot-gone':
 			return reviewerMessage(

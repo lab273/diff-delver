@@ -4,6 +4,9 @@ import { parseAbsolutePath } from '../absolute-path.tiny.ts';
 import { describeClosedReason, diffSizeOf, repositoryLabel } from './describe-report.ts';
 import { applySectionRequests, describeSectionProblem } from './section-requests.ts';
 import type { Section } from './report.ts';
+import { nothingLeft } from './nothing-left.ts';
+import { parseCommitId } from '../commit-id.tiny.ts';
+import { parseGitSourceSpec, type GitSourceSpec } from '../sources/git-source-spec.ts';
 
 function sections(result: ReturnType<typeof applySectionRequests>): readonly Section[] {
 	if (!result.ok) throw new Error(result.error.map(describeSectionProblem).join(' '));
@@ -90,5 +93,38 @@ describe('reports in plain words', () => {
 			{ path: 'b.ts', change: 'modified', hunks: [{ gap: 0, lines: ['-', '-', '+', ' '] }] }
 		]);
 		expect(diffSizeOf(d)).toEqual({ files: 2, addedLines: 1, deletedLines: 2 });
+	});
+});
+
+describe('nothing left to review', () => {
+	const spec = (text: string): GitSourceSpec => {
+		const parsed = parseGitSourceSpec(text);
+		if (!parsed.ok) throw new Error(text);
+		return parsed.value;
+	};
+
+	it('says a commit or a range has nothing left, and offers nothing instead', () => {
+		expect(nothingLeft(spec('feature-x'), { kind: 'unknown' })).toEqual({
+			reason:
+				'Nothing is left to review here: feature-x now names a commit that changes no files. What you were reading is still shown.',
+			next: undefined
+		});
+		expect(nothingLeft(spec('main...refs/heads/feature-X'), { kind: 'unknown' }).reason).toMatch(
+			/feature-X has no changes compared with main any more, most likely because it was merged/
+		);
+	});
+
+	it('names the commit without a subject when git gave none', () => {
+		const commit = parseCommitId('1a2b3c4d'.repeat(5));
+		if (!commit.ok) throw new Error('commit');
+		const left = nothingLeft(spec('staged'), {
+			kind: 'one',
+			commit: commit.value,
+			subject: undefined
+		});
+		expect(left.next?.offer).toBe('Review commit 1a2b3c4');
+		expect(left.reason).toMatch(
+			/staged changes have most likely been committed, in commit 1a2b3c4\./
+		);
 	});
 });

@@ -14,8 +14,9 @@
  * - Diffs are cached in memory per snapshot, which never changes.
  *
  * A report is the same source followed over time (`report-identity.ts`). It is
- * open until the reviewer closes it or its source has nothing left to review;
- * opening an open report's source resumes it, and opening a source whose last
+ * open until the reviewer closes it, or its source is opened again with nothing
+ * left to review; it never closes under the person reading it (DESIGN 6.1).
+ * Opening an open report's source resumes it, and opening a source whose last
  * report is closed starts a new one.
  */
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
@@ -34,6 +35,12 @@ import {
 	reportTitle,
 	repositoryLabel
 } from '#lib/core/reports/describe-report.ts';
+import {
+	nothingLeft,
+	type CommitsSince,
+	type NextSource,
+	type NothingLeft
+} from '#lib/core/reports/nothing-left.ts';
 import { gitReportIdentity } from '#lib/core/reports/report-identity.ts';
 import type { Report, ReportState, Revision, Section } from '#lib/core/reports/report.ts';
 import { applySectionRequests, type SectionRequest } from '#lib/core/reports/section-requests.ts';
@@ -90,6 +97,7 @@ import {
 	sightingsIn
 } from '../db/tables/unreferenced-snapshots.ts';
 import {
+	commitsSince,
 	locateRepository,
 	snapshotGitSource,
 	sourceIdentity,
@@ -182,8 +190,16 @@ export type OpenOutcome =
 			readonly reason: ReviewerMessage;
 			/** Files that could not be included, which may be why it looks empty. */
 			readonly leftOut: readonly ReviewerMessage[];
-			/** The open report this closed, because its source is now empty. */
+			/**
+			 * The source's open report this closed: because the source has nothing
+			 * left to review, or because its saved snapshot was gone.
+			 */
 			readonly closed: ReportId | undefined;
+			/**
+			 * Where the closed report's changes most likely went, such as the commit
+			 * they were committed in, to offer instead; undefined when it cannot be told.
+			 */
+			readonly next: NextSource | undefined;
 	  };
 
 /** What the no-argument start did (DESIGN 3): opened the likely source, or needs a choice. */
@@ -230,14 +246,22 @@ export interface MarkOutcome {
 	readonly units: UnitCount;
 }
 
-/** Whether a report's source has moved on since its current revision (DESIGN 6.2). */
-export type ChangeCheck =
+/** Whether an open report's source has moved on since its current revision. */
+type SourceCheck =
 	/** Nothing changed, or the fingerprint raised a false alarm. */
 	| { readonly kind: 'unchanged' }
 	/** The trees differ: an update is waiting. */
 	| { readonly kind: 'changed' }
-	/** The source has nothing left to review, so the report has been closed. */
-	| { readonly kind: 'source-empty' }
+	/**
+	 * The source has nothing left to review (DESIGN 6.1). The report stays open
+	 * and readable: the page says so, keeps showing what was being read, and
+	 * offers to close it or to open `next`.
+	 */
+	| ({ readonly kind: 'nothing-left' } & NothingLeft);
+
+/** Whether a report's source has moved on since its current revision (DESIGN 6.2, 6.1). */
+export type ChangeCheck =
+	| SourceCheck
 	/** The report is closed; closed reports are not followed. */
 	| { readonly kind: 'report-closed' };
 
@@ -279,7 +303,7 @@ interface Stored {
 interface Remembered {
 	readonly revision: Revision['id'];
 	readonly fingerprint: SourceIdentity;
-	readonly outcome: 'unchanged' | 'changed';
+	readonly outcome: SourceCheck;
 }
 
 function worktreeOf(repo: LocalRepository): AbsolutePath {
@@ -624,7 +648,9 @@ export class ReportService {
 	 * Whether the report's source has moved on since its current revision
 	 * (DESIGN 6.2). The fingerprint is checked first; only when it differs is a
 	 * snapshot taken, and its trees compared, before saying yes. A source with
-	 * nothing left to review closes the report. The repository is only read.
+	 * nothing left to review is reported with where its changes most likely
+	 * went; the report is not closed, so it never closes under its reader
+	 * (DESIGN 6.1). The repository is only read.
 	 */
 	async checkForChanges(id: ReportId): Promise<Result<ChangeCheck, ReportError>> {
 		const found = this.#db.read((q) => current(q, id));
@@ -736,6 +762,11 @@ export class ReportService {
 		});
 	}
 
+	/**
+	 * Resumes the source's open report; when its source has nothing left to
+	 * review, closes it instead (DESIGN 6.1: it closes when its source is next
+	 * opened and has nothing to review) and says so.
+	 */
 	async #resume(found: Current, repo: LocalRepository): Promise<Result<OpenOutcome, ReportError>> {
 		const check = await this.#check(found, repo);
 		if (!check.ok) return check;
@@ -749,15 +780,32 @@ export class ReportService {
 				return resumed(false);
 			case 'changed':
 				return resumed(true);
-			case 'report-closed':
-			case 'source-empty':
+			case 'nothing-left': {
+				const { next } = check.value;
+				const closed = this.#db.write((q) =>
+					andThen(reportById(q, found.report.id), (report): Result<void, ReportError> => {
+						if (report?.state.kind === 'open') {
+							setReportState(
+								q,
+								found.report.id,
+								{ kind: 'closed', reason: 'source-empty' },
+								this.#clock.now()
+							);
+						}
+						return ok(undefined);
+					})
+				);
+				if (!closed.ok) return closed;
+				this.#checks.delete(found.report.id);
 				return ok({
 					kind: 'nothing-to-review',
 					source: reportTitle(found.report.source),
 					reason: describeNothingToReview(found.report.source.spec),
 					leftOut: [],
-					closed: found.report.id
+					closed: found.report.id,
+					next
 				});
+			}
 		}
 	}
 
@@ -784,7 +832,8 @@ export class ReportService {
 					source: describeGitSource(spec),
 					reason: describeNothingToReview(spec),
 					leftOut: taken.value.leftOut,
-					closed: replacing
+					closed: replacing,
+					next: undefined
 				})
 			);
 		}
@@ -849,7 +898,7 @@ export class ReportService {
 		});
 	}
 
-	async #check(found: Current, repo: LocalRepository): Promise<Result<ChangeCheck, ReportError>> {
+	async #check(found: Current, repo: LocalRepository): Promise<Result<SourceCheck, ReportError>> {
 		const { report, revision } = found;
 		const spec = report.source.spec;
 		const fingerprint = await sourceIdentity(repo, spec);
@@ -857,35 +906,33 @@ export class ReportService {
 		if (fingerprint.value === revision.fingerprint) return ok({ kind: 'unchanged' });
 		const remembered = this.#checks.get(report.id);
 		if (remembered?.revision === revision.id && remembered.fingerprint === fingerprint.value) {
-			return ok({ kind: remembered.outcome });
+			return ok(remembered.outcome);
 		}
 		const probe = await snapshotGitSource(this.#dataDirectory, repo, spec, this.#ids.snapshotId());
 		if (!probe.ok) return probe;
 		const { snapshot } = probe.value;
-		let outcome: 'unchanged' | 'changed' | 'source-empty';
-		if (snapshot.base === revision.baseTree && snapshot.head === revision.headTree) {
-			outcome = 'unchanged';
-		} else {
+		let empty = false;
+		let outcome: SourceCheck = { kind: 'unchanged' };
+		if (snapshot.base !== revision.baseTree || snapshot.head !== revision.headTree) {
 			const files = await readSnapshotDiff(snapshot);
 			if (!files.ok) {
 				await deleteSnapshot(snapshot.store, snapshot.id);
 				return files;
 			}
-			outcome = files.value.length === 0 ? 'source-empty' : 'changed';
+			empty = files.value.length === 0;
+			outcome = { kind: 'changed' };
 		}
 		// Applying an update is a later step; until then the probe is not kept.
 		await deleteSnapshot(snapshot.store, snapshot.id);
-		if (outcome === 'source-empty') {
-			const closed = this.#db.write((q) => {
-				setReportState(q, report.id, { kind: 'closed', reason: 'source-empty' }, this.#clock.now());
-				return ok(undefined);
-			});
-			if (!closed.ok) return closed;
-			this.#checks.delete(report.id);
-			return ok({ kind: 'source-empty' });
+		if (empty) {
+			const uncommitted = spec.kind === 'working-tree' || spec.kind === 'staged';
+			const since: CommitsSince = uncommitted
+				? await commitsSince(repo, revision.baseCommit)
+				: { kind: 'unknown' };
+			outcome = { kind: 'nothing-left', ...nothingLeft(spec, since) };
 		}
 		this.#checks.set(report.id, { revision: revision.id, fingerprint: fingerprint.value, outcome });
-		return ok({ kind: outcome });
+		return ok(outcome);
 	}
 
 	/**
