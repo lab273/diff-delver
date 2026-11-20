@@ -35,9 +35,10 @@ function plural(count: number, one: string, many: string): string {
 
 /** What the files' changes became, as the first sentence of the update's message. */
 export function describeChangedFiles(summary: UpdateSummary): ReviewerMessage {
+	// No change of the diff is new or gone: the files changed only in lines it shows as they were.
 	if (summary.filesChanged === 0) {
 		return reviewerMessage(
-			'Nothing in the diff changed: the files that changed are outside what it compares.'
+			'Nothing new to review: the files changed, but none of the changes this diff shows did.'
 		);
 	}
 	const parts = [

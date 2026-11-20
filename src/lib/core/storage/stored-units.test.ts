@@ -10,7 +10,7 @@ import type { Diff } from '../diff/diff.ts';
 import { initialState, type AssignmentState } from '../diff/state.ts';
 import { parseLineRange } from '../line-range.ts';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
-import { NO_MARKS, sameReviewedMarks } from '../review/reviewed-marks.ts';
+import { fileUnitReviewed, NO_MARKS, sameReviewedMarks } from '../review/reviewed-marks.ts';
 import {
 	assignmentRowsOf,
 	assignmentStateFromRows,
@@ -192,5 +192,64 @@ describe('rows that do not fit the diff', () => {
 			{ path: a, units: lines('new', 3, 3) }
 		]);
 		expect(twice.ok ? undefined : twice.error.problem).toBe('overlap');
+	});
+});
+
+describe('a file-level unit beside lines', () => {
+	// run.sh: made executable and edited, -2 and +2 beside its file-level unit.
+	const withMode = syntheticDiff([
+		{
+			path: 'run.sh',
+			change: 'modified',
+			executable: true,
+			hunks: [{ gap: 0, lines: [' ', '-', '+', ' '] }]
+		}
+	]);
+	const run = path('run.sh');
+	const sorted = assign(withMode, initialState(withMode), [
+		{ file: 'run.sh', section: 'scripts' }
+	]).state;
+	const rows = assignmentRowsOf(withMode, sorted);
+
+	it('is a row of its own, read back with the lines', () => {
+		expect(rows.map((r) => r.units.kind)).toEqual(['file', 'lines', 'lines']);
+		const back = assignmentStateFromRows(withMode, rows);
+		expect(back.ok && sameAssignmentState(withMode, sorted, back.value)).toBe(true);
+	});
+
+	it('is completed as not sorted yet when the rows predate it, keeping the lines as they were', () => {
+		const before = rows.filter((r) => r.units.kind !== 'file');
+		const back = assignmentStateFromRows(withMode, before);
+		if (!back.ok) throw new Error(back.error.problem);
+		const file = back.value.files.get(run);
+		expect(file?.file).toEqual({ bucket: { kind: 'uncategorised' }, role: 'code' });
+		expect(file?.new.get(2)?.bucket).toEqual({ kind: 'section', section: 'scripts' });
+		// Its marks need no completing: a unit with no mark is not reviewed.
+		const marks = reviewedMarksFromRows(withMode, [{ path: run, units: lines('new', 2, 2) }]);
+		expect(marks.ok && fileUnitReviewed(marks.value, run)).toBe(false);
+	});
+
+	it('is refused twice over, in the assignments or in the marks', () => {
+		const twice = assignmentStateFromRows(
+			withMode,
+			[...rows, rows[0] ?? rows[1]].filter((r) => r !== undefined)
+		);
+		expect(twice.ok ? undefined : twice.error.problem).toBe('overlap');
+		const marked = reviewedMarksFromRows(withMode, [
+			{ path: run, units: { kind: 'file' } },
+			{ path: run, units: { kind: 'file' } }
+		]);
+		expect(marked.ok ? undefined : marked.error.problem).toBe('overlap');
+	});
+
+	it('round-trips marks on it with or without its lines', () => {
+		const marks = reviewedMarksFromRows(withMode, [
+			{ path: run, units: { kind: 'file' } },
+			{ path: run, units: lines('old', 2, 2) }
+		]);
+		if (!marks.ok) throw new Error(marks.error.problem);
+		expect(fileUnitReviewed(marks.value, run)).toBe(true);
+		const back = reviewedMarksFromRows(withMode, reviewedRowsOf(marks.value));
+		expect(back.ok && sameReviewedMarks(marks.value, back.value)).toBe(true);
 	});
 });

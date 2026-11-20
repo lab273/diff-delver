@@ -118,7 +118,7 @@ export function updateAtScale(fileCount: number, hunks = 2): CarryOverInput {
 	const marked = new Map<RepoPath, FileReviewed>();
 	for (const [i, file] of before.files.entries()) {
 		if (i % 2 === 0) {
-			marked.set(file.file.path, { kind: 'lines', old: file.changed.old, new: file.changed.new });
+			marked.set(file.file.path, { old: file.changed.old, new: file.changed.new, file: false });
 		}
 	}
 	return {

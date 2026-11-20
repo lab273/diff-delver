@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { settableClock } from '#lib/core/clock.ts';
 import { fileAssignment, sideMap } from '#lib/core/diff/state.ts';
-import { linesInSet } from '#lib/core/diff/unit-set.ts';
+import { fileUnitInSet, linesInSet } from '#lib/core/diff/unit-set.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
@@ -22,6 +22,7 @@ import { value } from '../../../../tests/support/git-source-helpers.ts';
 import { at } from '../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../tests/support/reviewer-git.ts';
 import { DATABASE_FILE } from '../db/index.ts';
+import { describeUpdate } from '#lib/core/update/update-summary.ts';
 import {
 	describeReportError,
 	ReportService,
@@ -128,9 +129,7 @@ function fresh(page: LoadedReport, file: string, side: Side): readonly number[] 
 function bucket(page: LoadedReport, file: string, side: Side, line: number): string {
 	const f = page.diff.byPath.get(path(file));
 	if (f === undefined) throw new Error(file);
-	const assignment = fileAssignment(page.state, f);
-	if (assignment.kind !== 'lines') return 'file';
-	const b = sideMap(assignment, side).get(line)?.bucket;
+	const b = sideMap(fileAssignment(page.state, f), side).get(line)?.bucket;
 	switch (b?.kind) {
 		case 'section':
 			return b.section;
@@ -280,10 +279,13 @@ describe('updating a diff', () => {
 		const updated = value(await service.update(id));
 		expect(updated).toMatchObject({
 			kind: 'updated',
-			summary: { filesChanged: 0, newToReview: 0, gone: 0 }
+			// The rename itself is new to review; every line carried over.
+			summary: { filesChanged: 1, newToReview: 1, gone: 0 }
 		});
 		const page = value(await service.load(id));
 		expect(page.diff.byPath.get(path('src/main.ts'))?.file.status).toBe('renamed');
+		expect(fileUnitInSet(page.fresh, path('src/main.ts'))).toBe(true);
+		expect(fileUnitInSet(page.reviewed, path('src/main.ts'))).toBe(false);
 		expect(marked(page, 'src/main.ts', 'new')).toEqual([6, 11]);
 		expect(marked(page, 'src/main.ts', 'old')).toEqual([10]);
 		expect(bucket(page, 'src/main.ts', 'new', 6)).toBe('app');
@@ -360,6 +362,67 @@ describe('updating a diff', () => {
 		expect(outcome.error).toMatchObject({ kind: 'StoredStateMismatch', what: 'reviewed marks' });
 		expect(everyRow(data)).toEqual(rows);
 		expect(await snapshotCount(data)).toBe(1);
+		service.close();
+	});
+
+	it('gives a file made executable since the previous version a new change, and says so', async () => {
+		const { repo, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await sortAndMark(service, id);
+		await repo.setExecutable('src/app.ts', true);
+		const checked = value(await service.checkForChanges(id));
+		expect(checked).toEqual({ kind: 'changed', files: 1 });
+		const updated = value(await service.update(id));
+		expect(updated).toMatchObject({
+			kind: 'updated',
+			summary: { filesChanged: 1, newToReview: 1, gone: 0, reviewedBefore: 6, reviewedKept: 6 }
+		});
+		const page = value(await service.load(id));
+		const app = path('src/app.ts');
+		expect(fileUnitInSet(page.fresh, app)).toBe(true);
+		expect(fileUnitInSet(page.reviewed, app)).toBe(false);
+		expect(marked(page, 'src/app.ts', 'new')).toEqual([6, 11]);
+		expect(page.update === undefined ? '' : describeUpdate(page.update.summary)).toMatch(
+			/^1 file changed: 1 change new to review\./
+		);
+		service.close();
+	});
+
+	it('reads a database written before files with lines had a file-level unit', async () => {
+		const { repo, data, service } = await setUp();
+		await repo.setExecutable('src/app.ts', true);
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await sortAndMark(service, id);
+		const app = path('src/app.ts');
+		// The previous code stored a file with lines as line rows only, and no tick on the file itself.
+		const raw = new DatabaseSync(join(data, DATABASE_FILE));
+		const where = "revision_id = 'v_1' AND path = CAST('src/app.ts' AS BLOB) AND side = 'file'";
+		expect(raw.prepare(`DELETE FROM assignments WHERE ${where}`).run().changes).toBe(1);
+		expect(raw.prepare(`DELETE FROM reviewed_marks WHERE ${where}`).run().changes).toBe(1);
+		raw.close();
+
+		const page = value(await service.load(id));
+		const file = page.diff.byPath.get(app);
+		if (file === undefined) throw new Error('src/app.ts');
+		// The file-level unit is completed as not sorted yet and not reviewed; its lines keep their state.
+		expect(fileAssignment(page.state, file).file).toEqual({
+			bucket: { kind: 'uncategorised' },
+			role: 'code'
+		});
+		expect(bucket(page, 'src/app.ts', 'new', 6)).toBe('app');
+		expect(fileUnitInSet(page.reviewed, app)).toBe(false);
+		expect(marked(page, 'src/app.ts', 'new')).toEqual([6, 11]);
+		// It and the third line of src/new.ts.
+		expect(page.progress.uncategorised).toBe(2);
+		// Sorting and ticking it works, and is stored as a row of its own.
+		value(await service.assign(id, [{ file: 'src/app.ts', lines: 'file', section: 'app' }]));
+		value(await service.markReviewed(id, { kind: 'file', path: app }, true));
+		const again = value(await service.load(id));
+		expect(fileAssignment(again.state, file).file?.bucket).toEqual({
+			kind: 'section',
+			section: 'app'
+		});
+		expect(fileUnitInSet(again.reviewed, app)).toBe(true);
 		service.close();
 	});
 });

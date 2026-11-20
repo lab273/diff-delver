@@ -57,7 +57,7 @@ describe('renderAgentFile', () => {
 
 	it('says how a file without lines changed and that it is assigned whole', () => {
 		expect(renderAgentFile(file('renamed-after.txt'))).toBe(
-			'## renamed-after.txt\nrenamed from renamed-before.txt (100% similar), no changed lines: assign the whole file'
+			'## renamed-after.txt\nrenamed from renamed-before.txt (100% similar), no changed lines: assign the whole file\nfile renamed from renamed-before.txt'
 		);
 		expect(renderAgentFile(file('mode.sh')).split('\n')[1]).toBe(
 			'modified, mode 100644 → 100755, no changed lines: assign the whole file'
@@ -70,7 +70,7 @@ describe('renderAgentFile', () => {
 		);
 		expect(renderAgentFile(file('becomes-link.txt')).split('\n').slice(1, 3)).toEqual([
 			'changed from file to symlink',
-			'@@ h1 -1,1 +0,0 @@'
+			'file became a link'
 		]);
 	});
 
@@ -113,7 +113,7 @@ function requestsFromText(text: string): readonly AssignRequest[] {
 		const [heading = '', ...rest] = block.split('\n');
 		const quoted = heading.slice(3);
 		const path = quoted.startsWith('"') ? String(JSON.parse(quoted)) : quoted;
-		const labels = rest.map((l) => /^([+-]\d+) /.exec(l)?.[1]).filter((l) => l !== undefined);
+		const labels = rest.map((l) => /^(file|[+-]\d+) /.exec(l)?.[1]).filter((l) => l !== undefined);
 		const hunks = rest.map((l) => /^@@ (h\d+) /.exec(l)?.[1]).filter((h) => h !== undefined);
 		if (labels.length > 0)
 			requests.push({ file: path, lines: labels.join(','), section: 'by-line' });
@@ -133,8 +133,9 @@ describe('the agent text round trip', () => {
 		const lineUnits = outcome.accepted
 			.filter((a) => requests[a.index]?.section === 'by-line')
 			.reduce((n, a) => n + a.units, 0);
-		expect(byLine).toBe(d.files.filter((f) => f.hasLines).length);
-		expect(lineUnits).toBe(d.files.reduce((n, f) => n + (f.hasLines ? f.unitCount : 0), 0));
+		// Every file has a label: its changed lines, its file-level unit, or both.
+		expect(byLine).toBe(d.files.length);
+		expect(lineUnits).toBe(d.unitCount);
 	};
 
 	it('takes exactly each hunk when given the spans from its header, context and all', () => {
@@ -162,7 +163,7 @@ describe('the agent text round trip', () => {
 				}
 				const outcome = assign(d, initialState(d), requests);
 				expect(outcome.rejected).toEqual([]);
-				const lineUnits = d.files.reduce((n, f) => n + (f.hasLines ? f.unitCount : 0), 0);
+				const lineUnits = d.files.reduce((n, f) => n + f.changed.old.size + f.changed.new.size, 0);
 				expect(outcome.accepted.reduce((n, a) => n + a.units, 0)).toBe(lineUnits);
 			}),
 			{ numRuns: 60 }

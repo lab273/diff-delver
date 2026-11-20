@@ -89,6 +89,13 @@ export { parseDiffTreeOutput } from './diff-tree-output.ts';
 // Change units.
 export type { ChangeRun, Diff, DiffFile, DuplicateFilePath, SideLines } from './diff.ts';
 export { changedLines, makeDiff } from './diff.ts';
+export type { FileItselfChange } from './file-unit.ts';
+export {
+	describeFileChange,
+	describeFileUnit,
+	fileItselfChanges,
+	hasFileUnit
+} from './file-unit.ts';
 
 // Buckets, roles and the rules that guess them.
 export type { Bucket, IgnoredBy } from './bucket.ts';
@@ -137,7 +144,8 @@ export {
 	parseAssignRequest
 } from './assign.ts';
 export type { MalformedLines, MalformedLinesProblem } from './line-spec.ts';
-export { parseLineSpec } from './line-spec.ts';
+export type { UnitSpec } from './line-spec.ts';
+export { FILE_UNIT_LABEL, formatUnitSpec, parseLineSpec, parseUnitSpec } from './line-spec.ts';
 export { countUncategorised } from './totals.ts';
 
 // Coverage.

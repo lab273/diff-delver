@@ -10,7 +10,7 @@
  */
 import {
 	EMPTY_UNIT_SET,
-	fileLinesOf,
+	fileUnitsOf,
 	fileUnitInSet,
 	linesInSet,
 	sameUnitSet,
@@ -21,7 +21,7 @@ import type { RangeSet } from '../range-set.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import type { Side } from '../side.tiny.ts';
 
-/** What of one file is marked: some of its lines, or its single file-level unit. */
+/** What of one file is marked: some of its lines, its file-level unit, or both. */
 export type FileReviewed = FileUnitSet;
 
 /** The marked units; only files with something marked have an entry. */
@@ -35,14 +35,18 @@ export function reviewedLines(marks: ReviewedMarks, path: RepoPath, side: Side):
 	return linesInSet(marks, path, side);
 }
 
-/** Whether the file-level unit of a file without lines is marked. */
+/** Whether the file-level unit of a file is marked. */
 export function fileUnitReviewed(marks: ReviewedMarks, path: RepoPath): boolean {
 	return fileUnitInSet(marks, path);
 }
 
-/** A file's marks from its marked lines, or no entry when there are none. */
-export function fileReviewedOf(old: RangeSet, now: RangeSet): FileReviewed | undefined {
-	return fileLinesOf(old, now);
+/** A file's marks from its marked units, or no entry when there are none. */
+export function fileReviewedOf(
+	old: RangeSet,
+	now: RangeSet,
+	file = false
+): FileReviewed | undefined {
+	return fileUnitsOf(old, now, file);
 }
 
 /** Whether two sets of marks mark exactly the same units. */

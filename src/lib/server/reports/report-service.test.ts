@@ -282,7 +282,7 @@ describe('the report service', () => {
 			lastActivityAt: 1_700_000_001_000,
 			progress: { counted: 4, reviewed: 3, ignored: 1, uncategorised: 0 }
 		});
-		expect(page.state.files.get(path('src/app.ts'))).toMatchObject({ kind: 'lines' });
+		expect(page.state.files.get(path('src/app.ts'))).toMatchObject({ file: undefined });
 		expect(describeState(page)).toContain('src/app.ts: new 4..4 app code');
 		expect(
 			[...page.progress.groups.values()].map((g) => [g.key.kind, g.tally.reviewedSlices])

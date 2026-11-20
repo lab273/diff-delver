@@ -15,6 +15,17 @@
  *      }
  * ```
  *
+ * A file with a file-level unit (DESIGN 4.1: a change to its name, mode or kind,
+ * or a change with no lines) has a line for it before its hunks, labelled `file`,
+ * the label `assign` accepts for it in `lines`:
+ *
+ * ```
+ * ## bin/deploy.sh
+ * modified, mode 100644 → 100755
+ * file made executable
+ * @@ h1 -3,1 +3,1 @@
+ * ```
+ *
  * A path is shown in its escaped form (`path-bytes.ts`): bytes that are not UTF-8
  * as `\xHH`. A path whose shown form holds a quote, a backslash, a control
  * character, a line or paragraph separator or surrounding spaces is written as a
@@ -29,6 +40,8 @@ import type { RepoPath } from '../repo-path.tiny.ts';
 import { joinTextForAgent, textForAgent, type TextForAgent } from '../text-for-agent.tiny.ts';
 import type { DiffFile } from './diff.ts';
 import type { DiffLine, FileDiff, Hunk, HunkSpan } from './file-diff.ts';
+import { describeFileUnit } from './file-unit.ts';
+import { FILE_UNIT_LABEL } from './line-spec.ts';
 
 export interface AgentTextOptions {
 	/** Longer lines are cut, with a note of how much was left out. */
@@ -59,6 +72,9 @@ export function renderAgentFile(file: DiffFile, options: AgentTextOptions = {}):
 	const max = options.maxLineLength ?? DEFAULT_MAX_LINE_LENGTH;
 	const out: string[] = [`## ${agentPath(file.file.path)}`, describeChange(file)];
 	const width = labelWidth(file);
+	if (file.hasFileUnit) {
+		out.push(`${FILE_UNIT_LABEL.padEnd(width)} ${describeFileUnit(file.file)}`);
+	}
 	for (const hunk of file.hunks.values()) {
 		out.push(hunkHeader(hunk));
 		for (const line of hunk.lines) {
@@ -94,7 +110,8 @@ function label(line: DiffLine): string {
 function labelWidth(file: DiffFile): number {
 	const old = file.changed.old.max ?? 0;
 	const now = file.changed.new.max ?? 0;
-	return String(Math.max(old, now)).length + 1;
+	const lines = String(Math.max(old, now)).length + 1;
+	return file.hasFileUnit ? Math.max(lines, FILE_UNIT_LABEL.length) : lines;
 }
 
 function span(sign: '-' | '+', s: HunkSpan): string {

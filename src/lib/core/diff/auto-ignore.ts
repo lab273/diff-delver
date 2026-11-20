@@ -74,17 +74,15 @@ export function autoIgnore(
 
 function ignoreUncategorised(assignment: FileAssignment, by: IgnoredBy): FileAssignment {
 	const bucket = ignoredBucket(by);
-	switch (assignment.kind) {
-		case 'file':
-			return assignment.assignment.bucket.kind === 'uncategorised'
-				? { kind: 'file', assignment: { ...assignment.assignment, bucket } }
-				: assignment;
-		case 'lines': {
-			const update = (map: RangeMap<Assignment>): RangeMap<Assignment> =>
-				map.update(map.domain, (a) => (a.bucket.kind === 'uncategorised' ? { ...a, bucket } : a));
-			return { kind: 'lines', old: update(assignment.old), new: update(assignment.new) };
-		}
-	}
+	const ignore = (a: Assignment): Assignment =>
+		a.bucket.kind === 'uncategorised' ? { ...a, bucket } : a;
+	const update = (map: RangeMap<Assignment>): RangeMap<Assignment> =>
+		map.update(map.domain, ignore);
+	return {
+		old: update(assignment.old),
+		new: update(assignment.new),
+		file: assignment.file === undefined ? undefined : ignore(assignment.file)
+	};
 }
 
 function uncategorisedUnits(state: AssignmentState, file: DiffFile): UnitCount {

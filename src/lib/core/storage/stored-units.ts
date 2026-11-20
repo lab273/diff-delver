@@ -6,6 +6,12 @@
  * read back into a state, checking them against the diff they belong to, so a
  * damaged or mismatched table is an error rather than a wrong review.
  *
+ * A database written before files with lines could also have a file-level unit
+ * (a rename, mode or kind change beside edits) has no row for that unit. Reading
+ * such a file completes it: its file-level unit is not sorted yet, with the role
+ * its path suggests, and not reviewed, as a new unit would be. Nothing else is
+ * completed: a file with no lines and no row is still damaged.
+ *
  * Round trip: for any state reachable from `initialState` by any sequence of
  * `assign` calls, `assignmentStateFromRows(diff, assignmentRowsOf(diff, state))`
  * is an equal state; likewise for reviewed marks.
@@ -28,9 +34,11 @@ import {
 	type FileAssignment
 } from '../diff/state.ts';
 import type { ReviewedMarks } from '../review/reviewed-marks.ts';
-import { fileLinesOf, type FileUnitSet, type UnitSet } from '../diff/unit-set.ts';
+import { fileUnitsOf, type FileUnitSet, type UnitSet } from '../diff/unit-set.ts';
+import { UNCATEGORISED } from '../diff/bucket.ts';
+import { guessRole } from '../diff/path-rules.ts';
 
-/** Some units of one file: a line range on one side, or its file-level unit. */
+/** Some units of one file: a line range on one side, or its file-level unit. A file may have both kinds of row. */
 export type StoredUnits =
 	{ readonly kind: 'lines'; readonly range: LineRange } | { readonly kind: 'file' };
 
@@ -175,19 +183,24 @@ function fileAssignmentFromRows(
 	file: DiffFile,
 	rows: readonly AssignmentRow[]
 ): Result<FileAssignment, 'overlap' | 'units-differ'> {
-	if (!file.hasLines) {
-		const [only, ...rest] = rows;
-		if (only === undefined || only.units.kind !== 'file' || rest.length > 0) {
-			return err(rows.length > 1 ? 'overlap' : 'units-differ');
-		}
-		return ok({ kind: 'file', assignment: only.assignment });
-	}
 	const segments: Record<Side, Segment<Assignment>[]> = { old: [], new: [] };
+	const fileRows: Assignment[] = [];
 	for (const row of rows) {
-		if (row.units.kind !== 'lines') return err('units-differ');
+		if (row.units.kind === 'file') {
+			fileRows.push(row.assignment);
+			continue;
+		}
 		const { side, first, last } = row.units.range;
 		segments[side].push({ first, last, value: row.assignment });
 	}
+	if (fileRows.length > 1) return err('overlap');
+	const [stored] = fileRows;
+	if (stored !== undefined && !file.hasFileUnit) return err('units-differ');
+	// See the top of this file: a file-level unit beside lines, from before there were any.
+	if (stored === undefined && file.hasFileUnit && !file.hasLines) return err('units-differ');
+	const own =
+		stored ??
+		(file.hasFileUnit ? { bucket: UNCATEGORISED, role: guessRole(file.file.path) } : undefined);
 	const old = disjoint(segments.old);
 	const now = disjoint(segments.new);
 	if (old === undefined || now === undefined) return err('overlap');
@@ -196,7 +209,7 @@ function fileAssignmentFromRows(
 	if (!oldMap.domain.equals(file.changed.old) || !newMap.domain.equals(file.changed.new)) {
 		return err('units-differ');
 	}
-	return ok({ kind: 'lines', old: oldMap, new: newMap });
+	return ok({ old: oldMap, new: newMap, file: own });
 }
 
 /** The rows of every file with marks, or only of `paths`. */
@@ -212,15 +225,9 @@ export function unitRowsOf(set: UnitSet, paths?: ReadonlySet<RepoPath>): readonl
 	const rows: UnitRow[] = [];
 	for (const [path, file] of set.files) {
 		if (paths !== undefined && !paths.has(path)) continue;
-		switch (file.kind) {
-			case 'file':
-				rows.push({ path, units: { kind: 'file' } });
-				break;
-			case 'lines':
-				for (const range of [...lineRangesOf('old', file.old), ...lineRangesOf('new', file.new)]) {
-					rows.push({ path, units: { kind: 'lines', range } });
-				}
-				break;
+		if (file.file) rows.push({ path, units: { kind: 'file' } });
+		for (const range of [...lineRangesOf('old', file.old), ...lineRangesOf('new', file.new)]) {
+			rows.push({ path, units: { kind: 'lines', range } });
 		}
 	}
 	return rows;
@@ -246,17 +253,14 @@ export function unitSetFromRows(
 	for (const [path, own] of groupByPath(rows)) {
 		const file = diff.byPath.get(path);
 		if (file === undefined) return mismatch(path, 'not-in-diff');
-		if (!file.hasLines) {
-			if (own.length > 1) return mismatch(path, 'overlap');
-			if (own[0]?.units.kind !== 'file') return mismatch(path, 'units-differ');
-			files.set(path, { kind: 'file' });
-			continue;
-		}
 		const intervals: Record<Side, Interval[]> = { old: [], new: [] };
+		let fileRows = 0;
 		for (const row of own) {
-			if (row.units.kind !== 'lines') return mismatch(path, 'units-differ');
-			intervals[row.units.range.side].push(row.units.range);
+			if (row.units.kind === 'file') fileRows += 1;
+			else intervals[row.units.range.side].push(row.units.range);
 		}
+		if (fileRows > 1) return mismatch(path, 'overlap');
+		if (fileRows > 0 && !file.hasFileUnit) return mismatch(path, 'units-differ');
 		if (disjoint(intervals.old) === undefined || disjoint(intervals.new) === undefined) {
 			return mismatch(path, 'overlap');
 		}
@@ -265,16 +269,16 @@ export function unitSetFromRows(
 		if (!old.subtract(file.changed.old).isEmpty || !now.subtract(file.changed.new).isEmpty) {
 			return mismatch(path, 'units-differ');
 		}
-		const entry = fileLinesOf(old, now);
+		const entry = fileUnitsOf(old, now, fileRows > 0);
 		if (entry !== undefined) files.set(path, entry);
 	}
 	return ok({ files });
 }
 
 function sameFileAssignment(a: FileAssignment, b: FileAssignment): boolean {
-	if (a.kind === 'file' || b.kind === 'file') {
-		return a.kind === 'file' && b.kind === 'file' && sameAssignment(a.assignment, b.assignment);
-	}
+	if (a.file === undefined || b.file === undefined) {
+		if (a.file !== b.file) return false;
+	} else if (!sameAssignment(a.file, b.file)) return false;
 	return (
 		sameSegments(a.old.segments, b.old.segments) && sameSegments(a.new.segments, b.new.segments)
 	);

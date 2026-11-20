@@ -10,17 +10,11 @@ export function forEachRun(
 ): void {
 	for (const file of diff.files) {
 		const assignment = fileAssignment(state, file);
-		switch (assignment.kind) {
-			case 'file':
-				visit(assignment.assignment, ONE_UNIT);
-				break;
-			case 'lines':
-				for (const map of [assignment.old, assignment.new]) {
-					for (const segment of map.segments) {
-						visit(segment.value, unitCountOf(segment.last - segment.first + 1));
-					}
-				}
-				break;
+		if (assignment.file !== undefined) visit(assignment.file, ONE_UNIT);
+		for (const map of [assignment.old, assignment.new]) {
+			for (const segment of map.segments) {
+				visit(segment.value, unitCountOf(segment.last - segment.first + 1));
+			}
 		}
 	}
 }

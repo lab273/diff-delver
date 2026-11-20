@@ -155,7 +155,6 @@ function facts(diff: Diff, state: AssignmentState, marks: UnitSet, fresh: UnitSe
 	for (const file of diff.files) {
 		const path = file.file.path;
 		const assignment = fileAssignment(state, file);
-		if (assignment.kind === 'file') continue;
 		if (file.file.content.kind !== 'text') continue;
 		for (const hunk of file.file.content.hunks) {
 			for (const line of hunk.lines) {
@@ -225,11 +224,9 @@ describe('carry-over invariants', () => {
 				expect(reviewedMarksFromRows(after, reviewedRowsOf(carried.marks)).ok).toBe(true);
 				expect(reviewedMarksFromRows(after, reviewedRowsOf(carried.fresh)).ok).toBe(true);
 				for (const [path, file] of carried.marks.files) {
-					if (file.kind === 'file') expect(fileUnitInSet(carried.fresh, path)).toBe(false);
-					else {
-						expect(file.old.intersect(linesInSet(carried.fresh, path, 'old')).isEmpty).toBe(true);
-						expect(file.new.intersect(linesInSet(carried.fresh, path, 'new')).isEmpty).toBe(true);
-					}
+					if (file.file) expect(fileUnitInSet(carried.fresh, path)).toBe(false);
+					expect(file.old.intersect(linesInSet(carried.fresh, path, 'old')).isEmpty).toBe(true);
+					expect(file.new.intersect(linesInSet(carried.fresh, path, 'new')).isEmpty).toBe(true);
 				}
 
 				const old = facts(before, state, marks, { files: new Map() });

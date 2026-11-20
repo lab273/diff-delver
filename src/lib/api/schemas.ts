@@ -222,9 +222,8 @@ const IgnoreReasonSchema = z.discriminatedUnion('kind', [
 
 const ListedFileSchema = z.object({
 	path: escapedPath,
-	status: z.enum(['added', 'deleted', 'modified', 'renamed', 'copied', 'type-changed']),
-	from: escapedPath.nullable(),
-	content: z.enum(['text', 'binary', 'submodule']),
+	/** How it changed, in plain words: "changed", "renamed from src/old.ts", "changed, made executable". */
+	change: message,
 	added: lineCount,
 	removed: lineCount,
 	ignored: z.array(IgnoreReasonSchema),

@@ -55,8 +55,7 @@ function section(id: string): SectionId {
 function at(s: AssignmentState, path: string, side?: Side, line?: number): Assignment | undefined {
 	const file = [...s.files.entries()].find(([p]) => p === path)?.[1];
 	if (file === undefined) return undefined;
-	if (file.kind === 'file') return file.assignment;
-	if (side === undefined || line === undefined) return undefined;
+	if (side === undefined || line === undefined) return file.file;
 	return (side === 'old' ? file.old : file.new).get(line);
 }
 
@@ -290,7 +289,7 @@ describe('assign with ranges that take nothing', () => {
 			ranges: [{ side: 'old', first: 4, last: 4 }]
 		});
 		expect(item?.rangesTakingNothing && describeRangesTakingNothing(item.rangesTakingNothing)).toBe(
-			"src/app.ts: -4 holds no changed line and took nothing; the item's other ranges were assigned. Nothing more needs doing unless you meant other lines; use the +/- labels from get_diff to name them."
+			'src/app.ts: -4 holds no changed line and took nothing; the rest of the item was assigned. Nothing more needs doing unless you meant other lines; use the +/- labels from get_diff to name them.'
 		);
 	});
 
@@ -557,8 +556,8 @@ describe('assign rejections', () => {
 
 /** Every unit of a file, as keys `old:3`, `new:4` or `file`. */
 function unitKeys(file: DiffFile): readonly string[] {
-	if (!file.hasLines) return ['file'];
 	return [
+		...(file.hasFileUnit ? ['file'] : []),
 		...[...file.changed.old.values()].map((n) => `old:${String(n)}`),
 		...[...file.changed.new.values()].map((n) => `new:${String(n)}`)
 	];
@@ -566,9 +565,9 @@ function unitKeys(file: DiffFile): readonly string[] {
 
 function assignmentOf(s: AssignmentState, file: DiffFile, key: string): Assignment | undefined {
 	const assignment = s.files.get(file.file.path);
-	if (assignment?.kind !== 'lines') return assignment?.assignment;
+	if (key === 'file') return assignment?.file;
 	const [side, line] = key.split(':');
-	return (side === 'old' ? assignment.old : assignment.new).get(Number(line));
+	return (side === 'old' ? assignment?.old : assignment?.new)?.get(Number(line));
 }
 
 const scenario = arbitraryAssignScenario;
@@ -611,14 +610,12 @@ describe('assign properties', () => {
 				for (const file of d.files) {
 					const assignment = s.files.get(file.file.path);
 					expect(assignment).toBeDefined();
-					if (assignment?.kind === 'lines') {
-						expect(file.hasLines).toBe(true);
+					if (assignment !== undefined) {
 						expect(assignment.old.domain.equals(file.changed.old)).toBe(true);
 						expect(assignment.new.domain.equals(file.changed.new)).toBe(true);
+						expect(assignment.file !== undefined).toBe(file.hasFileUnit);
 						total += assignment.old.size + assignment.new.size;
-					} else if (assignment?.kind === 'file') {
-						expect(file.hasLines).toBe(false);
-						total += 1;
+						if (assignment.file !== undefined) total += 1;
 					}
 				}
 				expect(total).toBe(d.unitCount);

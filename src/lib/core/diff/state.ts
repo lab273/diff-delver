@@ -22,14 +22,16 @@ export function sameAssignment(a: Assignment, b: Assignment): boolean {
 	return a.role === b.role && sameBucket(a.bucket, b.bucket);
 }
 
-/** The assignments of one file: per line and side, or of its single file-level unit. */
-export type FileAssignment =
-	| {
-			readonly kind: 'lines';
-			readonly old: RangeMap<Assignment>;
-			readonly new: RangeMap<Assignment>;
-	  }
-	| { readonly kind: 'file'; readonly assignment: Assignment };
+/**
+ * The assignments of one file: per line and side, and of its file-level unit
+ * when it has one. A file without lines has empty line maps.
+ */
+export interface FileAssignment {
+	readonly old: RangeMap<Assignment>;
+	readonly new: RangeMap<Assignment>;
+	/** Present exactly when the file has a file-level unit. */
+	readonly file: Assignment | undefined;
+}
 
 export interface AssignmentState {
 	readonly files: ReadonlyMap<RepoPath, FileAssignment>;
@@ -52,13 +54,11 @@ export function initialState(
 }
 
 function uniformAssignment(file: DiffFile, assignment: Assignment): FileAssignment {
-	return file.hasLines
-		? {
-				kind: 'lines',
-				old: RangeMap.uniform(file.changed.old, assignment, sameAssignment),
-				new: RangeMap.uniform(file.changed.new, assignment, sameAssignment)
-			}
-		: { kind: 'file', assignment };
+	return {
+		old: RangeMap.uniform(file.changed.old, assignment, sameAssignment),
+		new: RangeMap.uniform(file.changed.new, assignment, sameAssignment),
+		file: file.hasFileUnit ? assignment : undefined
+	};
 }
 
 /** A run of units in one file that share an assignment. */
@@ -77,21 +77,20 @@ export function unitsIn(units: AssignedUnits): UnitCount {
 }
 
 /**
- * Every unit of a file grouped into runs that share an assignment: old-side lines
- * first, then new-side lines, each in order. A file missing from the state (which
- * a state built for this diff never has) reads as uncategorised code.
+ * Every unit of a file grouped into runs that share an assignment: its
+ * file-level unit first, when it has one, then old-side lines, then new-side
+ * lines, each in order. A file missing from the state (which a state built for
+ * this diff never has) reads as uncategorised code.
  */
 export function assignedUnits(state: AssignmentState, file: DiffFile): readonly AssignedUnits[] {
 	const assignment = fileAssignment(state, file);
-	switch (assignment.kind) {
-		case 'file':
-			return [{ kind: 'file', assignment: assignment.assignment }];
-		case 'lines':
-			return [
-				...sideRuns('old', assignment.old.segments),
-				...sideRuns('new', assignment.new.segments)
-			];
-	}
+	const own: AssignedUnits[] =
+		assignment.file === undefined ? [] : [{ kind: 'file', assignment: assignment.file }];
+	return [
+		...own,
+		...sideRuns('old', assignment.old.segments),
+		...sideRuns('new', assignment.new.segments)
+	];
 }
 
 function sideRuns(
@@ -113,11 +112,8 @@ export function fileAssignment(state: AssignmentState, file: DiffFile): FileAssi
 	);
 }
 
-/** The side map of a lines assignment. */
-export function sideMap(
-	assignment: FileAssignment & { kind: 'lines' },
-	side: Side
-): RangeMap<Assignment> {
+/** The line assignments of one side of a file. */
+export function sideMap(assignment: FileAssignment, side: Side): RangeMap<Assignment> {
 	switch (side) {
 		case 'old':
 			return assignment.old;

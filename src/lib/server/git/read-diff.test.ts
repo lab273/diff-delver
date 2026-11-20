@@ -178,7 +178,7 @@ describe('readDiff', () => {
 		expect(outcome.rejected).toEqual([]);
 		const bucketOf = (path: RepoPath): string => {
 			const file = outcome.state.files.get(path);
-			const bucket = file?.kind === 'lines' ? file.new.get(2)?.bucket : undefined;
+			const bucket = file?.new.get(2)?.bucket;
 			return bucket?.kind === 'section' ? bucket.section : String(bucket?.kind);
 		};
 		expect(files.map((f) => bucketOf(f.path))).toEqual([

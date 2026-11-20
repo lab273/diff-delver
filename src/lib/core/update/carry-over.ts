@@ -30,9 +30,13 @@
  * not sorted yet, with the role its path suggests, not reviewed, and then the
  * built-in rules and patterns ignore what they cover, as in a first version.
  *
- * A file-level unit (a pure rename, a mode change, a binary or empty file, a
- * submodule) keeps its state when the file's change is exactly the same change:
- * the same status, and the same path, mode and object on each side.
+ * A file-level unit (`file-unit.ts`: a change to the file's name, mode or kind,
+ * or the whole change of a file with no lines) keeps its state when the file at
+ * the same path had one and it stands for the same change: the same status, and
+ * the same path and mode on each side; and, for a file with no lines, whose unit
+ * stands for its content too, the same object on each side. So a file made
+ * executable since the previous version has its file-level unit new, however
+ * its lines carried over.
  *
  * When in doubt it leaves a line unreviewed: a false "reviewed" hides code from
  * the reviewer, a false "new" costs them a second look. So a line that moved
@@ -46,8 +50,8 @@
  * Work is in proportion to the number of change lines, with a binary search
  * per line.
  */
-import type { Diff, DiffFile } from '../diff/diff.ts';
-import type { DiffLine, FileDiff, FileVersion } from '../diff/file-diff.ts';
+import type { Diff, DiffFile, SideLines } from '../diff/diff.ts';
+import type { DiffLine, FileVersion } from '../diff/file-diff.ts';
 import { autoIgnore, type AutoIgnoreOptions } from '../diff/auto-ignore.ts';
 import type { ProjectRoleRule } from '../diff/path-rules.ts';
 import { RangeMap, type Segment } from '../range-map.ts';
@@ -64,7 +68,7 @@ import {
 	type FileAssignment
 } from '../diff/state.ts';
 import {
-	fileLinesOf,
+	fileUnitsOf,
 	fileUnitInSet,
 	linesInSet,
 	unitSetSize,
@@ -187,10 +191,13 @@ class CarryOver {
 			const path = file.file.path;
 			const previous = this.#previousFile(file);
 			previousOf.set(path, previous);
-			const done = file.hasLines ? this.#lines(file) : this.#fileUnit(file);
-			files.set(path, done.assignment);
-			if (done.reviewed !== undefined) marks.set(path, done.reviewed);
-			if (done.fresh !== undefined) fresh.set(path, done.fresh);
+			const lines = this.#lines(file);
+			const own = file.hasFileUnit ? this.#fileUnit(file) : undefined;
+			files.set(path, { old: lines.old, new: lines.new, file: own?.assignment });
+			const reviewed = fileUnitsOf(lines.reviewed.old, lines.reviewed.new, own?.reviewed ?? false);
+			if (reviewed !== undefined) marks.set(path, reviewed);
+			const isNew = fileUnitsOf(lines.fresh.old, lines.fresh.new, own?.fresh ?? false);
+			if (isNew !== undefined) fresh.set(path, isNew);
 		}
 		const sorted = autoIgnore(this.#input.diff, { files }, this.#input.autoIgnore);
 		const freshSet: UnitSet = { files: fresh };
@@ -226,37 +233,35 @@ class CarryOver {
 		this.#matched.set(path, (this.#matched.get(path) ?? 0) + units);
 	}
 
-	#fileUnit(file: DiffFile): {
-		assignment: FileAssignment;
-		reviewed: FileUnitSet | undefined;
-		fresh: FileUnitSet | undefined;
-	} {
+	/** The file-level unit of a file that has one: its assignment, and whether it is reviewed or new. */
+	#fileUnit(file: DiffFile): { assignment: Assignment; reviewed: boolean; fresh: boolean } {
 		const path = file.file.path;
 		const previous = this.#input.previous.diff.byPath.get(path);
-		if (previous !== undefined && !previous.hasLines && sameChange(previous.file, file.file)) {
+		const before =
+			previous === undefined || !sameFileUnit(previous, file)
+				? undefined
+				: fileAssignment(this.#input.previous.state, previous).file;
+		if (previous !== undefined && before !== undefined) {
 			this.#count(previous, 1);
-			const before = fileAssignment(this.#input.previous.state, previous);
-			const assignment = before.kind === 'file' ? before : fileAssignment(this.#initial, file);
 			return {
-				assignment,
-				reviewed: fileUnitInSet(this.#input.previous.marks, path) ? { kind: 'file' } : undefined,
-				fresh: undefined
+				assignment: before,
+				reviewed: fileUnitInSet(this.#input.previous.marks, path),
+				fresh: false
 			};
 		}
-		return {
-			assignment: fileAssignment(this.#initial, file),
-			reviewed: undefined,
-			fresh: { kind: 'file' }
-		};
+		const initial = fileAssignment(this.#initial, file).file;
+		if (initial === undefined) throw new Error('A file with a file-level unit has its assignment.');
+		return { assignment: initial, reviewed: false, fresh: true };
 	}
 
+	/** The lines of a file: their assignments, and which are reviewed and which new. */
 	#lines(file: DiffFile): {
-		assignment: FileAssignment;
-		reviewed: FileUnitSet | undefined;
-		fresh: FileUnitSet | undefined;
+		old: RangeMap<Assignment>;
+		new: RangeMap<Assignment>;
+		reviewed: SideLines;
+		fresh: SideLines;
 	} {
 		const initial = fileAssignment(this.#initial, file);
-		if (initial.kind !== 'lines') throw new Error('A file with lines has a lines assignment.');
 		const sides: Record<Side, SideResult> = { old: newSide(), new: newSide() };
 		const content = file.file.content;
 		if (content.kind === 'text') {
@@ -271,21 +276,17 @@ class CarryOver {
 				this.#run(file, run, initial, sides);
 			}
 		}
-		const assignment: FileAssignment = {
-			kind: 'lines',
-			old: RangeMap.fromSegments(sides.old.assignments.segments, sameAssignment),
-			new: RangeMap.fromSegments(sides.new.assignments.segments, sameAssignment)
-		};
 		return {
-			assignment,
-			reviewed: fileLinesOf(
-				RangeSet.fromNumbers(sides.old.reviewed),
-				RangeSet.fromNumbers(sides.new.reviewed)
-			),
-			fresh: fileLinesOf(
-				RangeSet.fromNumbers(sides.old.fresh),
-				RangeSet.fromNumbers(sides.new.fresh)
-			)
+			old: RangeMap.fromSegments(sides.old.assignments.segments, sameAssignment),
+			new: RangeMap.fromSegments(sides.new.assignments.segments, sameAssignment),
+			reviewed: {
+				old: RangeSet.fromNumbers(sides.old.reviewed),
+				new: RangeSet.fromNumbers(sides.new.reviewed)
+			},
+			fresh: {
+				old: RangeSet.fromNumbers(sides.old.fresh),
+				new: RangeSet.fromNumbers(sides.new.fresh)
+			}
 		};
 	}
 
@@ -293,7 +294,7 @@ class CarryOver {
 	#run(
 		file: DiffFile,
 		run: readonly DiffLine[],
-		initial: FileAssignment & { kind: 'lines' },
+		initial: FileAssignment,
 		sides: Record<Side, SideResult>
 	): void {
 		if (run.length === 0) return;
@@ -310,8 +311,7 @@ class CarryOver {
 			const result = sides[side];
 			if (candidate !== undefined && (!candidate.weak || anchored[side])) {
 				const before = fileAssignment(this.#input.previous.state, candidate.previous);
-				const value =
-					before.kind === 'lines' ? sideMap(before, side).get(candidate.line) : undefined;
+				const value = sideMap(before, side).get(candidate.line);
 				if (value !== undefined) {
 					this.#count(candidate.previous, 1);
 					result.assignments.add(number, value);
@@ -423,14 +423,12 @@ function freshCounts(
 ): { readonly toReview: UnitCount; readonly ignored: UnitCount } {
 	if (fresh === undefined) return { toReview: NO_UNITS, ignored: NO_UNITS };
 	const assignment = fileAssignment(state, file);
-	if (fresh.kind === 'file' || assignment.kind === 'file') {
-		const ignored = assignment.kind === 'file' && assignment.assignment.bucket.kind === 'ignored';
-		return ignored
-			? { toReview: NO_UNITS, ignored: unitCountOf(1) }
-			: { toReview: unitCountOf(1), ignored: NO_UNITS };
-	}
 	let toReview = 0;
 	let ignored = 0;
+	if (fresh.file && assignment.file !== undefined) {
+		if (assignment.file.bucket.kind === 'ignored') ignored += 1;
+		else toReview += 1;
+	}
 	for (const side of ['old', 'new'] as const) {
 		const lines = side === 'old' ? fresh.old : fresh.new;
 		for (const segment of sideMap(assignment, side).within(lines)) {
@@ -456,17 +454,18 @@ function lineNumberOf(line: DiffLine): number {
 	}
 }
 
-/** Whether two file-level changes are exactly the same change. */
-function sameChange(a: FileDiff, b: FileDiff): boolean {
-	return (
-		a.status === b.status &&
-		a.content.kind === b.content.kind &&
-		sameVersion(a.old, b.old) &&
-		sameVersion(a.new, b.new)
-	);
-}
-
-function sameVersion(a: FileVersion | undefined, b: FileVersion | undefined): boolean {
-	if (a === undefined || b === undefined) return a === b;
-	return a.path === b.path && a.mode === b.mode && a.blob === b.blob;
+/**
+ * Whether a file's file-level unit stands for the same change as the previous
+ * version's file at its path (see the top of this file).
+ */
+function sameFileUnit(previous: DiffFile, now: DiffFile): boolean {
+	if (!previous.hasFileUnit) return false;
+	const a = previous.file;
+	const b = now.file;
+	if (a.status !== b.status || a.content.kind !== b.content.kind) return false;
+	const sameSide = (x: FileVersion | undefined, y: FileVersion | undefined): boolean => {
+		if (x === undefined || y === undefined) return x === y;
+		return x.path === y.path && x.mode === y.mode && (now.hasLines || x.blob === y.blob);
+	};
+	return sameSide(a.old, b.old) && sameSide(a.new, b.new);
 }

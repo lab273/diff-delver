@@ -10,7 +10,7 @@
 	import { goto, invalidate } from '$app/navigation';
 	import { tick } from 'svelte';
 	import { describeApiError } from '#lib/api/client.ts';
-	import type { ChangeCheckResponse, ListedFileView, NextSourceOffer } from '#lib/api/schemas.ts';
+	import type { ChangeCheckResponse, NextSourceOffer } from '#lib/api/schemas.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
@@ -134,34 +134,6 @@
 		});
 	}
 
-	function change(file: ListedFileView): string {
-		switch (file.status) {
-			case 'added':
-				return 'added';
-			case 'deleted':
-				return 'deleted';
-			case 'modified':
-				return 'changed';
-			case 'renamed':
-				return file.from === null ? 'renamed' : `renamed from ${file.from}`;
-			case 'copied':
-				return file.from === null ? 'copied' : `copied from ${file.from}`;
-			case 'type-changed':
-				return 'changed kind';
-		}
-	}
-
-	function content(file: ListedFileView): string | undefined {
-		switch (file.content) {
-			case 'text':
-				return undefined;
-			case 'binary':
-				return 'binary file';
-			case 'submodule':
-				return 'submodule';
-		}
-	}
-
 	function fileCount(count: number): string {
 		return count === 1 ? '1 file' : `${String(count)} files`;
 	}
@@ -227,7 +199,7 @@
 			<p>
 				What you see here is how they were before.
 				{check.files === 0
-					? 'The changes are outside what this diff compares, so updating changes nothing you can see here.'
+					? 'None of the changes this diff shows are different, so updating brings nothing new to review.'
 					: `Update to see the ${fileCount(check.files)} that changed as they are now. What you marked as reviewed stays marked on the lines that did not change.`}
 			</p>
 			{#snippet actions()}
@@ -314,9 +286,7 @@
 				{#each files as file (file.path)}
 					<li>
 						<span class="path">{file.path}</span>
-						<span class="change">
-							{change(file)}{content(file) === undefined ? '' : `, ${content(file) ?? ''}`}
-						</span>
+						<span class="change">{file.change}</span>
 						{#if file.newChanges > 0}
 							<span class="new">{newChanges(file.newChanges, summary.version)}</span>
 						{/if}

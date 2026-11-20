@@ -16,6 +16,7 @@ import { groupOf, type GroupKey, type ViewKind } from '../diff/slices.ts';
 import { assignedUnits, type AssignmentState } from '../diff/state.ts';
 import {
 	fileReviewedOf,
+	fileUnitReviewed,
 	reviewedLines,
 	type FileReviewed,
 	type ReviewedMarks
@@ -58,11 +59,12 @@ export interface Marked {
 	readonly units: UnitCount;
 }
 
-/** The units of one file a target covers: some lines per side, or its file-level unit. */
-type Covered =
-	| { readonly kind: 'lines'; readonly old: RangeSet; readonly new: RangeSet }
-	| { readonly kind: 'file' }
-	| { readonly kind: 'none' };
+/** The units of one file a target covers: some lines per side, its file-level unit, or nothing. */
+interface Covered {
+	readonly old: RangeSet;
+	readonly new: RangeSet;
+	readonly file: boolean;
+}
 
 function coveredIn(
 	file: DiffFile,
@@ -73,28 +75,20 @@ function coveredIn(
 	const wanted = group === undefined ? undefined : groupKeyId(group);
 	const inTarget = (units: ReturnType<typeof assignedUnits>[number]): boolean =>
 		wanted === undefined || groupKeyId(groupOf(view, units.assignment)) === wanted;
-	if (!file.hasLines) {
-		return assignedUnits(state, file).some(inTarget) ? { kind: 'file' } : { kind: 'none' };
-	}
 	const old: Interval[] = [];
 	const now: Interval[] = [];
+	let whole = false;
 	for (const units of assignedUnits(state, file)) {
-		if (units.kind !== 'lines' || !inTarget(units)) continue;
-		(units.range.side === 'old' ? old : now).push(units.range);
+		if (!inTarget(units)) continue;
+		if (units.kind === 'file') whole = true;
+		else (units.range.side === 'old' ? old : now).push(units.range);
 	}
-	if (old.length === 0 && now.length === 0) return { kind: 'none' };
-	return { kind: 'lines', old: RangeSet.fromIntervals(old), new: RangeSet.fromIntervals(now) };
+	return { old: RangeSet.fromIntervals(old), new: RangeSet.fromIntervals(now), file: whole };
 }
 
 function sizeOf(covered: Covered): UnitCount {
-	switch (covered.kind) {
-		case 'lines':
-			return unitCountOf(covered.old.size + covered.new.size);
-		case 'file':
-			return ONE_UNIT;
-		case 'none':
-			return NO_UNITS;
-	}
+	const lines = unitCountOf(covered.old.size + covered.new.size);
+	return covered.file ? addUnits(lines, ONE_UNIT) : lines;
 }
 
 function applied(
@@ -103,20 +97,12 @@ function applied(
 	covered: Covered,
 	reviewed: boolean
 ): FileReviewed | undefined {
-	const current = marks.files.get(path);
-	switch (covered.kind) {
-		case 'none':
-			return current;
-		case 'file':
-			return reviewed ? { kind: 'file' } : undefined;
-		case 'lines': {
-			const change = (side: 'old' | 'new', lines: RangeSet): RangeSet => {
-				const before = reviewedLines(marks, path, side);
-				return reviewed ? before.union(lines) : before.subtract(lines);
-			};
-			return fileReviewedOf(change('old', covered.old), change('new', covered.new));
-		}
-	}
+	const change = (side: 'old' | 'new', lines: RangeSet): RangeSet => {
+		const before = reviewedLines(marks, path, side);
+		return reviewed ? before.union(lines) : before.subtract(lines);
+	};
+	const file = covered.file ? reviewed : fileUnitReviewed(marks, path);
+	return fileReviewedOf(change('old', covered.old), change('new', covered.new), file);
 }
 
 /**
@@ -146,7 +132,7 @@ export function markReviewed(
 		case 'group':
 			for (const file of diff.files) {
 				const covered = coveredIn(file, state, view, target.group);
-				if (covered.kind !== 'none') coverage.push({ file, covered });
+				if (sizeOf(covered) > 0) coverage.push({ file, covered });
 			}
 			break;
 	}
@@ -154,9 +140,10 @@ export function markReviewed(
 	const files = new Map(marks.files);
 	const touched = new Set<RepoPath>();
 	for (const { file, covered } of coverage) {
-		if (covered.kind === 'none') continue;
+		const size = sizeOf(covered);
+		if (size === 0) continue;
 		const path = file.file.path;
-		units = addUnits(units, sizeOf(covered));
+		units = addUnits(units, size);
 		const entry = applied(marks, path, covered, reviewed);
 		if (entry === undefined) files.delete(path);
 		else files.set(path, entry);

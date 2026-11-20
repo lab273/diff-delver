@@ -1,7 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { formatLineRanges, parseLineRange, type LineRange } from '../line-range.ts';
-import { parseLineSpec } from './line-spec.ts';
+import { formatUnitSpec, parseLineSpec, parseUnitSpec } from './line-spec.ts';
 
 const range = (side: 'old' | 'new', first: number, last: number): LineRange => {
 	const parsed = parseLineRange(side, first, last);
@@ -45,5 +45,33 @@ describe('parseLineSpec', () => {
 				expect(parseLineSpec(formatLineRanges(ranges))).toEqual({ ok: true, value: ranges });
 			})
 		);
+	});
+});
+
+describe('parseUnitSpec', () => {
+	it('reads `file` for the file-level unit, alone or among ranges', () => {
+		expect(parseUnitSpec('file')).toEqual({ ok: true, value: { ranges: [], file: true } });
+		expect(parseUnitSpec(' file , +3..+4')).toEqual({
+			ok: true,
+			value: { ranges: [range('new', 3, 4)], file: true }
+		});
+		expect(parseUnitSpec('-2')).toEqual({
+			ok: true,
+			value: { ranges: [range('old', 2, 2)], file: false }
+		});
+	});
+
+	it('names the whole value when a part cannot be read', () => {
+		expect(parseUnitSpec('file,,+3')).toEqual({
+			ok: false,
+			error: { kind: 'MalformedLines', text: 'file,,+3', part: '', problem: 'empty' }
+		});
+		expect(parseLineSpec('file')).toMatchObject({ ok: false, error: { problem: 'unreadable' } });
+	});
+
+	it('reads back whatever formatUnitSpec writes', () => {
+		const spec = { ranges: [range('old', 1, 2), range('new', 5, 5)], file: true };
+		expect(parseUnitSpec(formatUnitSpec(spec))).toEqual({ ok: true, value: spec });
+		expect(formatUnitSpec({ ranges: [], file: true })).toBe('file');
 	});
 });

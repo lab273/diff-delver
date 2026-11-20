@@ -48,7 +48,20 @@ import { reviewedRowsFor } from '../db/tables/reviewed-marks.ts';
 import { ReportService } from './index.ts';
 
 /** A change a person makes to the working tree before asking for an update. */
-type Edit = 'insert-top' | 'append' | 'change' | 'remove-file' | 'add-file' | 'lockfile' | 'touch';
+type Edit =
+	| 'insert-top'
+	| 'append'
+	| 'change'
+	| 'remove-file'
+	| 'add-file'
+	| 'lockfile'
+	| 'touch'
+	/** a.ts made executable, or no longer: its mode. */
+	| 'chmod'
+	/** b.ts moved to moved/b.ts, or back: its name. */
+	| 'rename'
+	/** c.ts replaced by a link, or by a file again: its kind. */
+	| 'link';
 
 type Call =
 	| { readonly kind: 'update'; readonly edit: Edit }
@@ -94,7 +107,10 @@ function arbitraryCalls(diff: Diff, updates = false): fc.Arbitrary<Call[]> {
 			'remove-file',
 			'add-file',
 			'lockfile',
-			'touch'
+			'touch',
+			'chmod',
+			'rename',
+			'link'
 		)
 		.map((edit): Call => ({ kind: 'update', edit }));
 	const call: fc.Arbitrary<Call> = fc.oneof(
@@ -265,18 +281,20 @@ describe('the report service against the pure model', () => {
 		for (const [file, text] of Object.entries(committed)) await repo.write(file, text);
 		await repo.commit('first');
 		/** The working tree, as the test knows it. */
-		const tree = new Map<string, string>();
+		const tree: WorkingTree = { files: new Map(), executable: new Set(), links: new Set() };
 		/** The working tree each run starts from. */
 		const startingPoint = async (): Promise<void> => {
-			tree.clear();
-			for (const file of ['d.ts', 'pnpm-lock.yaml']) await repo.remove(file);
+			tree.files.clear();
+			tree.executable.clear();
+			tree.links.clear();
+			for (const file of ['d.ts', 'pnpm-lock.yaml', 'moved', 'c.ts']) await repo.remove(file);
 			const start = {
 				...committed,
 				'a.ts': lines('alpha', 'BETA', 'gamma', 'delta', 'added', 'epsilon', 'zeta'),
 				'b.ts': lines('one', 'two', 'three', 'four')
 			};
 			for (const [file, text] of Object.entries(start)) {
-				tree.set(file, text);
+				tree.files.set(file, text);
 				await repo.write(file, text);
 			}
 		};
@@ -384,37 +402,69 @@ describe('the report service against the pure model', () => {
 
 const lines = (...text: readonly string[]): string => `${text.join('\n')}\n`;
 
+/** The working tree, as the test knows it: text files, which are executable, which are links. */
+interface WorkingTree {
+	readonly files: Map<string, string>;
+	readonly executable: Set<string>;
+	/** Links, each to a.ts; not in `files`. */
+	readonly links: Set<string>;
+}
+
 /**
  * Makes one change to the working tree, keeping `tree`, what the test knows of
- * it, up to date. Each change is new text, so it always changes something,
- * except `touch`, which writes a file again as it was: a false alarm.
+ * it, up to date. Each change is new text, a new mode, name or kind, so it
+ * always changes something, except `touch`, which writes a file again as it
+ * was: a false alarm.
  */
-async function edit(repo: GitRepo, tree: Map<string, string>, what: Edit): Promise<void> {
+async function edit(repo: GitRepo, tree: WorkingTree, what: Edit): Promise<void> {
 	const write = async (file: string, text: string | undefined): Promise<void> => {
+		tree.links.delete(file);
 		if (text === undefined) {
-			tree.delete(file);
+			tree.files.delete(file);
 			await repo.remove(file);
 		} else {
-			tree.set(file, text);
+			tree.files.set(file, text);
 			await repo.write(file, text);
+			if (tree.executable.has(file)) await repo.setExecutable(file, true);
 		}
 	};
-	const count = String(tree.size + (tree.get('a.ts') ?? '').length);
+	const count = String(tree.files.size + (tree.files.get('a.ts') ?? '').length);
+	// b.ts, wherever it is now.
+	const b = tree.files.has('moved/b.ts') ? 'moved/b.ts' : 'b.ts';
 	switch (what) {
 		case 'insert-top':
-			return write('a.ts', `top ${count}\n${tree.get('a.ts') ?? ''}`);
+			return write('a.ts', `top ${count}\n${tree.files.get('a.ts') ?? ''}`);
 		case 'append':
-			return write('b.ts', `${tree.get('b.ts') ?? ''}more ${count}\n`);
+			return write(b, `${tree.files.get(b) ?? ''}more ${count}\n`);
 		case 'change':
-			return write('a.ts', (tree.get('a.ts') ?? '').replace(/^gamma.*$/m, `gamma ${count}`));
+			return write('a.ts', (tree.files.get('a.ts') ?? '').replace(/^gamma.*$/m, `gamma ${count}`));
 		case 'remove-file':
 			return write('c.ts', undefined);
 		case 'add-file':
-			return write('d.ts', `${tree.get('d.ts') ?? ''}new ${count}\n`);
+			return write('d.ts', `${tree.files.get('d.ts') ?? ''}new ${count}\n`);
 		case 'lockfile':
-			return write('pnpm-lock.yaml', `${tree.get('pnpm-lock.yaml') ?? ''}lock: ${count}\n`);
+			return write('pnpm-lock.yaml', `${tree.files.get('pnpm-lock.yaml') ?? ''}lock: ${count}\n`);
 		case 'touch':
-			return write('b.ts', tree.get('b.ts') ?? '');
+			return write(b, tree.files.get(b) ?? '');
+		case 'chmod': {
+			const executable = !tree.executable.has('a.ts');
+			if (executable) tree.executable.add('a.ts');
+			else tree.executable.delete('a.ts');
+			return repo.setExecutable('a.ts', executable);
+		}
+		case 'rename': {
+			const to = b === 'b.ts' ? 'moved/b.ts' : 'b.ts';
+			tree.files.set(to, tree.files.get(b) ?? '');
+			tree.files.delete(b);
+			await repo.move(b, to);
+			if (b === 'moved/b.ts') await repo.remove('moved');
+			return;
+		}
+		case 'link':
+			if (tree.links.has('c.ts')) return write('c.ts', lines('gone soon', `back ${count}`));
+			tree.files.delete('c.ts');
+			tree.links.add('c.ts');
+			return repo.symlink('c.ts', 'a.ts');
 	}
 }
 

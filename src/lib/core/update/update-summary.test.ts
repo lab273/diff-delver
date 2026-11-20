@@ -48,7 +48,7 @@ describe('an update in words', () => {
 
 	it('says so when the diff itself did not change', () => {
 		expect(describeChangedFiles(summary({}))).toBe(
-			'Nothing in the diff changed: the files that changed are outside what it compares.'
+			'Nothing new to review: the files changed, but none of the changes this diff shows did.'
 		);
 	});
 

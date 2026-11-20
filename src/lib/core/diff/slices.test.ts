@@ -33,12 +33,12 @@ const after = (requests: readonly AssignRequest[]): AssignmentState =>
 
 /** A slice as `path: h1[c o o e e e c]`, with c for context, o for own, e for elsewhere. */
 function show(slice: Slice): string {
-	if (slice.kind === 'file') return `${slice.file.path}: (file)`;
 	const hunks = slice.hunks.map(
 		(h) =>
 			`${h.hunk.id}[${h.lines.map((l) => (l.kind === 'context' ? 'c' : l.kind === 'own' ? 'o' : 'e')).join('')}]`
 	);
-	return `${slice.file.path}: ${hunks.join(' ')}`;
+	const parts = [...(slice.fileUnit === undefined ? [] : ['(file)']), ...hunks];
+	return `${slice.file.path}: ${parts.join(' ')}`;
 }
 
 const outline = (view: View): readonly (readonly [string, readonly string[], number])[] =>
@@ -71,10 +71,7 @@ describe('sectionView', () => {
 			(g) => groupKeyId(g.key) === 'section:alpha'
 		);
 		const slice = alpha?.slices[0];
-		const muted =
-			slice?.kind === 'lines'
-				? slice.hunks[0]?.lines.find((l) => l.kind === 'elsewhere')
-				: undefined;
+		const muted = slice?.hunks[0]?.lines.find((l) => l.kind === 'elsewhere');
 		expect(muted?.kind === 'elsewhere' && muted.group).toEqual({
 			kind: 'section',
 			section: 'beta'
@@ -111,10 +108,7 @@ function ownedUnits(view: View): readonly string[] {
 	const owned: string[] = [];
 	for (const group of view.groups) {
 		for (const slice of group.slices) {
-			if (slice.kind === 'file') {
-				owned.push(`${slice.file.path} file`);
-				continue;
-			}
+			if (slice.fileUnit !== undefined) owned.push(`${slice.file.path} file`);
 			for (const hunk of slice.hunks) {
 				expect(hunk.lines.some((l) => l.kind === 'own')).toBe(true);
 				for (const line of hunk.lines) {
@@ -132,14 +126,11 @@ function ownedUnits(view: View): readonly string[] {
 }
 
 function allUnits(d: Diff): readonly string[] {
-	return d.files.flatMap((f) =>
-		f.hasLines
-			? [
-					...[...f.changed.old.values()].map((n) => `${f.file.path} old:${String(n)}`),
-					...[...f.changed.new.values()].map((n) => `${f.file.path} new:${String(n)}`)
-				]
-			: [`${f.file.path} file`]
-	);
+	return d.files.flatMap((f) => [
+		...(f.hasFileUnit ? [`${f.file.path} file`] : []),
+		...[...f.changed.old.values()].map((n) => `${f.file.path} old:${String(n)}`),
+		...[...f.changed.new.values()].map((n) => `${f.file.path} new:${String(n)}`)
+	]);
 }
 
 describe('view properties', () => {

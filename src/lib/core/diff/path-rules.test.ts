@@ -113,7 +113,7 @@ describe('autoIgnore', () => {
 		const outcome = autoIgnore(diff, assigned);
 		expect(outcome.ignored.find((i) => i.path === 'pnpm-lock.yaml')?.units).toBe(1);
 		const lock = outcome.state.files.get(path('pnpm-lock.yaml'));
-		expect(lock?.kind === 'lines' && lock.new.get(1)?.bucket).toEqual({
+		expect(lock?.new.get(1)?.bucket).toEqual({
 			kind: 'section',
 			section: 'deps'
 		});

@@ -9,12 +9,11 @@ import { EMPTY_UNIT_SET, fileUnitInSet, linesInSet, type UnitSet } from '../diff
 import { unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
 import type { AgentMarkdown } from '../agent-markdown.tiny.ts';
 import type { Diff } from '../diff/diff.ts';
-import type { FileContent } from '../diff/file-diff.ts';
+import { describeFileChange } from '../diff/file-unit.ts';
 import { ignoreRuleName } from '../diff/path-rules.ts';
 import { sectionView, type GroupKey, type Slice } from '../diff/slices.ts';
 import type { AssignmentState, Assignment } from '../diff/state.ts';
 import { escapedRepoPath, type EscapedPath } from '../escaped-path.tiny.ts';
-import type { FileStatus } from '../file-status.tiny.ts';
 import { parseLineCount, type LineCount } from '../line-count.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import { parseSectionTitle, type SectionTitle } from '../section-title.tiny.ts';
@@ -27,11 +26,11 @@ export type IgnoreReason =
 
 export interface ListedFile {
 	readonly path: EscapedPath;
-	readonly status: FileStatus;
-	/** The path it had before, for a rename or a copy. */
-	readonly from: EscapedPath | undefined;
-	/** What kind of content changed: lines of text, or a whole binary file or submodule. */
-	readonly content: FileContent['kind'];
+	/**
+	 * How the file changed, in plain words: "changed", "added", "renamed from
+	 * src/old.ts", "changed, made executable", "added, binary file".
+	 */
+	readonly change: ReviewerMessage;
 	/** The lines added and removed in this group. */
 	readonly added: LineCount;
 	readonly removed: LineCount;
@@ -96,34 +95,25 @@ function listedFile(slice: Slice, fresh: UnitSet): ListedFile {
 		const reason = reasonOf(assignment);
 		if (reason !== undefined && !reasons.some((r) => sameReason(r, reason))) reasons.push(reason);
 	};
-	switch (slice.kind) {
-		case 'file':
-			note(slice.assignment);
-			if (slice.assignment.bucket.kind !== 'ignored' && fileUnitInSet(fresh, path)) {
-				newChanges += 1;
-			}
-			break;
-		case 'lines':
-			for (const hunk of slice.hunks) {
-				for (const line of hunk.lines) {
-					if (line.kind !== 'own') continue;
-					const isNew =
-						line.line.kind === 'added' ? freshNew.has(line.line.new) : freshOld.has(line.line.old);
-					if (line.line.kind === 'added') added += 1;
-					else removed += 1;
-					if (isNew && line.assignment.bucket.kind !== 'ignored') newChanges += 1;
-					note(line.assignment);
-				}
-			}
-			break;
+	if (slice.fileUnit !== undefined) {
+		note(slice.fileUnit);
+		if (slice.fileUnit.bucket.kind !== 'ignored' && fileUnitInSet(fresh, path)) newChanges += 1;
+	}
+	for (const hunk of slice.hunks) {
+		for (const line of hunk.lines) {
+			if (line.kind !== 'own') continue;
+			const isNew =
+				line.line.kind === 'added' ? freshNew.has(line.line.new) : freshOld.has(line.line.old);
+			if (line.line.kind === 'added') added += 1;
+			else removed += 1;
+			if (isNew && line.assignment.bucket.kind !== 'ignored') newChanges += 1;
+			note(line.assignment);
+		}
 	}
 	const file = slice.file;
-	const renamed = file.status === 'renamed' || file.status === 'copied';
 	return {
 		path: escapedRepoPath(file.path),
-		status: file.status,
-		from: renamed && file.old !== undefined ? escapedRepoPath(file.old.path) : undefined,
-		content: file.content.kind,
+		change: describeFileChange(file),
 		added: lineCount(added),
 		removed: lineCount(removed),
 		ignored: reasons,

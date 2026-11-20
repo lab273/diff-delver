@@ -3,8 +3,9 @@
  * units worked out (DESIGN 4.1).
  *
  * The units of a file are its added lines, addressed by new-side line number,
- * and its deleted lines, addressed by old-side line number. A file whose change
- * has no lines at all has exactly one file-level unit instead.
+ * its deleted lines, addressed by old-side line number, and its file-level unit
+ * when it has one: when its change has no lines at all, or something about the
+ * file itself changed, its name, mode or kind (`file-unit.ts`).
  */
 import type { HunkId } from '../hunk-id.tiny.ts';
 import { RangeSet } from '../range-set.ts';
@@ -13,6 +14,7 @@ import { err, ok, type Result } from '../result.ts';
 import type { Side } from '../side.tiny.ts';
 import { addUnits, NO_UNITS, ONE_UNIT, unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
 import { hunksOf, type FileDiff, type Hunk } from './file-diff.ts';
+import { hasFileUnit } from './file-unit.ts';
 
 /** Line numbers on each side. */
 export interface SideLines {
@@ -31,10 +33,16 @@ export interface ChangeRun extends SideLines {
 
 export interface DiffFile {
 	readonly file: FileDiff;
-	/** The changed lines, empty on both sides for a file-level unit. */
+	/** The changed lines; empty on both sides when the change has none. */
 	readonly changed: SideLines;
-	/** False when the file has a single file-level unit instead of lines. */
+	/** Whether the change has changed lines. */
 	readonly hasLines: boolean;
+	/**
+	 * Whether the file has a file-level unit: always when it has no lines, and
+	 * beside them when its name, mode or kind changed (`file-unit.ts`).
+	 */
+	readonly hasFileUnit: boolean;
+	/** Its changed lines, and one more for its file-level unit. */
 	readonly unitCount: UnitCount;
 	readonly hunks: ReadonlyMap<HunkId, Hunk>;
 	/** The changed lines of each hunk. */
@@ -118,11 +126,13 @@ function indexFile(file: FileDiff): DiffFile {
 	}
 	const changed = { old: RangeSet.fromNumbers(allOld), new: RangeSet.fromNumbers(allNew) };
 	const lineCount = unitCountOf(changed.old.size + changed.new.size);
+	const fileUnit = hasFileUnit(file, lineCount > 0);
 	return {
 		file,
 		changed,
 		hasLines: lineCount > 0,
-		unitCount: lineCount > 0 ? lineCount : ONE_UNIT,
+		hasFileUnit: fileUnit,
+		unitCount: fileUnit ? addUnits(lineCount, ONE_UNIT) : lineCount,
 		hunks,
 		hunkLines,
 		runs

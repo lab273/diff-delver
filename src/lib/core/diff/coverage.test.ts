@@ -49,10 +49,10 @@ describe('coverage', () => {
 		expect(result.uncategorised).toEqual({ units: 11, files: 3 });
 		expect(result.ignored).toEqual({ units: 0, files: 0 });
 		expect(result.remaining).toEqual([
-			{ kind: 'file', path: 'assets/logo.png' },
-			{ kind: 'lines', path: 'src/app.test.ts', ranges: [{ side: 'new', first: 1, last: 4 }] },
+			{ path: 'assets/logo.png', ranges: [], file: true },
+			{ path: 'src/app.test.ts', ranges: [{ side: 'new', first: 1, last: 4 }], file: false },
 			{
-				kind: 'lines',
+				file: false,
 				path: 'src/app.ts',
 				ranges: [
 					{ side: 'old', first: 2, last: 3 },
@@ -144,7 +144,7 @@ describe('coverage', () => {
 			{
 				kind: 'TestsOutsideSections',
 				units: {
-					kind: 'lines',
+					file: false,
 					path: 'src/app.test.ts',
 					ranges: [{ side: 'new', first: 1, last: 4 }]
 				}
@@ -188,8 +188,7 @@ describe('coverage', () => {
 				const sectionUnits = [...result.sections.values()].reduce((n, t) => n + t.units, 0);
 				expect(sectionUnits + result.ignored.units + result.uncategorised.units).toBe(d.unitCount);
 				const listed = result.remaining.reduce(
-					(n, u) =>
-						n + (u.kind === 'file' ? 1 : u.ranges.reduce((m, r) => m + r.last - r.first + 1, 0)),
+					(n, u) => n + (u.file ? 1 : 0) + u.ranges.reduce((m, r) => m + r.last - r.first + 1, 0),
 					0
 				);
 				expect(listed).toBe(result.uncategorised.units);

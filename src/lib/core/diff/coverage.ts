@@ -15,6 +15,7 @@ import { fileCountOf, type FileCount } from '../file-count.tiny.ts';
 import { agentPath } from './agent-text.ts';
 import { sameBucket, type Bucket } from './bucket.ts';
 import type { Diff, DiffFile } from './diff.ts';
+import { formatUnitSpec } from './line-spec.ts';
 import { ignoreRuleName } from './path-rules.ts';
 import { fileAssignment, type Assignment, type AssignmentState } from './state.ts';
 
@@ -24,10 +25,13 @@ export interface Totals {
 	readonly files: FileCount;
 }
 
-/** Some units of one file: line ranges, or its file-level unit. */
-export type FileUnits =
-	| { readonly kind: 'lines'; readonly path: RepoPath; readonly ranges: readonly LineRange[] }
-	| { readonly kind: 'file'; readonly path: RepoPath };
+/** Some units of one file: line ranges, its file-level unit, or both; never neither. */
+export interface FileUnits {
+	readonly path: RepoPath;
+	readonly ranges: readonly LineRange[];
+	/** Whether its file-level unit is among them. */
+	readonly file: boolean;
+}
 
 export type CoverageWarning =
 	| {
@@ -125,34 +129,21 @@ export function coverage(
 			}
 		};
 
-		switch (assignment.kind) {
-			case 'file': {
-				count(assignment.assignment, ONE_UNIT);
-				if (assignment.assignment.bucket.kind === 'uncategorised') {
-					remaining.push({ kind: 'file', path });
-				}
-				if (testOutsideSection(assignment.assignment)) {
-					warnings.push({ kind: 'TestsOutsideSections', units: { kind: 'file', path } });
-				}
-				break;
-			}
-			case 'lines': {
-				for (const map of [assignment.old, assignment.new]) {
-					for (const s of map.segments) count(s.value, unitCountOf(s.last - s.first + 1));
-				}
-				const left = linesWhere(assignment, (a) => a.bucket.kind === 'uncategorised');
-				if (left.length > 0) remaining.push({ kind: 'lines', path, ranges: left });
-				const tests = linesWhere(assignment, testOutsideSection);
-				if (tests.length > 0) {
-					warnings.push({
-						kind: 'TestsOutsideSections',
-						units: { kind: 'lines', path, ranges: tests }
-					});
-				}
-				warnings.push(...splitRuns(file, assignment.old, assignment.new));
-				break;
-			}
+		const own = assignment.file;
+		if (own !== undefined) count(own, ONE_UNIT);
+		for (const map of [assignment.old, assignment.new]) {
+			for (const s of map.segments) count(s.value, unitCountOf(s.last - s.first + 1));
 		}
+		const where = (keep: (a: Assignment) => boolean): FileUnits | undefined => {
+			const ranges = linesWhere(assignment, keep);
+			const withFile = own !== undefined && keep(own);
+			return ranges.length > 0 || withFile ? { path, ranges, file: withFile } : undefined;
+		};
+		const left = where((a) => a.bucket.kind === 'uncategorised');
+		if (left !== undefined) remaining.push(left);
+		const tests = where(testOutsideSection);
+		if (tests !== undefined) warnings.push({ kind: 'TestsOutsideSections', units: tests });
+		warnings.push(...splitRuns(file, assignment.old, assignment.new));
 	}
 
 	const sectionTotals = new Map([...sections].map(([id, tally]) => [id, tally.totals]));
@@ -263,13 +254,9 @@ function bucketText(bucket: Bucket): string {
 	}
 }
 
+/** A file's units as the agent names them: its path, then the `lines` value for them. */
 function describeUnits(units: FileUnits): TextForAgent {
-	switch (units.kind) {
-		case 'file':
-			return textForAgent(`${agentPath(units.path)} (the whole file)`);
-		case 'lines':
-			return textForAgent(`${agentPath(units.path)} ${formatLineRanges(units.ranges)}`);
-	}
+	return textForAgent(`${agentPath(units.path)} ${formatUnitSpec(units)}`);
 }
 
 /** What a warning means and what the agent might do about it. */

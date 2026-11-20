@@ -31,7 +31,13 @@ export interface SyntheticHunk {
 }
 
 export type SyntheticFile =
-	| { readonly path: string; readonly change: 'modified'; readonly hunks: readonly SyntheticHunk[] }
+	| {
+			readonly path: string;
+			readonly change: 'modified';
+			readonly hunks: readonly SyntheticHunk[];
+			/** Made executable as well, so it has a file-level unit beside its lines. */
+			readonly executable?: boolean;
+	  }
 	| { readonly path: string; readonly change: 'added' | 'deleted'; readonly lines: number }
 	| { readonly path: string; readonly change: 'binary' | 'empty-added' | 'mode' };
 
@@ -43,6 +49,7 @@ function rawRecord(file: SyntheticFile): string {
 	const [oldMode, newMode, oldBlob, newBlob, status] = ((): readonly string[] => {
 		switch (file.change) {
 			case 'modified':
+				return ['100644', file.executable === true ? '100755' : '100644', BLOB_A, BLOB_B, 'M'];
 			case 'binary':
 				return ['100644', '100644', BLOB_A, BLOB_B, 'M'];
 			case 'mode':
@@ -84,7 +91,8 @@ function patch(file: SyntheticFile): string {
 				Array.from({ length: file.lines }, (_, i) => `-deleted ${String(i + 1)}\n`).join('')
 			);
 		case 'modified': {
-			const parts = [`${head}--- a/${file.path}\n+++ b/${file.path}\n`];
+			const mode = file.executable === true ? 'old mode 100644\nnew mode 100755\n' : '';
+			const parts = [`${head}${mode}--- a/${file.path}\n+++ b/${file.path}\n`];
 			let oldNext = 1;
 			let newNext = 1;
 			for (const hunk of file.hunks) {
@@ -157,6 +165,12 @@ const file = (path: string): fc.Arbitrary<SyntheticFile> =>
 			arbitrary: fc
 				.array(hunk, { minLength: 1, maxLength: 4 })
 				.map((hunks) => ({ path, change: 'modified' as const, hunks }))
+		},
+		{
+			weight: 1,
+			arbitrary: fc
+				.array(hunk, { minLength: 1, maxLength: 4 })
+				.map((hunks) => ({ path, change: 'modified' as const, hunks, executable: true }))
 		},
 		{
 			weight: 1,
@@ -245,13 +259,10 @@ export function marksFrom(d: Diff, flags: readonly boolean[]): ReviewedMarks {
 	const next = (): boolean => flags[at++ % Math.max(flags.length, 1)] ?? false;
 	const files = new Map<RepoPath, FileReviewed>();
 	for (const file of d.files) {
-		if (!file.hasLines) {
-			if (next()) files.set(file.file.path, { kind: 'file' });
-			continue;
-		}
+		const whole = file.hasFileUnit && next();
 		const pick = (lines: RangeSet): RangeSet =>
 			RangeSet.fromNumbers([...lines.values()].filter(next));
-		const entry = fileReviewedOf(pick(file.changed.old), pick(file.changed.new));
+		const entry = fileReviewedOf(pick(file.changed.old), pick(file.changed.new), whole);
 		if (entry !== undefined) files.set(file.file.path, entry);
 	}
 	return { files };

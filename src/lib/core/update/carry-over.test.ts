@@ -11,7 +11,13 @@ import { assign, type AssignRequest } from '../diff/assign.ts';
 import { autoIgnore } from '../diff/auto-ignore.ts';
 import type { Diff } from '../diff/diff.ts';
 import { fileAssignment, initialState, sideMap, type AssignmentState } from '../diff/state.ts';
-import { linesInSet, unitSetSize, type UnitSet } from '../diff/unit-set.ts';
+import {
+	fileUnitInSet,
+	fileUnitsOf,
+	linesInSet,
+	unitSetSize,
+	type UnitSet
+} from '../diff/unit-set.ts';
 import { RangeSet } from '../range-set.ts';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
 import { NO_MARKS, sameReviewedMarks, type ReviewedMarks } from '../review/reviewed-marks.ts';
@@ -36,9 +42,7 @@ function allMarked(diff: Diff): ReviewedMarks {
 		files: new Map(
 			diff.files.map((f) => [
 				f.file.path,
-				f.hasLines
-					? { kind: 'lines' as const, old: f.changed.old, new: f.changed.new }
-					: { kind: 'file' as const }
+				{ old: f.changed.old, new: f.changed.new, file: f.hasFileUnit }
 			])
 		)
 	};
@@ -86,9 +90,7 @@ function side(set: UnitSet, file: string, which: Side): readonly number[] {
 function bucketOf(state: AssignmentState, diff: Diff, file: string, which: Side, line: number) {
 	const f = diff.byPath.get(path(file));
 	if (f === undefined) throw new Error(file);
-	const a = fileAssignment(state, f);
-	if (a.kind !== 'lines') throw new Error('file-level');
-	return sideMap(a, which).get(line);
+	return sideMap(fileAssignment(state, f), which).get(line);
 }
 
 const BASE = tree({ 'app.ts': numbered('line', 20) });
@@ -235,10 +237,7 @@ describe('carry-over', () => {
 		const head2 = tree({ 'app.ts': ['first', ...(head.get('app.ts') ?? [])] });
 		const firstBlock = () => ({
 			files: new Map([
-				[
-					path('app.ts'),
-					{ kind: 'lines' as const, old: RangeSet.empty, new: RangeSet.fromNumbers([4, 5, 6]) }
-				]
+				[path('app.ts'), { old: RangeSet.empty, new: RangeSet.fromNumbers([4, 5, 6]), file: false }]
 			])
 		});
 		const r = update({ base, head, head2, marks: firstBlock });
@@ -273,9 +272,12 @@ describe('carry-over', () => {
 			requests: [{ file: 'app.ts', section: 'alpha' }]
 		});
 		expect(side(r.marks, 'renamed.ts', 'new')).toEqual([11]);
-		expect(unitSetSize(r.fresh)).toBe(0);
 		expect(bucketOf(r.state, r.after, 'renamed.ts', 'new', 11)?.bucket.kind).toBe('section');
-		expect(r.summary.filesChanged).toBe(0);
+		// Its line carried over; the rename itself is a change the previous version did not have.
+		expect(r.fresh.files.get(path('renamed.ts'))).toEqual(
+			fileUnitsOf(RangeSet.empty, RangeSet.empty, true)
+		);
+		expect(r.summary).toMatchObject({ filesChanged: 1, newToReview: 1, gone: 0 });
 	});
 
 	it('gives the moved lines of a file split in two as new in the second file', () => {
@@ -418,7 +420,7 @@ describe('carry-over', () => {
 	it('keeps a file-level unit only when it is exactly the same change', () => {
 		const empty = tree({ 'empty.txt': [] });
 		const sameEmpty = update({ base: tree({}), head: empty, head2: empty });
-		expect(sameEmpty.marks.files.get(path('empty.txt'))).toEqual({ kind: 'file' });
+		expect(fileUnitInSet(sameEmpty.marks, path('empty.txt'))).toBe(true);
 		expect(unitSetSize(sameEmpty.fresh)).toBe(0);
 		// The empty file got a line: its line is new.
 		const filled = update({ base: tree({}), head: empty, head2: tree({ 'empty.txt': ['now'] }) });
@@ -440,8 +442,8 @@ describe('carry-over', () => {
 			heads: NO_TREE_CHANGES,
 			bases: NO_TREE_CHANGES
 		});
-		expect(carried.marks.files.get(path('run.sh'))).toEqual({ kind: 'file' });
-		expect(carried.fresh.files.get(path('bin.dat'))).toEqual({ kind: 'file' });
+		expect(fileUnitInSet(carried.marks, path('run.sh'))).toBe(true);
+		expect(fileUnitInSet(carried.fresh, path('bin.dat'))).toBe(true);
 	});
 
 	it('carries nothing over when the trees cannot be compared', () => {

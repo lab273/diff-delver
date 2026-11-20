@@ -37,9 +37,7 @@ describe('listFiles', () => {
 				files: [
 					{
 						path: 'pnpm-lock.yaml',
-						status: 'added',
-						from: undefined,
-						content: 'text',
+						change: 'added',
 						added: 3,
 						removed: 0,
 						ignored: [{ kind: 'stated', text: 'Lockfile' }],
@@ -52,9 +50,7 @@ describe('listFiles', () => {
 				files: [
 					{
 						path: 'assets/logo.png',
-						status: 'modified',
-						from: undefined,
-						content: 'binary',
+						change: 'changed, binary file',
 						added: 0,
 						removed: 0,
 						ignored: [],
@@ -62,9 +58,7 @@ describe('listFiles', () => {
 					},
 					{
 						path: 'src/app.ts',
-						status: 'modified',
-						from: undefined,
-						content: 'text',
+						change: 'changed',
 						added: 4,
 						removed: 2,
 						ignored: [],

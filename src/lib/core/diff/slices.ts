@@ -8,7 +8,11 @@
  * - changes that live in another group, shown muted with a link to it.
  *
  * A hunk appears in a slice only if it holds at least one of the slice's own
- * units. A file with a single file-level unit has a file-level slice instead.
+ * units. A file's file-level unit (a change to its name, mode or kind, or the
+ * whole change of a file with no lines) is in the slice of the group its own
+ * bucket puts it in, at the top of that slice; when no lines of the file are in
+ * that group, the slice holds the file-level unit alone. So a file split
+ * across sections shows its file-level change in exactly one of its parts.
  *
  * Two views project the same state into groups, and neither changes it
  * (DESIGN 4.4): `sectionView` puts every unit in its bucket's group;
@@ -54,20 +58,15 @@ export interface SliceHunk {
 	readonly lines: readonly SliceLine[];
 }
 
-export type Slice =
-	| {
-			readonly kind: 'lines';
-			readonly file: FileDiff;
-			readonly hunks: readonly SliceHunk[];
-			/** This slice's own units. */
-			readonly units: UnitCount;
-	  }
-	| {
-			readonly kind: 'file';
-			readonly file: FileDiff;
-			readonly assignment: Assignment;
-			readonly units: UnitCount;
-	  };
+export interface Slice {
+	readonly file: FileDiff;
+	/** The file-level unit's assignment, when that unit is in this slice. */
+	readonly fileUnit: Assignment | undefined;
+	/** The hunks holding at least one of this slice's own lines. */
+	readonly hunks: readonly SliceHunk[];
+	/** This slice's own units. */
+	readonly units: UnitCount;
+}
 
 export interface Group {
 	readonly key: GroupKey;
@@ -224,76 +223,64 @@ function slicesOfFile(
 	groupOf: (assignment: Assignment) => GroupKey
 ): readonly { readonly group: GroupKey; readonly slice: Slice }[] {
 	const assignment = fileAssignment(state, file);
-	switch (assignment.kind) {
-		case 'file':
-			return [
-				{
-					group: groupOf(assignment.assignment),
-					slice: {
-						kind: 'file',
-						file: file.file,
-						assignment: assignment.assignment,
-						units: ONE_UNIT
-					}
-				}
-			];
-		case 'lines': {
-			const assignmentAt = (side: Side, line: number): Assignment => {
-				const found = (side === 'old' ? assignment.old : assignment.new).get(line);
-				if (found === undefined)
-					throw new Error(`No assignment for a changed line ${side} ${line}`);
-				return found;
-			};
-			// For each hunk: its classified lines, once per group that owns any of them.
-			const byGroup = new Map<
-				GroupKeyId,
-				{ group: GroupKey; hunks: SliceHunk[]; units: UnitCount }
-			>();
-			for (const hunk of file.hunks.values()) {
-				const owners = new Map<GroupKeyId, GroupKey>();
-				const classified = hunk.lines.map((line): Classified => {
-					if (line.kind === 'context') return { kind: 'context', line };
-					const a =
-						line.kind === 'added' ? assignmentAt('new', line.new) : assignmentAt('old', line.old);
-					const group = groupOf(a);
-					const id = groupKeyId(group);
-					owners.set(id, group);
-					return { kind: 'change', line, assignment: a, group, id };
-				});
-				for (const [id, group] of owners) {
-					let units = NO_UNITS;
-					const lines = classified.map((c): SliceLine => {
-						switch (c.kind) {
-							case 'context':
-								return c;
-							case 'change':
-								if (c.id !== id) {
-									return {
-										kind: 'elsewhere',
-										line: c.line,
-										assignment: c.assignment,
-										group: c.group
-									};
-								}
-								units = addUnits(units, ONE_UNIT);
-								return { kind: 'own', line: c.line, assignment: c.assignment };
+	const assignmentAt = (side: Side, line: number): Assignment => {
+		const found = (side === 'old' ? assignment.old : assignment.new).get(line);
+		if (found === undefined) throw new Error(`No assignment for a changed line ${side} ${line}`);
+		return found;
+	};
+	const byGroup = new Map<
+		GroupKeyId,
+		{ group: GroupKey; fileUnit: Assignment | undefined; hunks: SliceHunk[]; units: UnitCount }
+	>();
+	const entryFor = (group: GroupKey, id: GroupKeyId) => {
+		let entry = byGroup.get(id);
+		if (entry === undefined) {
+			entry = { group, fileUnit: undefined, hunks: [], units: NO_UNITS };
+			byGroup.set(id, entry);
+		}
+		return entry;
+	};
+	if (assignment.file !== undefined) {
+		const group = groupOf(assignment.file);
+		const entry = entryFor(group, groupKeyId(group));
+		entry.fileUnit = assignment.file;
+		entry.units = ONE_UNIT;
+	}
+	// For each hunk: its classified lines, once per group that owns any of them.
+	for (const hunk of file.hunks.values()) {
+		const owners = new Map<GroupKeyId, GroupKey>();
+		const classified = hunk.lines.map((line): Classified => {
+			if (line.kind === 'context') return { kind: 'context', line };
+			const a =
+				line.kind === 'added' ? assignmentAt('new', line.new) : assignmentAt('old', line.old);
+			const group = groupOf(a);
+			const id = groupKeyId(group);
+			owners.set(id, group);
+			return { kind: 'change', line, assignment: a, group, id };
+		});
+		for (const [id, group] of owners) {
+			let units = NO_UNITS;
+			const lines = classified.map((c): SliceLine => {
+				switch (c.kind) {
+					case 'context':
+						return c;
+					case 'change':
+						if (c.id !== id) {
+							return { kind: 'elsewhere', line: c.line, assignment: c.assignment, group: c.group };
 						}
-					});
-					let entry = byGroup.get(id);
-					if (entry === undefined) {
-						entry = { group, hunks: [], units: NO_UNITS };
-						byGroup.set(id, entry);
-					}
-					entry.hunks.push({ hunk, lines });
-					entry.units = addUnits(entry.units, units);
+						units = addUnits(units, ONE_UNIT);
+						return { kind: 'own', line: c.line, assignment: c.assignment };
 				}
-			}
-			return [...byGroup.values()].map((entry) => ({
-				group: entry.group,
-				slice: { kind: 'lines', file: file.file, hunks: entry.hunks, units: entry.units }
-			}));
+			});
+			const entry = entryFor(group, id);
+			entry.hunks.push({ hunk, lines });
+			entry.units = addUnits(entry.units, units);
 		}
 	}
+	return [...byGroup.values()].map((entry) => ({
+		group: entry.group,
+		slice: { file: file.file, fileUnit: entry.fileUnit, hunks: entry.hunks, units: entry.units }
+	}));
 }
 
 type Classified =

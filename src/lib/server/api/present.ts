@@ -195,9 +195,7 @@ export function pageView(loaded: LoadedReport, now: Timestamp): DiffPage {
 				group.kind === 'section' ? { kind: 'section', title: group.title } : { kind: group.kind },
 			files: group.files.map((file) => ({
 				path: file.path,
-				status: file.status,
-				from: file.from ?? null,
-				content: file.content,
+				change: file.change,
 				added: file.added,
 				removed: file.removed,
 				ignored: [...file.ignored],

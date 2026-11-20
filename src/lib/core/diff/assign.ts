@@ -6,8 +6,12 @@
  *
  * - A whole file or a glob of files takes only what is still uncategorised in
  *   those files, so it never undoes earlier, finer work.
+ * - A whole file or a glob takes the file's file-level unit with its lines, when
+ *   it has one (`file-unit.ts`).
  * - Hunk ids or line ranges within a file move exactly those units, wherever they
- *   were: the last write wins. A line range takes the changed lines inside it and
+ *   were: the last write wins. Hunks hold lines only; the label `file` among the
+ *   line ranges (`"lines": "file"`, or `"file,+40..+62"`) names the file-level
+ *   unit, as the agent text labels it. A line range takes the changed lines inside it and
  *   may span unchanged lines (DESIGN 7.1). An item is rejected only when all its
  *   ranges together hold no changed line, naming the nearest changed lines; a
  *   range that holds none inside an item that takes something is reported in
@@ -44,7 +48,7 @@ import { agentPath } from './agent-text.ts';
 import { ignoredBucket, sameBucket, sectionBucket, type Bucket } from './bucket.ts';
 import { changedLines, type Diff, type DiffFile, type SideLines } from './diff.ts';
 import { describeBucket } from './coverage.ts';
-import { parseLineSpec, type MalformedLinesProblem } from './line-spec.ts';
+import { parseUnitSpec, type MalformedLinesProblem } from './line-spec.ts';
 import { countUncategorised } from './totals.ts';
 import {
 	assignedUnits,
@@ -68,7 +72,7 @@ export interface AssignRequest {
 	readonly file?: string;
 	readonly glob?: string;
 	readonly hunks?: readonly string[];
-	/** Line ranges such as `+40..+62,-38..-45`. */
+	/** Line ranges such as `+40..+62,-38..-45`, and `file` for the file-level unit. */
 	readonly lines?: string;
 	/** A section id, or `ignored`. */
 	readonly section?: string;
@@ -86,7 +90,13 @@ export type AssignTarget =
 	| { readonly kind: 'file'; readonly path: RepoPath }
 	| { readonly kind: 'glob'; readonly glob: GlobPattern }
 	| { readonly kind: 'hunks'; readonly path: RepoPath; readonly hunks: readonly HunkId[] }
-	| { readonly kind: 'lines'; readonly path: RepoPath; readonly ranges: readonly LineRange[] };
+	| {
+			readonly kind: 'lines';
+			readonly path: RepoPath;
+			readonly ranges: readonly LineRange[];
+			/** Whether the file-level unit is named too (`file`). */
+			readonly file: boolean;
+	  };
 
 export type Destination =
 	| { readonly kind: 'section'; readonly section: SectionId }
@@ -152,6 +162,11 @@ export type AssignRejection =
 	| {
 			/** Line ranges were given for a file whose change has no lines (binary, rename, ...). */
 			readonly kind: 'NoLinesInFile';
+			readonly file: RepoPath;
+	  }
+	| {
+			/** `file` was given for a file whose name, mode and kind did not change. */
+			readonly kind: 'NoFileUnit';
 			readonly file: RepoPath;
 	  }
 	| {
@@ -360,9 +375,14 @@ function parseTarget(request: AssignRequest): Result<AssignTarget, AssignRejecti
 		return ok({ kind: 'hunks', path: path.value, hunks: ids });
 	}
 	if (lines !== undefined) {
-		const ranges = parseLineSpec(lines);
-		if (!ranges.ok) return err(ranges.error);
-		return ok({ kind: 'lines', path: path.value, ranges: ranges.value });
+		const spec = parseUnitSpec(lines);
+		if (!spec.ok) return err(spec.error);
+		return ok({
+			kind: 'lines',
+			path: path.value,
+			ranges: spec.value.ranges,
+			file: spec.value.file
+		});
 	}
 	return ok({ kind: 'file', path: path.value });
 }
@@ -387,6 +407,7 @@ function withDiffContext(diff: Diff, rejection: AssignRejection): AssignRejectio
 		case 'UnknownHunk':
 		case 'NoChangedLines':
 		case 'NoLinesInFile':
+		case 'NoFileUnit':
 		case 'MalformedLines':
 		case 'MalformedGlob':
 		case 'GlobMatchesNothing':
@@ -401,9 +422,10 @@ function withDiffContext(diff: Diff, rejection: AssignRejection): AssignRejectio
 
 // --- Applying an item ----------------------------------------------------------
 
-/** The units of one file that an item targets. */
+/** The units of one file that an item targets: all of them, or some lines and perhaps the file-level unit. */
 type FileTarget =
-	{ readonly kind: 'whole' } | { readonly kind: 'lines'; readonly lines: SideLines };
+	| { readonly kind: 'whole' }
+	| { readonly kind: 'lines'; readonly lines: SideLines; readonly file: boolean };
 
 interface Resolved {
 	readonly files: ReadonlyMap<DiffFile, FileTarget>;
@@ -504,27 +526,22 @@ function applyToFile(
 	change: (a: Assignment) => Assignment
 ): { readonly assignment: FileAssignment; readonly units: UnitCount } {
 	const takes = (a: Assignment): boolean => !onlyUncategorised || a.bucket.kind === 'uncategorised';
-	switch (assignment.kind) {
-		case 'file': {
-			if (!takes(assignment.assignment)) return { assignment, units: NO_UNITS };
-			return {
-				assignment: { kind: 'file', assignment: change(assignment.assignment) },
-				units: ONE_UNIT
-			};
-		}
-		case 'lines': {
-			let units = NO_UNITS;
-			const sides = { old: assignment.old, new: assignment.new };
-			for (const side of ['old', 'new'] as const) {
-				const map = sides[side];
-				const wanted = target.kind === 'whole' ? map.domain : target.lines[side];
-				const taken = RangeSet.fromIntervals(map.within(wanted).filter((s) => takes(s.value)));
-				units = addUnits(units, unitCountOf(taken.size));
-				sides[side] = map.update(taken, change);
-			}
-			return { assignment: { kind: 'lines', ...sides }, units };
-		}
+	let units = NO_UNITS;
+	const sides = { old: assignment.old, new: assignment.new };
+	for (const side of ['old', 'new'] as const) {
+		const map = sides[side];
+		const wanted = target.kind === 'whole' ? map.domain : target.lines[side];
+		const taken = RangeSet.fromIntervals(map.within(wanted).filter((s) => takes(s.value)));
+		units = addUnits(units, unitCountOf(taken.size));
+		sides[side] = map.update(taken, change);
 	}
+	let file = assignment.file;
+	const wantsFile = target.kind === 'whole' || target.file;
+	if (file !== undefined && wantsFile && takes(file)) {
+		file = change(file);
+		units = addUnits(units, ONE_UNIT);
+	}
+	return { assignment: { ...sides, file }, units };
 }
 
 function resolveTarget(diff: Diff, target: AssignTarget): Result<Resolved, AssignRejection> {
@@ -564,18 +581,26 @@ function resolveTarget(diff: Diff, target: AssignTarget): Result<Resolved, Assig
 				now = now.union(lines.new);
 			}
 			return ok(
-				only(new Map([[file.value, { kind: 'lines', lines: { old, new: now } } as const]]))
+				only(
+					new Map([[file.value, { kind: 'lines', lines: { old, new: now }, file: false } as const]])
+				)
 			);
 		}
 		case 'lines': {
 			const file = findFile(diff, target.path);
 			if (!file.ok) return file;
-			if (!file.value.hasLines) return err({ kind: 'NoLinesInFile', file: target.path });
+			if (target.file && !file.value.hasFileUnit) {
+				return err({ kind: 'NoFileUnit', file: target.path });
+			}
+			if (!target.file && !file.value.hasLines) {
+				return err({ kind: 'NoLinesInFile', file: target.path });
+			}
 			const changed = file.value.changed;
 			const empty = target.ranges.filter(
 				(range) => !changedLines(file.value, range.side).overlaps(range.first, range.last)
 			);
-			if (empty.length === target.ranges.length) {
+			// With `file`, the item takes the file-level unit, so ranges that hold nothing are only reported.
+			if (!target.file && empty.length === target.ranges.length) {
 				return err({
 					kind: 'NoChangedLines',
 					file: target.path,
@@ -585,7 +610,9 @@ function resolveTarget(diff: Diff, target: AssignTarget): Result<Resolved, Assig
 			}
 			// Unchanged lines in the ranges belong to no unit, so applying them takes nothing.
 			return ok({
-				files: new Map([[file.value, { kind: 'lines', lines: linesOf(target.ranges) } as const]]),
+				files: new Map([
+					[file.value, { kind: 'lines', lines: linesOf(target.ranges), file: target.file } as const]
+				]),
 				rangesTakingNothing:
 					empty.length === 0 ? undefined : { file: file.value.file.path, ranges: empty }
 			});
@@ -764,7 +791,7 @@ const INVALID_ITEM_MESSAGES: Readonly<Record<InvalidItemProblem, string>> = {
 
 const LINES_PROBLEMS: Readonly<Record<MalformedLinesProblem, string>> = {
 	empty: 'there is nothing there',
-	unreadable: 'it is not a line label',
+	unreadable: 'it is not a line label such as "+40" or "-38", nor "file"',
 	'mixed-sides': 'the range starts on one side and ends on the other',
 	'bad-range': 'the range ends before it starts, or a line number is below 1'
 };
@@ -798,7 +825,7 @@ export function describeRangesTakingNothing(report: RangesTakingNothing): TextFo
 	const ranges = listedRanges(report.ranges);
 	const one = report.ranges.length === 1;
 	return textForAgent(
-		`${agentPath(report.file)}: ${ranges} ${one ? 'holds' : 'hold'} no changed line and took nothing; the item's other ranges were assigned. ` +
+		`${agentPath(report.file)}: ${ranges} ${one ? 'holds' : 'hold'} no changed line and took nothing; the rest of the item was assigned. ` +
 			'Nothing more needs doing unless you meant other lines; use the +/- labels from get_diff to name them.'
 	);
 }
@@ -845,7 +872,9 @@ function rejectionText(rejection: AssignRejection): string {
 			return `${file}: ${requested} ${rejection.ranges.length === 1 ? 'holds' : 'hold'} no changed line, so nothing was assigned for this item. A range takes the changed lines inside it and may span unchanged ones, but an item's ranges must hold at least one between them.${nearest} Use the +/- labels from get_diff.`;
 		}
 		case 'NoLinesInFile':
-			return `${agentPath(rejection.file)} has no changed lines (it is binary, renamed, a mode change, a submodule or an empty file). Assign the whole file instead.`;
+			return `${agentPath(rejection.file)} has no changed lines (it is binary, renamed, a mode change, a submodule or an empty file). Assign the whole file instead, or name its one change with "lines": "file".`;
+		case 'NoFileUnit':
+			return `${agentPath(rejection.file)} has no change to the file itself: its name, mode and kind are as they were, so "file" names nothing. Name its changed lines with their +/- labels instead. Nothing was assigned for this item.`;
 		case 'MalformedLines':
 			return `"lines" could not be read at ${quoted(rejection.part)}: ${LINES_PROBLEMS[rejection.problem]}. Write ranges such as "+40..+62,-38..-45", or "+40" for one line; "+" is the new side, "-" the old.`;
 		case 'MalformedGlob':

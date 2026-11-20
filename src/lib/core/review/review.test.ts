@@ -14,7 +14,7 @@ import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
 import { parseSectionId } from '../section-id.tiny.ts';
 import { describeMarkError, markReviewed, type ReviewTarget } from './mark-reviewed.ts';
 import { reviewProgress, unitProgressOf } from './progress.ts';
-import { NO_MARKS, reviewedLines, type ReviewedMarks } from './reviewed-marks.ts';
+import { fileUnitReviewed, NO_MARKS, reviewedLines, type ReviewedMarks } from './reviewed-marks.ts';
 
 function path(text: string): RepoPath {
 	const parsed = parseRepoPath(text);
@@ -83,7 +83,7 @@ describe('marking reviewed', () => {
 		const group = marked(NO_MARKS, { kind: 'group', group: section('alpha') });
 		expect([...group.files.keys()].sort()).toEqual([appTest, app].sort());
 		const image = marked(NO_MARKS, { kind: 'group', group: { kind: 'uncategorised' } });
-		expect(image.files.get(path('logo.png'))).toEqual({ kind: 'file' });
+		expect(fileUnitReviewed(image, path('logo.png'))).toBe(true);
 		expect(marked(image, { kind: 'file', path: path('logo.png') }, false).files.size).toBe(0);
 	});
 
