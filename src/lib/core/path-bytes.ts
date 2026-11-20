@@ -18,9 +18,10 @@
  */
 import { decodePathBytes, encodePathText, ESCAPE_BASE, hasOddBytes } from './path-codec.ts';
 import { parseRepoPath, type InvalidRepoPath, type RepoPath } from './repo-path.tiny.ts';
-import type { Result } from './result.ts';
+import { err, ok, type Result } from './result.ts';
+import { escapedRepoPath, type EscapedPath } from './escaped-path.tiny.ts';
 
-export { escapedRepoPath, type EscapedPath } from './escaped-path.tiny.ts';
+export { escapedRepoPath, type EscapedPath };
 export { decodePathBytes, encodePathText, hasOddBytes };
 
 /** A path from git's bytes, exact whatever the bytes are. */
@@ -73,4 +74,20 @@ function readEscapes(text: string): string | undefined {
 		}
 	}
 	return out;
+}
+
+/** Text that is not a path as `escapedRepoPath` writes one. */
+export interface InvalidEscapedPath {
+	readonly kind: 'InvalidEscapedPath';
+	readonly value: string;
+}
+
+/**
+ * Reads a path in its escaped form back as one, such as a path sent to the page:
+ * the text must be exactly what `escapedRepoPath` writes for some path.
+ */
+export function parseEscapedPath(text: string): Result<EscapedPath, InvalidEscapedPath> {
+	const path = resolveEscapedPath(text);
+	const escaped = path === undefined ? undefined : escapedRepoPath(path);
+	return escaped === text ? ok(escaped) : err({ kind: 'InvalidEscapedPath', value: text });
 }

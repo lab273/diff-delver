@@ -8,7 +8,7 @@ import { parseLineCount, type LineCount } from '../line-count.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import { describeGitSource, type GitSourceSpec } from '../sources/git-source-spec.ts';
 import type { Diff } from '../diff/diff.ts';
-import type { ClosedReason, DiffSize, ReportSource } from './report.ts';
+import type { ClosedReason, DiffSize, ReportSource, UnitProgress } from './report.ts';
 
 /** The report's title: its source in plain words, such as "Uncommitted changes". */
 export function reportTitle(source: ReportSource): ReviewerMessage {
@@ -85,4 +85,35 @@ export function diffSizeOf(diff: Diff): DiffSize {
 		addedLines: lineCount(added),
 		deletedLines: lineCount(deleted)
 	};
+}
+
+function plural(count: number, one: string, many: string): string {
+	return `${String(count)} ${count === 1 ? one : many}`;
+}
+
+/** A diff's size in words: "3 files changed, 40 lines added and 12 removed". */
+export function describeDiffSize(size: DiffSize): ReviewerMessage {
+	if (size.files === 0) return reviewerMessage('No files changed');
+	const files = `${plural(size.files, 'file', 'files')} changed`;
+	const added = size.addedLines;
+	const removed = size.deletedLines;
+	if (added === 0 && removed === 0) return reviewerMessage(`${files}, no lines added or removed`);
+	if (removed === 0) return reviewerMessage(`${files}, ${plural(added, 'line', 'lines')} added`);
+	if (added === 0) return reviewerMessage(`${files}, ${plural(removed, 'line', 'lines')} removed`);
+	return reviewerMessage(
+		`${files}, ${plural(added, 'line', 'lines')} added and ${String(removed)} removed`
+	);
+}
+
+/** How far the review has got, in words: "Not started: 42 changes to review", "12 of 42 changes reviewed". */
+export function describeUnitProgress(progress: UnitProgress): ReviewerMessage {
+	const { counted, reviewed } = progress;
+	if (counted === 0) return reviewerMessage('Nothing to review: every change is ignored');
+	if (reviewed === 0) {
+		return reviewerMessage(`Not started: ${plural(counted, 'change', 'changes')} to review`);
+	}
+	if (reviewed === counted) {
+		return reviewerMessage(`Everything reviewed: ${plural(counted, 'change', 'changes')}`);
+	}
+	return reviewerMessage(`${String(reviewed)} of ${plural(counted, 'change', 'changes')} reviewed`);
 }
