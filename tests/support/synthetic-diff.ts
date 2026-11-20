@@ -8,7 +8,10 @@
 import fc from 'fast-check';
 import { describeDiffOutputError } from '#lib/core/diff/diff-output-error.ts';
 import { parseDiffTreeOutput } from '#lib/core/diff/diff-tree-output.ts';
+import { assign } from '#lib/core/diff/assign.ts';
+import { coverage } from '#lib/core/diff/coverage.ts';
 import { makeDiff, type Diff } from '#lib/core/diff/diff.ts';
+import { initialState } from '#lib/core/diff/state.ts';
 
 export type LineKind = ' ' | '+' | '-';
 
@@ -177,3 +180,61 @@ export const GLOBS = ['*.ts', 'src/**', '**/*.md', 'nothing/**', '*.png', '[', '
 
 /** Section ids, the ignored bucket, and ids that are not valid. */
 export const SECTIONS = ['alpha', 'beta', 'gamma', 'ignored', 'Not An Id'];
+
+// --- Scale ----------------------------------------------------------------------
+
+export interface ScaleRun {
+	/** Milliseconds from git's output to coverage, not counting writing the output. */
+	readonly elapsed: number;
+	readonly unitCount: number;
+	readonly uncategorised: number;
+}
+
+/**
+ * Times the pure pipeline on `fileCount` files of 100 changed lines each: parse,
+ * index, initial state, two `assign` items, coverage. A fifth of the files go to
+ * one section by glob and ten lines of one file to another.
+ */
+export function runAtScale(fileCount: number): ScaleRun {
+	// Each file: two hunks, each a run of 25 deleted and 25 added lines between context.
+	const run: readonly LineKind[] = [
+		' ',
+		...Array<LineKind>(25).fill('-'),
+		...Array<LineKind>(25).fill('+'),
+		' '
+	];
+	const files: SyntheticFile[] = Array.from({ length: fileCount }, (_, i) => ({
+		path: `src/module-${String(i).padStart(5, '0')}/file.ts`,
+		change: 'modified',
+		hunks: [
+			{ gap: 10, lines: run },
+			{ gap: 20, lines: run }
+		]
+	}));
+	const output = syntheticDiffTreeOutput(files);
+	const fifth = Math.floor(fileCount / 5);
+
+	const started = performance.now();
+	const parsed = parseDiffTreeOutput(output);
+	if (!parsed.ok) throw new Error(describeDiffOutputError(parsed.error));
+	const diff = makeDiff(parsed.value);
+	if (!diff.ok) throw new Error('duplicate path');
+	const outcome = assign(diff.value, initialState(diff.value), [
+		...Array.from({ length: fifth / 100 }, (_, i) => ({
+			glob: `src/module-${String(i).padStart(3, '0')}??/**`,
+			section: 'first'
+		})),
+		{
+			file: `src/module-${String(fileCount - 1).padStart(5, '0')}/file.ts`,
+			lines: '+12..+21',
+			section: 'second'
+		}
+	]);
+	if (outcome.rejected.length > 0) throw new Error('an item was rejected');
+	const result = coverage(diff.value, outcome.state);
+	return {
+		elapsed: performance.now() - started,
+		unitCount: diff.value.unitCount,
+		uncategorised: result.uncategorised.units
+	};
+}

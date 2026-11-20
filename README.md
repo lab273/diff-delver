@@ -54,7 +54,7 @@ cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
 | `src/lib/core/` | Pure domain code: tiny types, the line model, coverage, export rendering. No Node, SvelteKit, Svelte, browser or server imports, no `process`, `Date.now` or `Math.random`; lint enforces this. Tests sit next to the code as `*.test.ts` and form the `core` Vitest project (250 ms per test, 5 seconds in all). |
 | `src/lib/server/` | Daemon-side code: sources, the snapshot store, the database, MCP. |
 | `src/routes/` | The UI and the HTTP routes. |
-| `src/**/*.test.ts` outside core | The `integration` Vitest project (3 seconds per test). |
+| `src/**/*.test.ts` outside core | The `integration` Vitest project (3 seconds per test). `src/lib/scale.test.ts` measures the pure diff model at full size here, for the larger budget. |
 | `tests/journeys/` | One Playwright file per journey, `j<N>-<name>.journey.ts`, with the journey's name as its `describe`. They run in Chromium against one production build on a free port, 20 seconds per test. |
 | `src/lib/core/diff/` | The diff model (DESIGN 4): reading git's diff output, change units, assignment, coverage, slices and the agent-facing diff text. Import it from `#lib/core/diff/index.ts`, its one entry point. `fixtures/` holds git output recorded by `pnpm fixtures:capture`; never edit it by hand. |
 | `src/lib/core/range-set.ts`, `range-map.ts` | Sets of whole numbers and maps from them, stored as intervals. Line assignments are stored in them, and reviewed marks should be too. |

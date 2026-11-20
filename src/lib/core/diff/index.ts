@@ -106,3 +106,7 @@ export {
 export type { MalformedLines, MalformedLinesProblem } from './line-spec.ts';
 export { parseLineSpec } from './line-spec.ts';
 export { countUncategorised } from './totals.ts';
+
+// Coverage.
+export type { Coverage, CoverageOptions, CoverageWarning, FileUnits, Totals } from './coverage.ts';
+export { coverage, describeBucket, describeWarning } from './coverage.ts';

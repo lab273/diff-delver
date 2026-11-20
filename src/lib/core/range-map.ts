@@ -78,6 +78,25 @@ export class RangeMap<V> {
 		return undefined;
 	}
 
+	/** The values of the segments that hold any key from `first` to `last`, in order. */
+	valuesOverlapping(first: number, last: number): readonly V[] {
+		let low = 0;
+		let high = this.#segments.length;
+		// The first segment that ends at or after `first`.
+		while (low < high) {
+			const middle = (low + high) >> 1;
+			if ((this.#segments[middle]?.last ?? Infinity) < first) low = middle + 1;
+			else high = middle;
+		}
+		const values: V[] = [];
+		for (let i = low; i < this.#segments.length; i += 1) {
+			const segment = this.#segments[i];
+			if (segment === undefined || segment.first > last) break;
+			values.push(segment.value);
+		}
+		return values;
+	}
+
 	/** The segments cut down to the keys in `target`. */
 	within(target: RangeSet): readonly Segment<V>[] {
 		const result: Segment<V>[] = [];

@@ -115,6 +115,24 @@ describe('RangeMap', () => {
 		);
 	});
 
+	it('finds the values of the segments overlapping an interval', () => {
+		fc.assert(
+			fc.property(
+				rangeSet,
+				fc.array(fc.tuple(rangeSet, value), { maxLength: 5 }),
+				interval,
+				(domain, updates, probe) => {
+					let map = RangeMap.uniform<string>(domain, 'a', same);
+					for (const [target, v] of updates) map = map.set(target, v);
+					const expected = map.segments
+						.filter((s) => s.first <= probe.last && s.last >= probe.first)
+						.map((s) => s.value);
+					expect(map.valuesOverlapping(probe.first, probe.last)).toEqual(expected);
+				}
+			)
+		);
+	});
+
 	it('cuts segments down to a target', () => {
 		fc.assert(
 			fc.property(rangeSet, rangeSet, (domain, target) => {
