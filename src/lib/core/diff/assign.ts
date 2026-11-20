@@ -25,7 +25,7 @@ import { parseAgentMarkdown, type AgentMarkdown } from '../agent-markdown.tiny.t
 import { compileGlob, parseGlobPattern, type GlobPattern } from '../glob-pattern.tiny.ts';
 import { describeGlobProblem, type GlobProblem } from '../glob.ts';
 import { parseHunkId, type HunkId } from '../hunk-id.tiny.ts';
-import { formatLineRanges, lineRangesOf, type LineRange } from '../line-range.ts';
+import { formatLineRange, formatLineRanges, lineRangesOf, type LineRange } from '../line-range.ts';
 import { RangeSet } from '../range-set.ts';
 import { itemIndexAt, type ItemIndex } from '../item-index.tiny.ts';
 import { resolveEscapedPath } from '../path-bytes.ts';
@@ -562,9 +562,7 @@ function resolveTarget(diff: Diff, target: AssignTarget): Result<Resolved, Assig
 			if (!file.value.hasLines) return err({ kind: 'NoLinesInFile', file: target.path });
 			const changed = file.value.changed;
 			const empty = target.ranges.filter(
-				(range) =>
-					changedLines(file.value, range.side).intersect(RangeSet.of(range.first, range.last))
-						.isEmpty
+				(range) => !changedLines(file.value, range.side).overlaps(range.first, range.last)
 			);
 			if (empty.length === target.ranges.length) {
 				return err({
@@ -587,11 +585,15 @@ function resolveTarget(diff: Diff, target: AssignTarget): Result<Resolved, Assig
 /** How many changed lines on each side of a range a rejection names. */
 const NEAREST_EACH_WAY = 2;
 
+/** The most changed lines a rejection names in all. */
+const MAX_NEAREST = 10;
+
 /**
- * A few changed lines around each range that holds none: the nearest intervals
- * before and after it on its side, or, when that side has no changed lines at
- * all, the first ones on the other side. Bounded, so a large file does not flood
- * the agent.
+ * A few changed lines around the ranges that hold none: the nearest intervals
+ * before and after each, found by binary search, on its side, or, when that
+ * side has no changed lines at all, the first ones on the other side. At most
+ * `MAX_NEAREST` in all, for the first ranges, so a large file or a long list of
+ * ranges does not flood the agent or take long to build.
  */
 function nearestChanged(changed: SideLines, ranges: readonly LineRange[]): readonly LineRange[] {
 	const found: LineRange[] = [];
@@ -602,21 +604,29 @@ function nearestChanged(changed: SideLines, ranges: readonly LineRange[]): reado
 		seen.add(key);
 		found.push(range);
 	};
+	const sideLines = (side: Side): RangeSet => (side === 'old' ? changed.old : changed.new);
+	const intervals = (side: Side, from: number, to: number): readonly LineRange[] =>
+		lineRangesOf(side, RangeSet.fromIntervals(sideLines(side).intervals.slice(from, to)));
 	for (const range of ranges) {
-		const own = range.side === 'old' ? changed.old : changed.new;
+		if (found.length >= MAX_NEAREST) break;
+		const own = sideLines(range.side);
 		if (own.isEmpty) {
 			const other: Side = range.side === 'old' ? 'new' : 'old';
-			const lines = lineRangesOf(other, other === 'old' ? changed.old : changed.new);
-			for (const r of lines.slice(0, 2 * NEAREST_EACH_WAY)) add(r);
+			for (const r of intervals(other, 0, 2 * NEAREST_EACH_WAY)) add(r);
 			continue;
 		}
-		const all = lineRangesOf(range.side, own);
-		const before = all.filter((r) => r.last < range.first).slice(-NEAREST_EACH_WAY);
-		const after = all.filter((r) => r.first > range.last).slice(0, NEAREST_EACH_WAY);
-		for (const r of [...before, ...after]) add(r);
+		// The range holds no changed line, so the interval found starts after it.
+		const after = own.firstEndingAtOrAfter(range.first);
+		for (const r of intervals(
+			range.side,
+			Math.max(0, after - NEAREST_EACH_WAY),
+			after + NEAREST_EACH_WAY
+		)) {
+			add(r);
+		}
 	}
 	const order = (r: LineRange): number => (r.side === 'old' ? 0 : 1);
-	return found.sort((a, b) => order(a) - order(b) || a.first - b.first);
+	return found.sort((a, b) => order(a) - order(b) || a.first - b.first).slice(0, MAX_NEAREST);
 }
 
 function linesOf(ranges: readonly LineRange[]): SideLines {
@@ -686,6 +696,45 @@ function withoutPrefix(path: string): string {
 
 // --- Messages ------------------------------------------------------------------
 
+/**
+ * The most entries any one list in a message names; the rest are counted. An
+ * agent's request can be long, and the message about it must stay short.
+ */
+const MAX_LISTED = 10;
+
+/** The longest piece of the agent's own text a message repeats, in characters. */
+const MAX_ECHOED = 80;
+
+/** Items joined, the first `MAX_LISTED` of them, and how many more there are. */
+function listed(items: readonly string[], separator = ', '): string {
+	if (items.length <= MAX_LISTED) return items.join(separator);
+	const more = items.length - MAX_LISTED;
+	return `${items.slice(0, MAX_LISTED).join(separator)} and ${String(more)} more`;
+}
+
+/** Line ranges in the agent-facing form, at most `MAX_LISTED` of them. */
+function listedRanges(ranges: readonly LineRange[]): string {
+	return listed(ranges.map(formatLineRange), ',');
+}
+
+/** A file's hunk ids: `h1 to h400` when they are all of h1 to hN, otherwise a short list. */
+function listedHunks(known: readonly HunkId[]): string {
+	const sequential = known.every((id, i) => id === `h${String(i + 1)}`);
+	if (known.length > MAX_LISTED && sequential) return `h1 to ${known.at(-1) ?? ''}`;
+	return listed(known);
+}
+
+/** The agent's text, cut to `MAX_ECHOED` characters. */
+function echoed(text: string): string {
+	const chars = Array.from(text);
+	return chars.length <= MAX_ECHOED ? text : `${chars.slice(0, MAX_ECHOED).join('')}…`;
+}
+
+/** The agent's text as a JSON string, cut to `MAX_ECHOED` characters. */
+function quoted(text: string): string {
+	return JSON.stringify(echoed(text));
+}
+
 const INVALID_ITEM_MESSAGES: Readonly<Record<InvalidItemProblem, string>> = {
 	'no-target':
 		'The item names nothing to assign. Give "file", "glob", "file" with "hunks", or "file" with "lines".',
@@ -735,7 +784,7 @@ export function describeNothingTaken(nothing: NothingTaken): TextForAgent {
 
 /** Which ranges of an accepted item took nothing, written for the agent. */
 export function describeRangesTakingNothing(report: RangesTakingNothing): TextForAgent {
-	const ranges = formatLineRanges(report.ranges);
+	const ranges = listedRanges(report.ranges);
 	const one = report.ranges.length === 1;
 	return textForAgent(
 		`${agentPath(report.file)}: ${ranges} ${one ? 'holds' : 'hold'} no changed line and took nothing; the item's other ranges were assigned. ` +
@@ -754,24 +803,24 @@ function rejectionText(rejection: AssignRejection): string {
 			return INVALID_ITEM_MESSAGES[rejection.problem];
 		case 'UnknownFile':
 			return rejection.similar.length > 0
-				? `${JSON.stringify(rejection.file)} is not a changed file in this diff. Did you mean ${rejection.similar.map(agentPath).join(' or ')}?`
-				: `${JSON.stringify(rejection.file)} is not a changed file in this diff. Use a path from get_manifest; a deleted file goes by its old path, any other file by its new path.`;
+				? `${quoted(rejection.file)} is not a changed file in this diff. Did you mean ${rejection.similar.map(agentPath).join(' or ')}?`
+				: `${quoted(rejection.file)} is not a changed file in this diff. Use a path from get_manifest; a deleted file goes by its old path, any other file by its new path.`;
 		case 'MalformedHunkId': {
-			const bad = rejection.hunks.map((h) => JSON.stringify(h)).join(', ');
+			const bad = listed(rejection.hunks.map(quoted));
 			const what = rejection.hunks.length === 1 ? 'is not a hunk id' : 'are not hunk ids';
 			const ids =
 				'Hunk ids are "h" and a number, as each hunk is labelled in get_diff ("@@ h1 -38,3 +38,4 @@").';
 			return rejection.known.length > 0
-				? `${bad} ${what}. ${ids} ${agentPath(rejection.file)} has hunks ${rejection.known.join(', ')}.`
+				? `${bad} ${what}. ${ids} ${agentPath(rejection.file)} has hunks ${listedHunks(rejection.known)}.`
 				: `${bad} ${what}. ${ids} ${agentPath(rejection.file)} has no hunks, because its change has no lines: assign the whole file instead.`;
 		}
 		case 'UnknownHunk':
 			return rejection.known.length > 0
-				? `${agentPath(rejection.file)} has no hunk ${rejection.hunks.join(', ')}. Its hunks are ${rejection.known.join(', ')}.`
-				: `${agentPath(rejection.file)} has no hunk ${rejection.hunks.join(', ')}: its change has no lines. Assign the whole file instead.`;
+				? `${agentPath(rejection.file)} has no hunk ${listed(rejection.hunks)}. Its hunks are ${listedHunks(rejection.known)}.`
+				: `${agentPath(rejection.file)} has no hunk ${listed(rejection.hunks)}: its change has no lines. Assign the whole file instead.`;
 		case 'NoChangedLines': {
 			const file = agentPath(rejection.file);
-			const requested = formatLineRanges(rejection.ranges);
+			const requested = listedRanges(rejection.ranges);
 			const sides = new Set(rejection.ranges.map((r) => r.side));
 			const nearestSides = new Set(rejection.nearest.map((r) => r.side));
 			const missingSide = [...sides].find((side) => !nearestSides.has(side));
@@ -782,27 +831,27 @@ function rejectionText(rejection: AssignRejection): string {
 				const sign = missingSide === 'old' ? '-' : '+';
 				return `${file} has no ${name} lines, so ${requested} takes nothing; "${sign}" labels ${name} lines. Its changed lines include ${formatLineRanges(rejection.nearest)}. Nothing was assigned for this item.`;
 			}
-			return `${file}: ${requested} holds no changed line, so nothing was assigned for this item. A range takes the changed lines inside it and may span unchanged ones, but it must hold at least one.${nearest} Use the +/- labels from get_diff.`;
+			return `${file}: ${requested} ${rejection.ranges.length === 1 ? 'holds' : 'hold'} no changed line, so nothing was assigned for this item. A range takes the changed lines inside it and may span unchanged ones, but an item's ranges must hold at least one between them.${nearest} Use the +/- labels from get_diff.`;
 		}
 		case 'NoLinesInFile':
 			return `${agentPath(rejection.file)} has no changed lines (it is binary, renamed, a mode change, a submodule or an empty file). Assign the whole file instead.`;
 		case 'MalformedLines':
-			return `"lines" could not be read at "${rejection.part}": ${LINES_PROBLEMS[rejection.problem]}. Write ranges such as "+40..+62,-38..-45", or "+40" for one line; "+" is the new side, "-" the old.`;
+			return `"lines" could not be read at ${quoted(rejection.part)}: ${LINES_PROBLEMS[rejection.problem]}. Write ranges such as "+40..+62,-38..-45", or "+40" for one line; "+" is the new side, "-" the old.`;
 		case 'MalformedGlob':
-			return `The glob "${rejection.glob}" is not valid: ${describeGlobProblem(rejection.problem)}. Nothing was assigned for this item.`;
+			return `The glob ${quoted(rejection.glob)} is not valid: ${describeGlobProblem(rejection.problem)}. Nothing was assigned for this item.`;
 		case 'GlobMatchesNothing':
 			return `The glob "${rejection.glob}" matches no changed file. A pattern with a "/" is matched from the root; one without matches file names at any depth.`;
 		case 'InvalidSectionId':
 			return rejection.reason === 'reserved'
-				? `"${rejection.section}" is not a section id. To ignore lines, use "section": "ignored" with a "reason".`
-				: `"${rejection.section}" is not a valid section id: ${SECTION_ID_PROBLEMS[rejection.reason]}. Use a short slug of lowercase letters and digits joined by "-", "_" or ".", such as "session-expiry".`;
+				? `${quoted(rejection.section)} is not a section id. To ignore lines, use "section": "ignored" with a "reason".`
+				: `${quoted(rejection.section)} is not a valid section id: ${SECTION_ID_PROBLEMS[rejection.reason]}. Use a short slug of lowercase letters and digits joined by "-", "_" or ".", such as "session-expiry".`;
 		case 'UnknownSection':
 			return rejection.known.length > 0
-				? `There is no section "${rejection.section}". Create it with upsert_sections first, or use one of: ${rejection.known.join(', ')}.`
+				? `There is no section "${rejection.section}". Create it with upsert_sections first, or use one of: ${listed(rejection.known)}.`
 				: `There is no section "${rejection.section}". Create it with upsert_sections first.`;
 		case 'MissingReason':
 			return 'Ignoring lines needs a "reason" saying why they need no review.';
 		case 'InvalidRole':
-			return `"${rejection.role}" is not a role. Use "code", "test" or "snapshot".`;
+			return `${quoted(rejection.role)} is not a role. Use "code", "test" or "snapshot".`;
 	}
 }

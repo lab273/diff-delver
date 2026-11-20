@@ -21,6 +21,18 @@ function wellFormed(set: RangeSet): boolean {
 }
 
 describe('RangeSet', () => {
+	it('finds by binary search the first interval ending at or after a number, and overlaps', () => {
+		fc.assert(
+			fc.property(rangeSet, small, fc.integer({ min: 0, max: 12 }), (set, first, width) => {
+				const last = first + width;
+				const index = set.firstEndingAtOrAfter(first);
+				const expected = set.intervals.findIndex((x) => x.last >= first);
+				expect(index).toBe(expected === -1 ? set.intervals.length : expected);
+				expect(set.overlaps(first, last)).toBe(naive(set).some((n) => n >= first && n <= last));
+			})
+		);
+	});
+
 	it('merges overlapping and adjacent intervals', () => {
 		const set = RangeSet.fromIntervals([
 			{ first: 5, last: 7 },

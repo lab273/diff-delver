@@ -375,6 +375,64 @@ describe('assign rejections', () => {
 		expect(rejection && describeRejection(rejection).length).toBeLessThan(400);
 	});
 
+	describe('in a file of 5,000 hunks', () => {
+		const huge = syntheticDiff([
+			{
+				path: 'huge.ts',
+				change: 'modified',
+				hunks: Array.from({ length: 5_000 }, () => ({ gap: 1, lines: [' ', '+', ' '] as const }))
+			}
+		]);
+		const hugeState = initialState(huge);
+		const message = (request: AssignRequest): string => {
+			const rejection = assign(huge, hugeState, [request]).rejected[0]?.rejection;
+			if (rejection === undefined) throw new Error('not rejected');
+			return describeRejection(rejection);
+		};
+
+		it('keeps a refusal of 5,000 empty ranges short, and builds it quickly', () => {
+			const changed = huge.files[0]?.changed.new;
+			const unchanged: string[] = [];
+			for (let n = 1; unchanged.length < 5_000; n += 1) {
+				if (changed?.has(n) !== true) unchanged.push(`+${String(n)}`);
+			}
+			const started = now();
+			const text = message({ file: 'huge.ts', lines: unchanged.join(','), section: 'alpha' });
+			expect(now() - started).toBeLessThan(100);
+			expect(text.length).toBeLessThan(600);
+			expect(text).toContain('+1,+2,+4,+5,+6,+8,+9,+10,+12,+13 and 4990 more hold no changed line');
+			expect(text).toContain('Nearby: +3,+7,+11,+15,+19,+23,+27,+31,+35,+39.');
+		});
+
+		it('names the hunks of the file as a span, not one by one', () => {
+			const malformed = message({ file: 'huge.ts', hunks: ['1', 'H2'], section: 'alpha' });
+			expect(malformed).toContain('huge.ts has hunks h1 to h5000.');
+			expect(malformed.length).toBeLessThan(400);
+			const unknown = message({
+				file: 'huge.ts',
+				hunks: Array.from({ length: 2_000 }, (_, i) => `h${String(6_000 + i)}`),
+				section: 'alpha'
+			});
+			expect(unknown).toBe(
+				'huge.ts has no hunk h6000, h6001, h6002, h6003, h6004, h6005, h6006, h6007, h6008, h6009 and 1990 more. Its hunks are h1 to h5000.'
+			);
+		});
+	});
+
+	it('repeats at most 80 characters of what the agent wrote', () => {
+		const long = 'x'.repeat(5_000);
+		for (const request of [
+			{ file: long, section: 'alpha' },
+			{ file: 'src/app.ts', lines: long, section: 'alpha' },
+			{ glob: `${long}[`, section: 'alpha' },
+			{ file: 'src/app.ts', section: long },
+			{ file: 'src/app.ts', role: long }
+		]) {
+			const rejection = assign(diff, state, [request]).rejected[0]?.rejection;
+			expect(rejection && describeRejection(rejection).length).toBeLessThan(500);
+		}
+	});
+
 	it.each<[AssignRequest, AssignRejection['kind']]>([
 		[{ section: 'alpha' }, 'InvalidItem'],
 		[{ file: 'src/app.ts', glob: '*.ts', section: 'alpha' }, 'InvalidItem'],

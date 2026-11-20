@@ -93,6 +93,27 @@ export class RangeSet {
 		return false;
 	}
 
+	/**
+	 * The index in `intervals` of the first interval that ends at or after `n`,
+	 * or the number of intervals when none does. Found by binary search.
+	 */
+	firstEndingAtOrAfter(n: number): number {
+		let low = 0;
+		let high = this.#intervals.length;
+		while (low < high) {
+			const middle = (low + high) >> 1;
+			if ((this.#intervals[middle]?.last ?? n) < n) low = middle + 1;
+			else high = middle;
+		}
+		return low;
+	}
+
+	/** Whether any number from `first` to `last` is in the set. */
+	overlaps(first: number, last: number): boolean {
+		const interval = this.#intervals[this.firstEndingAtOrAfter(first)];
+		return interval !== undefined && interval.first <= last;
+	}
+
 	union(other: RangeSet): RangeSet {
 		if (other.isEmpty) return this;
 		if (this.isEmpty) return other;
