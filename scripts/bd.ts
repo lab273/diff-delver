@@ -3,8 +3,8 @@
  * set, so no personal name or email address is copied into an issue (README,
  * "Tracking work"). Arguments, output and exit status pass through unchanged.
  *
- * A command with `push` or `sync` among its arguments, such as `pnpm bd push`,
- * `pnpm bd dolt push` or `pnpm bd sync`, checks the issue data first: it exports
+ * A publishing command, `pnpm bd push`, `pnpm bd dolt push` or `pnpm bd sync`
+ * (scripts/bd-push.ts, `planCommand`), checks the issue data first: it exports
  * every record, scans it for what looks personal or sensitive
  * (scripts/private-data-scan.ts), and stops if anything is found, unless the
  * command is given again with `--anyway`. It is a helper for honest mistakes, not

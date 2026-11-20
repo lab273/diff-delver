@@ -19,16 +19,39 @@ export type Plan =
 	| { readonly kind: 'PassThrough'; readonly args: readonly string[] }
 	/** `push` or `dolt push`: checks, then runs `bd dolt push` with `extra`, retrying a timeout. */
 	| { readonly kind: 'Push'; readonly extra: readonly string[]; readonly anyway: boolean }
-	/** Another command that may publish, such as `sync`: checks, then runs bd with the arguments. */
+	/** `sync`, or a publishing command after global flags: checks, then runs bd with the arguments. */
 	| { readonly kind: 'CheckThenRun'; readonly args: readonly string[]; readonly anyway: boolean };
 
-/** Words that may mean the command publishes the issue data. */
-const PUBLISHING_WORDS: readonly string[] = ['push', 'sync'];
+/** Commands that publish the issue data. */
+const PUBLISHING_COMMANDS: readonly string[] = ['push', 'sync'];
+
+/** bd's global flags that take the next argument as their value, as `-C <dir>` does. */
+const FLAGS_WITH_A_VALUE: readonly string[] = [
+	'-C',
+	'--directory',
+	'--db',
+	'--database',
+	'--actor',
+	'--dolt-auto-commit',
+	'--mem-profile'
+];
+
+/** The command bd will run, and the word after it: what follows the global flags. */
+function commandOf(args: readonly string[]): readonly string[] {
+	let at = 0;
+	while (at < args.length) {
+		const arg = args[at] ?? '';
+		if (!arg.startsWith('-')) break;
+		at += FLAGS_WITH_A_VALUE.includes(arg) ? 2 : 1;
+	}
+	return args.slice(at, at + 2);
+}
 
 /**
- * Best effort, not a parse of bd's grammar: any command with `push` or `sync` as
- * one of its arguments is checked first, so `bd -C . dolt push` and `bd sync` are
- * too. `--anyway` is taken out wherever it is.
+ * Best effort, not a parse of bd's grammar: the check runs when the command, the
+ * first argument after bd's global flags, is `push` or `sync`, or is `dolt push`.
+ * `bd search push` and `bd list --label sync` are not checked. `--anyway` is
+ * taken out wherever it is.
  */
 export function planCommand(given: readonly string[]): Plan {
 	const anyway = given.includes(ANYWAY);
@@ -36,7 +59,8 @@ export function planCommand(given: readonly string[]): Plan {
 	if (args[0] === 'push') return { kind: 'Push', extra: args.slice(1), anyway };
 	if (args[0] === 'dolt' && args[1] === 'push')
 		return { kind: 'Push', extra: args.slice(2), anyway };
-	if (args.some((arg) => PUBLISHING_WORDS.includes(arg)))
+	const [command = '', next] = commandOf(args);
+	if (PUBLISHING_COMMANDS.includes(command) || (command === 'dolt' && next === 'push'))
 		return { kind: 'CheckThenRun', args, anyway };
 	return { kind: 'PassThrough', args };
 }

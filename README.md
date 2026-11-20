@@ -157,19 +157,20 @@ edit, so a later correction does not remove what was written.
 - beads copies the git identity into every issue (`user.email` into `owner`,
   `user.name` into `created_by`). `pnpm bd` always runs it with the agent
   identity instead; plain `bd` does not, so do not use it to change issues.
-- That rule is the control. `pnpm bd push` is a helper for honest mistakes: any
-  `pnpm bd` command with `push` or `sync` among its arguments first exports the
-  current issue data and flags any field that holds an email address not on the
-  allow-list in `scripts/issue-tracker-identity.ts`, something that looks like a
-  secret, a home-directory path, or a term from `.beads/private-terms.txt` (a file
-  of your own, one term per line, matched as whole words in any case, never
-  committed). It lists each finding with the issue and field, secrets masked, and
-  stops; add `--anyway` to push regardless. It does not check history, tables the
-  export leaves out, or anything pushed another way: plain `bd`, unusual
-  spellings, or beads' own automatic push (`dolt.auto-push`, which stays off). If
-  something personal has got in, do not push; tell the project owner, because
-  removing it means rebuilding the database. A push that times out on the
-  network is tried again a few times.
+- That rule is the control. `pnpm bd push` is a helper for honest mistakes: when
+  the command `pnpm bd` runs is `push`, `sync` or `dolt push` (after any of bd's
+  global flags, such as `-C <dir>`), it first exports the current issue data and
+  flags any field that holds an email address not on the allow-list in
+  `scripts/issue-tracker-identity.ts`, something that looks like a secret, a
+  home-directory path, or a term from `.beads/private-terms.txt` (a file of your
+  own, one term per line, matched as whole words in any case, never committed). It
+  lists each finding with the issue and field, secrets masked, and stops; add
+  `--anyway` to push regardless. It does not check history, tables the export
+  leaves out, or anything pushed another way: plain `bd`, unusual spellings, or
+  beads' own automatic push (`dolt.auto-push`, which stays off). If something
+  personal has got in, do not push; tell the project owner, because removing it
+  means rebuilding the database. A push that times out on the network is tried
+  again a few times.
 
 beads' usage metrics are switched off on the project's machines
 (`bd config set metrics.disabled true`), and `pnpm bd` sets `DO_NOT_TRACK` as well.

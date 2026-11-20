@@ -143,18 +143,30 @@ describe('planCommand', () => {
 		});
 	});
 
-	it('checks first for any command with push or sync among its arguments', () => {
-		for (const args of [['-C', '.', 'dolt', 'push'], ['sync'], ['federation', 'sync']]) {
+	it('checks first when push, sync or dolt push is the command, after any global flags', () => {
+		for (const args of [
+			['sync'],
+			['-C', '.', 'dolt', 'push'],
+			['--directory', '.', 'push'],
+			['--db=x.db', '-q', 'sync'],
+			['--actor', 'agent', '--json', 'dolt', 'push']
+		]) {
 			expect(planCommand(args)).toEqual({ kind: 'CheckThenRun', args, anyway: false });
 		}
 	});
 
-	it('passes everything else straight through', () => {
-		expect(planCommand(['create', 'push the fix'])).toEqual({
-			kind: 'PassThrough',
-			args: ['create', 'push the fix']
-		});
-		expect(planCommand([])).toEqual({ kind: 'PassThrough', args: [] });
+	it('passes everything else straight through, push or sync elsewhere among the arguments too', () => {
+		for (const args of [
+			['create', 'push the fix'],
+			['search', 'push'],
+			['list', '--label', 'sync'],
+			['note', 'dd-1', 'push'],
+			['show', 'sync', '--json'],
+			['-C', 'push', 'list'],
+			[]
+		]) {
+			expect(planCommand(args)).toEqual({ kind: 'PassThrough', args });
+		}
 	});
 
 	it('takes --anyway out wherever it is, and never passes it to bd', () => {
