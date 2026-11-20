@@ -28,7 +28,8 @@
 		"test:integration": "vitest run --project integration",
 		"test:watch": "vitest",
 		"test:journeys": "vite build && playwright test",
-		"fixtures:capture": "node scripts/capture-diff-fixtures.ts"
+		"fixtures:capture": "node scripts/capture-diff-fixtures.ts",
+		"bd": "node scripts/bd.ts"
 	},
 	"devDependencies": {
 		"@axe-core/playwright": "^4.14.0",

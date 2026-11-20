@@ -28,6 +28,7 @@ what do they do next?
 - Node 26, the current LTS line. Newer LTS lines are fine.
 - pnpm.
 - git, and jj for the jj source and its tests.
+- beads (`bd`), the issue tracker, 1.3.4 or newer; its wrapper's tests run it.
 
 `.nvmrc` pins the Node line and `package.json` pins pnpm (`packageManager`). After
 cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
@@ -45,6 +46,7 @@ cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
 | `pnpm lint` | ESLint, with warnings counted as failures. |
 | `pnpm check` | `svelte-check`: types in TypeScript and Svelte files. |
 | `pnpm format` | Rewrites files with Prettier. `pnpm format:check` only checks. |
+| `pnpm bd <arguments>` | beads' `bd`, with the agent identity set. `pnpm bd push` checks the issue data before publishing it. See [Tracking work](#tracking-work). |
 | `pnpm fixtures:capture` | Rebuilds the diff fixture repositories with real git and records git's output as the core parser's fixtures. Run it after changing a fixture or the diff command. |
 
 ### Layout
@@ -66,9 +68,10 @@ cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
 | `scripts/test-timings.ts` | Reads the test reports and works out which tests went over their guidance, for `pnpm verify`. |
 | `scripts/eslint-core-purity.ts` | The lint rule `core/purity`, for what core may not touch that the built-in rules cannot see: `Date` other than `Date.UTC` and `new Date(value)`, `Temporal.Now`, `Intl`, `Reflect.construct`, `import.meta` and locale- or timezone-dependent methods. Tested by `scripts/core-purity-rule.test.ts`. |
 | `scripts/capture-diff-fixtures.ts` | The `pnpm fixtures:capture` script. |
+| `scripts/bd.ts` | The `pnpm bd` wrapper. `bd-push.ts` decides when a push is tried again and what a refusal says; `private-data-scan.ts` finds personal and sensitive data in the issue data; `issue-tracker-identity.ts` holds the agent identity and the email allow-list. |
 | `scripts/ci-commits.sh` | Lists the commits a push must verify, for CI, and splits them into jobs. Tested by `scripts/ci-commits.test.ts`, in the `integration` project. |
 | `.github/workflows/verify.yml` | CI: `pnpm verify` on every commit of every push to `main`, including every rewritten commit of a force push. |
-| `.beads/` | The beads issue tracker's settings. The issue database itself is not in git; it syncs through `bd dolt push` and `bd dolt pull`. After cloning, `bd bootstrap` fetches it. |
+| `.beads/` | The beads issue tracker's settings. The issue database itself is not in git; it syncs through `pnpm bd push` and `pnpm bd dolt pull`. After cloning, `pnpm bd bootstrap` fetches it. `private-terms.txt`, if you make one, is ignored by git. |
 
 **Tiny-type files.** A tiny type and its parse function live in their own file
 named `<name>.tiny.ts` under `src/lib/core/`, for example `line-number.tiny.ts`.
@@ -116,20 +119,23 @@ Issues and tasks live in [beads](https://beads.gascity.com/) (`bd`), not in
 documents, code comments or an agent's memory. If work is owed, found, blocked or
 decided, it gets a bead.
 
+Run beads through `pnpm bd`, which takes the same arguments as `bd` and passes
+its output and exit status through unchanged.
+
 | Command | What it does |
 |---|---|
-| `bd ready` | What can be worked on now: open, with nothing blocking it |
-| `bd show <id>` | One issue, with its notes and dependencies |
-| `bd create "Title" -t task -p 2 -d "…"` | A new issue. Types include `task`, `bug`, `epic` and `decision`; add `--parent <epic>` and `--deps <id>` |
-| `bd update <id> --claim` | Take an issue and mark it in progress |
-| `bd note <id> "…"` | Add what was learned or decided |
-| `bd close <id> --reason "…"` | Finish it, naming the commits |
-| `bd dolt push` | Publish the issue data (see the rules below first) |
+| `pnpm bd ready` | What can be worked on now: open, with nothing blocking it |
+| `pnpm bd show <id>` | One issue, with its notes and dependencies |
+| `pnpm bd create "Title" -t task -p 2 -d "…"` | A new issue. Types include `task`, `bug`, `epic` and `decision`; add `--parent <epic>` and `--deps <id>` |
+| `pnpm bd update <id> --claim` | Take an issue and mark it in progress |
+| `pnpm bd note <id> "…"` | Add what was learned or decided |
+| `pnpm bd close <id> --reason "…"` | Finish it, naming the commits |
+| `pnpm bd push` | Check the issue data, then publish it (see the rules below) |
 
 How we use it:
 
 - One epic per build step in the design, plus one for process and tooling. Tasks
-  hang off an epic and depend on what must come first, so `bd ready` is the queue.
+  hang off an epic and depend on what must come first, so `pnpm bd ready` is the queue.
 - Claim an issue before starting it and close it with the commit ids when it is
   done and pushed.
 - File what you find while working on something else as a new issue instead of
@@ -145,18 +151,20 @@ edit, so a later correction does not remove what was written.
 - No secrets, tokens, keys or passwords, and nothing from a private repository or
   a customer.
 - beads copies the git identity into every issue (`user.email` into `owner`,
-  `user.name` into `created_by`). Always run it with the agent identity:
-
-  ```
-  export BEADS_ACTOR=plog-agents GIT_AUTHOR_EMAIL=plog-agents@lab273.com
-  ```
-
-- Before `bd dolt push`, export the data (`bd export --all -o <file>`) and check
-  it for email addresses and names. If something personal has got in, do not
-  push; say so, because removing it means rebuilding the database.
+  `user.name` into `created_by`). `pnpm bd` always runs it with the agent
+  identity instead; plain `bd` does not, so do not use it to change issues.
+- `pnpm bd push` (and `pnpm bd dolt push`) publishes only issue data that passes
+  a check. It exports every record and refuses to push if any field holds an
+  email address not on the allow-list in `scripts/issue-tracker-identity.ts`,
+  something that looks like a secret, a home-directory path, or a term from
+  `.beads/private-terms.txt`: a file of your own, one term per line, matched as
+  whole words in any case, and never committed. It lists each finding with the
+  issue and field. If something personal has got in, do not push; say so,
+  because removing it means rebuilding the database. A push that times out on
+  the network is tried again a few times.
 
 beads' usage metrics are switched off on the project's machines
-(`bd config set metrics.disabled true`).
+(`bd config set metrics.disabled true`), and `pnpm bd` sets `DO_NOT_TRACK` as well.
 
 ### Tiny types
 

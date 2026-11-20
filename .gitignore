@@ -42,3 +42,5 @@ Thumbs.db
 .beads/backup/
 .beads/*.lock
 .beads/last-touched
+# Terms that must never reach the issue data, kept only on this machine (pnpm bd push)
+.beads/private-terms.txt
