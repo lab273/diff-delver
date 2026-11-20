@@ -458,6 +458,23 @@ function currentOpen(q: Queries, id: ReportId): Result<Current, ReportError> {
 	);
 }
 
+/**
+ * Like `currentOpen`, for a change the caller made on what it saw: the current
+ * revision must be the one the caller saw, or the change is refused, never made
+ * on a newer one.
+ */
+function currentAsSeen(
+	q: Queries,
+	id: ReportId,
+	seen: RevisionNumber
+): Result<Current, ReportError> {
+	return andThen(currentOpen(q, id), (found) =>
+		found.revision.number === seen
+			? ok(found)
+			: err({ kind: 'VersionOutOfDate', report: id, seen, current: found.revision.number })
+	);
+}
+
 /** The assignment state and reviewed marks of a revision, checked against its diff. */
 function stateOf(
 	q: Queries,
@@ -713,15 +730,17 @@ export class ReportService {
 	/**
 	 * The agent's `upsert_sections`: creates, retitles, summarises and reorders
 	 * the sections of the current revision, all or nothing. Returns them in
-	 * reading order.
+	 * reading order. `seen` is the version the caller worked on; when the report
+	 * has been updated since, nothing changes and the answer is `VersionOutOfDate`.
 	 */
 	upsertSections(
 		id: ReportId,
+		seen: RevisionNumber,
 		requests: readonly SectionRequest[],
 		order?: readonly string[]
 	): Result<readonly Section[], ReportError> {
 		return this.#db.write((q) =>
-			andThen(currentOpen(q, id), ({ revision }) =>
+			andThen(currentAsSeen(q, id, seen), ({ revision }) =>
 				andThen(sectionsOf(q, revision.id), (existing): Result<readonly Section[], ReportError> => {
 					const next = applySectionRequests(existing, requests, order);
 					if (!next.ok) return err({ kind: 'SectionsRefused', problems: next.error });
@@ -737,12 +756,14 @@ export class ReportService {
 	 * The agent's `assign` (DESIGN 7.1) on the current revision: applies the
 	 * items with core's rules, stores the result in one transaction, and returns
 	 * core's outcome. Sections must exist (`upsertSections`) before lines go in them.
+	 * `seen` is the version the caller worked on (see `markReviewed`).
 	 */
 	async assign(
 		id: ReportId,
+		seen: RevisionNumber,
 		requests: readonly AssignRequest[]
 	): Promise<Result<AssignOutcome, ReportError>> {
-		return this.#changeState(id, (q, revision, diff, state, marks) =>
+		return this.#changeState(id, seen, (q, revision, diff, state, marks) =>
 			andThen(sectionsOf(q, revision.id), (sections) => {
 				const outcome = assign(diff, state, requests, {
 					knownSections: new Set(sections.map((s) => s.id))
@@ -762,14 +783,18 @@ export class ReportService {
 	/**
 	 * Marks a slice, a file or a group of the current revision as reviewed, or
 	 * not (DESIGN 5), in one transaction. Groups and slices are those of `view`.
+	 * `seen` is the version the reviewer was looking at: when the diff has been
+	 * updated since, nothing is marked and the answer is `VersionOutOfDate`, so a
+	 * tick sent from a page showing version 1 never marks version 2's new lines.
 	 */
 	async markReviewed(
 		id: ReportId,
+		seen: RevisionNumber,
 		target: ReviewTarget,
 		reviewed: boolean,
 		view: ViewKind = 'sections'
 	): Promise<Result<MarkOutcome, ReportError>> {
-		return this.#changeState(id, (q, revision, diff, state, marks) =>
+		return this.#changeState(id, seen, (q, revision, diff, state, marks) =>
 			andThen(markReviewed(diff, state, marks, target, reviewed, view), (marked) =>
 				andThen(sectionsOf(q, revision.id), (sections) => {
 					replaceReviewedRows(
@@ -1406,12 +1431,14 @@ export class ReportService {
 	}
 
 	/**
-	 * Reads the current revision's diff, then runs `change` on its state in one
+	 * Reads the revision `seen`'s diff, then runs `change` on its state in one
 	 * write transaction and stores the state and marks it returns, with the
-	 * revision's progress. Tried again if a new revision appeared meanwhile.
+	 * revision's progress. Refused with `VersionOutOfDate`, changing nothing, when
+	 * `seen` is not the current revision, also when a new one appears meanwhile.
 	 */
 	async #changeState<T>(
 		id: ReportId,
+		seen: RevisionNumber,
 		change: (
 			q: Queries,
 			revision: Revision,
@@ -1420,40 +1447,32 @@ export class ReportService {
 			marks: ReviewedMarks
 		) => Result<{ result: T; state: AssignmentState; marks: ReviewedMarks }, ReportError>
 	): Promise<Result<T, ReportError>> {
-		for (let attempt = 0; ; attempt += 1) {
-			const found = this.#db.read((q) => currentOpen(q, id));
-			if (!found.ok) return found;
-			const { report, revision } = found.value;
-			const snapshot = await this.#snapshotOf(report, revision);
-			if (!snapshot.ok) return snapshot;
-			const diff = await this.#diffOf(snapshot.value);
-			if (!diff.ok) return diff;
-			const written = this.#db.write(
-				(q): Result<{ stale: true } | { stale: false; result: T }, ReportError> =>
-					andThen(
-						currentOpen(q, id),
-						(now): Result<{ stale: true } | { stale: false; result: T }, ReportError> => {
-							if (now.revision.id !== revision.id) return ok({ stale: true });
-							return andThen(stateOf(q, revision, diff.value), ({ state, marks }) =>
-								andThen(change(q, revision, diff.value, state, marks), (changed) => {
-									setRevisionProgress(
-										q,
-										revision.id,
-										unitProgressOf(
-											reviewProgress(diff.value, changed.state, changed.marks, 'sections')
-										)
-									);
-									touchReport(q, id, this.#clock.now());
-									return ok({ stale: false, result: changed.result });
-								})
-							);
-						}
-					)
-			);
-			if (!written.ok) return written;
-			if (!written.value.stale) return ok(written.value.result);
-			if (attempt + 1 >= RETRIES) return err({ kind: 'RevisionChangedWhileSaving', report: id });
-		}
+		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
+		if (!found.ok) return found;
+		const { report, revision } = found.value;
+		const snapshot = await this.#snapshotOf(report, revision);
+		if (!snapshot.ok) return snapshot;
+		const diff = await this.#diffOf(snapshot.value);
+		if (!diff.ok) return diff;
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), (now): Result<T, ReportError> => {
+				// The same number on another revision cannot happen; checked so it never goes unseen.
+				if (now.revision.id !== revision.id) {
+					return err({ kind: 'RevisionChangedWhileSaving', report: id });
+				}
+				return andThen(stateOf(q, revision, diff.value), ({ state, marks }) =>
+					andThen(change(q, revision, diff.value, state, marks), (changed) => {
+						setRevisionProgress(
+							q,
+							revision.id,
+							unitProgressOf(reviewProgress(diff.value, changed.state, changed.marks, 'sections'))
+						);
+						touchReport(q, id, this.#clock.now());
+						return ok(changed.result);
+					})
+				);
+			})
+		);
 	}
 
 	/** A snapshot's diff, read once and kept for the next few requests. */

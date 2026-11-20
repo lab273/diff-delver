@@ -10,9 +10,10 @@
  * const started = await service.start(directory);           // the no-argument start
  * const opened = await service.open(directory, spec);       // or one source
  * const page = await service.load(reportId);                // diff, sections, state, marks, progress
- * await service.upsertSections(reportId, [{ id: 'auth', title: 'Sign-in' }]);
- * await service.assign(reportId, [{ file: 'src/auth.ts', section: 'auth' }]);
- * await service.markReviewed(reportId, { kind: 'file', path }, true);
+ * const seen = page.revision.number;                        // changes are made on what was seen
+ * await service.upsertSections(reportId, seen, [{ id: 'auth', title: 'Sign-in' }]);
+ * await service.assign(reportId, seen, [{ file: 'src/auth.ts', section: 'auth' }]);
+ * await service.markReviewed(reportId, seen, { kind: 'file', path }, true);
  * const updated = await service.update(reportId);          // the files as they are now
  * ```
  *
@@ -43,6 +44,7 @@ export type {
 	ReportHasNoRevision,
 	ReportNotFound,
 	RevisionChangedWhileSaving,
+	VersionOutOfDate,
 	SectionsRefused,
 	SnapshotGone
 } from './report-error.ts';

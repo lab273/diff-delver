@@ -32,6 +32,10 @@ import {
 	type OpenOutcome,
 	type ReportError
 } from './index.ts';
+import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
+
+/** The first version of a diff, which changes are made on until it is updated. */
+const FIRST = value(parseRevisionNumber(1));
 
 interface Setup {
 	readonly repo: GitRepo;
@@ -191,9 +195,13 @@ describe('the report service', () => {
 	it('loads a report from the database and the store alone, even once the repository is gone', async () => {
 		const { repo, who, data, clock, service } = await setUp();
 		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
-		value(service.upsertSections(id, [{ id: 'app', title: 'The app', summary: 'What it *does*' }]));
-		value(await service.assign(id, [{ file: 'src/app.ts', lines: '+2', section: 'app' }]));
-		value(await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true));
+		value(
+			service.upsertSections(id, FIRST, [
+				{ id: 'app', title: 'The app', summary: 'What it *does*' }
+			])
+		);
+		value(await service.assign(id, FIRST, [{ file: 'src/app.ts', lines: '+2', section: 'app' }]));
+		value(await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/app.ts') }, true));
 		service.close();
 		await rm(repo.dir, { recursive: true, force: true });
 
@@ -237,6 +245,7 @@ describe('the report service', () => {
 		const sections = value(
 			service.upsertSections(
 				id,
+				FIRST,
 				[
 					{ id: 'tests', title: 'Tests' },
 					{ id: 'app', title: 'The app' }
@@ -247,7 +256,7 @@ describe('the report service', () => {
 		expect(sections.map((s) => s.id)).toEqual(['app', 'tests']);
 
 		const outcome = value(
-			await service.assign(id, [
+			await service.assign(id, FIRST, [
 				{ file: 'src/app.ts', section: 'app' },
 				{ glob: '**/*.test.ts', section: 'tests' },
 				{ file: 'src/app.ts', section: 'nowhere' }
@@ -261,6 +270,7 @@ describe('the report service', () => {
 		const ticked = value(
 			await service.markReviewed(
 				id,
+				FIRST,
 				{ kind: 'slice', group: { kind: 'section', section: app }, path: path('src/app.ts') },
 				true
 			)
@@ -308,23 +318,28 @@ describe('the report service', () => {
 		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
 		const before = value(await service.load(id));
 
-		const sections = failure(service.upsertSections(id, [{ id: 'app' }]));
+		const sections = failure(service.upsertSections(id, FIRST, [{ id: 'app' }]));
 		expect(sections.kind).toBe('SectionsRefused');
 		expect(describeReportError(sections)).toMatch(/app is a new section, so it needs a title/);
 		const empty = failure(
-			await service.markReviewed(id, { kind: 'file', path: path('README.md') }, true)
+			await service.markReviewed(id, FIRST, { kind: 'file', path: path('README.md') }, true)
 		);
 		expect(empty.kind).toBe('FileNotInDiff');
-		const rejected = value(await service.assign(id, [{ file: 'src/app.ts', section: 'nowhere' }]));
+		const rejected = value(
+			await service.assign(id, FIRST, [{ file: 'src/app.ts', section: 'nowhere' }])
+		);
 		expect(rejected.accepted).toEqual([]);
 
 		value(service.closeReport(id));
 		expect(
-			failure(await service.assign(id, [{ file: 'src/app.ts', section: 'ignored', reason: 'x' }]))
-				.kind
+			failure(
+				await service.assign(id, FIRST, [{ file: 'src/app.ts', section: 'ignored', reason: 'x' }])
+			).kind
 		).toBe('ReportClosed');
 		expect(
-			failure(await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true)).kind
+			failure(
+				await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/app.ts') }, true)
+			).kind
 		).toBe('ReportClosed');
 		const after = value(await service.load(id));
 		service.close();
@@ -355,20 +370,20 @@ describe('the report service', () => {
 			/Delete the diff from the list of diffs and open its changes again/
 		);
 		const ticked = failure(
-			await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true)
+			await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/app.ts') }, true)
 		);
 		expect(ticked.kind).toBe('StoredStateMismatch');
 		service.close();
 	});
 
-	it('says the diff was updated while saving, not that the database is busy, when it keeps changing', async () => {
+	it('refuses a tick, not saying the database is busy, when the diff is updated while it is saved', async () => {
 		const { repo, data, service } = await setUp();
 		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
 		// Another copy of diff delver keeps adding revisions while this one saves a tick.
 		const other = new DatabaseSync(join(data, DATABASE_FILE));
 		const call = { settled: false };
 		const marking = service
-			.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true)
+			.markReviewed(id, FIRST, { kind: 'file', path: path('src/app.ts') }, true)
 			.finally(() => {
 				call.settled = true;
 			});
@@ -382,8 +397,14 @@ describe('the report service', () => {
 		}
 		other.close();
 		const error = failure(await marking);
-		expect(error).toEqual({ kind: 'RevisionChangedWhileSaving', report: id });
-		expect(describeReportError(error)).toMatch(/updated while.*Reload the page/);
+		// It was made on version 1, so it is not made on a newer one.
+		expect(error).toMatchObject({ kind: 'VersionOutOfDate', report: id, seen: 1 });
+		expect(describeReportError(error)).toMatch(
+			/^This diff was updated to version \d+ after you last looked at it, so nothing was changed: what you did was meant for version 1\. Show the new version first/
+		);
+		const raw = new DatabaseSync(join(data, DATABASE_FILE), { readOnly: true });
+		expect(raw.prepare('SELECT COUNT(*) AS n FROM reviewed_marks').get()).toEqual({ n: 0 });
+		raw.close();
 		service.close();
 	});
 
@@ -420,7 +441,8 @@ describe('the report service', () => {
 		expect(value(await service.checkForChanges(id))).toEqual(check);
 		expect(value(service.list())[0]).toMatchObject({ kind: 'report', state: { kind: 'open' } });
 		expect(value(await service.load(id)).diff.files).toHaveLength(3);
-		value(service.upsertSections(id, [{ id: 'app', title: 'App' }]));
+		const current = value(await service.load(id)).revision.number;
+		value(service.upsertSections(id, current, [{ id: 'app', title: 'App' }]));
 
 		// Opening the source again, with nothing to review, closes it and says where the changes went.
 		const reopened = value(await service.open(repo.dir, spec('working-tree')));
@@ -598,9 +620,11 @@ describe('the report service', () => {
 			/is gone from diff delver's data folder.*Open Uncommitted changes again to start a new diff/
 		);
 		expect(
-			failure(await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true)).kind
+			failure(
+				await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/app.ts') }, true)
+			).kind
 		).toBe('SnapshotGone');
-		expect(failure(await service.assign(id, [])).kind).toBe('SnapshotGone');
+		expect(failure(await service.assign(id, FIRST, [])).kind).toBe('SnapshotGone');
 
 		const again = value(await service.open(repo.dir, spec('working-tree')));
 		expect(again).toMatchObject({ kind: 'created', report: { id: 'r_2' }, closed: id });
@@ -691,8 +715,10 @@ describe('the report service', () => {
 		const who = await reviewer();
 		const service = await serviceOn(await tempDirectory(), settableClock(at(0)), who);
 		const id = created(value(await service.open(repo.dir, spec('HEAD'))));
-		value(service.upsertSections(id, [{ id: 'odd', title: 'Odd names' }]));
-		const outcome = value(await service.assign(id, [{ file: 'caf\\xE9.txt', section: 'odd' }]));
+		value(service.upsertSections(id, FIRST, [{ id: 'odd', title: 'Odd names' }]));
+		const outcome = value(
+			await service.assign(id, FIRST, [{ file: 'caf\\xE9.txt', section: 'odd' }])
+		);
 		expect(outcome.accepted.map((a) => a.units)).toEqual([1]);
 		const page = value(await service.load(id));
 		service.close();
@@ -714,9 +740,11 @@ describe('the report service', () => {
 			value(await service.open(repo.dir, spec('main...HEAD')));
 			value(await service.load(id));
 			value(service.list());
-			value(service.upsertSections(id, [{ id: 'app', title: 'App' }]));
-			value(await service.assign(id, [{ file: 'src/app.ts', section: 'app' }]));
-			value(await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true));
+			value(service.upsertSections(id, FIRST, [{ id: 'app', title: 'App' }]));
+			value(await service.assign(id, FIRST, [{ file: 'src/app.ts', section: 'app' }]));
+			value(
+				await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/app.ts') }, true)
+			);
 			value(await service.checkForChanges(id));
 			value(service.closeReport(id));
 			value(service.reopenReport(id));
@@ -738,17 +766,23 @@ describe('the report service', () => {
 			expect(failure(await service.open(repo.dir, spec('main...no-such-branch'))).kind).toBe(
 				'UnknownRevision'
 			);
-			expect(failure(service.upsertSections(id, [{ id: 'app' }])).kind).toBe('SectionsRefused');
-			const refused = value(await service.assign(id, [{ file: 'nope.ts', section: 'nowhere' }]));
+			expect(failure(service.upsertSections(id, FIRST, [{ id: 'app' }])).kind).toBe(
+				'SectionsRefused'
+			);
+			const refused = value(
+				await service.assign(id, FIRST, [{ file: 'nope.ts', section: 'nowhere' }])
+			);
 			expect(refused.accepted).toEqual([]);
 			expect(
-				failure(await service.markReviewed(id, { kind: 'file', path: path('nope.ts') }, true)).kind
+				failure(
+					await service.markReviewed(id, FIRST, { kind: 'file', path: path('nope.ts') }, true)
+				).kind
 			).toBe('FileNotInDiff');
 			expect(failure(await service.load(value(parseReportId('r_404')))).kind).toBe(
 				'ReportNotFound'
 			);
 			value(service.closeReport(id));
-			expect(failure(await service.assign(id, [])).kind).toBe('ReportClosed');
+			expect(failure(await service.assign(id, FIRST, [])).kind).toBe('ReportClosed');
 			const second = created(value(await service.open(repo.dir, spec('working-tree'))));
 			expect(failure(service.reopenReport(id)).kind).toBe('AnotherReportOpen');
 			expect(value(await service.checkForChanges(id))).toEqual({ kind: 'report-closed' });

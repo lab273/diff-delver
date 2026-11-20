@@ -29,6 +29,10 @@ import {
 	type LoadedReport,
 	type OpenOutcome
 } from './index.ts';
+import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
+
+/** The first version of a diff, which changes are made on until it is updated. */
+const FIRST = value(parseRevisionNumber(1));
 
 const lines = (...text: readonly string[]): string => `${text.join('\n')}\n`;
 const numbered = (count: number): readonly string[] =>
@@ -144,18 +148,18 @@ function bucket(page: LoadedReport, file: string, side: Side, line: number): str
 
 /** Sorts r_1: app.ts in a section, a line of new.ts ignored by the agent; and marks app.ts and new.ts. */
 async function sortAndMark(service: ReportService, id: ReportId): Promise<void> {
-	value(service.upsertSections(id, [{ id: 'app', title: 'The app' }]));
-	value(service.upsertSections(id, [{ id: 'empty', title: 'Nothing left in here' }]));
+	value(service.upsertSections(id, FIRST, [{ id: 'app', title: 'The app' }]));
+	value(service.upsertSections(id, FIRST, [{ id: 'empty', title: 'Nothing left in here' }]));
 	const assigned = value(
-		await service.assign(id, [
+		await service.assign(id, FIRST, [
 			{ file: 'src/app.ts', section: 'app' },
 			{ file: 'src/new.ts', lines: '+1', section: 'ignored', reason: 'Generated' },
 			{ file: 'src/new.ts', lines: '+2', section: 'empty' }
 		])
 	);
 	expect(assigned.rejected).toEqual([]);
-	value(await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true));
-	value(await service.markReviewed(id, { kind: 'file', path: path('src/new.ts') }, true));
+	value(await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/app.ts') }, true));
+	value(await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/new.ts') }, true));
 }
 
 describe('updating a diff', () => {
@@ -303,7 +307,7 @@ describe('updating a diff', () => {
 		const data = await tempDirectory();
 		const service = await serviceFor(data);
 		const id = created(value(await service.open(repo.dir, spec('main...feature'))));
-		value(await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true));
+		value(await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/app.ts') }, true));
 
 		// main moves on at the top of the file, and the branch is rebased onto it.
 		await repo.git('checkout', '--quiet', 'main');
@@ -327,18 +331,24 @@ describe('updating a diff', () => {
 		const { repo, data, service } = await setUp();
 		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
 		await repo.write('src/new.ts', lines('new 1', 'new 2', 'new 3', 'new 4'));
-		// Ticking app.ts lands before or after the update; either way it is kept.
+		// A tick made on version 1 lands before the update, and is carried over, or after it,
+		// and is refused: it is never made on version 2.
 		const [updated, ticked, again] = await Promise.all([
 			service.update(id),
-			service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true),
+			service.markReviewed(id, FIRST, { kind: 'file', path: path('src/app.ts') }, true),
 			service.update(id)
 		]);
-		expect(value(ticked).units).toBe(3);
 		const kinds = [value(updated).kind, value(again).kind].sort();
 		expect(kinds).toEqual(['unchanged', 'updated']);
 		const page = value(await service.load(id));
 		expect(page.revision.number).toBe(2);
-		expect(marked(page, 'src/app.ts', 'new')).toEqual([6, 11]);
+		if (ticked.ok) {
+			expect(ticked.value.units).toBe(3);
+			expect(marked(page, 'src/app.ts', 'new')).toEqual([6, 11]);
+		} else {
+			expect(ticked.error).toMatchObject({ kind: 'VersionOutOfDate', seen: 1, current: 2 });
+			expect(marked(page, 'src/app.ts', 'new')).toEqual([]);
+		}
 		// The losing update's snapshot is not left behind.
 		expect(await snapshotCount(data)).toBe(2);
 		service.close();
@@ -416,8 +426,8 @@ describe('updating a diff', () => {
 		// It and the third line of src/new.ts.
 		expect(page.progress.uncategorised).toBe(2);
 		// Sorting and ticking it works, and is stored as a row of its own.
-		value(await service.assign(id, [{ file: 'src/app.ts', lines: 'file', section: 'app' }]));
-		value(await service.markReviewed(id, { kind: 'file', path: app }, true));
+		value(await service.assign(id, FIRST, [{ file: 'src/app.ts', lines: 'file', section: 'app' }]));
+		value(await service.markReviewed(id, FIRST, { kind: 'file', path: app }, true));
 		const again = value(await service.load(id));
 		expect(fileAssignment(again.state, file).file?.bucket).toEqual({
 			kind: 'section',
@@ -435,6 +445,34 @@ describe('updating a diff', () => {
 		await repo.write('README.md', '# Something else\n');
 		const updated = value(await service.update(id));
 		expect(updated).toMatchObject({ kind: 'updated', summary: { filesChanged: 2, filesGone: 0 } });
+		service.close();
+	});
+
+	it('refuses a tick, a sorting and sections made on a version that has since been updated', async () => {
+		const { repo, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await repo.write('src/new.ts', lines('new 1', 'new 2', 'new 3', 'new 4'));
+		expect(value(await service.update(id)).kind).toBe('updated');
+		const app = { kind: 'file', path: path('src/app.ts') } as const;
+		const refusals = [
+			await service.markReviewed(id, FIRST, app, true),
+			await service.assign(id, FIRST, [{ file: 'src/new.ts', section: 'ignored', reason: 'x' }]),
+			service.upsertSections(id, FIRST, [{ id: 'app', title: 'The app' }])
+		];
+		for (const refused of refusals) {
+			expect(refused.ok ? undefined : refused.error).toEqual({
+				kind: 'VersionOutOfDate',
+				report: id,
+				seen: 1,
+				current: 2
+			});
+		}
+		const page = value(await service.load(id));
+		expect(page.reviewed.files.size).toBe(0);
+		expect(page.sections).toEqual([]);
+		// Made on the version it shows, the same tick is saved.
+		const seen = page.revision.number;
+		expect(value(await service.markReviewed(id, seen, app, true)).units).toBe(3);
 		service.close();
 	});
 });

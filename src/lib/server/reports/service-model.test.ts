@@ -46,6 +46,10 @@ import { Database } from '../db/index.ts';
 import { assignmentRowsFor } from '../db/tables/assignments.ts';
 import { reviewedRowsFor } from '../db/tables/reviewed-marks.ts';
 import { ReportService } from './index.ts';
+import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
+
+/** The first version of a diff, which changes are made on until it is updated. */
+const FIRST = value(parseRevisionNumber(1));
 
 /** A change a person makes to the working tree before asking for an update. */
 type Edit =
@@ -218,6 +222,7 @@ describe('the report service against the pure model', () => {
 								value(
 									service.upsertSections(
 										id,
+										FIRST,
 										call.ids.map((s) => ({ id: s, title: `Section ${s}` }))
 									)
 								);
@@ -227,7 +232,7 @@ describe('the report service against the pure model', () => {
 								const expected = assign(diff, model.state, call.requests, {
 									knownSections: model.sections
 								});
-								const outcome = value(await service.assign(id, call.requests));
+								const outcome = value(await service.assign(id, FIRST, call.requests));
 								expect(outcome.accepted).toEqual(expected.accepted);
 								expect(outcome.rejected).toEqual(expected.rejected);
 								model.state = expected.state;
@@ -244,6 +249,7 @@ describe('the report service against the pure model', () => {
 								);
 								const outcome = await service.markReviewed(
 									id,
+									FIRST,
 									call.target,
 									call.reviewed,
 									call.view
@@ -352,6 +358,7 @@ describe('the report service against the pure model', () => {
 								value(
 									service.upsertSections(
 										id,
+										page.revision.number,
 										call.ids.map((x) => ({ id: x, title: `Section ${x}` }))
 									)
 								);
@@ -361,7 +368,9 @@ describe('the report service against the pure model', () => {
 								const expected = assign(page.diff, model.state, call.requests, {
 									knownSections: model.sections
 								});
-								const outcome = value(await service.assign(id, call.requests));
+								const outcome = value(
+									await service.assign(id, page.revision.number, call.requests)
+								);
 								expect(outcome.rejected).toEqual(expected.rejected);
 								model.state = expected.state;
 								break;
@@ -377,6 +386,7 @@ describe('the report service against the pure model', () => {
 								);
 								const outcome = await service.markReviewed(
 									id,
+									page.revision.number,
 									call.target,
 									call.reviewed,
 									call.view

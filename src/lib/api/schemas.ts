@@ -21,6 +21,7 @@ import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { ok, err, type Result } from '#lib/core/result.ts';
 import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 import { parseSectionTitle } from '#lib/core/section-title.tiny.ts';
 import type { GitSourceText } from '#lib/core/sources/git-source-text.tiny.ts';
 import { formatGitSourceSpec, parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
@@ -281,6 +282,54 @@ export const UpdateResponseSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('nothing-left'), reason: message, next: NextSourceSchema.nullable() })
 ]);
 export type UpdateResponse = z.output<typeof UpdateResponseSchema>;
+
+// ── Changes made on what the page shows ──────────────────────────────────────
+//
+// Each request that changes a diff's sorting or marks names the version the page
+// shows. When the diff has been updated since, nothing changes and the answer is
+// 409 with a message saying to show the new version first, so a tick made on
+// version 1 never marks what is new in version 2. The routes come with the
+// diff viewer.
+
+const sectionId = parsed(z.string(), parseSectionId);
+
+/** A group of the page: a section, the tests of a section, Ignored or Not sorted yet. */
+const GroupKeySchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('section'), section: sectionId }),
+	z.object({ kind: z.literal('tests'), section: sectionId }),
+	z.object({ kind: z.literal('ignored') }),
+	z.object({ kind: z.literal('uncategorised') })
+]);
+
+/** POST /api/diffs/:id/reviewed: marks a part of the shown version as reviewed, or not. */
+export const MarkReviewedRequestSchema = z.object({
+	version,
+	target: z.discriminatedUnion('kind', [
+		z.object({ kind: z.literal('slice'), group: GroupKeySchema, path: escapedPath }),
+		z.object({ kind: z.literal('file'), path: escapedPath }),
+		z.object({ kind: z.literal('group'), group: GroupKeySchema })
+	]),
+	reviewed: z.boolean(),
+	view: z.enum(['sections', 'tests-separate'])
+});
+export type MarkReviewedRequest = z.input<typeof MarkReviewedRequestSchema>;
+
+/** POST /api/diffs/:id/assign: the agent's `assign` items, on the version it read. */
+export const AssignRequestSchema = z.object({
+	version,
+	items: z.array(
+		z.object({
+			file: z.string().optional(),
+			glob: z.string().optional(),
+			hunks: z.array(z.string()).optional(),
+			lines: z.string().optional(),
+			section: z.string().optional(),
+			reason: z.string().optional(),
+			role: z.string().optional()
+		})
+	)
+});
+export type AssignHttpRequest = z.input<typeof AssignRequestSchema>;
 
 /** POST /api/diffs/:id/close and /reopen. */
 export const StateChangeSchema = z.object({ diff: DiffSummarySchema });

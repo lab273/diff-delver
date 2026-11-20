@@ -29,6 +29,10 @@ import { reviewer } from '../../../../tests/support/reviewer-git.ts';
 import { now } from '../../../../tests/support/stopwatch.ts';
 import { DATABASE_FILE } from '../db/index.ts';
 import { ReportService } from './index.ts';
+import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
+
+/** The first version of a diff, which changes are made on until it is updated. */
+const FIRST = value(parseRevisionNumber(1));
 
 const FILES = 2_000;
 
@@ -114,14 +118,14 @@ describe('the report service at full scale', () => {
 		expect(page.diff.unitCount).toBe(200_000);
 
 		value(
-			later.upsertSections(id, [
+			later.upsertSections(id, FIRST, [
 				{ id: 'first', title: 'First half' },
 				{ id: 'second', title: 'Second half' }
 			])
 		);
 		const assigned = await measure(task, 'one assign call over 1,000 files', 500, async () =>
 			value(
-				await later.assign(id, [
+				await later.assign(id, FIRST, [
 					...Array.from({ length: 10 }, (_, i) => ({
 						glob: `src/module-${String(i).padStart(2, '0')}/**`,
 						section: 'first'
@@ -138,6 +142,7 @@ describe('the report service at full scale', () => {
 			value(
 				await later.markReviewed(
 					id,
+					FIRST,
 					{
 						kind: 'slice',
 						group: { kind: 'section', section: first },

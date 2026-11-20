@@ -7,6 +7,7 @@ import type { DuplicateFilePath } from '#lib/core/diff/diff.ts';
 import { describeDiffOutputError, type DiffOutputError } from '#lib/core/diff/diff-output-error.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
+import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { describeSectionProblem, type SectionProblem } from '#lib/core/reports/section-requests.ts';
 import { describeMarkError, type MarkError } from '#lib/core/review/mark-reviewed.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
@@ -59,6 +60,20 @@ export interface RevisionChangedWhileSaving {
 }
 
 /**
+ * A change was asked for on a version of the report that is no longer its
+ * current one: the diff was updated after the caller last looked at it. Nothing
+ * was changed, since the change was meant for what the caller saw.
+ */
+export interface VersionOutOfDate {
+	readonly kind: 'VersionOutOfDate';
+	readonly report: ReportId;
+	/** The version the caller saw. */
+	readonly seen: RevisionNumber;
+	/** The report's current version. */
+	readonly current: RevisionNumber;
+}
+
+/**
  * The report's saved snapshot is gone from the data folder (its store or its
  * snapshot was deleted or moved), so the report cannot be shown or changed.
  */
@@ -90,6 +105,7 @@ export type ReportError =
 	| ReportHasNoRevision
 	| RepositoryReplaced
 	| RevisionChangedWhileSaving
+	| VersionOutOfDate
 	| SnapshotGone
 	| SectionsRefused;
 
@@ -119,6 +135,10 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'RevisionChangedWhileSaving':
 			return reviewerMessage(
 				'The diff was updated while your change was being saved, so it was not saved: it was made on a version of the diff that is no longer current. Reload the page to see the new version, then make the change again.'
+			);
+		case 'VersionOutOfDate':
+			return reviewerMessage(
+				`This diff was updated to version ${String(error.current)} after you last looked at it, so nothing was changed: what you did was meant for version ${String(error.seen)}. Show the new version first, then do it again there.`
 			);
 		case 'SnapshotGone':
 			return reviewerMessage(
