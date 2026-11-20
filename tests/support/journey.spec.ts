@@ -29,7 +29,7 @@ function pageWith(body: string, style = ''): string {
 <meta charset="utf-8">
 <title>Planted page</title>
 <style>
-@font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; src: url(${HELPER}/inter-400.woff2) format('woff2'); }
+@font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; src: url(${HELPER}/inter-400.woff2) format('woff2'); unicode-range: U+0000-00FF, U+2000-206F; }
 html { font-family: 'Inter'; font-synthesis: none; }
 button, input, select, textarea { font: inherit; }
 ${style}
@@ -148,5 +148,95 @@ test.describe('the journey helper does what a person does outside the page', () 
 		]);
 		await journey.expectVisible(journey.byText('journey.spec.ts'));
 		await journey.step('Chosen');
+	});
+});
+
+test.describe('the journey helper finds text drawn in a font that is not bundled', () => {
+	const georgia = (body: string): string =>
+		pageWith(`<h1>Fonts</h1>${body}`, '.odd { font-family: Georgia, serif; }');
+
+	test('passes a page drawn only in the bundled font', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>Fonts</h1>
+<label>Name <input value="Ada" placeholder="Your name"></label>
+<label>Notes <textarea placeholder="Notes">Some</textarea></label>
+<label>Pick <select><option>One</option></select></label>
+<button type="button">Go</button>
+<svg width="80" height="20" role="img" aria-label="Label"><text x="0" y="15">Label</text></svg>`)
+		);
+		await journey.step('Bundled only');
+	});
+
+	const odd: readonly (readonly [string, string, string])[] = [
+		['the value of a field', '<label>Name <input class="odd" value="Ada"></label>', '<input>'],
+		[
+			'the placeholder of a field',
+			'<label>Name <input class="odd" placeholder="Your name"></label>',
+			'<input>'
+		],
+		[
+			'the text of a text area',
+			'<label>Notes <textarea class="odd">Some</textarea></label>',
+			'<textarea>'
+		],
+		[
+			'the choice in a select',
+			'<label>Pick <select class="odd"><option>One</option></select></label>',
+			'<select>'
+		],
+		['a button', '<button type="button" class="odd">Go</button>', '<button>'],
+		[
+			'SVG text',
+			'<svg width="80" height="20" role="img" aria-label="Label"><text class="odd" x="0" y="15">Label</text></svg>',
+			'<text>'
+		],
+		[
+			'text in a shadow root',
+			'<div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = \'<p class="odd" style="font-family: Georgia">Shadow</p>\';</script>',
+			'<p>'
+		]
+	];
+	for (const [name, body, element] of odd) {
+		test(`fails on ${name}`, async ({ planted }) => {
+			const journey = await planted(georgia(body));
+			await expect(journey.step('Odd font')).rejects.toThrow(
+				new RegExp(`${element.replace(/[<>]/g, '\\$&')}.*drawn in an installed font`)
+			);
+		});
+	}
+
+	test('fails on a button that does not inherit the page font', async ({ planted }) => {
+		const journey = await planted(
+			pageWith('<h1>Fonts</h1><button type="button">Go</button>', 'button { font: revert; }')
+		);
+		await expect(journey.step('Default button')).rejects.toThrow(/<button>/);
+	});
+
+	test('fails on a character no bundled face covers, in a field', async ({ planted }) => {
+		const journey = await planted(
+			pageWith('<h1>Fonts</h1><label>Name <input value="Ada ☃"></label>')
+		);
+		await expect(journey.step('Snowman')).rejects.toThrow('<input> shows "☃"');
+	});
+});
+
+test.describe("the app's own styles", () => {
+	test('draw form controls in the page font, not the browser’s', async ({
+		page,
+		baseURL
+	}, testInfo) => {
+		const { journey } = await startJourney(page, testInfo, baseURL, { screenshots: 'take' });
+		await journey.open('/');
+		// The app has no form yet; these stand in for the first one.
+		await page.locator('main').evaluate((main) => {
+			main.insertAdjacentHTML(
+				'beforeend',
+				'<label>Name <input value="Ada" placeholder="Your name"></label>' +
+					'<label>Notes <textarea>Some</textarea></label>' +
+					'<label>Pick <select><option>One</option></select></label>' +
+					'<button type="button">Go</button>'
+			);
+		});
+		await journey.step('Form controls');
 	});
 });

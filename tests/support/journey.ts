@@ -281,7 +281,13 @@ async function settle(page: Page): Promise<void> {
 	});
 }
 
-/** Every element with text of its own whose text is drawn in a font that is not bundled. */
+/**
+ * Every element with text of its own whose text is drawn in a font that is not
+ * bundled. The walk goes into shadow roots, the browser's own included (where a
+ * field's value and placeholder, a text area's text and a select's choice are
+ * drawn), into same-origin frames, and through SVG. What it cannot see is text
+ * painted on a canvas: that is pixels, with no font to ask about.
+ */
 async function fontsNotBundled(page: Page): Promise<readonly string[]> {
 	const cdp = await page.context().newCDPSession(page);
 	try {
@@ -289,79 +295,116 @@ async function fontsNotBundled(page: Page): Promise<readonly string[]> {
 		await cdp.send('CSS.enable');
 		const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
 		type Node = typeof root;
-		const withText: Node[] = [];
-		const visit = (node: Node, inHead: boolean): void => {
+		const withText: { node: Node; host: Node }[] = [];
+		// `host` is the element a person sees: the <input>, not the browser's <div> inside it.
+		const visit = (node: Node, inHead: boolean, host: Node | undefined): void => {
 			const head = inHead || node.nodeName === 'HEAD';
 			const ownText = (node.children ?? []).some(
 				(child) => child.nodeType === 3 && child.nodeValue.trim() !== ''
 			);
-			if (!head && node.nodeType === 1 && ownText) withText.push(node);
-			for (const child of node.children ?? []) visit(child, head);
+			if (!head && node.nodeType === 1 && ownText) withText.push({ node, host: host ?? node });
+			const inner = [
+				...(node.children ?? []),
+				...(node.pseudoElements ?? []),
+				...(node.contentDocument === undefined ? [] : [node.contentDocument])
+			];
+			for (const child of inner) visit(child, head, host);
+			for (const shadow of node.shadowRoots ?? []) {
+				visit(shadow, head, shadow.shadowRootType === 'user-agent' ? (host ?? node) : host);
+			}
 		};
-		visit(root, false);
+		visit(root, false, undefined);
 		const problems: string[] = [];
-		for (const node of withText) {
+		for (const { node, host } of withText) {
 			const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId: node.nodeId });
 			for (const font of fonts) {
 				if (!font.isCustomFont || !BUNDLED_FONTS.includes(font.familyName)) {
 					problems.push(
-						`<${node.localName}> has ${String(font.glyphCount)} character(s) drawn in an ` +
+						`<${host.localName}> has ${String(font.glyphCount)} character(s) drawn in an ` +
 							`installed font ("${font.familyName}"), not in one of the app's web fonts. ` +
-							`Give it a font-family of ${BUNDLED_FONTS.map((f) => `'${f}'`).join(' or ')}.`
+							`Give it a font-family of ${BUNDLED_FONTS.map((f) => `'${f}'`).join(' or ')}` +
+							(FORM_CONTROLS.includes(host.localName)
+								? `, or font: inherit, as src/app.css does for every form control.`
+								: '.')
 					);
 				}
 			}
 		}
-		return problems;
+		return [...new Set(problems)];
 	} finally {
 		await cdp.detach();
 	}
 }
 
+/** Elements the browser draws with its own font unless told to inherit the page's. */
+const FORM_CONTROLS: readonly string[] = ['button', 'input', 'select', 'textarea', 'option'];
+
 /**
  * Every character on the page that no bundled font face of its element's family
  * covers. Such a character is drawn as a missing-glyph box here, and in a
- * person's browser in some system font, so it must not appear.
+ * person's browser in some system font, so it must not appear. Like the font
+ * check it reads fields' values and placeholders, open shadow roots, same-origin
+ * frames and SVG; a canvas it cannot read.
  */
 async function charactersNotCovered(page: Page): Promise<readonly string[]> {
 	return page.evaluate(() => {
-		const ranges = new Map<string, [number, number][]>();
-		for (const face of document.fonts) {
-			const family = face.family.replace(/^["']|["']$/g, '');
-			const list = ranges.get(family) ?? [];
-			for (const part of face.unicodeRange.split(',')) {
-				const [low = '', high = low] = part.trim().replace(/^U\+/i, '').split('-');
-				const from = parseInt(low.replace(/\?/g, '0'), 16);
-				const to = parseInt(high.replace(/\?/g, 'F'), 16);
-				if (Number.isFinite(from) && Number.isFinite(to)) list.push([from, to]);
-			}
-			ranges.set(family, list);
-		}
 		const problems: string[] = [];
-		const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-		for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-			const element = node.parentElement;
-			if (element === null) continue;
-			const family = getComputedStyle(element)
-				.fontFamily.split(',')[0]
-				?.trim()
-				.replace(/^["']|["']$/g, '');
-			const covered = ranges.get(family ?? '') ?? [];
-			const missing = new Set<string>();
-			for (const char of node.textContent ?? '') {
-				if (/\s/.test(char)) continue;
-				const code = char.codePointAt(0) ?? 0;
-				if (!covered.some(([from, to]) => code >= from && code <= to)) missing.add(char);
+		const unquote = (family: string): string => family.trim().replace(/^["']|["']$/g, '');
+		const check = (doc: Document, root: Node): void => {
+			const ranges = new Map<string, [number, number][]>();
+			for (const face of doc.fonts) {
+				const family = unquote(face.family);
+				const list = ranges.get(family) ?? [];
+				for (const part of face.unicodeRange.split(',')) {
+					const [low = '', high = low] = part.trim().replace(/^U\+/i, '').split('-');
+					const from = parseInt(low.replace(/\?/g, '0'), 16);
+					const to = parseInt(high.replace(/\?/g, 'F'), 16);
+					if (Number.isFinite(from) && Number.isFinite(to)) list.push([from, to]);
+				}
+				ranges.set(family, list);
 			}
-			if (missing.size > 0) {
-				problems.push(
-					`<${element.localName}> shows ${[...missing].map((c) => `"${c}"`).join(', ')}, ` +
-						`which no bundled font face of "${family ?? ''}" covers. Use characters the bundled ` +
-						'fonts have, or bundle a font that has them.'
-				);
+			const report = (element: Element, text: string, pseudo?: string): void => {
+				const family = unquote(getComputedStyle(element, pseudo).fontFamily.split(',')[0] ?? '');
+				const covered = ranges.get(family) ?? [];
+				const missing = new Set<string>();
+				for (const char of text) {
+					if (/\s/.test(char)) continue;
+					const code = char.codePointAt(0) ?? 0;
+					if (!covered.some(([from, to]) => code >= from && code <= to)) missing.add(char);
+				}
+				if (missing.size > 0) {
+					problems.push(
+						`<${element.localName}> shows ${[...missing].map((c) => `"${c}"`).join(', ')}, ` +
+							`which no bundled font face of "${family}" covers. Use characters the bundled ` +
+							'fonts have, or bundle a font that has them.'
+					);
+				}
+			};
+			const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+			for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+				if (node.nodeType === Node.TEXT_NODE) {
+					const element = node.parentElement;
+					if (element !== null) report(element, node.textContent ?? '');
+					continue;
+				}
+				if (!(node instanceof Element)) continue;
+				if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) {
+					if (node.type !== 'hidden' && node.type !== 'password') report(node, node.value);
+					report(node, node.placeholder, '::placeholder');
+				}
+				if (node.shadowRoot !== null) check(doc, node.shadowRoot);
+				if (node instanceof HTMLIFrameElement) {
+					try {
+						const inner = node.contentDocument;
+						if (inner?.body) check(inner, inner.body);
+					} catch {
+						// Another origin's frame: not the app's to check.
+					}
+				}
 			}
-		}
-		return problems;
+		};
+		check(document, document.body);
+		return [...new Set(problems)];
 	});
 }
 

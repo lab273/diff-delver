@@ -29,6 +29,17 @@ html {
 	font-synthesis: none;
 }
 
+/*
+ * Browsers draw form controls in their own font, not the page's. These inherit
+ * it, like everything else (the journey font check fails a control that does not).
+ */
+button,
+input,
+select,
+textarea {
+	font: inherit;
+}
+
 code,
 kbd,
 pre,
