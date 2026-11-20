@@ -13,7 +13,6 @@
  * snapshot is self-sufficient (its diff and every file of both trees are in the
  * store), and snapshots of one repository share whatever did not change.
  */
-import { randomUUID } from 'node:crypto';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { objectCountOf, type ObjectCount } from '#lib/core/object-count.tiny.ts';
 import { parseObjectId, type AnyObjectId, type ObjectId } from '#lib/core/object-id.tiny.ts';
@@ -184,15 +183,10 @@ function snapshotRef(id: SnapshotId): string {
 	return `${SNAPSHOT_REFS}${id}`;
 }
 
-function newSnapshotId(): SnapshotId {
-	const id = parseSnapshotId(randomUUID().replaceAll('-', ''));
-	if (!id.ok) throw new Error('randomUUID gave an unexpected id');
-	return id.value;
-}
-
 /** Writes the tree that holds `base` and `head` and points a new ref at it. */
 async function pin(
 	store: Store,
+	id: SnapshotId,
 	base: TreeId,
 	head: TreeId
 ): Promise<Result<Snapshot, StoreError>> {
@@ -202,7 +196,6 @@ async function pin(
 		input: [`040000 tree ${base}\tbase`, `040000 tree ${head}\thead`, ''].join('\0')
 	});
 	if (!wrapper.ok) return wrapper;
-	const id = newSnapshotId();
 	const zero = '0'.repeat(base.length);
 	const created = await runGit({
 		cwd: store.dir,
@@ -217,10 +210,12 @@ async function pin(
  * into the store through the writer it is given; then the store copies in what
  * it still lacks from `copyFrom` and pins both trees. The store is held for the
  * whole time, so garbage collection cannot remove objects written but not yet
- * pinned.
+ * pinned. `id` names the snapshot; it must be new to the store, so it comes
+ * from an `IdSource`.
  */
 export async function takeSnapshot<E>(
 	store: Store,
+	id: SnapshotId,
 	prepare: (writer: StoreWriter) => Promise<Result<PreparedTrees, E>>
 ): Promise<Result<TakenSnapshot, E | StoreError>> {
 	return withStoreLock(
@@ -238,7 +233,7 @@ export async function takeSnapshot<E>(
 			const { base, head, copyFrom } = prepared.value;
 			const copied = await copyTrees(writer, base === head ? [head] : [base, head], copyFrom);
 			if (!copied.ok) return copied;
-			const snapshot = await pin(store, base, head);
+			const snapshot = await pin(store, id, base, head);
 			return snapshot.ok ? ok({ snapshot: snapshot.value, copied: copied.value }) : snapshot;
 		}
 	);

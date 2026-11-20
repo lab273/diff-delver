@@ -18,6 +18,7 @@
  * Git LFS's clean filter storing a changed file's content under `.git/lfs`,
  * still does so, as it would on `git add`.
  */
+import type { SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseBlobId, type BlobId } from '#lib/core/blob-id.tiny.ts';
 import type { CommitId } from '#lib/core/commit-id.tiny.ts';
@@ -441,12 +442,14 @@ async function prepareSides(
 
 /**
  * Takes a snapshot of the source in the repository's store in the data
- * directory, making the store if this is the repository's first.
+ * directory, making the store if this is the repository's first. `id`, new to
+ * the store, names the snapshot.
  */
 export async function snapshotGitSource(
 	dataDirectory: AbsolutePath,
 	repo: LocalRepository,
-	spec: GitSourceSpec
+	spec: GitSourceSpec,
+	id: SnapshotId
 ): Promise<Result<GitSnapshot, GitSourceError>> {
 	const identity = await sourceIdentity(repo, spec);
 	if (!identity.ok) return identity;
@@ -459,7 +462,7 @@ export async function snapshotGitSource(
 	if (!store.ok) return store;
 	await removeStaleScratchIndexes();
 	let sides: Sides | undefined;
-	const taken = await takeSnapshot(store.value, async (writer) => {
+	const taken = await takeSnapshot(store.value, id, async (writer) => {
 		const prepared = await prepareSides(repo, spec, writer);
 		if (!prepared.ok) return prepared;
 		sides = prepared.value;

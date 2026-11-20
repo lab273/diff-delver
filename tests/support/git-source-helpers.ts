@@ -2,6 +2,7 @@
  * Shared steps for the git source tests: take a snapshot of a source while
  * proving that the repository was not written to, and summarise the diff.
  */
+import { randomIds } from '#lib/server/system.ts';
 import { expect } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
@@ -53,7 +54,9 @@ export async function take(
 		[dir, ...(taking.alsoWatch ?? [])],
 		async () => {
 			const repo = await locateRepository(dir, { gitEnv: who.gitEnv });
-			return repo.ok ? snapshotGitSource(dataDirectory, repo.value, spec) : repo;
+			return repo.ok
+				? snapshotGitSource(dataDirectory, repo.value, spec, randomIds.snapshotId())
+				: repo;
 		}
 	);
 	expect(after).toEqual(before);

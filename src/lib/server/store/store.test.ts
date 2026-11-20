@@ -1,3 +1,4 @@
+import { randomIds } from '#lib/server/system.ts';
 import { mkdir, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -99,7 +100,11 @@ async function snapshotOf(
 	head: TreeId
 ): Promise<TakenSnapshot> {
 	const copyFrom = await objectsOf(repo);
-	return value(await takeSnapshot(target, () => Promise.resolve(ok({ base, head, copyFrom }))));
+	return value(
+		await takeSnapshot(target, randomIds.snapshotId(), () =>
+			Promise.resolve(ok({ base, head, copyFrom }))
+		)
+	);
 }
 
 /** Makes every object file of the store look `hours` old, as if written that long ago. */

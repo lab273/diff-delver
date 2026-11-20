@@ -1,3 +1,4 @@
+import { randomIds } from '#lib/server/system.ts';
 import { symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -336,7 +337,7 @@ describe('awkward repositories', () => {
 		const before = await listDirectory(repo.dir);
 		const results = await Promise.all(
 			(['working-tree', 'staged', 'working-tree', 'staged', 'working-tree'] as const).map((kind) =>
-				snapshotGitSource(dataDirectory, found, { kind })
+				snapshotGitSource(dataDirectory, found, { kind }, randomIds.snapshotId())
 			)
 		);
 		expect(await listDirectory(repo.dir)).toEqual(before);

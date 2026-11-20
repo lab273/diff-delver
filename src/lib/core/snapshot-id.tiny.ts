@@ -2,8 +2,9 @@ import { err, ok, type Result } from './result.ts';
 import type { Tiny } from './tiny.ts';
 
 /**
- * A snapshot in a store (DESIGN 3.2): 32 lowercase hex digits, made at random when
- * the snapshot is taken. Unique within its store; the store's ref is named by it.
+ * A snapshot in a store (DESIGN 3.2): 32 lowercase hex digits, from the
+ * `IdSource` the snapshot is taken with: random for the daemon, counted for
+ * tests and journeys. Unique within its store; the store's ref is named by it.
  */
 export type SnapshotId = Tiny<string, 'SnapshotId'>;
 

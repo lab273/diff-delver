@@ -1,3 +1,4 @@
+import { randomIds } from '#lib/server/system.ts';
 import { utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -111,7 +112,9 @@ describe('sourceIdentity', () => {
 		const who = await reviewer();
 		const found = await located(repo.dir, who);
 		for (const kind of ['working-tree', 'staged'] as const) {
-			const taken = value(await snapshotGitSource(await tempDirectory(), found, { kind }));
+			const taken = value(
+				await snapshotGitSource(await tempDirectory(), found, { kind }, randomIds.snapshotId())
+			);
 			expect(value(await sourceIdentity(found, { kind }))).toBe(taken.identity);
 		}
 	});

@@ -5,6 +5,7 @@ import { parseReportId } from './report-id.tiny.ts';
 import { parseRevisionId } from './revision-id.tiny.ts';
 import { nextRevisionNumber, parseRevisionNumber, FIRST_REVISION } from './revision-number.tiny.ts';
 import { parseSectionTitle } from './section-title.tiny.ts';
+import { parseSnapshotId } from './snapshot-id.tiny.ts';
 import { timeBetween, parseTimestamp, type Timestamp } from './timestamp.tiny.ts';
 import { parseAgentMarkdown } from './agent-markdown.tiny.ts';
 import { parseSchemaVersion, schemaVersionOf } from './schema-version.tiny.ts';
@@ -56,6 +57,19 @@ describe('sequential ids', () => {
 		const ids = sequentialIds();
 		expect([ids.reportId(), ids.reportId(), ids.revisionId()]).toEqual(['r_1', 'r_2', 'v_1']);
 		expect(sequentialIds('b').reportId()).toBe('r_b1');
+	});
+
+	it('make snapshot ids of 32 hex digits, apart by prefix', () => {
+		const ids = sequentialIds();
+		expect([ids.snapshotId(), ids.snapshotId()]).toEqual([
+			'00000000000000000000000000000001',
+			'00000000000000000000000000000002'
+		]);
+		const other = sequentialIds('b2');
+		expect(other.snapshotId()).toBe('62320000000000000000000000000001');
+		for (const prefix of ['', 'b', 'z9', 'abcdefghijklmn']) {
+			expect(parseSnapshotId(sequentialIds(prefix).snapshotId()).ok).toBe(true);
+		}
 	});
 });
 

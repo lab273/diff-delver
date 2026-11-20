@@ -116,7 +116,7 @@ export interface ReportServiceOptions {
 	readonly dataDirectory: AbsolutePath;
 	/** Where every timestamp comes from. */
 	readonly clock: Clock;
-	/** Where every report and revision id comes from. */
+	/** Where every report, revision and snapshot id comes from. */
 	readonly ids: IdSource;
 	/** How git runs in reviewed repositories; tests give their own reviewer config. */
 	readonly repository?: RepositoryOptions;
@@ -710,7 +710,7 @@ export class ReportService {
 		spec: GitSourceSpec,
 		identity: ReportIdentity
 	): Promise<Result<OpenOutcome, ReportError>> {
-		const taken = await snapshotGitSource(this.#dataDirectory, repo, spec);
+		const taken = await snapshotGitSource(this.#dataDirectory, repo, spec, this.#ids.snapshotId());
 		if (!taken.ok) return taken;
 		const { snapshot } = taken.value;
 		const discard = async <T>(result: Result<T, ReportError>): Promise<Result<T, ReportError>> => {
@@ -800,7 +800,7 @@ export class ReportService {
 		if (remembered?.revision === revision.id && remembered.fingerprint === fingerprint.value) {
 			return ok({ kind: remembered.outcome });
 		}
-		const probe = await snapshotGitSource(this.#dataDirectory, repo, spec);
+		const probe = await snapshotGitSource(this.#dataDirectory, repo, spec, this.#ids.snapshotId());
 		if (!probe.ok) return probe;
 		const { snapshot } = probe.value;
 		let outcome: 'unchanged' | 'changed' | 'source-empty';

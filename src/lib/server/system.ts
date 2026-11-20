@@ -8,6 +8,7 @@ import type { Clock } from '#lib/core/clock.ts';
 import type { IdSource } from '#lib/core/ids.ts';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import { parseRevisionId } from '#lib/core/revision-id.tiny.ts';
+import { parseSnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import { parseTimestamp } from '#lib/core/timestamp.tiny.ts';
 
 /** The time as the machine tells it. */
@@ -34,6 +35,12 @@ export const randomIds: IdSource = {
 	revisionId: () => {
 		const id = parseRevisionId(`v_${randomPart()}`);
 		if (!id.ok) throw new Error('A random revision id did not parse.');
+		return id.value;
+	},
+	snapshotId: () => {
+		// 128 bits: snapshots are many, and only need to be apart within a store.
+		const id = parseSnapshotId(randomBytes(16).toString('hex'));
+		if (!id.ok) throw new Error('A random snapshot id did not parse.');
 		return id.value;
 	}
 };

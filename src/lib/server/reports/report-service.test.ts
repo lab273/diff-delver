@@ -1,3 +1,4 @@
+import { randomIds } from '#lib/server/system.ts';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -129,6 +130,8 @@ describe('the report service', () => {
 			},
 			autoIgnored: [{ path: 'package-lock.json', by: { kind: 'rule', rule: 'lockfile' }, units: 1 }]
 		});
+		const page = value(await service.load(created(opened)));
+		expect(page.revision.snapshot).toBe('00000000000000000000000000000001');
 		const again = value(await service.open(repo.dir, spec('uncommitted')));
 		expect(again).toMatchObject({ kind: 'resumed', changed: false, report: { id: 'r_1' } });
 		const list = value(service.list());
@@ -413,7 +416,14 @@ describe('the report service', () => {
 		const { repo, who, data, clock, service } = await setUp();
 		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
 		// A snapshot taken by a run that crashed before recording its revision.
-		value(await snapshotGitSource(data, await located(repo.dir, who), spec('HEAD')));
+		value(
+			await snapshotGitSource(
+				data,
+				await located(repo.dir, who),
+				spec('HEAD'),
+				randomIds.snapshotId()
+			)
+		);
 		expect(await snapshotCount(data)).toBe(2);
 
 		expect(value(await service.removeUnusedSnapshots())).toEqual([]);

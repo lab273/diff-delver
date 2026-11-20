@@ -1,3 +1,4 @@
+import { randomIds } from '#lib/server/system.ts';
 import { execFile } from 'node:child_process';
 import { chmod, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -264,7 +265,16 @@ describe('a working-tree snapshot', () => {
 		const found = value(await locateRepository(repo.dir, { gitEnv: who.gitEnv }));
 		const during = [];
 		for (let i = 0; i < 3; i += 1) {
-			during.push(value(await snapshotGitSource(dataDirectory, found, { kind: 'working-tree' })));
+			during.push(
+				value(
+					await snapshotGitSource(
+						dataDirectory,
+						found,
+						{ kind: 'working-tree' },
+						randomIds.snapshotId()
+					)
+				)
+			);
 		}
 		editing.saving = false;
 		await editor;
@@ -275,7 +285,14 @@ describe('a working-tree snapshot', () => {
 			const warned = taken.leftOut.some((message) => message.startsWith('busy.txt kept changing'));
 			expect(whole || warned).toBe(true);
 		}
-		const after = value(await snapshotGitSource(dataDirectory, found, { kind: 'working-tree' }));
+		const after = value(
+			await snapshotGitSource(
+				dataDirectory,
+				found,
+				{ kind: 'working-tree' },
+				randomIds.snapshotId()
+			)
+		);
 		const final = value(await readSnapshotFile(after.snapshot, 'new', path('busy.txt')));
 		expect(Buffer.from(final.bytes)).toEqual(await readFile(join(repo.dir, 'busy.txt')));
 		expect(after.leftOut).toEqual([]);
