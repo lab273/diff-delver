@@ -1,4 +1,5 @@
 import prettier from 'eslint-config-prettier';
+import { builtinModules } from 'node:module';
 import path from 'node:path';
 import js from '@eslint/js';
 import svelte from 'eslint-plugin-svelte';
@@ -13,6 +14,81 @@ const TINY_TYPE_FILES = ['src/lib/core/**/*.tiny.ts'];
 
 /** Pure domain code: no Node, SvelteKit, Svelte, browser or server imports. */
 const CORE_FILES = ['src/lib/core/**/*.ts'];
+
+/** @param {string} text */
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+
+/** Every Node built-in module, in both spellings: `fs`, `node:fs`, `fs/promises`. */
+const NODE_BUILTINS = `^(?:node:|(?:${builtinModules
+	.filter((name) => !name.startsWith('node:'))
+	.map(escapeRegex)
+	.join('|')})(?:/|$))`;
+
+/**
+ * A user-defined type guard (`(v): v is Brand => ...`) or assertion function
+ * (`asserts v is Brand`) is an unchecked cast: it would let any file forge a tiny
+ * type. Allowed only where tiny types are made. `asserts v`, with no type, only
+ * narrows to truthy and stays allowed.
+ */
+const NO_TYPE_PREDICATES = {
+	selector: 'TSTypePredicate[typeAnnotation]',
+	message:
+		'A type predicate is an unchecked cast. Parse the value with its tiny type, or return the narrowed value instead.'
+};
+
+const IMPURE = 'Core is pure: pass this in from the edge.';
+
+/** Syntax core code must not use, because it reads the clock or loads code at run time. */
+const CORE_IMPURE_SYNTAX = [
+	{
+		selector: "NewExpression[callee.name='Date'][arguments.length=0]",
+		message: '`new Date()` reads the clock. Take time from the Clock.'
+	},
+	{
+		selector: "CallExpression[callee.name='Date']",
+		message: '`Date()` reads the clock. Take time from the Clock.'
+	},
+	{ selector: 'ImportExpression', message: 'Core is pure: no dynamic imports.' }
+];
+
+/** Globals core code must not touch: the environment, the clock, randomness, I/O and timers. */
+const CORE_IMPURE_GLOBALS = [
+	// Every global is reachable through these, so they are closed as a whole.
+	'globalThis',
+	'global',
+	'self',
+	'window',
+	// Node.
+	'process',
+	'Buffer',
+	'require',
+	'module',
+	'__dirname',
+	'__filename',
+	// The browser.
+	'document',
+	'navigator',
+	'location',
+	'localStorage',
+	'sessionStorage',
+	'indexedDB',
+	// I/O.
+	'fetch',
+	'XMLHttpRequest',
+	'WebSocket',
+	// The clock and randomness.
+	'performance',
+	'crypto',
+	// Timers.
+	'setTimeout',
+	'setInterval',
+	'setImmediate',
+	'clearTimeout',
+	'clearInterval',
+	'clearImmediate',
+	'queueMicrotask',
+	'requestAnimationFrame'
+];
 
 export default defineConfig(
 	includeIgnoreFile(gitignorePath),
@@ -55,7 +131,10 @@ export default defineConfig(
 			],
 			'@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
 			'@typescript-eslint/consistent-type-imports': 'error',
-			'@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }]
+			'@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
+			'no-restricted-syntax': ['error', NO_TYPE_PREDICATES],
+			'no-new-func': 'error',
+			'no-eval': 'error'
 		},
 		// Comments cannot switch rules off. Fix the code instead.
 		linterOptions: { noInlineConfig: true }
@@ -78,7 +157,11 @@ export default defineConfig(
 				{
 					patterns: [
 						{
-							regex: '^(node:|\\$app/|\\$env/|@sveltejs/|svelte($|/)|#lib/server/|#lib/(?!core/))',
+							regex: NODE_BUILTINS,
+							message: 'Core is pure: it must not import Node built-in modules.'
+						},
+						{
+							regex: '^(\\$app/|\\$env/|@sveltejs/|svelte($|/)|#lib/server/|#lib/(?!core/))',
 							message: 'Core is pure: it imports only other core modules and pure libraries.'
 						},
 						{
@@ -90,16 +173,22 @@ export default defineConfig(
 			],
 			'no-restricted-globals': [
 				'error',
-				...['process', 'window', 'document', 'navigator', 'localStorage', 'fetch'].map((name) => ({
-					name,
-					message: 'Core is pure: pass this in from the edge.'
-				}))
+				...CORE_IMPURE_GLOBALS.map((name) => ({ name, message: IMPURE }))
 			],
 			'no-restricted-properties': [
 				'error',
 				{ object: 'Date', property: 'now', message: 'Take time from the Clock.' },
 				{ object: 'Math', property: 'random', message: 'Pass randomness in from the edge.' }
-			]
+			],
+			'no-restricted-syntax': ['error', NO_TYPE_PREDICATES, ...CORE_IMPURE_SYNTAX]
+		}
+	},
+	{
+		// Tiny-type files may use type predicates, but are otherwise core like the rest.
+		// This block comes after the core one because a later block replaces a rule's options.
+		files: TINY_TYPE_FILES,
+		rules: {
+			'no-restricted-syntax': ['error', ...CORE_IMPURE_SYNTAX]
 		}
 	}
 );

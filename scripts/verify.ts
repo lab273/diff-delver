@@ -103,14 +103,20 @@ function heading(text: string): void {
 
 // --- Reading the test reports ---------------------------------------------------
 
-type Json = Readonly<Record<string, unknown>>;
+/** A JSON object's fields. */
+type Json = ReadonlyMap<string, unknown>;
 
-function isRecord(value: unknown): value is Json {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
+/** The fields of a JSON object, or undefined when the value is not one. */
+function asRecord(value: unknown): Json | undefined {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+	const fields: [string, unknown][] = Object.entries(value);
+	return new Map(fields);
 }
 
 function records(value: unknown): readonly Json[] {
-	return Array.isArray(value) ? value.filter(isRecord) : [];
+	if (!Array.isArray(value)) return [];
+	const items: readonly unknown[] = value;
+	return items.flatMap((item) => asRecord(item) ?? []);
 }
 
 function text(value: unknown): string {
@@ -135,36 +141,39 @@ interface TestTiming extends Timing {
 }
 
 function vitestTimings(): readonly TestTiming[] {
-	const report = readJson(vitestReport);
-	if (!isRecord(report)) return [];
-	return records(report['testResults']).flatMap((file) =>
-		records(file['assertionResults']).map((test) => ({
-			file: text(file['name']).replace(`${root}/`, ''),
-			name: text(test['fullName']),
-			ms: number(test['duration'])
+	const report = asRecord(readJson(vitestReport));
+	if (report === undefined) return [];
+	return records(report.get('testResults')).flatMap((file) =>
+		records(file.get('assertionResults')).map((test) => ({
+			file: text(file.get('name')).replace(`${root}/`, ''),
+			name: text(test.get('fullName')),
+			ms: number(test.get('duration'))
 		}))
 	);
 }
 
 function playwrightTimings(): readonly TestTiming[] {
-	const report = readJson(playwrightReport);
-	if (!isRecord(report)) return [];
+	const report = asRecord(readJson(playwrightReport));
+	if (report === undefined) return [];
 	const timings: TestTiming[] = [];
 	const visit = (suite: Json, titles: readonly string[]): void => {
-		const here = [...titles, text(suite['title'])].filter((t) => t !== '');
-		for (const spec of records(suite['specs'])) {
-			for (const test of records(spec['tests'])) {
-				const ms = records(test['results']).reduce((sum, r) => sum + number(r['duration']), 0);
+		const here = [...titles, text(suite.get('title'))].filter((t) => t !== '');
+		for (const spec of records(suite.get('specs'))) {
+			for (const test of records(spec.get('tests'))) {
+				const ms = records(test.get('results')).reduce(
+					(sum, r) => sum + number(r.get('duration')),
+					0
+				);
 				timings.push({
-					file: text(spec['file']),
-					name: [...here.slice(1), text(spec['title'])].join(' > '),
+					file: text(spec.get('file')),
+					name: [...here.slice(1), text(spec.get('title'))].join(' > '),
 					ms
 				});
 			}
 		}
-		for (const child of records(suite['suites'])) visit(child, here);
+		for (const child of records(suite.get('suites'))) visit(child, here);
 	};
-	for (const suite of records(report['suites'])) visit(suite, []);
+	for (const suite of records(report.get('suites'))) visit(suite, []);
 	return timings;
 }
 

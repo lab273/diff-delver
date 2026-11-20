@@ -3,7 +3,8 @@
  * size tests of the pure diff model. It follows the format of the recorded real
  * output in `src/lib/core/diff/fixtures/`, so the same parser reads both.
  *
- * Pure: no Node imports, so core tests can use it.
+ * Pure: no Node imports, no clock and no randomness, so core tests can use it.
+ * The scale run takes its clock as an argument.
  */
 import fc from 'fast-check';
 import { describeDiffOutputError } from '#lib/core/diff/diff-output-error.ts';
@@ -184,7 +185,7 @@ export const SECTIONS = ['alpha', 'beta', 'gamma', 'ignored', 'Not An Id'];
 // --- Scale ----------------------------------------------------------------------
 
 export interface ScaleRun {
-	/** Milliseconds from git's output to coverage, not counting writing the output. */
+	/** Milliseconds by `now` from git's output to coverage, not counting writing the output. */
 	readonly elapsed: number;
 	readonly unitCount: number;
 	readonly uncategorised: number;
@@ -195,7 +196,7 @@ export interface ScaleRun {
  * index, initial state, two `assign` items, coverage. A fifth of the files go to
  * one section by glob and ten lines of one file to another.
  */
-export function runAtScale(fileCount: number): ScaleRun {
+export function runAtScale(fileCount: number, now: () => number): ScaleRun {
 	// Each file: two hunks, each a run of 25 deleted and 25 added lines between context.
 	const run: readonly LineKind[] = [
 		' ',
@@ -214,7 +215,7 @@ export function runAtScale(fileCount: number): ScaleRun {
 	const output = syntheticDiffTreeOutput(files);
 	const fifth = Math.floor(fileCount / 5);
 
-	const started = performance.now();
+	const started = now();
 	const parsed = parseDiffTreeOutput(output);
 	if (!parsed.ok) throw new Error(describeDiffOutputError(parsed.error));
 	const diff = makeDiff(parsed.value);
@@ -233,7 +234,7 @@ export function runAtScale(fileCount: number): ScaleRun {
 	if (outcome.rejected.length > 0) throw new Error('an item was rejected');
 	const result = coverage(diff.value, outcome.state);
 	return {
-		elapsed: performance.now() - started,
+		elapsed: now() - started,
 		unitCount: diff.value.unitCount,
 		uncategorised: result.uncategorised.units
 	};

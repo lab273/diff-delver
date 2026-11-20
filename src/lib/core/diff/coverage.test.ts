@@ -5,6 +5,7 @@ import {
 	runAtScale,
 	syntheticDiff
 } from '../../../../tests/support/synthetic-diff.ts';
+import { now } from '../../../../tests/support/stopwatch.ts';
 import { parseSectionId, type SectionId } from '../section-id.tiny.ts';
 import { assign, type AssignRequest } from './assign.ts';
 import { coverage, describeWarning, type CoverageWarning } from './coverage.ts';
@@ -176,7 +177,7 @@ describe('coverage', () => {
 
 describe('the pure model at scale', () => {
 	it('reads, assigns and covers 500 files and 50,000 changed lines quickly', () => {
-		const { elapsed, unitCount, uncategorised } = runAtScale(500);
+		const { elapsed, unitCount, uncategorised } = runAtScale(500, now);
 		expect(unitCount).toBe(50_000);
 		expect(uncategorised).toBe(50_000 - 10_000 - 10);
 		// The full size, 2,000 files and 200,000 lines, is measured in src/lib/scale.test.ts.
