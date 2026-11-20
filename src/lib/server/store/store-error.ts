@@ -64,6 +64,7 @@ export function describeStoreError(error: StoreError): ReviewerMessage {
 			);
 		case 'GitNotFound':
 		case 'GitTooOld':
+		case 'NoSuchDirectory':
 		case 'NotARepository':
 		case 'DubiousOwnership':
 		case 'BadRevision':
@@ -135,6 +136,7 @@ export function describeLinesError(error: LinesError): ReviewerMessage {
 			);
 		case 'GitNotFound':
 		case 'GitTooOld':
+		case 'NoSuchDirectory':
 		case 'NotARepository':
 		case 'DubiousOwnership':
 		case 'BadRevision':
@@ -158,6 +160,7 @@ export function describeSnapshotDiffError(error: SnapshotDiffError): ReviewerMes
 			return describeDiffOutputError(error);
 		case 'GitNotFound':
 		case 'GitTooOld':
+		case 'NoSuchDirectory':
 		case 'NotARepository':
 		case 'DubiousOwnership':
 		case 'BadRevision':

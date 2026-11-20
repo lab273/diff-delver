@@ -38,7 +38,9 @@ import {
 	readSnapshotDiff,
 	readSnapshotFile,
 	readSnapshotLines,
+	removeStaleFolders,
 	snapshotRefOf,
+	storeDirectory,
 	takeSnapshot,
 	type LinesError,
 	type Snapshot,
@@ -353,6 +355,30 @@ describe('the snapshot store', () => {
 		expect(await hasObject(target, old)).toBe(false);
 	});
 
+	it('removes folders a crash left behind once they are an hour old, and nothing else', async () => {
+		const dataDirectory = await tempDirectory();
+		const stores = join(dataDirectory, 'stores');
+		const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
+		for (const name of ['.new-old', '.new-fresh', 'kept-old.git']) {
+			await mkdir(join(stores, name, 'objects'), { recursive: true });
+		}
+		await utimes(join(stores, '.new-old'), twoHoursAgo, twoHoursAgo);
+		await utimes(join(stores, 'kept-old.git'), twoHoursAgo, twoHoursAgo);
+		value(await ensureStore(dataDirectory, storeId(), 'sha1', '/repo'));
+		expect((await readdir(stores)).toSorted()).toEqual(
+			['.new-fresh', 'kept-old.git', `${storeId()}.git`].toSorted()
+		);
+
+		const temporary = await tempDirectory();
+		for (const name of ['diff-delver-index-old', 'diff-delver-index-fresh', 'other-old']) {
+			await mkdir(join(temporary, name, 'repo'), { recursive: true });
+		}
+		await utimes(join(temporary, 'diff-delver-index-old'), twoHoursAgo, twoHoursAgo);
+		await utimes(join(temporary, 'other-old'), twoHoursAgo, twoHoursAgo);
+		await removeStaleFolders(temporary, 'diff-delver-index-');
+		expect((await readdir(temporary)).toSorted()).toEqual(['diff-delver-index-fresh', 'other-old']);
+	});
+
 	it('is created once even when many snapshots make it at the same time, and is listed', async () => {
 		const dataDirectory = await tempDirectory();
 		const made = await Promise.all(
@@ -403,6 +429,16 @@ describe('the snapshot store', () => {
 		await writeFile(blocker, 'not a directory');
 		const unusable = await ensureStore(absolutePath(blocker), storeId(), 'sha1', '/repo');
 		expect(unusable.ok ? 'made' : unusable.error.kind).toBe('DataDirectoryUnusable');
+		// Something that is not a store where the store goes: the store cannot be put in place.
+		const blocked = await tempDirectory();
+		const blockedId = storeId();
+		await mkdir(join(blocked, 'stores'));
+		await writeFile(storeDirectory(blocked, blockedId), 'not a store');
+		const notPlaced = await ensureStore(blocked, blockedId, 'sha1', '/repo');
+		expect(notPlaced.ok ? 'made' : notPlaced.error).toMatchObject({
+			kind: 'DataDirectoryUnusable',
+			directory: storeDirectory(blocked, blockedId)
+		});
 		const dataDirectory = await tempDirectory();
 		const id = value(parseSnapshotId('0'.repeat(32)));
 		const missingStore = await openSnapshotRef(dataDirectory, {

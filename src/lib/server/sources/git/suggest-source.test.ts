@@ -141,9 +141,16 @@ describe('suggestSource', () => {
 			one: ['The checked-out commit compared with develop (1 file)', 'refs/heads/develop...HEAD'],
 			others: []
 		});
-		const unsure = shown(await suggestion(repo.dir));
-		expect(unsure).toMatchObject({ candidates: ['The last commit (1 file)'] });
-		expect(JSON.stringify(unsure)).toContain('could not tell which branch is the main one');
+		expect(shown(await suggestion(repo.dir))).toEqual({
+			nothing:
+				'There are no uncommitted changes, and diff delver could not tell which branch is the main one. Choose what to review below, or name two branches to compare, such as develop...HEAD.',
+			candidates: ['The last commit (1 file)']
+		});
+		await repo.git('checkout', '--quiet', 'develop');
+		expect(shown(await suggestion(repo.dir))).toMatchObject({
+			nothing:
+				'There are no uncommitted changes, and diff delver could not tell which branch is the main one. Choose what to review below, or name two revisions to compare, written as from...to.'
+		});
 	});
 
 	it('handles a repository with no commits, and says plainly when there is no repository', async () => {
@@ -165,6 +172,21 @@ describe('suggestSource', () => {
 		expect(result.ok ? 'found' : result.error.kind).toBe('NotARepository');
 		if (!result.ok)
 			expect(describeGitSourceError(result.error)).toMatch(/Run diff delver inside a repository/);
+		const gone = absolutePath(join(plain, 'not-here'));
+		const missing = await suggestSource(gone, { gitEnv: (await reviewer()).gitEnv });
+		expect(missing.ok ? 'found' : describeGitSourceError(missing.error)).toBe(
+			`${gone} does not exist. Check the path, then try again.`
+		);
+	});
+
+	it('says what is true of an empty bare repository', async () => {
+		const bare = absolutePath(join(await tempDirectory(), 'empty.git'));
+		await (await emptyRepo()).git('init', '--quiet', '--bare', bare);
+		expect(shown(await suggestion(bare))).toEqual({
+			nothing:
+				'This bare repository has no commits yet, so there is nothing to review. Push commits to it, or run diff delver in a clone of it that has work in it.',
+			candidates: []
+		});
 	});
 
 	it('works in a bare repository, comparing branches', async () => {

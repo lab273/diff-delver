@@ -108,17 +108,26 @@ async function refs(
 	return ok({ names, remoteHeads });
 }
 
-/** The full names of the branches that could be the main one; more than one means it is unclear. */
-async function mainBranches(
-	repo: LocalRepository
-): Promise<Result<readonly string[], GitSourceError>> {
+interface Branches {
+	/** The full names of the branches that could be the main one; more than one means it is unclear. */
+	readonly mains: readonly string[];
+	/** Every branch and remote-tracking branch, local ones first, for an example to give. */
+	readonly all: readonly string[];
+}
+
+async function mainBranches(repo: LocalRepository): Promise<Result<Branches, GitSourceError>> {
 	const known = await refs(repo);
 	if (!known.ok) return known;
 	const { names, remoteHeads } = known.value;
+	const all = [...names]
+		.filter((name) => !name.endsWith('/HEAD'))
+		.toSorted((a, b) => Number(b.startsWith('refs/heads/')) - Number(a.startsWith('refs/heads/')));
+	const branches = (mains: readonly string[]): Result<Branches, GitSourceError> =>
+		ok({ mains, all });
 	const heads = [...remoteHeads.entries()].filter(([, target]) => names.has(target));
 	const origin = heads.find(([remote]) => remote === 'origin');
-	if (origin !== undefined) return ok([origin[1]]);
-	if (heads.length > 0) return ok(heads.map(([, target]) => target));
+	if (origin !== undefined) return branches([origin[1]]);
+	if (heads.length > 0) return branches(heads.map(([, target]) => target));
 	const configured = await gitIn(repo, gitCwd(repo), ['config', '--get', 'init.defaultBranch']);
 	const preferred = configured.ok ? [configured.value.stdout.toString('utf8').trim()] : [];
 	const found: string[] = [];
@@ -127,7 +136,7 @@ async function mainBranches(
 		const ref = [`refs/remotes/origin/${name}`, `refs/heads/${name}`].find((r) => names.has(r));
 		if (ref !== undefined) found.push(ref);
 	}
-	return ok(found);
+	return branches(found);
 }
 
 /**
@@ -213,15 +222,13 @@ async function lastCommit(
 async function branchCandidates(
 	repo: LocalRepository,
 	head: CommitId
-): Promise<
-	Result<{ candidates: readonly SourceCandidate[]; mains: readonly string[] }, GitSourceError>
-> {
-	const mains = await mainBranches(repo);
-	if (!mains.ok) return mains;
+): Promise<Result<{ candidates: readonly SourceCandidate[]; branches: Branches }, GitSourceError>> {
+	const branches = await mainBranches(repo);
+	if (!branches.ok) return branches;
 	const branch = await currentBranch(repo);
 	const to = branch === undefined ? HEAD : revision(branch);
 	const candidates: SourceCandidate[] = [];
-	for (const main of mains.value) {
+	for (const main of branches.value.mains) {
 		if (main === branch) continue;
 		const found = await comparison(repo, main, to, head);
 		if (!found.ok) return found;
@@ -241,16 +248,24 @@ async function branchCandidates(
 			if (found.value !== undefined) candidates.push(found.value);
 		}
 	}
-	return ok({ candidates, mains: mains.value });
+	return ok({ candidates, branches: branches.value });
 }
 
 /** Why there is nothing obvious to review, in plain words. */
-function nothingReason(branch: string | undefined, mains: readonly string[]): ReviewerMessage {
+function nothingReason(branch: string | undefined, branches: Branches): ReviewerMessage {
+	const { mains } = branches;
 	const name =
 		branch === undefined ? 'The checked-out commit' : shortRevisionName(revision(branch));
 	if (mains.length === 0) {
+		// An example made of branches this repository has.
+		const other = branches.all.find((ref) => ref !== branch);
+		const to = branch === undefined ? 'HEAD' : name;
+		const example =
+			other === undefined
+				? 'name two revisions to compare, written as from...to'
+				: `name two branches to compare, such as ${shortRevisionName(revision(other))}...${to}`;
 		return reviewerMessage(
-			`There are no uncommitted changes, and diff delver could not tell which branch is the main one. Choose what to review below, or name two branches, such as main...${branch === undefined ? 'feature' : name}.`
+			`There are no uncommitted changes, and diff delver could not tell which branch is the main one. Choose what to review below, or ${example}.`
 		);
 	}
 	const main = shortRevisionName(revision(mains[0] ?? 'main'));
@@ -279,25 +294,29 @@ export async function suggestSource(
 	if (repo.workTree !== undefined) {
 		const status = await workingTreeStatus(repo);
 		if (!status.ok) return status;
+		// git status's entries, which can differ a little from the snapshot's diff: a
+		// rename not yet staged is a deletion and an untracked file, two entries,
+		// where the diff finds one rename; a change staged and then undone in the
+		// working tree is an entry where the diff shows nothing. Matching the diff
+		// would mean reading file contents, too costly for a hint. It is never zero
+		// when the diff has changes, which is what decides the suggestion.
 		const count = status.value.entries.length;
 		if (count > 0) uncommitted = candidate(WORKING_TREE, fileCountOf(count));
 	}
 	const head = await headCommit(repo);
 	if (!head.ok) return head;
 	if (head.value === undefined) {
+		const empty =
+			repo.workTree === undefined
+				? 'This bare repository has no commits yet, so there is nothing to review. Push commits to it, or run diff delver in a clone of it that has work in it.'
+				: 'This repository has no commits and no files yet, so there is nothing to review. Add some files, then run diff delver again.';
 		return uncommitted === undefined
-			? done({
-					kind: 'nothing',
-					reason: reviewerMessage(
-						'This repository has no commits and no files yet, so there is nothing to review. Add some files, then run diff delver again.'
-					),
-					candidates: []
-				})
+			? done({ kind: 'nothing', reason: reviewerMessage(empty), candidates: [] })
 			: done({ kind: 'one', candidate: uncommitted, others: [] });
 	}
 	const branches = await branchCandidates(repo, head.value);
 	if (!branches.ok) return branches;
-	const { candidates, mains } = branches.value;
+	const { candidates } = branches.value;
 	if (uncommitted !== undefined)
 		return done({ kind: 'one', candidate: uncommitted, others: candidates });
 	const [only, ...rest] = candidates;
@@ -308,7 +327,7 @@ export async function suggestSource(
 	if (!last.ok) return last;
 	return done({
 		kind: 'nothing',
-		reason: nothingReason(await currentBranch(repo), mains),
+		reason: nothingReason(await currentBranch(repo), branches.value.branches),
 		candidates: [last.value]
 	});
 }

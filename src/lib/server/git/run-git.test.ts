@@ -61,15 +61,26 @@ describe('runGit', () => {
 		expect(result.ok ? undefined : result.error.kind).toBe('NotARepository');
 	});
 
-	it('reports a directory that does not exist', async () => {
+	it('reports a directory that does not exist, and a file given as one', async () => {
 		const result = await runGit({
 			cwd: absolutePath('/nonexistent/diff-delver'),
 			args: ['status']
 		});
 		expect(result).toEqual({
 			ok: false,
-			error: { kind: 'NotARepository', directory: '/nonexistent/diff-delver', stderr: '' }
+			error: { kind: 'NoSuchDirectory', directory: '/nonexistent/diff-delver', found: 'nothing' }
 		});
+		if (!result.ok) {
+			expect(describeGitError(result.error)).toBe(
+				'/nonexistent/diff-delver does not exist. Check the path, then try again.'
+			);
+		}
+		const repo = await emptyRepo();
+		await writeFile(join(repo.dir, 'file.txt'), 'a file\n');
+		const file = await runGit({ cwd: absolutePath(join(repo.dir, 'file.txt')), args: ['status'] });
+		expect(file.ok ? 'ran' : describeGitError(file.error)).toBe(
+			`${join(repo.dir, 'file.txt')} is a file, not a folder. Give the folder of the repository instead.`
+		);
 	});
 
 	it('reports a repository git refuses because another account owns it', async () => {
@@ -144,6 +155,7 @@ describe('runGit', () => {
 	it('has a message for every error', () => {
 		const errors: readonly GitError[] = [
 			{ kind: 'GitNotFound' },
+			{ kind: 'NoSuchDirectory', directory: absolutePath('/x'), found: 'nothing' },
 			{ kind: 'NotARepository', directory: absolutePath('/x'), stderr: gitStderr('') },
 			{ kind: 'DubiousOwnership', repository: '/x', stderr: gitStderr('fatal: detected') },
 			{ kind: 'BadRevision', args: ['diff-tree'], stderr: gitStderr('fatal: bad revision') },
@@ -161,7 +173,7 @@ describe('runGit', () => {
 				stderr: gitStderr('')
 			}
 		];
-		expect(describeGitError(errors[6] ?? { kind: 'GitNotFound' })).toMatch(
+		expect(describeGitError(errors[7] ?? { kind: 'GitNotFound' })).toMatch(
 			/^git diff-tree failed \(it stopped before it could finish\)/
 		);
 		for (const error of errors) expect(describeGitError(error).length).toBeGreaterThan(20);

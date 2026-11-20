@@ -118,6 +118,7 @@ export function describeGitSourceError(error: GitSourceError): ReviewerMessage {
 			);
 		case 'GitNotFound':
 		case 'GitTooOld':
+		case 'NoSuchDirectory':
 		case 'NotARepository':
 		case 'DubiousOwnership':
 		case 'BadRevision':

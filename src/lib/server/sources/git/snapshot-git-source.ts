@@ -47,7 +47,12 @@ import {
 import type { GitSourceError } from './git-source-error.ts';
 import { gitIn, type LocalRepository } from './local-repository.ts';
 import { firstParent, headCommit, mergeBase, resolveCommit, treeOf } from './resolve.ts';
-import { scratchSettings, withScratchIndex, type ScratchIndex } from './scratch-index.ts';
+import {
+	removeStaleScratchIndexes,
+	scratchSettings,
+	withScratchIndex,
+	type ScratchIndex
+} from './scratch-index.ts';
 import { sourceIdentity } from './source-identity.ts';
 
 export interface GitSnapshot {
@@ -440,6 +445,7 @@ export async function snapshotGitSource(
 	if (!identity.ok) return identity;
 	const store = await ensureStore(dataDirectory, repo.storeId, repo.objectFormat, repo.commonDir);
 	if (!store.ok) return store;
+	await removeStaleScratchIndexes();
 	let sides: Sides | undefined;
 	const taken = await takeSnapshot(store.value, async (writer) => {
 		const prepared = await prepareSides(repo, spec, writer);

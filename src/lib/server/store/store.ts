@@ -4,7 +4,8 @@
  *
  * A store is created on first use, atomically: it is built in a private folder
  * and renamed into place, so two snapshots that create it at once both end up
- * using the one that won. Its config is diff delver's: automatic garbage
+ * using the one that won. A private folder a crash left behind is removed the
+ * next time a store is opened for a snapshot, once it is an hour old. Its config is diff delver's: automatic garbage
  * collection off (collection is `collectGarbage`'s job, under the store lock and
  * with a grace period for other processes), no
  * reflogs, and `diffdelver.repository` naming the repository it holds, for the
@@ -13,12 +14,12 @@
 import { mkdir, mkdtemp, readdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
-import { millisecondsOf } from '#lib/core/milliseconds.tiny.ts';
 import { parseObjectFormat, type ObjectFormat } from '#lib/core/object-format.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { parseStoreId, type StoreId } from '#lib/core/store-id.tiny.ts';
 import { runGit, runGitText } from '../git/run-git.ts';
 import type { StoreError } from './store-error.ts';
+import { GRACE_PERIOD, removeStaleFolders } from './stale-folders.ts';
 import { withStoreLock } from './store-lock.ts';
 
 export interface Store {
@@ -62,10 +63,11 @@ export async function ensureStore(
 	objectFormat: ObjectFormat,
 	repository: string
 ): Promise<Result<Store, StoreError>> {
+	const stores = absolute(join(dataDirectory, STORES_FOLDER));
+	await removeStaleFolders(stores, '.new-');
 	const existing = await openStore(dataDirectory, id);
 	if (existing.ok || existing.error.kind !== 'StoreNotFound') return existing;
 
-	const stores = join(dataDirectory, STORES_FOLDER);
 	try {
 		await mkdir(stores, { recursive: true, mode: 0o700 });
 	} catch (error) {
@@ -95,10 +97,13 @@ export async function ensureStore(
 		// The empty tree, stored for real, so a snapshot can name it as either side.
 		const empty = await runGit({ cwd: dir, args: ['mktree'], input: '' });
 		if (!empty.ok) return empty;
+		const target = storeDirectory(dataDirectory, id);
 		try {
-			await rename(building, storeDirectory(dataDirectory, id));
-		} catch {
-			// Another snapshot made the same store first. Theirs is equivalent.
+			await rename(building, target);
+		} catch (error) {
+			// Another snapshot made the same store first, which is equivalent; anything else is not.
+			const code = error instanceof Error && 'code' in error ? error.code : undefined;
+			if (code !== 'EEXIST' && code !== 'ENOTEMPTY') return err(unusable(target, error));
 		}
 	} finally {
 		await rm(building, { recursive: true, force: true });
@@ -166,15 +171,6 @@ export async function listStores(
 	}
 	return ok(stores);
 }
-
-/**
- * How long an object no snapshot refers to is kept, and how long a leftover
- * folder from a store being made is left alone. Another process may be taking
- * a snapshot: between writing its trees and pinning them they are unreferenced,
- * and the store lock only orders this process's own work. An hour is far longer
- * than any snapshot takes, so no lock between processes is needed.
- */
-export const GRACE_PERIOD = millisecondsOf(60 * 60 * 1000);
 
 /**
  * Removes every object no snapshot has referred to for `GRACE_PERIOD` and

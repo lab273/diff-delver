@@ -23,6 +23,7 @@ import { basename, join } from 'node:path';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { Result } from '#lib/core/result.ts';
 import { runGit } from '../../git/run-git.ts';
+import { removeStaleFolders } from '../../store/index.ts';
 import type { GitSourceError } from './git-source-error.ts';
 import { sharedIndexFiles, type LocalRepository } from './local-repository.ts';
 
@@ -39,6 +40,14 @@ function absolute(path: string): AbsolutePath {
 	const parsed = parseAbsolutePath(path);
 	if (!parsed.ok) throw new Error(`Not an absolute path: ${path}`);
 	return parsed.value;
+}
+
+/** How the folders of private index copies are named, in the temporary folder. */
+const SCRATCH_PREFIX = 'diff-delver-index-';
+
+/** Removes the private index copies a crash left behind, once they are an hour old. */
+export function removeStaleScratchIndexes(): Promise<void> {
+	return removeStaleFolders(absolute(tmpdir()), SCRATCH_PREFIX);
 }
 
 /** The settings every command given a scratch index runs with. */
@@ -65,7 +74,7 @@ export async function withScratchIndex<T, E>(
 	objects: AbsolutePath | undefined,
 	work: (scratch: ScratchIndex) => Promise<Result<T, E>>
 ): Promise<Result<T, E | GitSourceError>> {
-	const dir = await mkdtemp(join(tmpdir(), 'diff-delver-index-'));
+	const dir = await mkdtemp(join(tmpdir(), SCRATCH_PREFIX));
 	try {
 		const scratch: ScratchIndex = {
 			gitDir: absolute(join(dir, 'repo')),

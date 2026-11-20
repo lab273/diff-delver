@@ -60,7 +60,15 @@ export interface GitNotFound {
 	readonly kind: 'GitNotFound';
 }
 
-/** The directory does not exist, or is not inside a git repository. */
+/** The directory git was to run in does not exist, or is a file. */
+export interface NoSuchDirectory {
+	readonly kind: 'NoSuchDirectory';
+	readonly directory: AbsolutePath;
+	/** What is at that path instead: nothing, or something that is not a folder. */
+	readonly found: 'nothing' | 'not-a-folder';
+}
+
+/** The directory is not inside a git repository. */
 export interface NotARepository {
 	readonly kind: 'NotARepository';
 	readonly directory: AbsolutePath;
@@ -116,6 +124,7 @@ export interface GitFailed {
 export type GitError =
 	| GitNotFound
 	| GitTooOld
+	| NoSuchDirectory
 	| NotARepository
 	| DubiousOwnership
 	| BadRevision
@@ -201,7 +210,8 @@ export async function runGit(command: GitCommand): Promise<Result<GitOutput, Git
 	if (tooOld !== undefined) return err(tooOld);
 	const directory = await stat(command.cwd).catch(() => undefined);
 	if (directory?.isDirectory() !== true) {
-		return err({ kind: 'NotARepository', directory: command.cwd, stderr: gitStderr('') });
+		const found = directory === undefined ? 'nothing' : 'not-a-folder';
+		return err({ kind: 'NoSuchDirectory', directory: command.cwd, found });
 	}
 	return spawnGit(command);
 }
@@ -272,6 +282,10 @@ function gitErrorText(error: GitError): string {
 			return `git could not be found. Install git ${MINIMUM_GIT_VERSION} or newer and make sure it is on your PATH, then try again.`;
 		case 'GitTooOld':
 			return `diff delver needs git ${error.needed} or newer; this is git ${error.found}. Install a newer git (https://git-scm.com/downloads lists where to get one for your system), then try again.`;
+		case 'NoSuchDirectory':
+			return error.found === 'nothing'
+				? `${error.directory} does not exist. Check the path, then try again.`
+				: `${error.directory} is a file, not a folder. Give the folder of the repository instead.`;
 		case 'NotARepository':
 			return `${error.directory} is not a git repository. Run diff delver inside a repository, or pass its path.`;
 		case 'DubiousOwnership':
