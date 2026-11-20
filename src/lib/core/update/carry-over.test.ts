@@ -135,7 +135,7 @@ describe('carry-over', () => {
 		expect(r.summary.reviewedKept).toBe(r.summary.reviewedBefore);
 	});
 
-	it('keeps a reviewed line that now sits beside new, unreviewed lines in the same run', () => {
+	it('keeps the sorting of a line that now sits beside new lines, but not its mark', () => {
 		const head = tree({
 			'app.ts': [...numbered('line', 10), 'reviewed', ...numbered('line', 20).slice(10)]
 		});
@@ -153,7 +153,7 @@ describe('carry-over', () => {
 			head2,
 			requests: [{ file: 'app.ts', section: 'alpha' }]
 		});
-		expect(side(r.marks, 'app.ts', 'new')).toEqual([11]);
+		expect(side(r.marks, 'app.ts', 'new')).toEqual([]);
 		expect(side(r.fresh, 'app.ts', 'new')).toEqual([12]);
 		expect(bucketOf(r.state, r.after, 'app.ts', 'new', 11)?.bucket).toEqual({
 			kind: 'section',
@@ -196,9 +196,13 @@ describe('carry-over', () => {
 				...numbered('keep', 10).slice(5)
 			]
 		});
-		const r = update({ base, head, head2 });
+		const r = update({ base, head, head2, requests: [{ file: 'app.ts', section: 'alpha' }] });
 		expect(side(r.marks, 'app.ts', 'new')).toEqual([]);
 		expect(side(r.fresh, 'app.ts', 'new')).toEqual([6, 7, 8, 9]);
+		// The marks would go by distance anyway; this is what keeps beta's "}" and blank line
+		// with beta, not sorted yet, instead of left in alpha's section.
+		expect(bucketOf(r.state, r.after, 'app.ts', 'new', 8)?.bucket.kind).toBe('uncategorised');
+		expect(bucketOf(r.state, r.after, 'app.ts', 'new', 9)?.bucket.kind).toBe('uncategorised');
 	});
 
 	it('keeps a brace when a line of the same run with letters in it is kept too', () => {
@@ -222,8 +226,9 @@ describe('carry-over', () => {
 			]
 		});
 		const r = update({ base, head, head2 });
-		// Only the edited line is new; the brace is anchored by the function's first line.
-		expect(side(r.marks, 'app.ts', 'new')).toEqual([6, 8]);
+		// Only the edited line is new; the brace is anchored by the function's first line, so it
+		// keeps its place, but every line of the function is near the edit and needs another look.
+		expect(side(r.marks, 'app.ts', 'new')).toEqual([]);
 		expect(side(r.fresh, 'app.ts', 'new')).toEqual([7]);
 	});
 

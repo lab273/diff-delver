@@ -29,7 +29,8 @@ import {
 	sameAssignmentState
 } from '../storage/stored-units.ts';
 import { carryOver } from './carry-over.ts';
-import { NO_TREE_CHANGES } from './line-map.ts';
+import { MARK_DISTANCE } from './carry-over.ts';
+import { NO_TREE_CHANGES, TreeLineMap } from './line-map.ts';
 
 const TEXTS = ['', '}', '{', '  return x;', 'alpha', 'beta', 'gamma', 'delta', '// note'];
 const PATHS = ['a.ts', 'b.ts', 'src/c.ts', 'pnpm-lock.yaml'];
@@ -176,6 +177,81 @@ function facts(diff: Diff, state: AssignmentState, marks: UnitSet, fresh: UnitSe
 	return out;
 }
 
+/**
+ * The marked lines that have, within MARK_DISTANCE shown lines of them in the
+ * same hunk, a new line, or a pair of neighbouring shown lines that were not
+ * neighbours in the previous version's tree: an edit lies between them. Worked
+ * out from git's line maps, not as the carry-over does it.
+ */
+function marksNearChanges(
+	diff: Diff,
+	marks: UnitSet,
+	fresh: UnitSet,
+	maps: { readonly heads: TreeLineMap; readonly bases: TreeLineMap }
+): readonly string[] {
+	const found: string[] = [];
+	for (const file of diff.files) {
+		const path = file.file.path;
+		for (const hunk of file.hunks.values()) {
+			const shown = hunk.lines;
+			const isMarked = (i: number): boolean => {
+				const line = shown[i];
+				if (line === undefined || line.kind === 'context') return false;
+				return line.kind === 'added'
+					? linesInSet(marks, path, 'new').has(line.new)
+					: linesInSet(marks, path, 'old').has(line.old);
+			};
+			const isNew = (i: number): boolean => {
+				const line = shown[i];
+				if (line === undefined || line.kind === 'context') return false;
+				return line.kind === 'added'
+					? linesInSet(fresh, path, 'new').has(line.new)
+					: linesInSet(fresh, path, 'old').has(line.old);
+			};
+			/** Whether the shown lines from `first` to `last` hold an edit on one side. */
+			const edited = (first: number, last: number, side: Side): boolean => {
+				const map = side === 'new' ? maps.heads : maps.bases;
+				const at = side === 'new' ? file.file.new?.path : file.file.old?.path;
+				if (at === undefined) return false;
+				let previous: { path: string; line: number } | undefined;
+				for (let i = first; i <= last; i += 1) {
+					const line = shown[i];
+					if (line === undefined) continue;
+					const n =
+						line.kind === 'context'
+							? side === 'new'
+								? line.new
+								: line.old
+							: line.kind === 'added'
+								? side === 'new'
+									? line.new
+									: undefined
+								: side === 'old'
+									? line.old
+									: undefined;
+					if (n === undefined) continue;
+					const origin = map.origin(at, n);
+					if (origin === undefined) return true;
+					if (previous !== undefined) {
+						if (origin.path !== previous.path || origin.line !== previous.line + 1) return true;
+					}
+					previous = origin;
+				}
+				return false;
+			};
+			for (let i = 0; i < shown.length; i += 1) {
+				if (!isMarked(i)) continue;
+				const first = Math.max(0, i - MARK_DISTANCE);
+				const last = Math.min(shown.length - 1, i + MARK_DISTANCE);
+				let near = edited(first, last, 'new') || edited(first, last, 'old');
+				for (let j = first; j <= last; j += 1) if (isNew(j)) near = true;
+				if (near) found.push(`${path} ${hunk.id} line ${String(i)}`);
+			}
+		}
+	}
+	return found;
+}
+
 function tally(keys: readonly string[]): Map<string, number> {
 	const counts = new Map<string, number>();
 	for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -251,6 +327,14 @@ describe('carry-over invariants', () => {
 					now.filter(
 						(f) => f.fresh && f.bucket.kind !== 'uncategorised' && f.bucket.kind !== 'ignored'
 					)
+				).toEqual([]);
+
+				// No mark within MARK_DISTANCE shown lines of a new line or of an edit between the versions.
+				expect(
+					marksNearChanges(after, carried.marks, carried.fresh, {
+						heads: TreeLineMap.of({ kind: 'diff', files: treeDiff(h.head, h.head2, h.heads) }),
+						bases: TreeLineMap.of({ kind: 'diff', files: treeDiff(h.base, h.base2) })
+					})
 				).toEqual([]);
 
 				// The summary agrees with the states.

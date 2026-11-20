@@ -61,16 +61,16 @@ describe('an update in words', () => {
 			'All 20 changes you had marked as reviewed are still marked.'
 		);
 		expect(describeKeptMarks(summary({ reviewedBefore: 20, reviewedKept: 18 }))).toBe(
-			'18 of the 20 changes you had marked as reviewed are still marked; the other 2 could not be matched to the files as they are now, so they need another look.'
+			'18 of the 20 changes you had marked as reviewed are still marked; the other 2 changed or are close to a change, so they need another look.'
 		);
 		expect(describeKeptMarks(summary({ reviewedBefore: 2, reviewedKept: 1 }))).toBe(
-			'1 of the 2 changes you had marked as reviewed is still marked; the other one could not be matched to the files as they are now, so it needs another look.'
+			'1 of the 2 changes you had marked as reviewed is still marked; the other one changed or is close to a change, so it needs another look.'
 		);
 		expect(describeKeptMarks(summary({ reviewedBefore: 3, reviewedKept: 0 }))).toBe(
-			'None of the 3 changes you had marked as reviewed could be matched to the files as they are now, so they need another look.'
+			'None of the 3 changes you had marked as reviewed are still marked: they changed or are close to a change, so they need another look.'
 		);
 		expect(describeKeptMarks(summary({ reviewedBefore: 1, reviewedKept: 0 }))).toBe(
-			'The change you had marked as reviewed could not be matched to the files as they are now, so it needs another look.'
+			'The change you had marked as reviewed changed or is close to a change, so it needs another look.'
 		);
 	});
 

@@ -200,7 +200,7 @@
 				What you see here is how they were before.
 				{check.files === 0
 					? 'None of the changes this diff shows are different, so updating brings nothing new to review.'
-					: `Update to see the ${fileCount(check.files)} that changed as they are now. What you marked as reviewed stays marked on the lines that did not change.`}
+					: `Update to see the ${fileCount(check.files)} that changed as they are now. Lines you marked as reviewed stay marked, unless they or the lines close to them changed.`}
 			</p>
 			{#snippet actions()}
 				<button type="button" disabled={busy} onclick={update}>Update</button>

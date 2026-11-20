@@ -69,16 +69,17 @@ export function describeKeptMarks(summary: UpdateSummary): ReviewerMessage | und
 				: `All ${String(before)} changes you had marked as reviewed are still marked.`
 		);
 	}
+	// A mark is kept only on a line that is the same and has no change close to it (carry-over.ts).
 	const other = before - kept;
 	const lost =
 		other === 1
-			? 'the other one could not be matched to the files as they are now, so it needs another look'
-			: `the other ${String(other)} could not be matched to the files as they are now, so they need another look`;
+			? 'the other one changed or is close to a change, so it needs another look'
+			: `the other ${String(other)} changed or are close to a change, so they need another look`;
 	if (kept === 0) {
 		return reviewerMessage(
 			before === 1
-				? 'The change you had marked as reviewed could not be matched to the files as they are now, so it needs another look.'
-				: `None of the ${String(before)} changes you had marked as reviewed could be matched to the files as they are now, so they need another look.`
+				? 'The change you had marked as reviewed changed or is close to a change, so it needs another look.'
+				: `None of the ${String(before)} changes you had marked as reviewed are still marked: they changed or are close to a change, so they need another look.`
 		);
 	}
 	return reviewerMessage(

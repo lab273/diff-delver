@@ -24,11 +24,31 @@
  *    next to it is matched only when another line on the same side of the same
  *    run of changed lines is matched too, and is not weak itself. git lines up
  *    such lines across unrelated code (the `}` of a deleted function with the `}`
- *    of a new one), so on their own they say nothing.
+ *    of a new one), so on their own they say nothing. The marks on such lines go
+ *    by the distance rule below anyway; this keeps their sections and roles, so
+ *    the brace of a new function is not left in the old function's section.
  *
- * A matched line keeps its bucket, role and reviewed mark. Anything else is new:
- * not sorted yet, with the role its path suggests, not reviewed, and then the
- * built-in rules and patterns ignore what they cover, as in a first version.
+ * A matched line keeps its bucket and role. Anything else is new: not sorted
+ * yet, with the role its path suggests, not reviewed, and then the built-in
+ * rules and patterns ignore what they cover, as in a first version.
+ *
+ * **Reviewed marks.** A matched line keeps its reviewed mark only when nothing
+ * near it changed: no line within `MARK_DISTANCE` (three) lines of it is new in
+ * this version, and git's diffs between the two versions' heads and between
+ * their bases made no edit within that distance. Distance is counted in the
+ * new diff as the reviewer reads it (`near-changes.ts`): the lines of one hunk
+ * in git's order, context, deleted and added lines together, so the lines just
+ * above and below a line are one away from it whichever side they are on. A
+ * place where lines were removed lies between two shown lines and is one away
+ * from each. An edit counts in the file it is now in, so a file renamed between
+ * the versions is measured as it is now, and a rename alone is not an edit near
+ * its lines. An edit counts wherever it falls among the shown lines, also on a
+ * line shown for context; every unit of the previous version that is gone was
+ * removed by such an edit, so its place is always among them. Lines in
+ * different hunks are never near each other. File-level units are not lines of
+ * a hunk and do not count: a file made executable keeps the marks on its lines.
+ * So familiar lines that now sit inside changed code, such as an unchanged error
+ * check under a replaced call, are read again in their new surroundings.
  *
  * A file-level unit (`file-unit.ts`: a change to the file's name, mode or kind,
  * or the whole change of a file with no lines) keeps its state when the file at
@@ -51,7 +71,7 @@
  * per line.
  */
 import type { Diff, DiffFile, SideLines } from '../diff/diff.ts';
-import type { DiffLine, FileVersion } from '../diff/file-diff.ts';
+import type { DiffLine, FileDiff, FileVersion } from '../diff/file-diff.ts';
 import { autoIgnore, type AutoIgnoreOptions } from '../diff/auto-ignore.ts';
 import type { ProjectRoleRule } from '../diff/path-rules.ts';
 import { RangeMap, type Segment } from '../range-map.ts';
@@ -79,7 +99,23 @@ import { fileCountOf } from '../file-count.tiny.ts';
 import { addUnits, NO_UNITS, unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
 import type { ReviewedMarks } from '../review/reviewed-marks.ts';
 import { TreeLineMap, type TreeChanges } from './line-map.ts';
+import { editPlaces, linesNearChanges, NO_EDITS, type EditPlaces } from './near-changes.ts';
 import type { UpdateSummary } from './update-summary.ts';
+
+/**
+ * How many shown lines away a new line or an edit still takes a reviewed mark
+ * off a line (see the top of this file, and DESIGN 6.2 step 3).
+ */
+export const MARK_DISTANCE = 3;
+
+/** git's edits to each file, by the file's path in the later tree. */
+function editsByPath(changes: TreeChanges): ReadonlyMap<RepoPath, FileDiff> {
+	const byPath = new Map<RepoPath, FileDiff>();
+	if (changes.kind === 'diff') {
+		for (const file of changes.files) if (file.new !== undefined) byPath.set(file.new.path, file);
+	}
+	return byPath;
+}
 
 /** One version of a diff, with what was done to it. */
 export interface DiffVersion {
@@ -171,6 +207,8 @@ class CarryOver {
 	readonly #bases: TreeLineMap;
 	readonly #previous: PreviousFiles;
 	readonly #initial: AssignmentState;
+	readonly #headEdits: ReadonlyMap<RepoPath, FileDiff>;
+	readonly #baseEdits: ReadonlyMap<RepoPath, FileDiff>;
 	/** Units of each previous file that were matched, by its path. */
 	readonly #matched = new Map<RepoPath, number>();
 
@@ -180,6 +218,8 @@ class CarryOver {
 		this.#bases = TreeLineMap.of(input.bases);
 		this.#previous = indexPrevious(input.previous.diff);
 		this.#initial = initialState(input.diff, input.projectRoleRules);
+		this.#headEdits = editsByPath(input.heads);
+		this.#baseEdits = editsByPath(input.bases);
 	}
 
 	run(): CarriedOver {
@@ -194,7 +234,8 @@ class CarryOver {
 			const lines = this.#lines(file);
 			const own = file.hasFileUnit ? this.#fileUnit(file) : undefined;
 			files.set(path, { old: lines.old, new: lines.new, file: own?.assignment });
-			const reviewed = fileUnitsOf(lines.reviewed.old, lines.reviewed.new, own?.reviewed ?? false);
+			const kept = this.#awayFromChanges(file, lines.reviewed, lines.fresh);
+			const reviewed = fileUnitsOf(kept.old, kept.new, own?.reviewed ?? false);
 			if (reviewed !== undefined) marks.set(path, reviewed);
 			const isNew = fileUnitsOf(lines.fresh.old, lines.fresh.new, own?.fresh ?? false);
 			if (isNew !== undefined) fresh.set(path, isNew);
@@ -208,6 +249,19 @@ class CarryOver {
 			fresh: freshSet,
 			summary: this.#summary(sorted.state, marksSet, freshSet, previousOf)
 		};
+	}
+
+	/** The reviewed lines of a file without those near a change (see the top of this file). */
+	#awayFromChanges(file: DiffFile, reviewed: SideLines, fresh: SideLines): SideLines {
+		if (reviewed.old.isEmpty && reviewed.new.isEmpty) return reviewed;
+		const edits = (byPath: ReadonlyMap<RepoPath, FileDiff>, path: RepoPath | undefined) => {
+			const change = path === undefined ? undefined : byPath.get(path);
+			return change === undefined ? NO_EDITS : editPlaces(change);
+		};
+		const heads: EditPlaces = edits(this.#headEdits, file.file.new?.path);
+		const bases: EditPlaces = edits(this.#baseEdits, file.file.old?.path);
+		const near = linesNearChanges({ file, fresh, heads, bases, distance: MARK_DISTANCE });
+		return { old: reviewed.old.subtract(near.old), new: reviewed.new.subtract(near.new) };
 	}
 
 	/**

@@ -160,7 +160,8 @@ describe('the report service at full scale', () => {
 			newToReview: FILES,
 			gone: 0,
 			reviewedBefore: 100,
-			reviewedKept: 100
+			// The ticked file's lines within three of the new top line need another look.
+			reviewedKept: 94
 		});
 		later.close();
 

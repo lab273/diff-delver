@@ -182,7 +182,8 @@ describe('updating a diff', () => {
 			newIgnored: 0,
 			gone: 1,
 			reviewedBefore: 6,
-			reviewedKept: 5
+			// new.ts lost its middle line, so the two lines beside the gap need another look.
+			reviewedKept: 3
 		});
 
 		const page = value(await service.load(id));
@@ -206,8 +207,8 @@ describe('updating a diff', () => {
 		expect(bucket(page, 'src/app.ts', 'new', 1)).toBe('not sorted');
 		expect(bucket(page, 'src/new.ts', 'new', 1)).toBe('ignored: Generated');
 		expect(bucket(page, 'package-lock.json', 'new', 1)).toBe('ignored by rule');
-		expect(marked(page, 'src/new.ts', 'new')).toEqual([1, 2]);
-		expect(page.summary.progress).toMatchObject({ reviewed: 4 });
+		expect(marked(page, 'src/new.ts', 'new')).toEqual([]);
+		expect(page.summary.progress).toMatchObject({ reviewed: 3 });
 		// The first version and its snapshot stay; nothing else was left behind.
 		expect(await snapshotCount(data)).toBe(2);
 		expect(everyRow(data)['revisions']).toHaveLength(2);
