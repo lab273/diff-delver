@@ -79,8 +79,8 @@
 	</Notice>
 {:else if data.listed.value.diffs.length === 0}
 	<section class="empty" aria-labelledby="first-step">
-		<p>No diffs have been opened yet.</p>
-		<h2 id="first-step">Open your first diff</h2>
+		<p>There are no diffs in diff delver.</p>
+		<h2 id="first-step">Open a diff</h2>
 		<p>In a terminal, go to a git repository with changes and run:</p>
 		<CopyCommand command={RUN_COMMAND} label="Copy the command" />
 		<p>

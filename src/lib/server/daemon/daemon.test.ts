@@ -146,7 +146,7 @@ describe('the daemon’s gate', () => {
 		const cookie = `${tokenCookieName(daemon.port)}=${daemon.token}`;
 		const home = await rawRequest(daemon.port, { path: '/', headers: { cookie } });
 		expect(home.status).toBe(200);
-		expect(home.body).toContain('No diffs have been opened yet.');
+		expect(home.body).toContain('There are no diffs in diff delver.');
 		expect(home.headers['referrer-policy']).toBe('no-referrer');
 
 		// The same address again, as from another browser, is out of date.

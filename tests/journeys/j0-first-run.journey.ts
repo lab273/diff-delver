@@ -12,7 +12,7 @@ test.describe('J0 First run', () => {
 		await journey.open(served.address);
 
 		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your diffs' }));
-		await journey.expectVisible(journey.byText('No diffs have been opened yet.'));
+		await journey.expectVisible(journey.byText('There are no diffs in diff delver.'));
 		// The token in the address the command opens is taken out of it at once.
 		expect(await journey.address()).toBe('/');
 		expect(await journey.title()).toBe('diff delver');
