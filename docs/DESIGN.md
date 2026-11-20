@@ -332,8 +332,12 @@ Closed reports stay in the list and stay readable.
 ### 6.2 Revisions
 
 When the source changes (new commit, amended jj change, force-push, edited working
-tree), the UI shows a banner. The update is applied when the reviewer clicks, never
-mid-read.
+tree), the UI shows a banner. The update is applied when the reviewer asks for it,
+never under them while they read: either they press **Update** on the banner, or
+they run the command for that source again, which is itself a request to see the
+files as they are now. Either way the page then says what the update changed: how
+many files changed, how many lines are new to review, and that ticks and comments
+on unchanged lines were kept.
 
 A revision can be edited by the agent until a review is submitted against it. After
 that it is frozen. If the agent changes the breakdown afterwards, for example to
@@ -664,7 +668,13 @@ The quoted code is inserted by the server from the snapshot.
 - One git object store per reviewed repository in the data directory (3.2).
 - Review state is personal and never written into the repository.
 - The daemon binds to `127.0.0.1`, checks `Host` and `Origin`, and requires its
-  token.
+  token. The token never appears on a command line or in an address: the command
+  opens the browser with a single-use code, good for two minutes, which the daemon
+  exchanges for a cookie. Pages are sent with a content security policy, so nothing
+  loads from outside the daemon and only its own scripts run.
+- Browsers send a cookie to every port of a host, so another server on the same
+  machine that the person visits would receive this cookie. That is accepted for a
+  tool one person runs on their own machine.
 - Agent Markdown is sanitised. Raw HTML is not rendered.
 - Diff content is untrusted input to the agent. The skill says to treat it as data.
 - Human-only state (reviewed marks, comments, flags, the review) has no MCP write
