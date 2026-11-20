@@ -523,6 +523,8 @@ export class ReportService {
 	readonly #repository: RepositoryOptions;
 	readonly #diffs = new Map<string, Promise<Result<Diff, ReportError>>>();
 	readonly #checks = new Map<ReportId, Remembered>();
+	/** Checks under way, by report and revision, so callers at the same time share one. */
+	readonly #checking = new Map<string, Promise<Result<SourceCheck, ReportError>>>();
 	readonly #log: (line: string) => void;
 	/** What has been logged already, so a damaged entry is logged once, not on every listing. */
 	readonly #logged = new Set<string>();
@@ -897,9 +899,20 @@ export class ReportService {
 			return ok({ kind: 'updated', revision: revision.number });
 		}
 		if (report.state.kind === 'closed') return ok({ kind: 'report-closed' });
-		const repo = await this.#repositoryOf(report);
-		if (!repo.ok) return repo;
-		return this.#check(found.value, repo.value);
+		// Several pages, or one that got the focus and became visible at once, share one look.
+		const key = `${report.id}/${revision.id}`;
+		const under = this.#checking.get(key);
+		if (under !== undefined) return under;
+		const checking = (async (): Promise<Result<SourceCheck, ReportError>> => {
+			const repo = await this.#repositoryOf(report);
+			return repo.ok ? this.#check(found.value, repo.value) : repo;
+		})();
+		this.#checking.set(key, checking);
+		try {
+			return await checking;
+		} finally {
+			this.#checking.delete(key);
+		}
 	}
 
 	/**

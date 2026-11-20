@@ -9,7 +9,7 @@ import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { settableClock } from '#lib/core/clock.ts';
 import { fileAssignment, sideMap } from '#lib/core/diff/state.ts';
 import { fileUnitInSet, linesInSet } from '#lib/core/diff/unit-set.ts';
-import { sequentialIds } from '#lib/core/ids.ts';
+import { sequentialIds, type IdSource } from '#lib/core/ids.ts';
 import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { Side } from '#lib/core/side.tiny.ts';
@@ -473,6 +473,43 @@ describe('updating a diff', () => {
 		// Made on the version it shows, the same tick is saved.
 		const seen = page.revision.number;
 		expect(value(await service.markReviewed(id, seen, app, true)).units).toBe(3);
+		service.close();
+	});
+
+	it('answers checks made at the same time from one look at the files', async () => {
+		const repo = (await setUp()).repo;
+		const data = await tempDirectory();
+		const who = await reviewer();
+		const ids = sequentialIds();
+		let snapshots = 0;
+		const counting: IdSource = {
+			reportId: () => ids.reportId(),
+			revisionId: () => ids.revisionId(),
+			snapshotId: () => {
+				snapshots += 1;
+				return ids.snapshotId();
+			}
+		};
+		const service = value(
+			await ReportService.open({
+				dataDirectory: data,
+				clock: settableClock(at(1_700_000_000_000)),
+				ids: counting,
+				repository: { gitEnv: who.gitEnv }
+			})
+		);
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await repo.write('src/new.ts', lines('new 1', 'new 2', 'new 3', 'new 4'));
+		const before = snapshots;
+		// Several tabs, or a page that got the focus and became visible at once.
+		const answers = await Promise.all([
+			service.checkForChanges(id),
+			service.checkForChanges(id),
+			service.checkForChanges(id)
+		]);
+		expect(answers.map(value)).toEqual(Array(3).fill({ kind: 'changed', files: 1 }));
+		expect(snapshots - before).toBe(1);
+		expect(await snapshotCount(data)).toBe(2);
 		service.close();
 	});
 });

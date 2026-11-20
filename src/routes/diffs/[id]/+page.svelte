@@ -11,10 +11,10 @@
 	import { tick } from 'svelte';
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { ChangeCheckResponse, NextSourceOffer } from '#lib/api/schemas.ts';
-	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import Notice from '#lib/ui/Notice.svelte';
+	import { ChangeChecks, type Shown } from '#lib/ui/change-checks.ts';
 	import { pageClient } from '#lib/ui/client.ts';
 	import type { PageProps } from './$types';
 
@@ -32,32 +32,40 @@
 	const LOOK_AGAIN_EVERY = 60_000;
 	const UPDATED_HEADING = 'updated-heading';
 
+	const checks = new ChangeChecks();
+
+	function shown(): Shown {
+		return { id: data.id, version: data.loaded.ok ? data.loaded.value.summary.version : undefined };
+	}
+
 	/**
 	 * Asks whether this diff has a newer version than the page shows, and if not,
 	 * whether its files have changed. Looking again in the background keeps what
-	 * is shown when the answer cannot be had, rather than flickering.
+	 * is shown when the answer cannot be had, rather than flickering, and is not
+	 * done while a check is under way. An answer for a diff or version the page
+	 * no longer shows is dropped (`change-checks.ts`).
 	 */
-	async function checkForChanges(id: ReportId, quietly = false): Promise<void> {
-		const version = data.loaded.ok ? data.loaded.value.summary.version : undefined;
-		const checked = await pageClient().checkForChanges(id, version);
-		if (id !== data.id) return;
+	async function checkForChanges(quietly = false): Promise<void> {
+		const ticket = checks.start(shown(), quietly);
+		if (ticket === undefined) return;
+		const checked = await pageClient().checkForChanges(ticket.shown.id, ticket.shown.version);
+		if (!checks.finish(ticket, shown())) return;
 		if (checked.ok) check = checked.value;
 		else if (!quietly) check = { kind: 'failed', message: describeApiError(checked.error) };
 	}
 
 	// Again for each diff and version this page shows: opening another one reuses the page.
 	$effect(() => {
-		const id = data.id;
+		void shown();
 		check = { kind: 'checking' };
-		void checkForChanges(id);
+		void checkForChanges();
 	});
 
 	// Nothing changes under the person reading: the page only says that something
 	// did, when they come back to it or now and then, and changes on their word.
 	$effect(() => {
-		const id = data.id;
 		const again = (): void => {
-			if (document.visibilityState === 'visible' && !busy) void checkForChanges(id, true);
+			if (document.visibilityState === 'visible' && !busy) void checkForChanges(true);
 		};
 		window.addEventListener('focus', again);
 		document.addEventListener('visibilitychange', again);
@@ -119,7 +127,7 @@
 			const changed = open ? await client.reopenDiff(data.id) : await client.closeDiff(data.id);
 			if (!changed.ok) return { ok: false, message: describeApiError(changed.error) };
 			await invalidate('app:diff');
-			await checkForChanges(data.id);
+			await checkForChanges();
 			return { ok: true };
 		});
 	}
