@@ -7,7 +7,11 @@
 import { describeApiError, type ApiClient } from '#lib/api/client.ts';
 import type { OpenResponse, StartResponse } from '#lib/api/schemas.ts';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
-import { formatGitSourceSpec, type GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
+import {
+	formatGitSourceSpec,
+	parseGitSourceSpec,
+	type GitSourceSpec
+} from '#lib/core/sources/git-source-spec.ts';
 
 export interface CommandOutcome {
 	/** What to print, one plain sentence per line. */
@@ -23,6 +27,12 @@ export function startPage(directory: AbsolutePath, asked?: GitSourceSpec): strin
 	const query = new URLSearchParams({ directory });
 	if (asked !== undefined) query.set('asked', formatGitSourceSpec(asked));
 	return `/start?${query.toString()}`;
+}
+
+/** A source as the API sends it, which it formatted from a valid one. */
+function parsedSource(text: string): GitSourceSpec | undefined {
+	const spec = parseGitSourceSpec(text);
+	return spec.ok ? spec.value : undefined;
 }
 
 function described(
@@ -61,6 +71,13 @@ function described(
 				lines: [response.reason],
 				page: startPage(directory, asked),
 				exitCode: 0
+			};
+		case 'failed':
+			// The page says what could not be opened and why, then what can be.
+			return {
+				lines: [response.problem],
+				page: startPage(directory, parsedSource(response.source)),
+				exitCode: 1
 			};
 	}
 }

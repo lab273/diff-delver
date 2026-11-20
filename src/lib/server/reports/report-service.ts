@@ -157,6 +157,12 @@ export interface ReportServiceOptions {
 	readonly ids: IdSource;
 	/** How git runs in reviewed repositories; tests give their own reviewer config. */
 	readonly repository?: RepositoryOptions;
+	/**
+	 * Where details only a bug report needs are written, such as which table and
+	 * column of a damaged entry could not be read: the daemon's log. Standard
+	 * error by default.
+	 */
+	readonly log?: (line: string) => void;
 }
 
 /** A report as a list or a page header shows it. */
@@ -184,7 +190,9 @@ export interface ReportSummary {
 export type ListedReport = ({ readonly kind: 'report' } & ReportSummary) | DamagedReport;
 
 /**
-/** A report whose saved rows cannot be read. `deleteReport` removes it. */
+ * A report whose saved rows cannot be read. `deleteReport` removes it. Which
+ * table and column could not be read goes to the log, not to the reviewer.
+ */
 export interface DamagedReport {
 	readonly kind: 'damaged';
 	/** Undefined only when the id itself cannot be read; such a row cannot be deleted from here. */
@@ -256,6 +264,14 @@ export type StartOutcome =
 			readonly kind: 'nothing';
 			readonly reason: ReviewerMessage;
 			readonly candidates: readonly SourceCandidate[];
+	  }
+	/** The likely source could not be opened: `problem` says why. */
+	| {
+			readonly kind: 'failed';
+			readonly tried: SourceCandidate;
+			readonly problem: ReportError;
+			/** Other sources worth offering instead. */
+			readonly others: readonly SourceCandidate[];
 	  };
 
 /** Everything a report page needs, read from the database and the store only. */
@@ -490,6 +506,9 @@ export class ReportService {
 	readonly #repository: RepositoryOptions;
 	readonly #diffs = new Map<string, Promise<Result<Diff, ReportError>>>();
 	readonly #checks = new Map<ReportId, Remembered>();
+	readonly #log: (line: string) => void;
+	/** What has been logged already, so a damaged entry is logged once, not on every listing. */
+	readonly #logged = new Set<string>();
 
 	private constructor(db: Database, options: ReportServiceOptions) {
 		this.#db = db;
@@ -497,6 +516,11 @@ export class ReportService {
 		this.#clock = options.clock;
 		this.#ids = options.ids;
 		this.#repository = options.repository ?? {};
+		this.#log =
+			options.log ??
+			((line) => {
+				console.error(line);
+			});
 	}
 
 	/** Opens the service on a data directory, making its database if there is none. */
@@ -522,9 +546,16 @@ export class ReportService {
 		switch (suggestion.kind) {
 			case 'one': {
 				const opened = await this.#openIn(repository, suggestion.candidate.spec);
-				return opened.ok
-					? ok({ kind: 'opened', opened: opened.value, others: suggestion.others })
-					: opened;
+				return ok(
+					opened.ok
+						? { kind: 'opened', opened: opened.value, others: suggestion.others }
+						: {
+								kind: 'failed',
+								tried: suggestion.candidate,
+								problem: opened.error,
+								others: suggestion.others
+							}
+				);
 			}
 			case 'choose':
 				return ok({
@@ -550,18 +581,30 @@ export class ReportService {
 	}
 
 	/**
-	 * Whether a source can be read in the repository at `directory`, without
-	 * opening it or writing anything: for the page that says why it could not be
-	 * opened. Says what is wrong as `open` would, such as a branch git does not know.
+	 * Whether a source can be opened in the repository at `directory`, tried as
+	 * `open` would, without making a report: for the page that says why it could
+	 * not be opened. Says what is wrong as `open` would, such as a branch git does
+	 * not know, or else whether the source has changes to review. The snapshot it
+	 * takes to know is deleted again; the repository is only read.
 	 */
 	async checkSource(
 		directory: AbsolutePath,
 		spec: GitSourceSpec
-	): Promise<Result<void, ReportError>> {
+	): Promise<Result<'changes' | 'nothing', ReportError>> {
 		const repo = await locateRepository(directory, this.#repository);
 		if (!repo.ok) return repo;
-		const identity = await sourceIdentity(repo.value, spec);
-		return identity.ok ? ok(undefined) : identity;
+		const taken = await snapshotGitSource(
+			this.#dataDirectory,
+			repo.value,
+			spec,
+			this.#ids.snapshotId()
+		);
+		if (!taken.ok) return taken;
+		const { snapshot } = taken.value;
+		const files = await readSnapshotDiff(snapshot);
+		await deleteSnapshot(snapshot.store, snapshot.id);
+		if (!files.ok) return files;
+		return ok(files.value.length === 0 ? 'nothing' : 'changes');
 	}
 
 	/**
@@ -646,27 +689,21 @@ export class ReportService {
 	list(): Result<readonly ListedReport[], ReportError> {
 		return this.#db.read((q): Result<readonly ListedReport[], ReportError> => {
 			const revisions = currentRevisions(q);
+			const damaged = (id: ReportId | undefined, error: ReportError): ListedReport => {
+				this.#logOnce(
+					`A saved diff (${id ?? 'its id cannot be read'}) is damaged: ${JSON.stringify(error)}`
+				);
+				return { kind: 'damaged', id, problem: describeReportError(error) };
+			};
 			return ok(
 				everyReport(q).map((row): ListedReport => {
-					if (!row.ok) {
-						return {
-							kind: 'damaged',
-							id: row.error.id,
-							problem: describeReportError(row.error.error)
-						};
-					}
+					if (!row.ok) return damaged(row.error.id, row.error.error);
 					const report = row.value;
 					const revision = revisions.get(report.id);
 					if (revision === undefined) {
-						return {
-							kind: 'damaged',
-							id: report.id,
-							problem: describeReportError({ kind: 'ReportHasNoRevision', report: report.id })
-						};
+						return damaged(report.id, { kind: 'ReportHasNoRevision', report: report.id });
 					}
-					if (!revision.ok) {
-						return { kind: 'damaged', id: report.id, problem: describeReportError(revision.error) };
-					}
+					if (!revision.ok) return damaged(report.id, revision.error);
 					return { kind: 'report', ...summaryOf(report, revision.value) };
 				})
 			);
@@ -909,6 +946,12 @@ export class ReportService {
 	}
 
 	// --- Inside -------------------------------------------------------------------
+
+	#logOnce(line: string): void {
+		if (this.#logged.has(line)) return;
+		this.#logged.add(line);
+		this.#log(line);
+	}
 
 	async #openIn(
 		repo: LocalRepository,

@@ -39,6 +39,8 @@ interface Setup {
 	readonly data: AbsolutePath;
 	readonly clock: SettableClock;
 	readonly service: ReportService;
+	/** What the service wrote to its log. */
+	readonly logged: string[];
 }
 
 /** A service on a fresh data directory, and a repository with one commit and uncommitted changes. */
@@ -53,22 +55,25 @@ async function setUp(): Promise<Setup> {
 	const who = await reviewer();
 	const data = await tempDirectory();
 	const clock = settableClock(at(1_700_000_000_000));
-	const service = await serviceOn(data, clock, who);
-	return { repo, who, data, clock, service };
+	const logged: string[] = [];
+	const service = await serviceOn(data, clock, who, '', logged);
+	return { repo, who, data, clock, service, logged };
 }
 
 async function serviceOn(
 	data: AbsolutePath,
 	clock: SettableClock,
 	who: Reviewer,
-	prefix = ''
+	prefix = '',
+	logged: string[] = []
 ): Promise<ReportService> {
 	return value(
 		await ReportService.open({
 			dataDirectory: data,
 			clock,
 			ids: sequentialIds(prefix),
-			repository: { gitEnv: who.gitEnv }
+			repository: { gitEnv: who.gitEnv },
+			log: (line) => logged.push(line)
 		})
 	);
 }
@@ -518,18 +523,25 @@ describe('the report service', () => {
 		[
 			"the report's row",
 			"UPDATE reports SET repository_name = '' WHERE id = 'r_1'",
-			'(a diff’s details)'
+			'(a diff’s details)',
+			'"table":"reports"'
 		],
 		[
 			'a revision row',
 			"UPDATE revisions SET left_out = 'not JSON' WHERE id = 'v_1'",
-			'(a saved version of a diff)'
+			'(a saved version of a diff)',
+			'left_out'
 		],
-		['its revisions are gone, so it', "DELETE FROM revisions WHERE id = 'v_1'", 'no saved version']
+		[
+			'its revisions are gone, so it',
+			"DELETE FROM revisions WHERE id = 'v_1'",
+			'no saved version',
+			'ReportHasNoRevision'
+		]
 	])(
 		'lists a report as damaged when %s cannot be read, beside the others, and deletes it',
-		async (_what, damage, problem) => {
-			const { repo, data, clock, service } = await setUp();
+		async (_what, damage, problem, logDetail) => {
+			const { repo, data, clock, service, logged } = await setUp();
 			const damaged = created(value(await service.open(repo.dir, spec('working-tree'))));
 			clock.advance(1_000);
 			const good = created(value(await service.open(repo.dir, spec('HEAD'))));
@@ -553,8 +565,12 @@ describe('the report service', () => {
 			if (entry?.kind !== 'damaged') throw new Error('expected a damaged entry');
 			expect(entry.problem).toContain(problem);
 			expect(entry.problem).toMatch(/Delete/);
-			// In the reviewer's words: no table or column names.
+			// In the reviewer's words: no table or column names. Those go to the log, once.
 			expect(entry.problem).not.toMatch(/table|reports|revisions|column|_/);
+			expect(logged).toHaveLength(1);
+			expect(logged[0]).toContain(logDetail);
+			value(service.list());
+			expect(logged).toHaveLength(1);
 			expect(value(await service.load(good)).summary.id).toBe(good);
 
 			expect(value(await service.deleteReport(damaged)).storeProblem).toBeUndefined();

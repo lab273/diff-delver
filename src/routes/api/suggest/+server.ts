@@ -10,7 +10,8 @@ import type { RequestHandler } from './$types';
 
 /**
  * What could be opened in a folder, without opening anything, for the chooser;
- * with `asked`, also why that source could not be opened, if it cannot.
+ * with `asked`, also why that source could not be opened, if it cannot, or
+ * whether it has anything to review.
  */
 export const GET: RequestHandler = async ({ locals, url }) => {
 	const directory = parseAbsolutePath(url.searchParams.get('directory') ?? '');
@@ -22,10 +23,12 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	if (askedText !== null) {
 		const spec = parseGitSourceSpec(askedText);
 		if (!spec.ok) {
-			asked = { problem: describeInvalidSourceSpec(spec.error) };
+			asked = { problem: describeInvalidSourceSpec(spec.error), changes: false };
 		} else {
 			const checked = await locals.daemon.service.checkSource(directory.value, spec.value);
-			asked = { problem: checked.ok ? null : describeReportError(checked.error) };
+			asked = checked.ok
+				? { problem: null, changes: checked.value === 'changes' }
+				: { problem: describeReportError(checked.error), changes: false };
 		}
 	}
 	const body: SuggestResponse = suggestView(suggested.value, asked);

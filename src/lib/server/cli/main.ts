@@ -109,6 +109,10 @@ async function serve(dataDirectory: AbsolutePath, background: boolean): Promise<
 	return 0;
 }
 
+/** What to do when the browser was asked to open the page and none appeared. */
+const NO_BROWSER =
+	'If no browser window appeared, run diff-delver again with --no-open, and open the address it prints yourself.';
+
 /** What an address with an entry code is good for, said after it. */
 const WORKS_ONCE = `The address works once, within ${ENTRY_CODE_LIFETIME_TEXT}; run diff-delver again for a new one.`;
 
@@ -128,6 +132,7 @@ async function show(
 	const address = entryAddress(origin, outcome.page, code.value.code);
 	if (!noOpen && (await openBrowser(address))) {
 		terminal.print(`Opened in your browser: ${origin}${outcome.page}`);
+		terminal.print(NO_BROWSER);
 	} else {
 		terminal.print(`Open this in your browser: ${address}`);
 		terminal.print(WORKS_ONCE);

@@ -9,7 +9,7 @@
 	import { goto } from '$app/navigation';
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { Candidate } from '#lib/api/schemas.ts';
-	import { describeGitSource } from '#lib/core/sources/git-source-spec.ts';
+	import { describeGitSource, formatGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 	import { describeNothingToReview } from '#lib/core/reports/describe-report.ts';
 	import Notice from '#lib/ui/Notice.svelte';
 	import { pageClient } from '#lib/ui/client.ts';
@@ -31,7 +31,7 @@
 		}
 	});
 
-	async function choose(candidate: Candidate): Promise<void> {
+	async function choose(candidate: Pick<Candidate, 'source'>): Promise<void> {
 		opening = true;
 		problem = '';
 		const opened = await pageClient().open({ directory: data.directory, source: candidate.source });
@@ -62,7 +62,8 @@
 	<p><a href={resolve('/')}>See the diffs you have opened before</a></p>
 {:else}
 	{@const { repository, suggestion, asked } = data.suggested.value}
-	{@const instead = data.asked !== undefined || suggestion.kind === 'nothing'}
+	{@const opensNow = data.asked !== undefined && asked?.problem == null && asked?.changes === true}
+	{@const instead = (data.asked !== undefined && !opensNow) || suggestion.kind === 'nothing'}
 	{#if asked?.problem != null}
 		<h1>
 			{data.asked === undefined
@@ -70,6 +71,21 @@
 				: `${describeGitSource(data.asked)} could not be opened in ${repository}`}
 		</h1>
 		<p>{asked.problem}</p>
+	{:else if data.asked !== undefined && opensNow}
+		{@const source = formatGitSourceSpec(data.asked)}
+		<h1>{describeGitSource(data.asked)} can be opened in {repository}</h1>
+		<p>Things have changed since the command ran: it can be opened now.</p>
+		<p>
+			<button
+				type="button"
+				disabled={opening}
+				onclick={() => {
+					void choose({ source });
+				}}
+			>
+				Open it
+			</button>
+		</p>
 	{:else if data.asked !== undefined}
 		<h1>Nothing to review in {repository}: {describeGitSource(data.asked)}</h1>
 		<p>{describeNothingToReview(data.asked)}</p>

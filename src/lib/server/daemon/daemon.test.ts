@@ -19,6 +19,8 @@ import {
 } from '../../../../tests/support/daemons.ts';
 import { listingsAround } from '../../../../tests/support/directory-listing.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
+import { parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
+import { startOutcome, startPage } from '../cli/outcome.ts';
 import { describeDaemonStartError } from './daemon.ts';
 import { lockfilePath, readLockfile } from './lockfile.ts';
 
@@ -114,10 +116,36 @@ describe('the daemon', () => {
 		// A source that cannot be opened: the chooser is told why, in plain words.
 		const mistyped = value(await client.suggest(repo.dir, 'mian...HEAD'));
 		expect(mistyped.asked?.problem).toMatch(/mian/);
-		expect(value(await client.suggest(repo.dir, 'staged')).asked).toEqual({ problem: null });
+		expect(value(await client.suggest(repo.dir, 'staged')).asked).toEqual({
+			problem: null,
+			changes: false
+		});
 		expect(value(await client.suggest(repo.dir)).asked).toBeNull();
 		const badSource = await client.open({ directory: repo.dir, source: '-x' });
 		expect(badSource).toMatchObject({ ok: false, error: { status: 422 } });
+	});
+
+	it('says on the start page why what it suggested could not be opened, as the command does', async () => {
+		const repo = await useFixture(edited);
+		const data = await tempDirectory();
+		const daemon = await testDaemon({ dataDirectory: data });
+		const client = clientOf(daemon);
+		// Where the saved copies of repositories go is a file: nothing can be opened.
+		await rm(join(data, 'stores'), { recursive: true, force: true });
+		await writeFile(join(data, 'stores'), 'not a folder\n');
+		const outcome = await startOutcome(client, repo.dir);
+		expect(outcome.exitCode).toBe(1);
+		expect(outcome.page).toBe(startPage(repo.dir, value(parseGitSourceSpec('working-tree'))));
+		const [problem] = outcome.lines;
+		expect(problem).toMatch(/data folder/);
+		const page = value(await client.suggest(repo.dir, 'working-tree'));
+		expect(page.asked).toEqual({ problem, changes: false });
+		// Once the folder is mended, the page is told it can be opened now.
+		await rm(join(data, 'stores'));
+		expect(value(await client.suggest(repo.dir, 'working-tree')).asked).toEqual({
+			problem: null,
+			changes: true
+		});
 	});
 
 	it('never writes to the repository it reads', async () => {

@@ -164,6 +164,16 @@ export type StartRequest = z.input<typeof StartRequestSchema>;
 
 export const StartResponseSchema = z.discriminatedUnion('kind', [
 	OpenedSchema,
+	/** What it would have opened could not be opened: `problem` says why. */
+	z.object({
+		kind: z.literal('failed'),
+		source,
+		/** The source in plain words. */
+		description: message,
+		problem: message,
+		/** Other sources that could be opened instead. */
+		candidates: z.array(CandidateSchema)
+	}),
 	z.object({
 		kind: z.literal('choose'),
 		repository: message,
@@ -188,9 +198,10 @@ export const SuggestResponseSchema = z.object({
 	repository: message,
 	/**
 	 * The source that was asked for, when one was: `problem` says why it cannot be
-	 * opened, or is null when it can be read and simply has nothing to review.
+	 * opened, or is null when it can, and then `changes` says whether it has
+	 * anything to review.
 	 */
-	asked: z.object({ problem: message.nullable() }).nullable(),
+	asked: z.object({ problem: message.nullable(), changes: z.boolean() }).nullable(),
 	suggestion: z.discriminatedUnion('kind', [
 		z.object({
 			kind: z.literal('one'),

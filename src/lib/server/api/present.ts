@@ -134,6 +134,14 @@ export function startView(outcome: StartOutcome): StartResponse {
 				next: null,
 				candidates: outcome.candidates.map(candidateView)
 			};
+		case 'failed':
+			return {
+				kind: 'failed',
+				source: formatGitSourceSpec(outcome.tried.spec),
+				description: outcome.tried.description,
+				problem: describeReportError(outcome.problem),
+				candidates: outcome.others.map(candidateView)
+			};
 	}
 }
 
