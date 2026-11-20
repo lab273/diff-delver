@@ -2,7 +2,7 @@
 
 LLM-assisted diff organisation. An agent sorts your diff into logical sections and annotates it; you do the reviewing.
 
-**Status:** design stage. Nothing is built yet. The design is in [docs/DESIGN.md](docs/DESIGN.md).
+**Status:** early build. The project skeleton and its checks are in place; no product features yet. The design is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Developer guidance
 
@@ -28,6 +28,42 @@ what do they do next?
 - Node 26, the current LTS line. Newer LTS lines are fine.
 - pnpm.
 - git, and jj for the jj source and its tests.
+
+`.nvmrc` pins the Node line and `package.json` pins pnpm (`packageManager`). After
+cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `pnpm verify` | Everything a commit must pass, failing fast: Prettier check, ESLint, `svelte-check`, the Vitest suite, a production build, the Playwright journeys. Prints the time per step and the slowest tests. Fails if the whole run is over 90 seconds; slower machines set `VERIFY_BUDGET_SECONDS`. |
+| `pnpm dev` | The app with live reload. |
+| `pnpm build` | A production build into `build/`, run with `node build`. |
+| `pnpm test` | Every Vitest test, core and integration. |
+| `pnpm test:core` / `pnpm test:integration` | One Vitest layer. `pnpm test:watch` reruns on change. |
+| `pnpm test:journeys` | A production build, then the Playwright journeys against it. |
+| `pnpm lint` | ESLint, with warnings counted as failures. |
+| `pnpm check` | `svelte-check`: types in TypeScript and Svelte files. |
+| `pnpm format` | Rewrites files with Prettier. `pnpm format:check` only checks. |
+
+### Layout
+
+| Path | Holds |
+|---|---|
+| `src/lib/core/` | Pure domain code: tiny types, the line model, coverage, export rendering. No Node, SvelteKit, Svelte, browser or server imports, no `process`, `Date.now` or `Math.random`; lint enforces this. Tests sit next to the code as `*.test.ts` and form the `core` Vitest project (250 ms per test, 5 seconds in all). |
+| `src/lib/server/` | Daemon-side code: sources, the snapshot store, the database, MCP. |
+| `src/routes/` | The UI and the HTTP routes. |
+| `src/**/*.test.ts` outside core | The `integration` Vitest project (3 seconds per test). |
+| `tests/journeys/` | One Playwright file per journey, `j<N>-<name>.journey.ts`, with the journey's name as its `describe`. They run in Chromium against one production build on a free port, 20 seconds per test. |
+| `tests/support/` | Shared test helpers. `accessibility.ts` scans the current screen with axe; every journey calls it on every screen it reaches. |
+| `scripts/verify.ts` | The `pnpm verify` runner. |
+| `.github/workflows/verify.yml` | CI: `pnpm verify` on every commit of every push to `main`. |
+
+**Tiny-type files.** A tiny type and its parse function live in their own file
+named `<name>.tiny.ts` under `src/lib/core/`, for example `line-number.tiny.ts`.
+Those are the only files where lint allows a type assertion (`as`). The `Tiny`
+brand itself is in `src/lib/core/tiny.ts` and `Result` in `src/lib/core/result.ts`.
+Comments cannot switch lint rules off (`noInlineConfig`); fix the code instead.
 
 ### How we work
 
