@@ -57,7 +57,10 @@ import {
 	type ReviewedRow
 } from '#lib/core/storage/stored-units.ts';
 import type { StoreId } from '#lib/core/store-id.tiny.ts';
-import { millisecondsBetween } from '#lib/core/timestamp.tiny.ts';
+import { timeBetween } from '#lib/core/timestamp.tiny.ts';
+import { fileCountOf, type FileCount } from '#lib/core/file-count.tiny.ts';
+import { snapshotCountOf, type SnapshotCount } from '#lib/core/snapshot-count.tiny.ts';
+import type { UnitCount } from '#lib/core/unit-count.tiny.ts';
 import { Database, type DatabaseError, type Queries } from '../db/index.ts';
 import { assignmentRowsFor, replaceAssignmentRows } from '../db/tables/assignments.ts';
 import {
@@ -134,7 +137,7 @@ export interface ReportSummary {
 	readonly size: Revision['size'];
 	readonly progress: Revision['progress'];
 	/** How many files could not be included; the report page lists them. */
-	readonly leftOut: number;
+	readonly leftOut: FileCount;
 }
 
 /** What opening a source did. */
@@ -202,7 +205,7 @@ export interface MarkOutcome {
 	readonly reviewed: ReviewedMarks;
 	readonly progress: Progress;
 	/** How many units the target covers. */
-	readonly units: number;
+	readonly units: UnitCount;
 }
 
 /** Whether a report's source has moved on since its current revision (DESIGN 6.2). */
@@ -219,7 +222,7 @@ export type ChangeCheck =
 /** What deleting a report did. */
 export interface Deleted {
 	/** The snapshots removed from the store. */
-	readonly snapshots: number;
+	readonly snapshots: SnapshotCount;
 	/**
 	 * Set when the rows went but the snapshots could not be removed; they are
 	 * removed later by `removeUnusedSnapshots`.
@@ -272,7 +275,7 @@ function summaryOf(report: Report, revision: Revision): ReportSummary {
 		revision: revision.number,
 		size: revision.size,
 		progress: revision.progress,
-		leftOut: revision.leftOut.length
+		leftOut: fileCountOf(revision.leftOut.length)
 	};
 }
 
@@ -633,7 +636,7 @@ export class ReportService {
 						for (const sighting of sightings) {
 							if (!present.has(sighting.snapshot) || used.has(sighting.snapshot)) {
 								forgetSnapshot(q, store.id, sighting.snapshot);
-							} else if (millisecondsBetween(sighting.firstSeenAt, now) > GRACE_PERIOD) {
+							} else if (timeBetween(sighting.firstSeenAt, now) > GRACE_PERIOD) {
 								old.push(sighting.snapshot);
 							}
 						}
@@ -911,19 +914,26 @@ export class ReportService {
 		let count = 0;
 		for (const [storeId, ids] of byStore) {
 			const store = await openStore(this.#dataDirectory, storeId);
-			if (!store.ok) return { snapshots: count, storeProblem: describeStoreError(store.error) };
+			if (!store.ok)
+				return { snapshots: snapshotCountOf(count), storeProblem: describeStoreError(store.error) };
 			for (const id of ids) {
 				this.#diffs.delete(`${storeId}/${id}`);
 				const deleted = await deleteSnapshot(store.value, id);
 				if (!deleted.ok && deleted.error.kind !== 'SnapshotNotFound') {
-					return { snapshots: count, storeProblem: describeStoreError(deleted.error) };
+					return {
+						snapshots: snapshotCountOf(count),
+						storeProblem: describeStoreError(deleted.error)
+					};
 				}
 				count += 1;
 			}
 			const collected = await collectGarbage(store.value);
 			if (!collected.ok)
-				return { snapshots: count, storeProblem: describeStoreError(collected.error) };
+				return {
+					snapshots: snapshotCountOf(count),
+					storeProblem: describeStoreError(collected.error)
+				};
 		}
-		return { snapshots: count, storeProblem: undefined };
+		return { snapshots: snapshotCountOf(count), storeProblem: undefined };
 	}
 }

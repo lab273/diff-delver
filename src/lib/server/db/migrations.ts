@@ -10,6 +10,7 @@
  */
 import type { Clock } from '#lib/core/clock.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
+import { schemaVersionOf, type SchemaVersion } from '#lib/core/schema-version.tiny.ts';
 import type { Database, Queries } from './database.ts';
 import type { DatabaseError } from './database-error.ts';
 import { appliedMigrations, recordMigration } from './tables/schema-migrations.ts';
@@ -18,7 +19,7 @@ import { appliedMigrations, recordMigration } from './tables/schema-migrations.t
 export const APPLICATION_ID = 0x64446c76;
 
 export interface Migration {
-	readonly version: number;
+	readonly version: SchemaVersion;
 	/** What it changes, in a few words. */
 	readonly name: string;
 	readonly sql: string;
@@ -34,7 +35,7 @@ export interface Migration {
  */
 export const MIGRATIONS: readonly Migration[] = [
 	{
-		version: 1,
+		version: schemaVersionOf(1),
 		name: 'reports, revisions, sections, assignments and reviewed marks',
 		sql: `
 CREATE TABLE reports (
@@ -141,7 +142,12 @@ CREATE TABLE unreferenced_snapshots (
 ];
 
 /** The newest migration this version of diff delver knows. */
-export const LATEST_VERSION = MIGRATIONS.reduce((latest, m) => Math.max(latest, m.version), 0);
+export const LATEST_VERSION: SchemaVersion = newestOf(MIGRATIONS.map((m) => m.version));
+
+/** The newest of some versions; 1 when there are none. */
+function newestOf(versions: readonly SchemaVersion[]): SchemaVersion {
+	return versions.reduce((newest, v) => (v > newest ? v : newest), schemaVersionOf(1));
+}
 
 const RECORD_TABLE = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -151,7 +157,10 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 ) STRICT`;
 
 /** Whether the file is ours, someone else's, or new; and what has been applied. */
-function inspect(q: Queries, file: Database['file']): Result<readonly number[], DatabaseError> {
+function inspect(
+	q: Queries,
+	file: Database['file']
+): Result<readonly SchemaVersion[], DatabaseError> {
 	const id = Number(q.get('PRAGMA application_id')?.application_id ?? 0);
 	if (id !== APPLICATION_ID) {
 		const tables = Number(q.get('SELECT count(*) AS n FROM sqlite_schema')?.n ?? 0);
@@ -170,7 +179,7 @@ export function migrate(database: Database, clock: Clock): Result<void, Database
 			// Read again inside the write lock, in case another copy of diff delver migrated first.
 			const done = inspect(q, database.file);
 			if (!done.ok) return done;
-			const newest = done.value.reduce((max, v) => Math.max(max, v), 0);
+			const newest = newestOf(done.value);
 			if (newest > latest) {
 				return err({ kind: 'DatabaseTooNew', file: database.file, version: newest, known: latest });
 			}

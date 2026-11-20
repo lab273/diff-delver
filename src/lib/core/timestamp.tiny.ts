@@ -1,3 +1,4 @@
+import { millisecondsOf, type Milliseconds } from './milliseconds.tiny.ts';
 import { err, ok, type Result } from './result.ts';
 import type { Tiny } from './tiny.ts';
 
@@ -19,7 +20,7 @@ export function parseTimestamp(value: number): Result<Timestamp, InvalidTimestam
 	return ok(value as Timestamp);
 }
 
-/** How many milliseconds `later` is after `earlier`; negative when it is before. */
-export function millisecondsBetween(earlier: Timestamp, later: Timestamp): number {
-	return later - earlier;
+/** How long after `earlier` `later` is; zero when it is not after it, as when a clock was set back. */
+export function timeBetween(earlier: Timestamp, later: Timestamp): Milliseconds {
+	return millisecondsOf(Math.max(0, later - earlier));
 }

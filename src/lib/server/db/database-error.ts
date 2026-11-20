@@ -4,6 +4,7 @@
  */
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import type { SchemaVersion } from '#lib/core/schema-version.tiny.ts';
 
 /** The tables, as named in error messages. */
 export type TableName =
@@ -40,9 +41,9 @@ export interface DatabaseTooNew {
 	readonly kind: 'DatabaseTooNew';
 	readonly file: AbsolutePath;
 	/** The newest change the database has. */
-	readonly version: number;
+	readonly version: SchemaVersion;
 	/** The newest change this version of diff delver knows. */
-	readonly known: number;
+	readonly known: SchemaVersion;
 }
 
 /** Another program held the database for longer than the busy timeout. */

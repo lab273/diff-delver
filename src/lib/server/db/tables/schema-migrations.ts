@@ -1,15 +1,16 @@
 /** The `schema_migrations` table: which migrations have been applied, and when. */
 import { z } from 'zod';
 import { map, ok, type Result } from '#lib/core/result.ts';
+import { parseSchemaVersion, type SchemaVersion } from '#lib/core/schema-version.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
-import { integer, parseRows } from '../columns.ts';
+import { parseRows, whole } from '../columns.ts';
 import type { Queries } from '../database.ts';
 import type { StoredRowInvalid } from '../database-error.ts';
 
-const row = z.object({ version: integer.positive() });
+const row = z.object({ version: whole(parseSchemaVersion) });
 
 /** The versions of every applied migration. The table must exist. */
-export function appliedMigrations(q: Queries): Result<readonly number[], StoredRowInvalid> {
+export function appliedMigrations(q: Queries): Result<readonly SchemaVersion[], StoredRowInvalid> {
 	const exists = q.get(
 		"SELECT 1 AS found FROM sqlite_schema WHERE type = 'table' AND name = 'schema_migrations'"
 	);
@@ -21,7 +22,12 @@ export function appliedMigrations(q: Queries): Result<readonly number[], StoredR
 }
 
 /** Records that a migration has been applied. */
-export function recordMigration(q: Queries, version: number, name: string, at: Timestamp): void {
+export function recordMigration(
+	q: Queries,
+	version: SchemaVersion,
+	name: string,
+	at: Timestamp
+): void {
 	q.run(
 		'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)',
 		version,

@@ -5,8 +5,10 @@ import { parseReportId } from './report-id.tiny.ts';
 import { parseRevisionId } from './revision-id.tiny.ts';
 import { nextRevisionNumber, parseRevisionNumber, FIRST_REVISION } from './revision-number.tiny.ts';
 import { parseSectionTitle } from './section-title.tiny.ts';
-import { millisecondsBetween, parseTimestamp, type Timestamp } from './timestamp.tiny.ts';
+import { timeBetween, parseTimestamp, type Timestamp } from './timestamp.tiny.ts';
 import { parseAgentMarkdown } from './agent-markdown.tiny.ts';
+import { parseSchemaVersion, schemaVersionOf } from './schema-version.tiny.ts';
+import { parseSnapshotCount, snapshotCountOf } from './snapshot-count.tiny.ts';
 
 function at(ms: number): Timestamp {
 	const parsed = parseTimestamp(ms);
@@ -22,7 +24,8 @@ describe('a settable clock', () => {
 		expect(clock.now()).toBe(1_500);
 		clock.set(at(10));
 		expect(clock.now()).toBe(10);
-		expect(millisecondsBetween(at(10), at(1_500))).toBe(1_490);
+		expect(timeBetween(at(10), at(1_500))).toBe(1_490);
+		expect(timeBetween(at(1_500), at(10))).toBe(0);
 	});
 
 	it('refuses to move backwards or by a fraction', () => {
@@ -33,6 +36,18 @@ describe('a settable clock', () => {
 		expect(() => {
 			clock.advance(0.5);
 		}).toThrow(RangeError);
+	});
+});
+
+describe('schema versions and snapshot counts', () => {
+	it('accept only what they can be', () => {
+		expect(parseSchemaVersion(1).ok).toBe(true);
+		expect(parseSchemaVersion(0).ok).toBe(false);
+		expect(parseSchemaVersion(1.5).ok).toBe(false);
+		expect(() => schemaVersionOf(0)).toThrow(RangeError);
+		expect(parseSnapshotCount(0).ok).toBe(true);
+		expect(parseSnapshotCount(-1).ok).toBe(false);
+		expect(() => snapshotCountOf(0.5)).toThrow(RangeError);
 	});
 });
 
