@@ -12,7 +12,10 @@ import { spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
 import { devNull } from 'node:os';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { parseExitCode, type ExitCode } from '#lib/core/exit-code.tiny.ts';
+import { firstLineOf, gitStderr, type GitStderr } from '#lib/core/git-stderr.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
+import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 
 export interface GitCommand {
 	/** The directory git runs in: a work tree, or a bare repository. */
@@ -26,7 +29,7 @@ export interface GitCommand {
 
 export interface GitOutput {
 	readonly stdout: Buffer;
-	readonly stderr: string;
+	readonly stderr: GitStderr;
 }
 
 /** git is not installed, or not on the PATH. */
@@ -38,22 +41,23 @@ export interface GitNotFound {
 export interface NotARepository {
 	readonly kind: 'NotARepository';
 	readonly directory: AbsolutePath;
-	readonly stderr: string;
+	readonly stderr: GitStderr;
 }
 
 /** A revision, tree or object named in the arguments does not exist. */
 export interface BadRevision {
 	readonly kind: 'BadRevision';
 	readonly args: readonly string[];
-	readonly stderr: string;
+	readonly stderr: GitStderr;
 }
 
 /** git ran and failed for another reason. */
 export interface GitFailed {
 	readonly kind: 'GitFailed';
 	readonly args: readonly string[];
-	readonly exitCode: number;
-	readonly stderr: string;
+	/** Absent when git did not run to an exit: it could not be started, or a signal stopped it. */
+	readonly exitCode: ExitCode | undefined;
+	readonly stderr: GitStderr;
 }
 
 export type GitError = GitNotFound | NotARepository | BadRevision | GitFailed;
@@ -86,7 +90,7 @@ function isolatedEnv(extra: Readonly<Record<string, string>> | undefined): NodeJ
 export async function runGit(command: GitCommand): Promise<Result<GitOutput, GitError>> {
 	const directory = await stat(command.cwd).catch(() => undefined);
 	if (directory?.isDirectory() !== true) {
-		return err({ kind: 'NotARepository', directory: command.cwd, stderr: '' });
+		return err({ kind: 'NotARepository', directory: command.cwd, stderr: gitStderr('') });
 	}
 
 	return new Promise((resolve) => {
@@ -105,10 +109,10 @@ export async function runGit(command: GitCommand): Promise<Result<GitOutput, Git
 
 		child.on('error', (error: NodeJS.ErrnoException) => {
 			if (error.code === 'ENOENT') resolve(err({ kind: 'GitNotFound' }));
-			else resolve(err(failed(command, -1, error.message)));
+			else resolve(err(failed(command, undefined, gitStderr(error.message))));
 		});
 		child.on('close', (code) => {
-			const errText = Buffer.concat(stderr).toString('utf8');
+			const errText = gitStderr(Buffer.concat(stderr).toString('utf8'));
 			if (code === 0) {
 				resolve(ok({ stdout: Buffer.concat(stdout), stderr: errText }));
 			} else if (NOT_A_REPOSITORY.test(errText)) {
@@ -116,13 +120,14 @@ export async function runGit(command: GitCommand): Promise<Result<GitOutput, Git
 			} else if (BAD_REVISION.test(errText)) {
 				resolve(err({ kind: 'BadRevision', args: command.args, stderr: errText }));
 			} else {
-				resolve(err(failed(command, code ?? -1, errText)));
+				const exitCode = code === null ? undefined : parseExitCode(code);
+				resolve(err(failed(command, exitCode?.ok === true ? exitCode.value : undefined, errText)));
 			}
 		});
 	});
 }
 
-function failed(command: GitCommand, exitCode: number, stderr: string): GitFailed {
+function failed(command: GitCommand, exitCode: ExitCode | undefined, stderr: GitStderr): GitFailed {
 	return { kind: 'GitFailed', args: command.args, exitCode, stderr };
 }
 
@@ -133,19 +138,24 @@ export async function runGitText(command: GitCommand): Promise<Result<string, Gi
 }
 
 /** What happened and what to do next, for the reviewer. */
-export function describeGitError(error: GitError): string {
+export function describeGitError(error: GitError): ReviewerMessage {
+	return reviewerMessage(gitErrorText(error));
+}
+
+function gitErrorText(error: GitError): string {
 	switch (error.kind) {
 		case 'GitNotFound':
 			return 'git could not be found. Install git and make sure it is on your PATH, then try again.';
 		case 'NotARepository':
 			return `${error.directory} is not a git repository. Run diff delver inside a repository, or pass its path.`;
 		case 'BadRevision':
-			return `git does not know one of the revisions asked for: ${firstLine(error.stderr)} Check the name, or fetch it first.`;
-		case 'GitFailed':
-			return `git ${error.args[0] ?? ''} failed (exit code ${error.exitCode}): ${firstLine(error.stderr)}`;
+			return `git does not know one of the revisions asked for: ${firstLineOf(error.stderr)} Check the name, or fetch it first.`;
+		case 'GitFailed': {
+			const how =
+				error.exitCode === undefined
+					? 'it stopped before it could finish'
+					: `exit code ${error.exitCode}`;
+			return `git ${error.args.find((a) => !a.startsWith('-') && !a.includes('=')) ?? ''} failed (${how}): ${firstLineOf(error.stderr)} Check that git works in this repository, for example with "git status", then try again.`;
+		}
 	}
-}
-
-function firstLine(text: string): string {
-	return text.trim().split('\n')[0] ?? '';
 }

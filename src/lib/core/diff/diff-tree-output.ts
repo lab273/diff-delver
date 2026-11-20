@@ -8,7 +8,9 @@
  * file deleted, then the new one added. The two are joined by position, and both
  * the count and the kind of every section are checked against the listing.
  */
+import { fileCountOf } from '../file-count.tiny.ts';
 import { fileModeKind } from '../file-mode.tiny.ts';
+import { patchCountOf } from '../patch-count.tiny.ts';
 import { hunkIdAt } from '../hunk-id.tiny.ts';
 import { err, ok, type Result } from '../result.ts';
 import type { DiffOutputError } from './diff-output-error.ts';
@@ -40,9 +42,9 @@ export function joinListingAndPatch(
 	if (expected !== sections.length) {
 		return err({
 			kind: 'PatchCountMismatch',
-			listedFiles: entries.length,
-			expectedPatches: expected,
-			foundPatches: sections.length
+			listedFiles: fileCountOf(entries.length),
+			expectedPatches: patchCountOf(expected),
+			foundPatches: patchCountOf(sections.length)
 		});
 	}
 

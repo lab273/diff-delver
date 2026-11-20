@@ -9,6 +9,9 @@ import type { RangeMap } from '../range-map.ts';
 import { RangeSet } from '../range-set.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import type { SectionId } from '../section-id.tiny.ts';
+import { joinTextForAgent, textForAgent, type TextForAgent } from '../text-for-agent.tiny.ts';
+import { addUnits, NO_UNITS, ONE_UNIT, unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
+import { fileCountOf, type FileCount } from '../file-count.tiny.ts';
 import { agentPath } from './agent-text.ts';
 import { sameBucket, type Bucket } from './bucket.ts';
 import type { Diff, DiffFile } from './diff.ts';
@@ -16,9 +19,9 @@ import { ignoreRuleName } from './path-rules.ts';
 import { fileAssignment, type Assignment, type AssignmentState } from './state.ts';
 
 export interface Totals {
-	readonly units: number;
+	readonly units: UnitCount;
 	/** Files with at least one unit in the bucket. A file split across buckets counts in each. */
-	readonly files: number;
+	readonly files: FileCount;
 }
 
 /** Some units of one file: line ranges, or its file-level unit. */
@@ -36,8 +39,8 @@ export type CoverageWarning =
 			/** A section holds more units than the limit, so it is hard to review as one. */
 			readonly kind: 'OversizedSection';
 			readonly section: SectionId;
-			readonly units: number;
-			readonly limit: number;
+			readonly units: UnitCount;
+			readonly limit: UnitCount;
 	  }
 	| {
 			/** A run of adjacent deleted and added lines is split between buckets. */
@@ -69,20 +72,20 @@ export interface CoverageOptions {
 	/** The sections the agent has created, in reading order. */
 	readonly sections?: readonly SectionId[];
 	/** A section with more units than this gets a warning. */
-	readonly maxSectionUnits?: number;
+	readonly maxSectionUnits?: UnitCount;
 }
 
 class Tally {
-	units = 0;
+	units = NO_UNITS;
 	readonly files = new Set<RepoPath>();
 
-	add(path: RepoPath, units: number): void {
-		this.units += units;
+	add(path: RepoPath, units: UnitCount): void {
+		this.units = addUnits(this.units, units);
 		this.files.add(path);
 	}
 
 	get totals(): Totals {
-		return { units: this.units, files: this.files.size };
+		return { units: this.units, files: fileCountOf(this.files.size) };
 	}
 }
 
@@ -102,7 +105,7 @@ export function coverage(
 	for (const file of diff.files) {
 		const path = file.file.path;
 		const assignment = fileAssignment(state, file);
-		const count = (a: Assignment, units: number): void => {
+		const count = (a: Assignment, units: UnitCount): void => {
 			switch (a.bucket.kind) {
 				case 'section': {
 					let tally = sections.get(a.bucket.section);
@@ -124,7 +127,7 @@ export function coverage(
 
 		switch (assignment.kind) {
 			case 'file': {
-				count(assignment.assignment, 1);
+				count(assignment.assignment, ONE_UNIT);
 				if (assignment.assignment.bucket.kind === 'uncategorised') {
 					remaining.push({ kind: 'file', path });
 				}
@@ -135,7 +138,7 @@ export function coverage(
 			}
 			case 'lines': {
 				for (const map of [assignment.old, assignment.new]) {
-					for (const s of map.segments) count(s.value, s.last - s.first + 1);
+					for (const s of map.segments) count(s.value, unitCountOf(s.last - s.first + 1));
 				}
 				const left = linesWhere(assignment, (a) => a.bucket.kind === 'uncategorised');
 				if (left.length > 0) remaining.push({ kind: 'lines', path, ranges: left });
@@ -163,7 +166,7 @@ export function coverage(
 	}
 
 	return {
-		total: { units: diff.unitCount, files: diff.files.length },
+		total: { units: diff.unitCount, files: fileCountOf(diff.files.length) },
 		sections: sectionTotals,
 		ignored: ignored.totals,
 		uncategorised: uncategorised.totals,
@@ -228,7 +231,11 @@ function splitRuns(
 // --- Messages ------------------------------------------------------------------
 
 /** How a bucket is named in messages. */
-export function describeBucket(bucket: Bucket): string {
+export function describeBucket(bucket: Bucket): TextForAgent {
+	return textForAgent(bucketText(bucket));
+}
+
+function bucketText(bucket: Bucket): string {
 	switch (bucket.kind) {
 		case 'section':
 			return `section "${bucket.section}"`;
@@ -246,24 +253,28 @@ export function describeBucket(bucket: Bucket): string {
 	}
 }
 
-function describeUnits(units: FileUnits): string {
+function describeUnits(units: FileUnits): TextForAgent {
 	switch (units.kind) {
 		case 'file':
-			return `${agentPath(units.path)} (the whole file)`;
+			return textForAgent(`${agentPath(units.path)} (the whole file)`);
 		case 'lines':
-			return `${agentPath(units.path)} ${formatLineRanges(units.ranges)}`;
+			return textForAgent(`${agentPath(units.path)} ${formatLineRanges(units.ranges)}`);
 	}
 }
 
 /** What a warning means and what the agent might do about it. */
-export function describeWarning(warning: CoverageWarning): string {
+export function describeWarning(warning: CoverageWarning): TextForAgent {
+	return textForAgent(warningText(warning));
+}
+
+function warningText(warning: CoverageWarning): string {
 	switch (warning.kind) {
 		case 'EmptySection':
 			return `Section "${warning.section}" has nothing in it. Assign lines to it, or remove it.`;
 		case 'OversizedSection':
 			return `Section "${warning.section}" has ${warning.units} changed lines, more than ${warning.limit}. Consider splitting it so each part can be reviewed in one sitting.`;
 		case 'SplitChangeRun':
-			return `${agentPath(warning.path)} ${warning.hunk}: the adjacent changed lines ${formatLineRanges(warning.ranges)} are split between ${warning.buckets.map(describeBucket).join(' and ')}. This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.`;
+			return `${agentPath(warning.path)} ${warning.hunk}: the adjacent changed lines ${formatLineRanges(warning.ranges)} are split between ${joinTextForAgent(warning.buckets.map(describeBucket), ' and ')}. This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.`;
 		case 'TestsOutsideSections':
 			return `${describeUnits(warning.units)}: test lines in no section. Assign them to the section they test, or to a section of their own.`;
 	}

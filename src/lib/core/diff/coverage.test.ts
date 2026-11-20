@@ -11,6 +11,7 @@ import { assign, type AssignRequest } from './assign.ts';
 import { coverage, describeWarning, type CoverageWarning } from './coverage.ts';
 import { autoIgnore } from './auto-ignore.ts';
 import { initialState } from './state.ts';
+import { unitCountOf } from '../unit-count.tiny.ts';
 
 function section(id: string): SectionId {
 	const parsed = parseSectionId(id);
@@ -81,7 +82,7 @@ describe('coverage', () => {
 		const state = stateAfter([{ file: 'src/app.ts', section: 'alpha' }]);
 		const result = coverage(diff, state, {
 			sections: [section('alpha'), section('empty')],
-			maxSectionUnits: 5
+			maxSectionUnits: unitCountOf(5)
 		});
 		expect(result.warnings.filter((w) => w.kind !== 'TestsOutsideSections')).toEqual([
 			{ kind: 'OversizedSection', section: 'alpha', units: 6, limit: 5 },
@@ -139,7 +140,7 @@ describe('coverage', () => {
 		]);
 		const result = coverage(diff, state, {
 			sections: [section('alpha'), section('empty')],
-			maxSectionUnits: 0
+			maxSectionUnits: unitCountOf(0)
 		});
 		expect(new Set(kinds(result.warnings))).toEqual(
 			new Set(['EmptySection', 'OversizedSection', 'SplitChangeRun', 'TestsOutsideSections'])

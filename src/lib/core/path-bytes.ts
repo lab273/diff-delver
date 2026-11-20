@@ -15,6 +15,7 @@
  * path only, each backslash doubled so the form reads back unambiguously. `assign`
  * accepts that form. A valid path is shown as it is.
  */
+import { escapedPathFrom, type EscapedPath } from './escaped-path.tiny.ts';
 import { parseRepoPath, type InvalidRepoPath, type RepoPath } from './repo-path.tiny.ts';
 import type { Result } from './result.ts';
 
@@ -126,8 +127,8 @@ export function encodePathText(path: string): Uint8Array {
  * The path as people and agents see it: unchanged when it is valid UTF-8;
  * otherwise each odd byte as `\xHH` and each backslash as `\\`.
  */
-export function escapedRepoPath(path: RepoPath | string): string {
-	if (!hasOddBytes(path)) return path;
+export function escapedRepoPath(path: RepoPath): EscapedPath {
+	if (!hasOddBytes(path)) return escapedPathFrom(path);
 	let out = '';
 	for (const char of path) {
 		const code = codeOf(char);
@@ -135,7 +136,7 @@ export function escapedRepoPath(path: RepoPath | string): string {
 		else if (char === '\\') out += '\\\\';
 		else out += char;
 	}
-	return out;
+	return escapedPathFrom(out);
 }
 
 /**
@@ -143,7 +144,7 @@ export function escapedRepoPath(path: RepoPath | string): string {
  * text is not the escaped form of a path with odd bytes: it has no `\xHH` for a
  * byte from 80 to FF, or a backslash that starts neither `\\` nor such a byte.
  */
-export function unescapeRepoPath(text: string): string | undefined {
+export function unescapeRepoPath(text: string): RepoPath | undefined {
 	let out = '';
 	let odd = false;
 	for (let i = 0; i < text.length; i += 1) {
@@ -168,5 +169,7 @@ export function unescapeRepoPath(text: string): string | undefined {
 			return undefined;
 		}
 	}
-	return odd ? out : undefined;
+	if (!odd) return undefined;
+	const path = parseRepoPath(out);
+	return path.ok ? path.value : undefined;
 }

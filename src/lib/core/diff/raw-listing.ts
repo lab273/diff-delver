@@ -10,6 +10,7 @@
 import { parseBlobId, type BlobId } from '../blob-id.tiny.ts';
 import { parseFileMode, type FileMode } from '../file-mode.tiny.ts';
 import { parseGitStatusLetter, type FileStatus } from '../file-status.tiny.ts';
+import { byteOffsetAt } from '../byte-offset.tiny.ts';
 import { isNullObjectId } from '../object-id.ts';
 import { decodePathBytes, repoPathFromBytes } from '../path-bytes.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
@@ -53,7 +54,7 @@ export function parseRawListing(output: Uint8Array): Result<RawListing, DiffOutp
 	const entries: RawEntry[] = [];
 	let at = 0;
 	const fail = (detail: string): Result<never, DiffOutputError> =>
-		err({ kind: 'MalformedRawListing', offset: at, detail });
+		err({ kind: 'MalformedRawListing', offset: byteOffsetAt(at), detail });
 
 	const field = (): Uint8Array | undefined => {
 		const end = output.indexOf(NUL, at);

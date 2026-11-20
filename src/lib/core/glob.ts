@@ -17,6 +17,7 @@
  * Matching is case-sensitive, like git.
  */
 import { err, ok, type Result } from './result.ts';
+import { textForAgent, type TextForAgent } from './text-for-agent.tiny.ts';
 
 /** Why a glob pattern cannot be used. */
 export type GlobProblem =
@@ -29,7 +30,11 @@ export type GlobProblem =
 	| 'bad-range';
 
 /** What is wrong with a glob, in words, with what to write instead. */
-export function describeGlobProblem(problem: GlobProblem): string {
+export function describeGlobProblem(problem: GlobProblem): TextForAgent {
+	return textForAgent(globProblemText(problem));
+}
+
+function globProblemText(problem: GlobProblem): string {
 	switch (problem) {
 		case 'empty':
 			return 'it is empty';

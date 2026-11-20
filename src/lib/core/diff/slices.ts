@@ -15,7 +15,9 @@
  * `testsSeparateView` lifts the test and snapshot units of each section into a
  * Tests group of its own, sub-grouped by section.
  */
+import { groupKeyIdFrom, type GroupKeyId } from '../group-key-id.tiny.ts';
 import type { SectionId } from '../section-id.tiny.ts';
+import { addUnits, NO_UNITS, ONE_UNIT, type UnitCount } from '../unit-count.tiny.ts';
 import type { Side } from '../side.tiny.ts';
 import type { Diff, DiffFile } from './diff.ts';
 import type { AddedLine, ContextLine, DeletedLine, FileDiff, Hunk } from './file-diff.ts';
@@ -56,20 +58,20 @@ export type Slice =
 			readonly file: FileDiff;
 			readonly hunks: readonly SliceHunk[];
 			/** This slice's own units. */
-			readonly units: number;
+			readonly units: UnitCount;
 	  }
 	| {
 			readonly kind: 'file';
 			readonly file: FileDiff;
 			readonly assignment: Assignment;
-			readonly units: 1;
+			readonly units: UnitCount;
 	  };
 
 export interface Group {
 	readonly key: GroupKey;
 	/** In the diff's file order. */
 	readonly slices: readonly Slice[];
-	readonly units: number;
+	readonly units: UnitCount;
 }
 
 /**
@@ -119,23 +121,23 @@ function testsSeparateGroup(assignment: Assignment): GroupKey {
 }
 
 /** A string that is equal for equal group keys. */
-export function groupKeyId(key: GroupKey): string {
+export function groupKeyId(key: GroupKey): GroupKeyId {
 	switch (key.kind) {
 		case 'section':
-			return `section:${key.section}`;
+			return groupKeyIdFrom(`section:${key.section}`);
 		case 'tests':
-			return `tests:${key.section}`;
+			return groupKeyIdFrom(`tests:${key.section}`);
 		case 'ignored':
-			return 'ignored';
+			return groupKeyIdFrom('ignored');
 		case 'uncategorised':
-			return 'uncategorised';
+			return groupKeyIdFrom('uncategorised');
 	}
 }
 
 interface Building {
 	readonly key: GroupKey;
 	readonly slices: Slice[];
-	units: number;
+	units: UnitCount;
 }
 
 function project(
@@ -145,12 +147,12 @@ function project(
 	groupOf: (assignment: Assignment) => GroupKey,
 	withTests: boolean
 ): View {
-	const groups = new Map<string, Building>();
+	const groups = new Map<GroupKeyId, Building>();
 	const ensure = (key: GroupKey): Building => {
 		const id = groupKeyId(key);
 		let group = groups.get(id);
 		if (group === undefined) {
-			group = { key, slices: [], units: 0 };
+			group = { key, slices: [], units: NO_UNITS };
 			groups.set(id, group);
 		}
 		return group;
@@ -161,7 +163,7 @@ function project(
 		for (const slice of slicesOfFile(file, state, groupOf)) {
 			const group = ensure(slice.group);
 			group.slices.push(slice.slice);
-			group.units += slice.slice.units;
+			group.units = addUnits(group.units, slice.slice.units);
 		}
 	}
 
@@ -210,7 +212,12 @@ function slicesOfFile(
 			return [
 				{
 					group: groupOf(assignment.assignment),
-					slice: { kind: 'file', file: file.file, assignment: assignment.assignment, units: 1 }
+					slice: {
+						kind: 'file',
+						file: file.file,
+						assignment: assignment.assignment,
+						units: ONE_UNIT
+					}
 				}
 			];
 		case 'lines': {
@@ -221,9 +228,12 @@ function slicesOfFile(
 				return found;
 			};
 			// For each hunk: its classified lines, once per group that owns any of them.
-			const byGroup = new Map<string, { group: GroupKey; hunks: SliceHunk[]; units: number }>();
+			const byGroup = new Map<
+				GroupKeyId,
+				{ group: GroupKey; hunks: SliceHunk[]; units: UnitCount }
+			>();
 			for (const hunk of file.hunks.values()) {
-				const owners = new Map<string, GroupKey>();
+				const owners = new Map<GroupKeyId, GroupKey>();
 				const classified = hunk.lines.map((line): Classified => {
 					if (line.kind === 'context') return { kind: 'context', line };
 					const a =
@@ -234,7 +244,7 @@ function slicesOfFile(
 					return { kind: 'change', line, assignment: a, group, id };
 				});
 				for (const [id, group] of owners) {
-					let units = 0;
+					let units = NO_UNITS;
 					const lines = classified.map((c): SliceLine => {
 						switch (c.kind) {
 							case 'context':
@@ -248,17 +258,17 @@ function slicesOfFile(
 										group: c.group
 									};
 								}
-								units += 1;
+								units = addUnits(units, ONE_UNIT);
 								return { kind: 'own', line: c.line, assignment: c.assignment };
 						}
 					});
 					let entry = byGroup.get(id);
 					if (entry === undefined) {
-						entry = { group, hunks: [], units: 0 };
+						entry = { group, hunks: [], units: NO_UNITS };
 						byGroup.set(id, entry);
 					}
 					entry.hunks.push({ hunk, lines });
-					entry.units += units;
+					entry.units = addUnits(entry.units, units);
 				}
 			}
 			return [...byGroup.values()].map((entry) => ({
@@ -276,5 +286,5 @@ type Classified =
 			readonly line: AddedLine | DeletedLine;
 			readonly assignment: Assignment;
 			readonly group: GroupKey;
-			readonly id: string;
+			readonly id: GroupKeyId;
 	  };

@@ -11,6 +11,7 @@ import { RangeSet } from '../range-set.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import { err, ok, type Result } from '../result.ts';
 import type { Side } from '../side.tiny.ts';
+import { addUnits, NO_UNITS, ONE_UNIT, unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
 import { hunksOf, type FileDiff, type Hunk } from './file-diff.ts';
 
 /** Line numbers on each side. */
@@ -34,7 +35,7 @@ export interface DiffFile {
 	readonly changed: SideLines;
 	/** False when the file has a single file-level unit instead of lines. */
 	readonly hasLines: boolean;
-	readonly unitCount: number;
+	readonly unitCount: UnitCount;
 	readonly hunks: ReadonlyMap<HunkId, Hunk>;
 	/** The changed lines of each hunk. */
 	readonly hunkLines: ReadonlyMap<HunkId, SideLines>;
@@ -45,7 +46,7 @@ export interface Diff {
 	/** In git's order, which sorts by path. */
 	readonly files: readonly DiffFile[];
 	readonly byPath: ReadonlyMap<RepoPath, DiffFile>;
-	readonly unitCount: number;
+	readonly unitCount: UnitCount;
 }
 
 /** Two files claim the same path. git never gives this; it means the input was built wrongly. */
@@ -58,13 +59,13 @@ export interface DuplicateFilePath {
 export function makeDiff(files: readonly FileDiff[]): Result<Diff, DuplicateFilePath> {
 	const indexed: DiffFile[] = [];
 	const byPath = new Map<RepoPath, DiffFile>();
-	let unitCount = 0;
+	let unitCount = NO_UNITS;
 	for (const file of files) {
 		if (byPath.has(file.path)) return err({ kind: 'DuplicateFilePath', path: file.path });
 		const entry = indexFile(file);
 		indexed.push(entry);
 		byPath.set(file.path, entry);
-		unitCount += entry.unitCount;
+		unitCount = addUnits(unitCount, entry.unitCount);
 	}
 	return ok({ files: indexed, byPath, unitCount });
 }
@@ -116,12 +117,12 @@ function indexFile(file: FileDiff): DiffFile {
 		for (const n of hunkNew) allNew.push(n);
 	}
 	const changed = { old: RangeSet.fromNumbers(allOld), new: RangeSet.fromNumbers(allNew) };
-	const lineCount = changed.old.size + changed.new.size;
+	const lineCount = unitCountOf(changed.old.size + changed.new.size);
 	return {
 		file,
 		changed,
 		hasLines: lineCount > 0,
-		unitCount: lineCount > 0 ? lineCount : 1,
+		unitCount: lineCount > 0 ? lineCount : ONE_UNIT,
 		hunks,
 		hunkLines,
 		runs

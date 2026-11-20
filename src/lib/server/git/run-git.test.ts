@@ -1,9 +1,17 @@
 import { mkdir } from 'node:fs/promises';
+import { parseExitCode, type ExitCode } from '#lib/core/exit-code.tiny.ts';
+import { gitStderr } from '#lib/core/git-stderr.tiny.ts';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { absolutePath } from '../../../../tests/support/git-repo.ts';
 import { emptyRepo } from '../../../../tests/support/fixture-repos.ts';
 import { describeGitError, runGit, runGitText, type GitError } from './run-git.ts';
+
+function exitCode(value: number): ExitCode {
+	const parsed = parseExitCode(value);
+	if (!parsed.ok) throw new Error('bad exit code');
+	return parsed.value;
+}
 
 describe('runGit', () => {
 	it('runs git with arguments passed as they are, never through a shell', async () => {
@@ -78,10 +86,24 @@ describe('runGit', () => {
 	it('has a message for every error', () => {
 		const errors: readonly GitError[] = [
 			{ kind: 'GitNotFound' },
-			{ kind: 'NotARepository', directory: absolutePath('/x'), stderr: '' },
-			{ kind: 'BadRevision', args: ['diff-tree'], stderr: 'fatal: bad revision' },
-			{ kind: 'GitFailed', args: ['diff-tree'], exitCode: 128, stderr: 'fatal: oops' }
+			{ kind: 'NotARepository', directory: absolutePath('/x'), stderr: gitStderr('') },
+			{ kind: 'BadRevision', args: ['diff-tree'], stderr: gitStderr('fatal: bad revision') },
+			{
+				kind: 'GitFailed',
+				args: ['diff-tree'],
+				exitCode: exitCode(128),
+				stderr: gitStderr('fatal: oops')
+			},
+			{
+				kind: 'GitFailed',
+				args: ['-c', 'a=b', 'diff-tree'],
+				exitCode: undefined,
+				stderr: gitStderr('')
+			}
 		];
+		expect(describeGitError(errors[4] ?? { kind: 'GitNotFound' })).toMatch(
+			/^git diff-tree failed \(it stopped before it could finish\)/
+		);
 		for (const error of errors) expect(describeGitError(error).length).toBeGreaterThan(20);
 	});
 });

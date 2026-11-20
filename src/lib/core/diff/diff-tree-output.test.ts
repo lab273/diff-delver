@@ -5,6 +5,16 @@ import sha256 from './fixtures/sha256-repository.diff-tree?raw';
 import { describeDiffOutputError, type DiffOutputError } from './diff-output-error.ts';
 import { parseDiffTreeOutput } from './diff-tree-output.ts';
 import type { DiffLine, FileDiff } from './file-diff.ts';
+import { byteOffsetAt } from '../byte-offset.tiny.ts';
+import { fileCountOf } from '../file-count.tiny.ts';
+import { parseLineNumber, type LineNumber } from '../line-number.tiny.ts';
+import { patchCountOf } from '../patch-count.tiny.ts';
+
+function lineNumber(value: number): LineNumber {
+	const parsed = parseLineNumber(value);
+	if (!parsed.ok) throw new Error(`bad line ${String(value)}`);
+	return parsed.value;
+}
 
 /** The recorded fixtures are UTF-8 throughout, so their text encodes back to git's exact bytes. */
 const bytesOf = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -261,9 +271,14 @@ describe('parseDiffTreeOutput on damaged output', () => {
 
 	it('has a message for every error', () => {
 		const errors: readonly DiffOutputError[] = [
-			{ kind: 'MalformedRawListing', offset: 3, detail: 'x' },
-			{ kind: 'MalformedPatch', line: 3, detail: 'x' },
-			{ kind: 'PatchCountMismatch', listedFiles: 1, expectedPatches: 1, foundPatches: 0 },
+			{ kind: 'MalformedRawListing', offset: byteOffsetAt(3), detail: 'x' },
+			{ kind: 'MalformedPatch', line: lineNumber(3), detail: 'x' },
+			{
+				kind: 'PatchCountMismatch',
+				listedFiles: fileCountOf(1),
+				expectedPatches: patchCountOf(1),
+				foundPatches: patchCountOf(0)
+			},
 			{ kind: 'PatchMismatch', path: file('added.txt').path, status: 'added', detail: 'x' }
 		];
 		for (const error of errors) expect(describeDiffOutputError(error)).toMatch(/bug/);

@@ -22,7 +22,10 @@ import { describeGlobProblem, type GlobProblem } from '../glob.ts';
 import { parseHunkId, type HunkId } from '../hunk-id.tiny.ts';
 import { formatLineRanges, lineRangesOf, type LineRange } from '../line-range.ts';
 import { RangeSet } from '../range-set.ts';
+import { itemIndexAt, type ItemIndex } from '../item-index.tiny.ts';
 import { unescapeRepoPath } from '../path-bytes.ts';
+import { textForAgent, type TextForAgent } from '../text-for-agent.tiny.ts';
+import { addUnits, NO_UNITS, ONE_UNIT, unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
 import { err, ok, type Result } from '../result.ts';
 import { parseRole, type Role } from '../role.tiny.ts';
@@ -155,10 +158,10 @@ export interface AssignOptions {
 export interface AssignOutcome {
 	readonly state: AssignmentState;
 	/** Each applied item by its position in the request, and how many units it took. */
-	readonly accepted: readonly { readonly index: number; readonly units: number }[];
-	readonly rejected: readonly { readonly index: number; readonly rejection: AssignRejection }[];
+	readonly accepted: readonly { readonly index: ItemIndex; readonly units: UnitCount }[];
+	readonly rejected: readonly { readonly index: ItemIndex; readonly rejection: AssignRejection }[];
 	/** How many units of the whole diff are still uncategorised afterwards. */
-	readonly uncategorised: number;
+	readonly uncategorised: UnitCount;
 }
 
 /** Applies the agent's items to a state and says what each one did. */
@@ -189,9 +192,10 @@ function applyItems(
 	options: AssignOptions
 ): AssignOutcome {
 	let current = state;
-	const accepted: { index: number; units: number }[] = [];
-	const rejected: { index: number; rejection: AssignRejection }[] = [];
-	items.forEach((item, index) => {
+	const accepted: { index: ItemIndex; units: UnitCount }[] = [];
+	const rejected: { index: ItemIndex; rejection: AssignRejection }[] = [];
+	items.forEach((item, position) => {
+		const index = itemIndexAt(position);
 		const applied = item.ok ? applyItem(diff, current, item.value, options) : item;
 		if (applied.ok) {
 			current = applied.value.state;
@@ -293,7 +297,7 @@ type FileTarget =
 
 interface Applied {
 	readonly state: AssignmentState;
-	readonly units: number;
+	readonly units: UnitCount;
 }
 
 function applyItem(
@@ -325,11 +329,11 @@ function applyItem(
 	});
 
 	const files = new Map(state.files);
-	let units = 0;
+	let units = NO_UNITS;
 	for (const [file, target] of targets.value) {
 		const updated = applyToFile(fileAssignment(state, file), target, onlyUncategorised, change);
 		files.set(file.file.path, updated.assignment);
-		units += updated.units;
+		units = addUnits(units, updated.units);
 	}
 	return ok({ state: { files }, units });
 }
@@ -348,21 +352,24 @@ function applyToFile(
 	target: FileTarget,
 	onlyUncategorised: boolean,
 	change: (a: Assignment) => Assignment
-): { readonly assignment: FileAssignment; readonly units: number } {
+): { readonly assignment: FileAssignment; readonly units: UnitCount } {
 	const takes = (a: Assignment): boolean => !onlyUncategorised || a.bucket.kind === 'uncategorised';
 	switch (assignment.kind) {
 		case 'file': {
-			if (!takes(assignment.assignment)) return { assignment, units: 0 };
-			return { assignment: { kind: 'file', assignment: change(assignment.assignment) }, units: 1 };
+			if (!takes(assignment.assignment)) return { assignment, units: NO_UNITS };
+			return {
+				assignment: { kind: 'file', assignment: change(assignment.assignment) },
+				units: ONE_UNIT
+			};
 		}
 		case 'lines': {
-			let units = 0;
+			let units = NO_UNITS;
 			const sides = { old: assignment.old, new: assignment.new };
 			for (const side of ['old', 'new'] as const) {
 				const map = sides[side];
 				const wanted = target.kind === 'whole' ? map.domain : target.lines[side];
 				const taken = RangeSet.fromIntervals(map.within(wanted).filter((s) => takes(s.value)));
-				units += taken.size;
+				units = addUnits(units, unitCountOf(taken.size));
 				sides[side] = map.update(taken, change);
 			}
 			return { assignment: { kind: 'lines', ...sides }, units };
@@ -500,7 +507,11 @@ const INVALID_ITEM_MESSAGES: Readonly<Record<InvalidItemProblem, string>> = {
 };
 
 /** What went wrong with an item and how to fix it, written for the agent. */
-export function describeRejection(rejection: AssignRejection): string {
+export function describeRejection(rejection: AssignRejection): TextForAgent {
+	return textForAgent(rejectionText(rejection));
+}
+
+function rejectionText(rejection: AssignRejection): string {
 	switch (rejection.kind) {
 		case 'InvalidItem':
 			return INVALID_ITEM_MESSAGES[rejection.problem];

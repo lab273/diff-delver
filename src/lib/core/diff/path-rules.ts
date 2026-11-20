@@ -186,7 +186,14 @@ export function ignoreRuleFor(path: RepoPath): IgnoreRuleId | undefined {
 	return compiledIgnoreRules.find((rule) => rule.matches(path))?.id;
 }
 
+/** The name the reviewer sees for a built-in ignore rule, such as "Lockfile". */
+export type IgnoreRuleName = (typeof IGNORE_RULES)[number]['name'];
+
+const IGNORE_RULE_NAMES: ReadonlyMap<IgnoreRuleId, IgnoreRuleName> = new Map(
+	IGNORE_RULES.map((rule) => [rule.id, rule.name])
+);
+
 /** The name the reviewer sees for a built-in ignore rule. */
-export function ignoreRuleName(id: IgnoreRuleId): string {
-	return IGNORE_RULES.find((rule) => rule.id === id)?.name ?? id;
+export function ignoreRuleName(id: IgnoreRuleId): IgnoreRuleName | IgnoreRuleId {
+	return IGNORE_RULE_NAMES.get(id) ?? id;
 }

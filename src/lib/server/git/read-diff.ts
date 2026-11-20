@@ -18,6 +18,7 @@ import type { CommitId } from '#lib/core/commit-id.tiny.ts';
 import type { DiffOutputError } from '#lib/core/diff/diff-output-error.ts';
 import { parseDiffTreeOutput } from '#lib/core/diff/diff-tree-output.ts';
 import type { FileDiff } from '#lib/core/diff/file-diff.ts';
+import { parseLineCount, type LineCount } from '#lib/core/line-count.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import type { TreeId } from '#lib/core/tree-id.tiny.ts';
 import { runGit, runGitText, type GitError } from './run-git.ts';
@@ -28,7 +29,7 @@ export type TreeIsh = TreeId | CommitId;
 export type ReadDiffError = GitError | DiffOutputError;
 
 /** Number of unchanged lines shown around each change. */
-export const CONTEXT_LINES = 3;
+export const CONTEXT_LINES: LineCount = lineCount(3);
 
 /** git's built-in empty tree, which every repository has without storing it. */
 const EMPTY_TREE = {
@@ -37,6 +38,12 @@ const EMPTY_TREE = {
 } as const;
 
 export type ObjectFormat = keyof typeof EMPTY_TREE;
+
+function lineCount(value: number): LineCount {
+	const parsed = parseLineCount(value);
+	if (!parsed.ok) throw new RangeError(`Not a line count: ${value}`);
+	return parsed.value;
+}
 
 /**
  * The arguments of the one git command that produces every diff, so all sources

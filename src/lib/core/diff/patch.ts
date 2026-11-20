@@ -56,8 +56,10 @@ class Lines {
 	}
 
 	/** 1-based number of the next line, for error messages. */
-	get lineNumber(): number {
-		return this.#at + 1;
+	get lineNumber(): LineNumber {
+		const parsed = parseLineNumber(this.#at + 1);
+		if (!parsed.ok) throw new RangeError(`Not a line number: ${this.#at + 1}`);
+		return parsed.value;
 	}
 
 	peek(): string | undefined {

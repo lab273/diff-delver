@@ -3,6 +3,7 @@
  * (DESIGN 4.1). Stored as line ranges per file and side, not one entry per line.
  * Immutable: `assign` and the other operations return a new state.
  */
+import { ONE_UNIT, unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
 import { parseLineRange, type LineRange } from '../line-range.ts';
 import { RangeMap } from '../range-map.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
@@ -66,12 +67,12 @@ export type AssignedUnits =
 	| { readonly kind: 'file'; readonly assignment: Assignment };
 
 /** The number of units an `AssignedUnits` covers. */
-export function unitsIn(units: AssignedUnits): number {
+export function unitsIn(units: AssignedUnits): UnitCount {
 	switch (units.kind) {
 		case 'lines':
-			return units.range.last - units.range.first + 1;
+			return unitCountOf(units.range.last - units.range.first + 1);
 		case 'file':
-			return 1;
+			return ONE_UNIT;
 	}
 }
 

@@ -15,6 +15,20 @@
  */
 
 // Values and tiny types the model is made of.
+export type { ByteOffset } from '../byte-offset.tiny.ts';
+export type { CharacterCount } from '../character-count.tiny.ts';
+export { characterCount, parseCharacterCount } from '../character-count.tiny.ts';
+export type { EscapedPath } from '../escaped-path.tiny.ts';
+export type { FileCount } from '../file-count.tiny.ts';
+export { parseFileCount } from '../file-count.tiny.ts';
+export type { GroupKeyId } from '../group-key-id.tiny.ts';
+export type { ItemIndex } from '../item-index.tiny.ts';
+export { parseItemIndex } from '../item-index.tiny.ts';
+export type { PatchCount } from '../patch-count.tiny.ts';
+export type { ReviewerMessage } from '../reviewer-message.tiny.ts';
+export type { TextForAgent } from '../text-for-agent.tiny.ts';
+export type { UnitCount } from '../unit-count.tiny.ts';
+export { parseUnitCount } from '../unit-count.tiny.ts';
 export type { AgentMarkdown } from '../agent-markdown.tiny.ts';
 export { parseAgentMarkdown } from '../agent-markdown.tiny.ts';
 export type { BlobId } from '../blob-id.tiny.ts';
@@ -79,7 +93,7 @@ export { changedLines, makeDiff } from './diff.ts';
 // Buckets, roles and the rules that guess them.
 export type { Bucket, IgnoredBy } from './bucket.ts';
 export { ignoredBucket, sameBucket, sectionBucket, UNCATEGORISED } from './bucket.ts';
-export type { IgnoreRuleId, ProjectRoleRule, RoleRuleId } from './path-rules.ts';
+export type { IgnoreRuleId, IgnoreRuleName, ProjectRoleRule, RoleRuleId } from './path-rules.ts';
 export {
 	guessRole,
 	IGNORE_RULES,

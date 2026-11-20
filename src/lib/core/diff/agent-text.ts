@@ -22,26 +22,29 @@
  * holds. So `caf\xE9.txt`, with a byte E9 that is not UTF-8, is written
  * `"caf\\xE9.txt"`, and the agent sends `"file": "caf\\xE9.txt"`.
  */
+import { characterCount, type CharacterCount } from '../character-count.tiny.ts';
 import { fileModeKind, type FileMode, type FileModeKind } from '../file-mode.tiny.ts';
 import { escapedRepoPath } from '../path-bytes.ts';
+import type { RepoPath } from '../repo-path.tiny.ts';
+import { joinTextForAgent, textForAgent, type TextForAgent } from '../text-for-agent.tiny.ts';
 import type { DiffFile } from './diff.ts';
 import type { DiffLine, FileDiff, Hunk, HunkSpan } from './file-diff.ts';
 
 export interface AgentTextOptions {
 	/** Longer lines are cut, with a note of how much was left out. */
-	readonly maxLineLength?: number;
+	readonly maxLineLength?: CharacterCount;
 }
 
 /** Lines longer than this are cut by default. Minified code would otherwise flood the agent. */
-export const DEFAULT_MAX_LINE_LENGTH = 500;
+export const DEFAULT_MAX_LINE_LENGTH: CharacterCount = characterCount(500);
 
 /** How a path is written for the agent: escaped, and as a JSON string when it needs quoting. */
-export function agentPath(path: string): string {
+export function agentPath(path: RepoPath): TextForAgent {
 	const shown = escapedRepoPath(path);
 	// Quotes, backslashes, control characters (newline, tab, ...) and line or
 	// paragraph separators would make it ambiguous or break the line.
 	const needsQuoting = /["\\\p{Cc}\p{Zl}\p{Zp}]/u.test(shown) || shown.trim() !== shown;
-	return needsQuoting ? jsonString(shown) : shown;
+	return textForAgent(needsQuoting ? jsonString(shown) : shown);
 }
 
 /** JSON.stringify, with U+2028 and U+2029 escaped too, so the string stays on one line. */
@@ -52,7 +55,7 @@ function jsonString(text: string): string {
 }
 
 /** One file's diff as labelled text. */
-export function renderAgentFile(file: DiffFile, options: AgentTextOptions = {}): string {
+export function renderAgentFile(file: DiffFile, options: AgentTextOptions = {}): TextForAgent {
 	const max = options.maxLineLength ?? DEFAULT_MAX_LINE_LENGTH;
 	const out: string[] = [`## ${agentPath(file.file.path)}`, describeChange(file)];
 	const width = labelWidth(file);
@@ -63,12 +66,18 @@ export function renderAgentFile(file: DiffFile, options: AgentTextOptions = {}):
 			if (line.noNewlineAtEnd) out.push('\\ No newline at end of file');
 		}
 	}
-	return out.join('\n');
+	return textForAgent(out.join('\n'));
 }
 
 /** Several files' diffs, separated by blank lines. */
-export function renderAgentDiff(files: Iterable<DiffFile>, options: AgentTextOptions = {}): string {
-	return [...files].map((file) => renderAgentFile(file, options)).join('\n\n');
+export function renderAgentDiff(
+	files: Iterable<DiffFile>,
+	options: AgentTextOptions = {}
+): TextForAgent {
+	return joinTextForAgent(
+		[...files].map((file) => renderAgentFile(file, options)),
+		'\n\n'
+	);
 }
 
 function label(line: DiffLine): string {
@@ -132,7 +141,7 @@ function describeChange(file: DiffFile): string {
 		case 'renamed':
 		case 'copied':
 			parts.push(
-				`${f.status} from ${agentPath(f.old?.path ?? '')}` +
+				`${f.status} from ${f.old === undefined ? 'nowhere' : agentPath(f.old.path)}` +
 					(f.similarity === undefined ? '' : ` (${f.similarity}% similar)`)
 			);
 			break;

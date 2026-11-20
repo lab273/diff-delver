@@ -7,6 +7,14 @@ import { assign, type AssignRequest } from './assign.ts';
 import { parseDiffTreeOutput } from './diff-tree-output.ts';
 import { makeDiff, type Diff, type DiffFile } from './diff.ts';
 import { initialState } from './state.ts';
+import { characterCount } from '../character-count.tiny.ts';
+import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
+
+function repoPath(text: string): RepoPath {
+	const parsed = parseRepoPath(text);
+	if (!parsed.ok) throw new Error(`bad path ${text}`);
+	return parsed.value;
+}
 
 function awkwardDiff(): Diff {
 	const files = parseDiffTreeOutput(new TextEncoder().encode(awkward));
@@ -79,19 +87,19 @@ describe('renderAgentFile', () => {
 	});
 
 	it('cuts very long lines', () => {
-		const text = renderAgentFile(file('long-line.txt'), { maxLineLength: 10 });
+		const text = renderAgentFile(file('long-line.txt'), { maxLineLength: characterCount(10) });
 		expect(text).toContain('-1 xxxxxxxxxx… [19990 more characters]');
 	});
 
 	it('quotes paths that cannot be copied as they are', () => {
-		expect(agentPath('src/app.ts')).toBe('src/app.ts');
-		expect(agentPath('odd names/with space.txt')).toBe('odd names/with space.txt');
-		expect(agentPath('odd names/new\nline.txt')).toBe('"odd names/new\\nline.txt"');
-		expect(agentPath('odd names/ünïcödé "quoted".txt')).toBe(
+		expect(agentPath(repoPath('src/app.ts'))).toBe('src/app.ts');
+		expect(agentPath(repoPath('odd names/with space.txt'))).toBe('odd names/with space.txt');
+		expect(agentPath(repoPath('odd names/new\nline.txt'))).toBe('"odd names/new\\nline.txt"');
+		expect(agentPath(repoPath('odd names/ünïcödé "quoted".txt'))).toBe(
 			'"odd names/ünïcödé \\"quoted\\".txt"'
 		);
-		expect(agentPath('caf\uDCE9.txt')).toBe('"caf\\\\xE9.txt"');
-		expect(agentPath('a\u2028b.txt')).toBe('"a\\u2028b.txt"');
+		expect(agentPath(repoPath('caf\uDCE9.txt'))).toBe('"caf\\\\xE9.txt"');
+		expect(agentPath(repoPath('a\u2028b.txt'))).toBe('"a\\u2028b.txt"');
 		expect(renderAgentFile(file('odd names/ünïcödé "quoted".txt')).split('\n')[1]).toBe(
 			'renamed from odd names/with space.txt (100% similar), no changed lines: assign the whole file'
 		);

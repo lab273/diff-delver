@@ -2,6 +2,7 @@ import { parseLineNumber, type LineNumber } from './line-number.tiny.ts';
 import type { RangeSet } from './range-set.ts';
 import { err, ok, type Result } from './result.ts';
 import { sideSign, type Side } from './side.tiny.ts';
+import { joinTextForAgent, textForAgent, type TextForAgent } from './text-for-agent.tiny.ts';
 
 /** Lines `first` to `last`, inclusive, on one side of a file. */
 export interface LineRange {
@@ -38,14 +39,16 @@ export function lineRangesOf(side: Side, lines: RangeSet): readonly LineRange[] 
 }
 
 /** A range in the agent-facing form: `+40..+62`, or `+40` for one line. */
-export function formatLineRange(range: LineRange): string {
+export function formatLineRange(range: LineRange): TextForAgent {
 	const sign = sideSign(range.side);
-	return range.first === range.last
-		? `${sign}${range.first}`
-		: `${sign}${range.first}..${sign}${range.last}`;
+	return textForAgent(
+		range.first === range.last
+			? `${sign}${range.first}`
+			: `${sign}${range.first}..${sign}${range.last}`
+	);
 }
 
 /** Ranges in the agent-facing form, comma-separated: `+40..+62,-38..-45`. */
-export function formatLineRanges(ranges: readonly LineRange[]): string {
-	return ranges.map(formatLineRange).join(',');
+export function formatLineRanges(ranges: readonly LineRange[]): TextForAgent {
+	return joinTextForAgent(ranges.map(formatLineRange), ',');
 }

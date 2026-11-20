@@ -4,6 +4,7 @@
  * `linguist-generated`, and files a built-in rule recognises. Only uncategorised
  * units move, so running it again, or after the agent, undoes nothing.
  */
+import { addUnits, NO_UNITS, type UnitCount } from '../unit-count.tiny.ts';
 import { compileGlob, type GlobPattern } from '../glob-pattern.tiny.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import { ignoredBucket, type IgnoredBy } from './bucket.ts';
@@ -30,7 +31,7 @@ export interface AutoIgnored {
 	readonly path: RepoPath;
 	readonly by: IgnoredBy;
 	/** How many units moved. */
-	readonly units: number;
+	readonly units: UnitCount;
 }
 
 export interface AutoIgnoreOutcome {
@@ -86,8 +87,8 @@ function ignoreUncategorised(assignment: FileAssignment, by: IgnoredBy): FileAss
 	}
 }
 
-function uncategorisedUnits(state: AssignmentState, file: DiffFile): number {
+function uncategorisedUnits(state: AssignmentState, file: DiffFile): UnitCount {
 	return assignedUnits(state, file)
 		.filter((u) => u.assignment.bucket.kind === 'uncategorised')
-		.reduce((sum, u) => sum + unitsIn(u), 0);
+		.reduce((sum, u) => addUnits(sum, unitsIn(u)), NO_UNITS);
 }
