@@ -9,7 +9,14 @@ import {
 } from '../../../../tests/support/synthetic-diff.ts';
 import { parseSectionId, type SectionId } from '../section-id.tiny.ts';
 import type { Side } from '../side.tiny.ts';
-import { assign, describeRejection, type AssignRejection, type AssignRequest } from './assign.ts';
+import {
+	assign,
+	describeNothingTaken,
+	describeRejection,
+	type AssignRejection,
+	type AssignRequest
+} from './assign.ts';
+import { autoIgnore } from './auto-ignore.ts';
 import type { Diff, DiffFile } from './diff.ts';
 import { initialState, sameAssignment, type Assignment, type AssignmentState } from './state.ts';
 
@@ -112,6 +119,41 @@ describe('assign', () => {
 		expect(bucketOf(outcome.state, 'src/app.ts', 'new', 3)).toBe('alpha');
 		expect(bucketOf(outcome.state, 'src/app.ts', 'new', 11)).toBe('beta');
 		expect(outcome.uncategorised).toBe(diff.unitCount - 6);
+	});
+
+	it('says why a whole file or glob took nothing, and how to move what is assigned', () => {
+		const outcome = assign(diff, state, [
+			{ file: 'src/app.ts', section: 'alpha' },
+			{ file: 'src/app.ts', section: 'beta' },
+			{ glob: 'src/*', section: 'beta' }
+		]);
+		expect(outcome.rejected).toEqual([]);
+		const [, repeated, glob] = outcome.accepted;
+		expect(repeated?.units).toBe(0);
+		expect(repeated?.nothingTaken).toEqual({
+			target: { kind: 'file', path: 'src/app.ts' },
+			sortedInto: [{ kind: 'section', section: 'alpha' }],
+			takenEarlierInCall: true
+		});
+		const message = repeated?.nothingTaken && describeNothingTaken(repeated.nothingTaken);
+		expect(message).toContain('took nothing');
+		expect(message).toContain('section "alpha"');
+		expect(message).toContain('an earlier item in this call');
+		expect(message).toMatch(/"lines" or "hunks"/);
+		expect(glob?.units).toBe(4);
+		expect(glob?.nothingTaken).toBeUndefined();
+	});
+
+	it('says when a whole file took nothing because a rule had already ignored it', () => {
+		const lock = syntheticDiff([{ path: 'package-lock.json', change: 'added', lines: 3 }]);
+		const ignored = autoIgnore(lock, initialState(lock)).state;
+		const [taken] = assign(lock, ignored, [
+			{ file: 'package-lock.json', section: 'alpha' }
+		]).accepted;
+		expect(taken?.nothingTaken?.takenEarlierInCall).toBe(false);
+		expect(taken?.nothingTaken && describeNothingTaken(taken.nothingTaken)).toContain(
+			'Ignored (Lockfile)'
+		);
 	});
 
 	it('lets line ranges move lines that are already assigned', () => {
@@ -309,6 +351,15 @@ describe('assign rejections', () => {
 			similar: ['src/app.ts']
 		});
 	});
+
+	it.each(['./src/app.ts', 'a/src/app.ts', 'b/src/app.ts', '/src/app.ts'])(
+		'suggests the path without the prefix in %j',
+		(file) => {
+			const rejection = reject({ file, section: 'alpha' });
+			expect(rejection).toEqual({ kind: 'UnknownFile', file, similar: ['src/app.ts'] });
+			expect(rejection && describeRejection(rejection)).toContain('Did you mean src/app.ts?');
+		}
+	);
 
 	it('suggests the path the agent probably meant', () => {
 		expect(reject({ file: 'app.ts', section: 'alpha' })).toEqual({

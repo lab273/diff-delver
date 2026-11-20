@@ -34,11 +34,13 @@ import { parseRole, type Role } from '../role.tiny.ts';
 import { parseSectionId, type InvalidSectionIdReason, type SectionId } from '../section-id.tiny.ts';
 import type { Side } from '../side.tiny.ts';
 import { agentPath } from './agent-text.ts';
-import { ignoredBucket, sectionBucket, type Bucket } from './bucket.ts';
+import { ignoredBucket, sameBucket, sectionBucket, type Bucket } from './bucket.ts';
 import { changedLines, type Diff, type DiffFile, type SideLines } from './diff.ts';
+import { describeBucket } from './coverage.ts';
 import { parseLineSpec, type MalformedLinesProblem } from './line-spec.ts';
 import { countUncategorised } from './totals.ts';
 import {
+	assignedUnits,
 	fileAssignment,
 	type Assignment,
 	type AssignmentState,
@@ -173,10 +175,32 @@ export interface AssignOptions {
 	readonly knownSections?: ReadonlySet<SectionId>;
 }
 
+/**
+ * Why a whole-file or glob item took nothing although it was valid: every unit
+ * it covers was already in a bucket, and such an item takes only what is still
+ * uncategorised.
+ */
+export interface NothingTaken {
+	readonly target: AssignTarget;
+	/** The buckets the units are in, at most a few. */
+	readonly sortedInto: readonly Bucket[];
+	/** Some of the units were still uncategorised when the call began: an earlier item of it took them. */
+	readonly takenEarlierInCall: boolean;
+}
+
+export interface AcceptedItem {
+	/** The item's position in the request. */
+	readonly index: ItemIndex;
+	/** How many units it took. */
+	readonly units: UnitCount;
+	/** When it took none, why. */
+	readonly nothingTaken: NothingTaken | undefined;
+}
+
 export interface AssignOutcome {
 	readonly state: AssignmentState;
-	/** Each applied item by its position in the request, and how many units it took. */
-	readonly accepted: readonly { readonly index: ItemIndex; readonly units: UnitCount }[];
+	/** Each applied item, by its position in the request. */
+	readonly accepted: readonly AcceptedItem[];
 	readonly rejected: readonly { readonly index: ItemIndex; readonly rejection: AssignRejection }[];
 	/** How many units of the whole diff are still uncategorised afterwards. */
 	readonly uncategorised: UnitCount;
@@ -213,14 +237,18 @@ function applyItems(
 	options: AssignOptions
 ): AssignOutcome {
 	let current = state;
-	const accepted: { index: ItemIndex; units: UnitCount }[] = [];
+	const accepted: AcceptedItem[] = [];
 	const rejected: { index: ItemIndex; rejection: AssignRejection }[] = [];
 	items.forEach((item, position) => {
 		const index = itemIndexAt(position);
 		const applied = item.ok ? applyItem(diff, current, item.value, options) : item;
 		if (applied.ok) {
+			const nothingTaken =
+				applied.value.units === 0 && item.ok
+					? whyNothingTaken(state, current, item.value, applied.value.files)
+					: undefined;
 			current = applied.value.state;
-			accepted.push({ index, units: applied.value.units });
+			accepted.push({ index, units: applied.value.units, nothingTaken });
 		} else {
 			rejected.push({ index, rejection: applied.error });
 		}
@@ -322,8 +350,11 @@ function withDiffContext(diff: Diff, rejection: AssignRejection): AssignRejectio
 			if (!file.ok) return file.error;
 			return { ...rejection, known: [...file.value.hunks.keys()] };
 		}
-		case 'InvalidItem':
 		case 'UnknownFile':
+			return rejection.similar.length > 0
+				? rejection
+				: { ...rejection, similar: similarPaths(diff, rejection.file) };
+		case 'InvalidItem':
 		case 'UnknownHunk':
 		case 'NoChangedLines':
 		case 'NoLinesInFile':
@@ -347,6 +378,8 @@ type FileTarget =
 interface Applied {
 	readonly state: AssignmentState;
 	readonly units: UnitCount;
+	/** The files the item covered. */
+	readonly files: readonly DiffFile[];
 }
 
 function applyItem(
@@ -384,7 +417,34 @@ function applyItem(
 		files.set(file.file.path, updated.assignment);
 		units = addUnits(units, updated.units);
 	}
-	return ok({ state: { files }, units });
+	return ok({ state: { files }, units, files: [...targets.value.keys()] });
+}
+
+const MAX_BUCKETS_NAMED = 3;
+
+/** Why a valid item took no units, or undefined when the rules do not explain it. */
+function whyNothingTaken(
+	callStart: AssignmentState,
+	before: AssignmentState,
+	item: AssignItem,
+	files: readonly DiffFile[]
+): NothingTaken | undefined {
+	const wholeFiles = item.target.kind === 'file' || item.target.kind === 'glob';
+	if (!wholeFiles || item.destination === undefined) return undefined;
+	const sortedInto: Bucket[] = [];
+	let takenEarlierInCall = false;
+	for (const file of files) {
+		for (const run of assignedUnits(before, file)) {
+			const bucket = run.assignment.bucket;
+			if (!sortedInto.some((b) => sameBucket(b, bucket)) && sortedInto.length < MAX_BUCKETS_NAMED) {
+				sortedInto.push(bucket);
+			}
+		}
+		if (assignedUnits(callStart, file).some((u) => u.assignment.bucket.kind === 'uncategorised')) {
+			takenEarlierInCall = true;
+		}
+	}
+	return { target: item.target, sortedInto, takenEarlierInCall };
 }
 
 function destinationBucket(destination: Destination): Bucket {
@@ -566,12 +626,25 @@ function jsonStringValue(text: string): string | undefined {
 
 /** Paths the agent may have meant: a renamed file's new path, or the same file name elsewhere. */
 function similarPaths(diff: Diff, path: string): readonly RepoPath[] {
-	const name = path.split('/').at(-1) ?? path;
-	const renamedFrom = diff.files.filter((f) => f.file.old?.path === path).map((f) => f.file.path);
+	const stripped = withoutPrefix(path);
+	const exact = diff.files.filter((f) => f.file.path === stripped).map((f) => f.file.path);
+	const name = stripped.split('/').at(-1) ?? stripped;
+	const renamedFrom = diff.files
+		.filter((f) => f.file.old?.path === path || f.file.old?.path === stripped)
+		.map((f) => f.file.path);
 	const sameName = diff.files
 		.map((f) => f.file.path)
-		.filter((p) => p.split('/').at(-1) === name || p.endsWith(`/${path}`));
-	return [...new Set([...renamedFrom, ...sameName])].slice(0, MAX_SIMILAR);
+		.filter((p) => p.split('/').at(-1) === name || p.endsWith(`/${stripped}`));
+	return [...new Set([...exact, ...renamedFrom, ...sameName])].slice(0, MAX_SIMILAR);
+}
+
+/**
+ * The path without what agents often put in front of one: `./`, a leading `/`,
+ * or the `a/` and `b/` of a patch header.
+ */
+function withoutPrefix(path: string): string {
+	const match = /^(?:\.\/|\/|[ab]\/)+/.exec(path);
+	return match === null ? path : path.slice(match[0].length);
 }
 
 // --- Messages ------------------------------------------------------------------
@@ -582,12 +655,46 @@ const INVALID_ITEM_MESSAGES: Readonly<Record<InvalidItemProblem, string>> = {
 	'glob-with-file':
 		'A "glob" item cannot also have "file", "hunks" or "lines". Split it into two items.',
 	'hunks-and-lines': 'An item can have "hunks" or "lines", not both. Split it into two items.',
-	'no-file': '"hunks" and "lines" need the "file" they belong to.',
+	'no-file':
+		'"hunks" and "lines" need the "file" they belong to, as in { "file": "src/app.ts", "lines": "+40..+62" }.',
 	'empty-hunks':
 		'"hunks" is empty. List hunk ids such as ["h1", "h2"], or leave it out to assign the whole file.',
-	'nothing-to-do': 'The item has no "section" and no "role", so it would change nothing.',
-	'reason-without-ignored': '"reason" only goes with "section": "ignored".'
+	'nothing-to-do':
+		'The item has no "section" and no "role", so it would change nothing. Add a "section" (a section id, or "ignored" with a "reason"), a "role", or both.',
+	'reason-without-ignored':
+		'"reason" only goes with "section": "ignored". Remove it, or use "section": "ignored" to ignore these lines.'
 };
+
+const LINES_PROBLEMS: Readonly<Record<MalformedLinesProblem, string>> = {
+	empty: 'there is nothing there',
+	unreadable: 'it is not a line label',
+	'mixed-sides': 'the range starts on one side and ends on the other',
+	'bad-range': 'the range ends before it starts, or a line number is below 1'
+};
+
+const SECTION_ID_PROBLEMS: Readonly<Record<InvalidSectionIdReason, string>> = {
+	empty: 'it is empty',
+	'too-long': 'it is longer than 64 characters',
+	'not-a-slug': 'it is not a slug',
+	reserved: 'it names a bucket'
+};
+
+/** Why an accepted item took nothing and what to do instead, written for the agent. */
+export function describeNothingTaken(nothing: NothingTaken): TextForAgent {
+	const target =
+		nothing.target.kind === 'glob'
+			? `The glob "${nothing.target.glob}"`
+			: nothing.target.kind === 'file'
+				? agentPath(nothing.target.path)
+				: 'The item';
+	const where = nothing.sortedInto.map(describeBucket).join(', ');
+	const earlier = nothing.takenEarlierInCall ? ', some of it by an earlier item in this call' : '';
+	return textForAgent(
+		`${target} took nothing: everything in it is already sorted (into ${where})${earlier}. ` +
+			'A whole file or a glob takes only what is still uncategorised, so it never undoes finer work. ' +
+			'To move units that are already assigned, name them with "lines" or "hunks".'
+	);
+}
 
 /** What went wrong with an item and how to fix it, written for the agent. */
 export function describeRejection(rejection: AssignRejection): TextForAgent {
@@ -633,7 +740,7 @@ function rejectionText(rejection: AssignRejection): string {
 		case 'NoLinesInFile':
 			return `${agentPath(rejection.file)} has no changed lines (it is binary, renamed, a mode change, a submodule or an empty file). Assign the whole file instead.`;
 		case 'MalformedLines':
-			return `"lines" could not be read at "${rejection.part}" (${rejection.problem}). Write ranges such as "+40..+62,-38..-45", or "+40" for one line.`;
+			return `"lines" could not be read at "${rejection.part}": ${LINES_PROBLEMS[rejection.problem]}. Write ranges such as "+40..+62,-38..-45", or "+40" for one line; "+" is the new side, "-" the old.`;
 		case 'MalformedGlob':
 			return `The glob "${rejection.glob}" is not valid: ${describeGlobProblem(rejection.problem)}. Nothing was assigned for this item.`;
 		case 'GlobMatchesNothing':
@@ -641,7 +748,7 @@ function rejectionText(rejection: AssignRejection): string {
 		case 'InvalidSectionId':
 			return rejection.reason === 'reserved'
 				? `"${rejection.section}" is not a section id. To ignore lines, use "section": "ignored" with a "reason".`
-				: `"${rejection.section}" is not a valid section id (${rejection.reason}). Use a short slug of lowercase letters, digits and dashes, such as "session-expiry".`;
+				: `"${rejection.section}" is not a valid section id: ${SECTION_ID_PROBLEMS[rejection.reason]}. Use a short slug of lowercase letters and digits joined by "-", "_" or ".", such as "session-expiry".`;
 		case 'UnknownSection':
 			return rejection.known.length > 0
 				? `There is no section "${rejection.section}". Create it with upsert_sections first, or use one of: ${rejection.known.join(', ')}.`

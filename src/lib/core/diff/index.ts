@@ -108,6 +108,7 @@ export { assignedUnits, fileAssignment, initialState, sameAssignment, unitsIn } 
 export type { AutoIgnored, AutoIgnoreOptions, AutoIgnoreOutcome } from './auto-ignore.ts';
 export { autoIgnore } from './auto-ignore.ts';
 export type {
+	AcceptedItem,
 	AssignItem,
 	AssignOptions,
 	AssignOutcome,
@@ -115,11 +116,13 @@ export type {
 	AssignRequest,
 	AssignTarget,
 	Destination,
-	InvalidItemProblem
+	InvalidItemProblem,
+	NothingTaken
 } from './assign.ts';
 export {
 	assign,
 	assignItems,
+	describeNothingTaken,
 	describeRejection,
 	IGNORED_SECTION,
 	parseAssignRequest
