@@ -16,8 +16,18 @@
  * `objects`, which must already hold the trees it needs (the snapshot sources
  * copy HEAD's tree into the store first). Without `objects` a sparse index
  * cannot be expanded and the copy fails, which writes nothing either.
+ *
+ * The copy keeps the original's modification time. git trusts an entry whose
+ * file matches it in size, time and inode without reading the file, except when
+ * the entry is not older than the index file itself: a file changed in the tick
+ * the index was written could match on all of those and still differ, so git
+ * reads such "racily clean" entries (git's Documentation/technical/racy-git.adoc).
+ * A copy made now, or rewritten whole, would look newer than every entry, and a
+ * change made in that tick would be lost from the snapshot. The time is set no
+ * later than the original's, never later, since an earlier one only makes git
+ * read a few more files.
  */
-import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rm, stat, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
@@ -40,6 +50,26 @@ function absolute(path: string): AbsolutePath {
 	const parsed = parseAbsolutePath(path);
 	if (!parsed.ok) throw new Error(`Not an absolute path: ${path}`);
 	return parsed.value;
+}
+
+/**
+ * A time in seconds, as `utimes` takes it, no later than `nanoseconds`. A
+ * double holds today's times to about a quarter of a microsecond, so the time
+ * is taken a whole microsecond earlier, which rounding cannot undo.
+ */
+function noLaterThan(nanoseconds: bigint): number {
+	return Number(nanoseconds / 1000n - 1n) / 1e6;
+}
+
+/** The index's modification time, or undefined when there is no index. */
+async function indexTime(index: AbsolutePath): Promise<bigint | undefined> {
+	return stat(index, { bigint: true }).then(
+		(found) => found.mtimeNs,
+		(error: unknown) => {
+			if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
+			throw error;
+		}
+	);
 }
 
 /** How the folders of private index copies are named, in the temporary folder. */
@@ -87,6 +117,9 @@ export async function withScratchIndex<T, E>(
 			args: ['init', '--quiet', '--bare', `--object-format=${repo.objectFormat}`, 'repo']
 		});
 		if (!init.ok) return init;
+		// Read before copying: if the index is written in between, the copy is only
+		// older than its contents, which makes git read more files, never fewer.
+		const time = await indexTime(repo.index);
 		const copied = await copyFile(repo.index, scratch.index).then(
 			() => true,
 			(error: unknown) => {
@@ -108,6 +141,12 @@ export async function withScratchIndex<T, E>(
 				}
 			});
 			if (!whole.ok) return whole;
+			// Copied, and rewritten whole when it was split, the copy is as new as now:
+			// give it the original's time back.
+			if (time !== undefined) {
+				const seconds = noLaterThan(time);
+				await utimes(scratch.index, seconds, seconds);
+			}
 		}
 		return await work(scratch);
 	} finally {

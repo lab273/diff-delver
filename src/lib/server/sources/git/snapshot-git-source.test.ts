@@ -1,6 +1,6 @@
 import { randomIds } from '#lib/server/system.ts';
 import { execFile } from 'node:child_process';
-import { chmod, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, readdir, readFile, rename, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
@@ -213,6 +213,41 @@ describe('a working-tree snapshot', () => {
 		expect(await changesOf(taken.snapshot)).toEqual({ 'ok.txt': 'modified' });
 	});
 
+	it.each([
+		['a whole index', false],
+		['a split index', true]
+	])(
+		'sees a change git sees only by reading the file, made in the tick %s was written',
+		async (_, split) => {
+			// Racily clean (git's Documentation/technical/racy-git.adoc): a file changed
+			// in the same tick as the index was last written, keeping its size, matches
+			// the index on everything but content. git re-reads such an entry because its
+			// time is not older than the index file's own; a private copy of the index
+			// must keep the original's time, or the change looks clean and is lost.
+			// Times are set by hand, so this needs no luck with the clock; trustctime is
+			// off so the change of ctime that writing the file makes does not give it away.
+			// A split index is rewritten whole when the copy is merged, a whole one is not.
+			const repo = await emptyRepo();
+			await repo.git('config', 'core.trustctime', 'false');
+			if (split) await repo.git('config', 'core.splitIndex', 'true');
+			const file = join(repo.dir, 'ok.txt');
+			const tick = new Date('2026-01-15T09:30:00Z');
+			await writeFile(file, 'one\n');
+			await utimes(file, tick, tick);
+			await repo.commit('base');
+			expect(
+				(await readdir(join(repo.dir, '.git'))).some((f) => f.startsWith('sharedindex.'))
+			).toBe(split);
+			await utimes(join(repo.dir, '.git', 'index'), tick, tick);
+			await writeFile(file, 'two\n');
+			await utimes(file, tick, tick);
+			const taken = value(await take(repo.dir, 'working-tree', await reviewer()));
+			expect(await changesOf(taken.snapshot)).toEqual({ 'ok.txt': 'modified' });
+			// Real git, run in the repository, sees the change too.
+			expect(await repo.git('diff', '--name-only')).toBe('ok.txt\n');
+		}
+	);
+
 	it('keeps paths that are not UTF-8 exact', async () => {
 		const repo = await emptyRepo();
 		await repo.write('plain.txt', 'one\n');
@@ -251,6 +286,10 @@ describe('a working-tree snapshot', () => {
 		);
 		const editing = { saving: true };
 		let saves = 0;
+		let saved = (): void => undefined;
+		const firstSave = new Promise<void>((resolve) => {
+			saved = resolve;
+		});
 		// An editor saving as fast as it can: a temporary file, renamed over the real one.
 		const editor = (async () => {
 			for (let i = 0; editing.saving || saves < 20; i = (i + 1) % versions.length) {
@@ -258,13 +297,17 @@ describe('a working-tree snapshot', () => {
 				await writeFile(tmp, versions[i] ?? '');
 				await rename(tmp, join(repo.dir, 'busy.txt'));
 				saves += 1;
+				saved();
 			}
 		})();
 		const who = await reviewer();
 		const dataDirectory = await tempDirectory();
 		const found = value(await locateRepository(repo.dir, { gitEnv: who.gitEnv }));
+		// Every snapshot is taken while the editor is saving, whatever the machine's speed.
+		await firstSave;
 		const during = [];
 		for (let i = 0; i < 3; i += 1) {
+			const before = saves;
 			during.push(
 				value(
 					await snapshotGitSource(
@@ -275,6 +318,7 @@ describe('a working-tree snapshot', () => {
 					)
 				)
 			);
+			expect(saves, 'the editor saved while the snapshot was taken').toBeGreaterThan(before);
 		}
 		editing.saving = false;
 		await editor;
