@@ -10,6 +10,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { access, cp, mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { inject, onTestFinished } from 'vitest';
+import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { absolutePath, GitRepo, type Fixture } from './git-repo.ts';
 
 export { defineFixture, type Fixture } from './git-repo.ts';
@@ -41,6 +42,14 @@ export async function useFixture(fixture: Fixture): Promise<GitRepo> {
 	onTestFinished(() => rm(dir, { recursive: true, force: true }));
 	await cp(source, dir, { recursive: true, verbatimSymlinks: true });
 	return GitRepo.open(absolutePath(dir));
+}
+
+/** A fresh empty directory for the current test, such as a data directory, removed afterwards. */
+export async function tempDirectory(): Promise<AbsolutePath> {
+	const dir = join(inject('fixtureRoot'), 'tests', randomUUID());
+	onTestFinished(() => rm(dir, { recursive: true, force: true }));
+	await mkdir(dir, { recursive: true });
+	return absolutePath(dir);
 }
 
 /** A fresh empty repository for the current test. */
