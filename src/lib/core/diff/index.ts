@@ -114,3 +114,12 @@ export { coverage, describeBucket, describeWarning } from './coverage.ts';
 // Slices and views.
 export type { Group, GroupKey, Slice, SliceHunk, SliceLine, View } from './slices.ts';
 export { groupKeyId, sectionView, testsSeparateView } from './slices.ts';
+
+// The agent-facing diff text.
+export type { AgentTextOptions } from './agent-text.ts';
+export {
+	agentPath,
+	DEFAULT_MAX_LINE_LENGTH,
+	renderAgentDiff,
+	renderAgentFile
+} from './agent-text.ts';

@@ -1,0 +1,151 @@
+/**
+ * The diff as labelled text for an LLM (DESIGN 7.1, `get_diff`). Every changed
+ * line carries the label `assign` accepts for it: `+<new line>` for an added
+ * line, `-<old line>` for a deleted one. Hunks carry their ids. Context lines
+ * have no label.
+ *
+ * ```
+ * ## src/auth/session.ts
+ * modified
+ * @@ h1 -38,3 +38,4 @@ function refresh()
+ *      const now = clock.now();
+ * -39  if (expired(now)) {
+ * +39  if (expired(now, grace)) {
+ * +40    log.debug('expired');
+ *      }
+ * ```
+ *
+ * A path that holds a quote, a backslash, a control character or surrounding
+ * spaces is written as a JSON string, so the agent can copy it exactly.
+ */
+import { fileModeKind, type FileMode, type FileModeKind } from '../file-mode.tiny.ts';
+import type { DiffFile } from './diff.ts';
+import type { DiffLine, FileDiff, Hunk, HunkSpan } from './file-diff.ts';
+
+export interface AgentTextOptions {
+	/** Longer lines are cut, with a note of how much was left out. */
+	readonly maxLineLength?: number;
+}
+
+/** Lines longer than this are cut by default. Minified code would otherwise flood the agent. */
+export const DEFAULT_MAX_LINE_LENGTH = 500;
+
+/** How a path is written for the agent: as it is, or as a JSON string when it needs quoting. */
+export function agentPath(path: string): string {
+	// Quotes, backslashes and control characters (newline, tab, ...) would make it ambiguous.
+	const needsQuoting = /["\\\p{Cc}]/u.test(path) || path.trim() !== path;
+	return needsQuoting ? JSON.stringify(path) : path;
+}
+
+/** One file's diff as labelled text. */
+export function renderAgentFile(file: DiffFile, options: AgentTextOptions = {}): string {
+	const max = options.maxLineLength ?? DEFAULT_MAX_LINE_LENGTH;
+	const out: string[] = [`## ${agentPath(file.file.path)}`, describeChange(file)];
+	const width = labelWidth(file);
+	for (const hunk of file.hunks.values()) {
+		out.push(hunkHeader(hunk));
+		for (const line of hunk.lines) {
+			out.push(`${label(line).padEnd(width)} ${shown(line.text, max)}`.trimEnd());
+			if (line.noNewlineAtEnd) out.push('\\ No newline at end of file');
+		}
+	}
+	return out.join('\n');
+}
+
+/** Several files' diffs, separated by blank lines. */
+export function renderAgentDiff(files: Iterable<DiffFile>, options: AgentTextOptions = {}): string {
+	return [...files].map((file) => renderAgentFile(file, options)).join('\n\n');
+}
+
+function label(line: DiffLine): string {
+	switch (line.kind) {
+		case 'context':
+			return '';
+		case 'added':
+			return `+${line.new}`;
+		case 'deleted':
+			return `-${line.old}`;
+	}
+}
+
+function labelWidth(file: DiffFile): number {
+	const old = file.changed.old.max ?? 0;
+	const now = file.changed.new.max ?? 0;
+	return String(Math.max(old, now)).length + 1;
+}
+
+function span(sign: '-' | '+', s: HunkSpan): string {
+	return `${sign}${s.start},${s.length}`;
+}
+
+function hunkHeader(hunk: Hunk): string {
+	const heading = hunk.heading === '' ? '' : ` ${hunk.heading}`;
+	return `@@ ${hunk.id} ${span('-', hunk.old)} ${span('+', hunk.new)} @@${heading}`;
+}
+
+/** The text of a line, with a trailing carriage return made visible and long lines cut. */
+function shown(text: string, max: number): string {
+	const crlf = text.endsWith('\r');
+	const body = crlf ? text.slice(0, -1) : text;
+	const cut =
+		body.length > max ? `${body.slice(0, max)}… [${body.length - max} more characters]` : body;
+	return crlf ? `${cut}\\r` : cut;
+}
+
+const MODE_NAMES: Readonly<Record<FileModeKind, string>> = {
+	regular: 'file',
+	executable: 'executable file',
+	symlink: 'symlink',
+	submodule: 'submodule',
+	none: 'nothing',
+	other: 'special entry'
+};
+
+function modeName(mode: FileMode | undefined): string {
+	return mode === undefined ? 'nothing' : MODE_NAMES[fileModeKind(mode)];
+}
+
+/** The second line of a file's text: how it changed, and how to assign it if it has no lines. */
+function describeChange(file: DiffFile): string {
+	const f: FileDiff = file.file;
+	const parts: string[] = [];
+	switch (f.status) {
+		case 'added':
+		case 'deleted':
+		case 'modified':
+			parts.push(f.status);
+			break;
+		case 'renamed':
+		case 'copied':
+			parts.push(
+				`${f.status} from ${agentPath(f.old?.path ?? '')}` +
+					(f.similarity === undefined ? '' : ` (${f.similarity}% similar)`)
+			);
+			break;
+		case 'type-changed':
+			parts.push(`changed from ${modeName(f.old?.mode)} to ${modeName(f.new?.mode)}`);
+			break;
+	}
+	if (
+		f.status !== 'type-changed' &&
+		f.old !== undefined &&
+		f.new !== undefined &&
+		f.old.mode !== f.new.mode
+	) {
+		parts.push(`mode ${f.old.mode} → ${f.new.mode}`);
+	}
+	switch (f.content.kind) {
+		case 'binary':
+			parts.push('binary');
+			break;
+		case 'submodule':
+			parts.push(
+				`submodule ${f.old?.blob.slice(0, 12) ?? 'none'} → ${f.new?.blob.slice(0, 12) ?? 'none'}`
+			);
+			break;
+		case 'text':
+			break;
+	}
+	if (!file.hasLines) parts.push('no changed lines: assign the whole file');
+	return parts.join(', ');
+}
