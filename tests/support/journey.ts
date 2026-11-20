@@ -24,9 +24,11 @@
  *   checked again when the journey finishes.
  *
  * A journey gets no Playwright page, context or locator: only the `Journey`
- * below. It finds things as a person does, by role, visible text or label, and
- * gets back a `Target`, which it can activate, check or read, nothing more. It
- * moves with `press`, `type` and `activate`, which use the keyboard; the two
+ * below. It finds things as a person does, by role, visible text or label,
+ * inside a region (`within`) or by their place on the page (`nth`), and gets
+ * back a `Target`, which it can activate, check or read, nothing more. Its
+ * checks wait for the app, so it never sleeps. It moves with `press`, `type`,
+ * `tabTo` and `activate`, which use the keyboard; the two
  * things a person does outside the page have their own helpers, `readClipboard`
  * and `chooseFiles`. Lint closes the rest (scripts/eslint-journey-rules.ts), so a
  * journey is kept to the keyboard by what it is given, and the page is left to
@@ -132,23 +134,8 @@ function locatorOf(target: Target): Locator {
 	return locator;
 }
 
-export interface Journey {
-	/** Opens a page of the app by its address, as a person does from a link. */
-	open(path: string): Promise<void>;
-	/** Checks the screen as it is now, as the next numbered step (see above). */
-	step(name: string): Promise<void>;
-	/** Presses a key or a combination, such as `Tab` or `Shift+Tab`. */
-	press(key: string): Promise<void>;
-	/** Types text key by key into what has focus. */
-	type(text: string): Promise<void>;
-	/** Moves focus to the target with Tab, as a keyboard user does, then presses `key`. */
-	activate(target: Target, key?: string): Promise<void>;
-	/**
-	 * What Tab reaches on the screen, from the top, in order, each as its role
-	 * and accessible name: `link "Start reviewing"`.
-	 */
-	tabOrder(): Promise<readonly string[]>;
-
+/** Ways to find something, on the whole page or inside a region of it. */
+export interface Finder {
 	/** What has this role and, if given, this accessible name or heading level. */
 	byRole(
 		role: Role,
@@ -158,15 +145,84 @@ export interface Journey {
 	byText(text: string | RegExp, options?: { readonly exact?: boolean }): Target;
 	/** The form control with this label. */
 	byLabel(text: string | RegExp, options?: { readonly exact?: boolean }): Target;
+}
 
-	/** Waits until the target is on the screen, and fails if it never is. */
+/**
+ * A control's state as assistive technology reports it. Each is checked only
+ * if given: `checked` for a checkbox, radio or switch, native or ARIA;
+ * `pressed` for a toggle button and `expanded` for a disclosure, from
+ * `aria-pressed` and `aria-expanded`; `selected` from `aria-selected`, as on a
+ * tab; `disabled` for any control.
+ */
+export interface ControlState {
+	readonly checked?: boolean;
+	readonly pressed?: boolean;
+	readonly expanded?: boolean;
+	readonly selected?: boolean;
+	readonly disabled?: boolean;
+}
+
+/**
+ * Everything a journey can do. The `expect…` methods wait: each retries until
+ * what it expects holds, so a journey waits for the app without sleeping, and
+ * fails only once the hang timeout passes (scripts/test-time-limits.ts).
+ */
+export interface Journey extends Finder {
+	/** Opens a page of the app by its path, as a person does from a link: `/`, `/reports/1`. */
+	open(path: string): Promise<void>;
+	/** Checks the screen as it is now, as the next numbered step (see above). */
+	step(name: string): Promise<void>;
+	/**
+	 * Presses a key or a combination: `Tab`, `Shift+Tab`, `ArrowDown`, `Control+Enter`,
+	 * `PageDown` and `End` to scroll a long page.
+	 */
+	press(key: string): Promise<void>;
+	/** Types text key by key into what has focus. */
+	type(text: string): Promise<void>;
+	/** Moves focus to the target with Tab, as a keyboard user does, then presses `key`. */
+	activate(target: Target, key?: string): Promise<void>;
+	/** Moves focus to the target with Tab and presses nothing more, as before arrow keys. */
+	tabTo(target: Target): Promise<void>;
+	/**
+	 * What Tab reaches on the screen, from the top, in order, each as its role
+	 * and accessible name: `link "Start reviewing"`.
+	 */
+	tabOrder(): Promise<readonly string[]>;
+	/** What has focus, as its role and accessible name like `tabOrder`, or `''` if nothing does. */
+	focused(): Promise<string>;
+
+	/** The same ways to find, kept inside `region`: one file's "Mark reviewed" button. */
+	within(region: Target): Finder;
+	/**
+	 * One of the target's matches, counted from 1 in the order they come on the
+	 * page: `nth(journey.byRole('button', { name: 'Mark reviewed' }), 2)` is the second.
+	 */
+	nth(target: Target, position: number): Target;
+
+	/** Waits until the target is shown on the page. */
 	expectVisible(target: Target): Promise<void>;
-	/** Waits until the target is gone from the screen, and fails if it stays. */
+	/** Waits until the target is gone, or hidden. */
 	expectHidden(target: Target): Promise<void>;
-	/** The text the target shows. */
+	/** Waits until the target is scrolled into the part of the page on the screen. */
+	expectInView(target: Target): Promise<void>;
+	/** Waits until the target shows this text, as part of its text or matching the pattern. */
+	expectText(target: Target, text: string | RegExp): Promise<void>;
+	/** Waits until the target has focus. */
+	expectFocused(target: Target): Promise<void>;
+	/** Waits until the control is in this state: `{ checked: true }`, `{ expanded: false }`. */
+	expectState(target: Target, state: ControlState): Promise<void>;
+
+	/** The text the target shows, as it is now. */
 	textOf(target: Target): Promise<string>;
 	/** The page's title, as the browser tab shows it. */
 	title(): Promise<string>;
+	/** The path of the page the browser is on, with its query and fragment: `/reports/1#s2`. */
+	address(): Promise<string>;
+	/**
+	 * Where a link goes: a path like `address` for a page of the app, or the whole
+	 * address for anywhere else.
+	 */
+	destinationOf(link: Target): Promise<string>;
 
 	/** What the app put on the clipboard, read as a person pasting it elsewhere would. */
 	readClipboard(): Promise<string>;
@@ -525,18 +581,26 @@ export async function startJourney(
 	const isFocused = (target: Target): Promise<boolean> =>
 		locatorOf(target).evaluate((element) => element === document.activeElement);
 
-	const activate = async (target: Target, key = 'Enter'): Promise<void> => {
+	const tabTo = async (target: Target): Promise<void> => {
 		for (let n = 0; n < MAX_TABS; n += 1) {
-			if (await isFocused(target)) {
-				await page.keyboard.press(key);
-				return;
-			}
+			if (await isFocused(target)) return;
 			await page.keyboard.press('Tab');
 		}
 		throw new Error(
 			`${target.description} could not be reached with Tab in ${String(MAX_TABS)} presses. ` +
 				'Everything a person can do must be reachable by keyboard.'
 		);
+	};
+
+	const activate = async (target: Target, key = 'Enter'): Promise<void> => {
+		await tabTo(target);
+		await page.keyboard.press(key);
+	};
+
+	/** A path for a page of the app, the whole address for anywhere else. */
+	const shortAddress = (address: string): string => {
+		const url = new URL(address);
+		return url.origin === origin ? `${url.pathname}${url.search}${url.hash}` : url.href;
 	};
 
 	const described = (
@@ -549,6 +613,24 @@ export async function startJourney(
 			.join(', ');
 		return `${kind} ${typeof what === 'string' ? `"${what}"` : String(what)}${extra === '' ? '' : ` (${extra})`}`;
 	};
+
+	/** Finding on the whole page, or inside one region of it. */
+	const finder = (root: Page | Locator, where: string): Finder => ({
+		byRole(role, options = {}) {
+			return makeTarget(
+				root.getByRole(role, options),
+				described(role, options.name ?? '', {
+					...(options.level === undefined ? {} : { level: options.level })
+				}) + where
+			);
+		},
+		byText(text, options = {}) {
+			return makeTarget(root.getByText(text, options), described('text', text) + where);
+		},
+		byLabel(text, options = {}) {
+			return makeTarget(root.getByLabel(text, options), described('field labelled', text) + where);
+		}
+	});
 
 	const journey: Journey = {
 		async open(path) {
@@ -600,6 +682,7 @@ export async function startJourney(
 			await page.keyboard.type(text);
 		},
 		activate,
+		tabTo,
 		async tabOrder() {
 			await page.evaluate(() => {
 				if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -625,37 +708,88 @@ export async function startJourney(
 			}
 			return order;
 		},
-		byRole(role, options = {}) {
+		...finder(page, ''),
+		within(region) {
+			return finder(locatorOf(region), ` in ${region.description}`);
+		},
+		nth(target, position) {
+			if (!Number.isInteger(position) || position < 1) {
+				throw new Error(
+					`nth counts from 1, the first match on the page; ${String(position)} names none.`
+				);
+			}
 			return makeTarget(
-				page.getByRole(role, options),
-				described(role, options.name ?? '', {
-					...(options.level === undefined ? {} : { level: options.level })
-				})
+				locatorOf(target).nth(position - 1),
+				`${target.description}, number ${String(position)}`
 			);
 		},
-		byText(text, options = {}) {
-			return makeTarget(page.getByText(text, options), described('text', text));
-		},
-		byLabel(text, options = {}) {
-			return makeTarget(page.getByLabel(text, options), described('field labelled', text));
-		},
 		async expectVisible(target) {
-			await expect(
-				locatorOf(target),
-				`${target.description} should be on the screen`
-			).toBeVisible();
+			await expect(locatorOf(target), `${target.description} should be shown`).toBeVisible();
 		},
 		async expectHidden(target) {
+			await expect(locatorOf(target), `${target.description} should not be shown`).toBeHidden();
+		},
+		async expectInView(target) {
 			await expect(
 				locatorOf(target),
-				`${target.description} should not be on the screen`
-			).toBeHidden();
+				`${target.description} should be scrolled into view`
+			).toBeInViewport();
+		},
+		async expectText(target, text) {
+			await expect(
+				locatorOf(target),
+				`${target.description} should show ${typeof text === 'string' ? `"${text}"` : String(text)}`
+			).toContainText(text);
+		},
+		async expectFocused(target) {
+			await expect(locatorOf(target), `${target.description} should have focus`).toBeFocused();
+		},
+		async expectState(target, state) {
+			const locator = locatorOf(target);
+			const should = (what: string): string => `${target.description} should be ${what}`;
+			const { checked, pressed, expanded, selected, disabled } = state;
+			if (checked !== undefined) {
+				await expect(locator, should(checked ? 'checked' : 'not checked')).toBeChecked({
+					checked
+				});
+			}
+			const aria: readonly (readonly [string, boolean | undefined])[] = [
+				['pressed', pressed],
+				['expanded', expanded],
+				['selected', selected]
+			];
+			for (const [name, value] of aria) {
+				if (value === true) {
+					await expect(locator, should(name)).toHaveAttribute(`aria-${name}`, 'true');
+				} else if (value === false) {
+					// Not set counts as not pressed, expanded or selected, as a screen reader takes it.
+					await expect(locator, should(`not ${name}`)).not.toHaveAttribute(`aria-${name}`, 'true');
+				}
+			}
+			if (disabled === true) await expect(locator, should('disabled')).toBeDisabled();
+			if (disabled === false) await expect(locator, should('enabled')).toBeEnabled();
 		},
 		async textOf(target) {
 			return locatorOf(target).innerText();
 		},
 		async title() {
 			return page.title();
+		},
+		address() {
+			return Promise.resolve(shortAddress(page.url()));
+		},
+		async destinationOf(link) {
+			const href = await locatorOf(link).evaluate((element) =>
+				element instanceof HTMLAnchorElement || element instanceof SVGAElement
+					? new URL(element.getAttribute('href') ?? '', document.baseURI).href
+					: null
+			);
+			if (href === null) throw new Error(`${link.description} is not a link.`);
+			return shortAddress(href);
+		},
+		async focused() {
+			const focused = page.locator(':focus');
+			return (await focused.count()) === 0 ? '' : roleAndName(focused);
 		},
 		async readClipboard() {
 			return page.evaluate(() => navigator.clipboard.readText());

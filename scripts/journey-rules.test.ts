@@ -84,6 +84,15 @@ describe('the journey lint rules', () => {
 					"await journey.press('Tab');",
 					'const order = await journey.tabOrder();',
 					'const first = order[0];',
+					"const file = journey.within(journey.byRole('region', { name: 'a.ts' }));",
+					"await journey.tabTo(file.byRole('button', { name: 'Mark reviewed' }));",
+					"await journey.expectFocused(journey.nth(journey.byRole('button'), 2));",
+					"await journey.press('Control+Enter');",
+					"await journey.expectText(journey.byRole('status'), 'Sorted');",
+					"await journey.expectState(journey.byLabel('Hide whitespace'), { checked: true });",
+					'const here = await journey.address();',
+					"const to = await journey.destinationOf(journey.byRole('link', { name: 'Help' }));",
+					'const now = await journey.focused();',
 					"await journey.step('Start page');"
 				].join('\n')
 			)

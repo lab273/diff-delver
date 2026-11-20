@@ -380,3 +380,142 @@ test.describe('the journey helper checks that emphasis has a face of its own', (
 		await journey.step('Emphasis');
 	});
 });
+
+test.describe('the journey helper has what a journey needs', () => {
+	test('says what has focus, and follows it through arrow keys and Shift+Tab', async ({
+		planted
+	}) => {
+		const journey = await planted(
+			pageWith(`<h1>Files</h1>
+<ul aria-label="Files" onkeydown="const to = event.key === 'ArrowDown' ? event.target.closest('li').nextElementSibling : null; if (to) { event.preventDefault(); to.querySelector('button').focus(); }">
+<li><button type="button">One</button></li><li><button type="button" tabindex="-1">Two</button></li>
+</ul>
+<button type="button">After</button>`)
+		);
+		expect(await journey.focused()).toBe('');
+		const one = journey.byRole('button', { name: 'One' });
+		await journey.tabTo(one);
+		await journey.expectFocused(one);
+		await journey.press('ArrowDown');
+		await journey.expectFocused(journey.byRole('button', { name: 'Two' }));
+		expect(await journey.focused()).toBe('button "Two"');
+		await journey.press('Tab');
+		await journey.expectFocused(journey.byRole('button', { name: 'After' }));
+		await journey.press('Shift+Tab');
+		await journey.expectFocused(one);
+		await journey.step('Second file');
+	});
+
+	test('finds one of several by its region, or by its place on the page', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>Section</h1>
+${['a.ts', 'b.ts', 'c.ts']
+	.map(
+		(file) => `<section aria-label="${file}"><h2>${file}</h2>
+<button type="button" onclick="this.closest('section').querySelector('p').textContent = 'Reviewed'">Mark reviewed</button><p></p></section>`
+	)
+	.join('')}`)
+		);
+		const fileB = journey.byRole('region', { name: 'b.ts' });
+		const markB = journey.within(fileB).byRole('button', { name: 'Mark reviewed' });
+		expect(markB.description).toBe('button "Mark reviewed" in region "b.ts"');
+		await journey.activate(markB);
+		await journey.expectText(fileB, 'Reviewed');
+		await journey.expectFocused(
+			journey.nth(journey.byRole('button', { name: 'Mark reviewed' }), 2)
+		);
+		await journey.expectText(journey.within(fileB).byText('Reviewed', { exact: true }), 'Reviewed');
+		expect(() => journey.nth(journey.byRole('button'), 0)).toThrow('nth counts from 1');
+		await journey.step('One reviewed');
+	});
+
+	test('waits for text to change and for something to appear and go', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>Sorting</h1>
+<p role="status">Sorting the diff</p><p id="busy">Working</p>
+<script>setTimeout(() => {
+	document.querySelector('[role=status]').textContent = 'Sorted 12 files';
+	document.getElementById('busy').remove();
+	document.querySelector('main').insertAdjacentHTML('beforeend', '<button type="button">Start reviewing</button>');
+}, 300);</script>`)
+		);
+		await journey.expectText(journey.byRole('status'), /Sorted \d+ files/);
+		await journey.expectText(journey.byRole('status'), 'Sorted 12');
+		await journey.expectHidden(journey.byText('Working'));
+		await journey.expectVisible(journey.byRole('button', { name: 'Start reviewing' }));
+		await journey.step('Sorted');
+	});
+
+	test('presses keyboard shortcuts with modifiers', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>Comment</h1>
+<label>Comment <textarea onkeydown="if (event.ctrlKey && event.key === 'Enter') document.querySelector('output').textContent = 'Sent: ' + this.value"></textarea></label>
+<output></output>`)
+		);
+		await journey.tabTo(journey.byLabel('Comment'));
+		await journey.type('Fine');
+		await journey.press('Control+Enter');
+		await journey.expectText(journey.byRole('status'), 'Sent: Fine');
+		await journey.step('Sent');
+	});
+
+	test('scrolls a long page with the keyboard and takes another step', async ({ planted }) => {
+		const lines = Array.from({ length: 200 }, (_, i) => `<p>Line ${String(i + 1)}</p>`);
+		const journey = await planted(pageWith(`<h1>Long</h1>${lines.join('')}`));
+		await journey.step('Top');
+		await journey.press('End');
+		await journey.expectInView(journey.byText('Line 200', { exact: true }));
+		await journey.step('Bottom');
+	});
+
+	test('reads where a link goes and where the browser is', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>Links</h1>
+<a href="#second">Second section</a> <a href="https://example.com/x">Elsewhere</a>
+<p>Not a link</p><h2 id="second">Second</h2>`)
+		);
+		const second = journey.byRole('link', { name: 'Second section' });
+		expect(await journey.address()).toBe('/__journey-helper/page');
+		expect(await journey.destinationOf(second)).toBe('/__journey-helper/page#second');
+		expect(await journey.destinationOf(journey.byRole('link', { name: 'Elsewhere' }))).toBe(
+			'https://example.com/x'
+		);
+		await expect(journey.destinationOf(journey.byText('Not a link'))).rejects.toThrow(
+			'is not a link'
+		);
+		await journey.activate(second);
+		expect(await journey.address()).toBe('/__journey-helper/page#second');
+		await journey.step('Followed');
+	});
+
+	test("checks a control's state: checked, pressed, expanded, selected, disabled", async ({
+		planted
+	}) => {
+		const journey = await planted(
+			pageWith(`<h1>State</h1>
+<label><input type="checkbox"> Hide whitespace</label>
+<button type="button" aria-pressed="false" onclick="this.setAttribute('aria-pressed', String(this.getAttribute('aria-pressed') !== 'true'))">Split view</button>
+<button type="button" aria-expanded="false" onclick="this.setAttribute('aria-expanded', 'true')">Agent notes</button>
+<div role="tablist" aria-label="View"><button type="button" role="tab" aria-selected="true">By section</button><button type="button" role="tab" tabindex="-1">By file</button></div>
+<button type="button" disabled>Finish review</button>`)
+		);
+		const hide = journey.byLabel('Hide whitespace');
+		const split = journey.byRole('button', { name: 'Split view' });
+		const notes = journey.byRole('button', { name: 'Agent notes' });
+		await journey.expectState(hide, { checked: false });
+		await journey.activate(hide, 'Space');
+		await journey.expectState(hide, { checked: true });
+		await journey.expectState(split, { pressed: false });
+		await journey.activate(split);
+		await journey.expectState(split, { pressed: true, disabled: false });
+		await journey.expectState(notes, { expanded: false });
+		await journey.activate(notes);
+		await journey.expectState(notes, { expanded: true });
+		await journey.expectState(journey.byRole('tab', { name: 'By section' }), { selected: true });
+		await journey.expectState(journey.byRole('tab', { name: 'By file' }), { selected: false });
+		await journey.expectState(journey.byRole('button', { name: 'Finish review' }), {
+			disabled: true
+		});
+		await journey.step('States');
+	});
+});
