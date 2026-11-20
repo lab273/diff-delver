@@ -1,4 +1,6 @@
 import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { settableClock, type SettableClock } from '#lib/core/clock.ts';
@@ -19,7 +21,7 @@ import type { GitRepo } from '../../../../tests/support/git-repo.ts';
 import { located, value } from '../../../../tests/support/git-source-helpers.ts';
 import { at } from '../../../../tests/support/report-rows.ts';
 import { reviewer, type Reviewer } from '../../../../tests/support/reviewer-git.ts';
-import { Database } from '../db/index.ts';
+import { Database, DATABASE_FILE } from '../db/index.ts';
 import { GRACE_PERIOD } from '../store/index.ts';
 import {
 	describeReportError,
@@ -318,6 +320,32 @@ describe('the report service', () => {
 			await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true)
 		);
 		expect(ticked.kind).toBe('StoredStateMismatch');
+		service.close();
+	});
+
+	it('says the diff was updated while saving, not that the database is busy, when it keeps changing', async () => {
+		const { repo, data, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		// Another copy of diff delver keeps adding revisions while this one saves a tick.
+		const other = new DatabaseSync(join(data, DATABASE_FILE));
+		const call = { settled: false };
+		const marking = service
+			.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true)
+			.finally(() => {
+				call.settled = true;
+			});
+		for (let n = 2; !call.settled; n += 1) {
+			other
+				.prepare(
+					`INSERT INTO revisions SELECT ?, report_id, ?, store_id, snapshot_id, base_tree, head_tree, fingerprint, base_commit, head_commit, left_out, taken_at, file_count, added_lines, deleted_lines, counted_units, reviewed_units, ignored_units, uncategorised_units FROM revisions WHERE id = 'v_1'`
+				)
+				.run(`v_other${String(n)}`, n);
+			await new Promise((resolve) => setImmediate(resolve));
+		}
+		other.close();
+		const error = failure(await marking);
+		expect(error).toEqual({ kind: 'RevisionChangedWhileSaving', report: id });
+		expect(describeReportError(error)).toMatch(/updated while.*Reload the page/);
 		service.close();
 	});
 

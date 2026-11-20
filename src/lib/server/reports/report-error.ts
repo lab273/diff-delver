@@ -48,6 +48,16 @@ export interface RepositoryReplaced {
 	readonly path: AbsolutePath;
 }
 
+/**
+ * A new revision of the report appeared each time a change was about to be
+ * saved, so the change was not saved: it was made against a diff that is no
+ * longer the report's current one.
+ */
+export interface RevisionChangedWhileSaving {
+	readonly kind: 'RevisionChangedWhileSaving';
+	readonly report: ReportId;
+}
+
 /** `upsertSections` was refused; nothing changed. */
 export interface SectionsRefused {
 	readonly kind: 'SectionsRefused';
@@ -66,6 +76,7 @@ export type ReportError =
 	| AnotherReportOpen
 	| ReportHasNoRevision
 	| RepositoryReplaced
+	| RevisionChangedWhileSaving
 	| SectionsRefused;
 
 /** What happened and what to do next, for the reviewer. */
@@ -90,6 +101,10 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'RepositoryReplaced':
 			return reviewerMessage(
 				`${error.path} now holds a different repository from the one this report was opened in, so its changes cannot be checked. Open the source again from the repository you want to review.`
+			);
+		case 'RevisionChangedWhileSaving':
+			return reviewerMessage(
+				'The diff was updated while your change was being saved, so it was not saved: it was made on a version of the diff that is no longer current. Reload the page to see the new version, then make the change again.'
 			);
 		case 'SectionsRefused':
 			return reviewerMessage(

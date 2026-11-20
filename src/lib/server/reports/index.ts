@@ -37,6 +37,7 @@ export type {
 	ReportError,
 	ReportHasNoRevision,
 	ReportNotFound,
+	RevisionChangedWhileSaving,
 	SectionsRefused
 } from './report-error.ts';
 export { describeReportError } from './report-error.ts';

@@ -879,7 +879,7 @@ export class ReportService {
 			);
 			if (!written.ok) return written;
 			if (!written.value.stale) return ok(written.value.result);
-			if (attempt + 1 >= RETRIES) return err({ kind: 'DatabaseBusy', file: this.#db.file });
+			if (attempt + 1 >= RETRIES) return err({ kind: 'RevisionChangedWhileSaving', report: id });
 		}
 	}
 
