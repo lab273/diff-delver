@@ -37,6 +37,10 @@ export function describeClosedReason(reason: ClosedReason): ReviewerMessage {
 			return reviewerMessage(
 				'Closed by itself: there was nothing left to review, because the changes were committed, merged or discarded.'
 			);
+		case 'snapshot-gone':
+			return reviewerMessage(
+				"Closed because diff delver's saved copy of its changes was gone from the data folder, so it could not be shown; opening its source again started a new report in its place. Delete this one; nothing in it can be shown."
+			);
 	}
 }
 

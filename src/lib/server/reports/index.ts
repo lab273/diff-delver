@@ -40,7 +40,8 @@ export type {
 	ReportHasNoRevision,
 	ReportNotFound,
 	RevisionChangedWhileSaving,
-	SectionsRefused
+	SectionsRefused,
+	SnapshotGone
 } from './report-error.ts';
 export { describeReportError } from './report-error.ts';
 export type { ReviewTarget } from '#lib/core/review/mark-reviewed.ts';

@@ -25,7 +25,7 @@ const row = z.object({
 	repository_name: text(parseRepositoryName),
 	repository_path: text(parseAbsolutePath),
 	state: z.enum(['open', 'closed']),
-	closed_reason: nullable(z.enum(['reviewer', 'source-empty'])),
+	closed_reason: nullable(z.enum(['reviewer', 'source-empty', 'snapshot-gone'])),
 	created_at: timestamp,
 	last_activity_at: timestamp
 });

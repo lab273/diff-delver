@@ -165,6 +165,11 @@ export type OpenOutcome =
 			readonly report: ReportSummary;
 			/** What the built-in rules and `linguist-generated` put in Ignored. */
 			readonly autoIgnored: readonly AutoIgnored[];
+			/**
+			 * The source's open report this one replaces, closed because its saved
+			 * snapshot was gone, so it could not be shown.
+			 */
+			readonly closed: ReportId | undefined;
 	  }
 	/** The source's open report. `changed` says the source has moved on since its revision. */
 	| { readonly kind: 'resumed'; readonly report: ReportSummary; readonly changed: boolean }
@@ -413,10 +418,7 @@ export class ReportService {
 		);
 		if (!found.ok) return found;
 		const { report, revision, sections, rows, marked } = found.value;
-		const snapshot = await openSnapshotRef(this.#dataDirectory, {
-			store: revision.store,
-			snapshot: revision.snapshot
-		});
+		const snapshot = await this.#snapshotOf(report, revision);
 		if (!snapshot.ok) return snapshot;
 		const diff = await this.#diffOf(snapshot.value);
 		if (!diff.ok) return diff;
@@ -701,8 +703,37 @@ export class ReportService {
 			)
 		);
 		if (!existing.ok) return existing;
-		if (existing.value !== undefined) return this.#resume(existing.value, repo);
-		return this.#create(repo, spec, identity);
+		if (existing.value === undefined) return this.#create(repo, spec, identity, undefined);
+		const { report, revision } = existing.value;
+		const readable = await this.#snapshotOf(report, revision);
+		if (readable.ok) return this.#resume(existing.value, repo);
+		if (readable.error.kind !== 'SnapshotGone') return readable;
+		// Its snapshot is gone, so it can never be shown: close it and start again.
+		const closed = this.#db.write((q) => {
+			setReportState(q, report.id, { kind: 'closed', reason: 'snapshot-gone' }, this.#clock.now());
+			return ok(undefined);
+		});
+		if (!closed.ok) return closed;
+		this.#checks.delete(report.id);
+		return this.#create(repo, spec, identity, report.id);
+	}
+
+	/** The revision's snapshot, or `SnapshotGone` when its store or snapshot is no longer there. */
+	async #snapshotOf(report: Report, revision: Revision): Promise<Result<Snapshot, ReportError>> {
+		const snapshot = await openSnapshotRef(this.#dataDirectory, {
+			store: revision.store,
+			snapshot: revision.snapshot
+		});
+		if (snapshot.ok) return snapshot;
+		const missing =
+			snapshot.error.kind === 'StoreNotFound' || snapshot.error.kind === 'SnapshotNotFound';
+		if (!missing) return snapshot;
+		return err({
+			kind: 'SnapshotGone',
+			report: report.id,
+			source: reportTitle(report.source),
+			open: report.state.kind === 'open'
+		});
 	}
 
 	async #resume(found: Current, repo: LocalRepository): Promise<Result<OpenOutcome, ReportError>> {
@@ -730,10 +761,12 @@ export class ReportService {
 		}
 	}
 
+	/** A new report of the source; `replacing` is the open report just closed for it, if any. */
 	async #create(
 		repo: LocalRepository,
 		spec: GitSourceSpec,
-		identity: ReportIdentity
+		identity: ReportIdentity,
+		replacing: ReportId | undefined
 	): Promise<Result<OpenOutcome, ReportError>> {
 		const taken = await snapshotGitSource(this.#dataDirectory, repo, spec, this.#ids.snapshotId());
 		if (!taken.ok) return taken;
@@ -751,7 +784,7 @@ export class ReportService {
 					source: describeGitSource(spec),
 					reason: describeNothingToReview(spec),
 					leftOut: taken.value.leftOut,
-					closed: undefined
+					closed: replacing
 				})
 			);
 		}
@@ -811,7 +844,8 @@ export class ReportService {
 		return ok({
 			kind: 'created',
 			report: summaryOf(report, revision),
-			autoIgnored: sorted.ignored
+			autoIgnored: sorted.ignored,
+			closed: replacing
 		});
 	}
 
@@ -872,11 +906,8 @@ export class ReportService {
 		for (let attempt = 0; ; attempt += 1) {
 			const found = this.#db.read((q) => currentOpen(q, id));
 			if (!found.ok) return found;
-			const { revision } = found.value;
-			const snapshot = await openSnapshotRef(this.#dataDirectory, {
-				store: revision.store,
-				snapshot: revision.snapshot
-			});
+			const { report, revision } = found.value;
+			const snapshot = await this.#snapshotOf(report, revision);
 			if (!snapshot.ok) return snapshot;
 			const diff = await this.#diffOf(snapshot.value);
 			if (!diff.ok) return diff;

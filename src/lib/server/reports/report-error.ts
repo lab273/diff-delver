@@ -58,6 +58,19 @@ export interface RevisionChangedWhileSaving {
 	readonly report: ReportId;
 }
 
+/**
+ * The report's saved snapshot is gone from the data folder (its store or its
+ * snapshot was deleted or moved), so the report cannot be shown or changed.
+ */
+export interface SnapshotGone {
+	readonly kind: 'SnapshotGone';
+	readonly report: ReportId;
+	/** The report's source in plain words. */
+	readonly source: ReviewerMessage;
+	/** Whether the report is still open, so that opening its source again replaces it. */
+	readonly open: boolean;
+}
+
 /** `upsertSections` was refused; nothing changed. */
 export interface SectionsRefused {
 	readonly kind: 'SectionsRefused';
@@ -77,6 +90,7 @@ export type ReportError =
 	| ReportHasNoRevision
 	| RepositoryReplaced
 	| RevisionChangedWhileSaving
+	| SnapshotGone
 	| SectionsRefused;
 
 /** What happened and what to do next, for the reviewer. */
@@ -105,6 +119,12 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'RevisionChangedWhileSaving':
 			return reviewerMessage(
 				'The diff was updated while your change was being saved, so it was not saved: it was made on a version of the diff that is no longer current. Reload the page to see the new version, then make the change again.'
+			);
+		case 'SnapshotGone':
+			return reviewerMessage(
+				error.open
+					? `The saved copy of this report's changes is gone from diff delver's data folder (it was deleted or moved), so the report cannot be shown. Open ${error.source} again to start a new report of them; this one will then be closed.`
+					: `The saved copy of this report's changes is gone from diff delver's data folder (it was deleted or moved), so the report cannot be shown, and nothing can bring it back. Delete it from the list of reports.`
 			);
 		case 'SectionsRefused':
 			return reviewerMessage(

@@ -32,7 +32,12 @@ export type ClosedReason =
 	/** The reviewer closed it. */
 	| 'reviewer'
 	/** Its source has nothing to review any more: the changes were committed, merged or discarded. */
-	| 'source-empty';
+	| 'source-empty'
+	/**
+	 * Its saved snapshot is gone from the data folder, so it could not be shown;
+	 * opening its source again started a new report in its place.
+	 */
+	| 'snapshot-gone';
 
 export type ReportState =
 	{ readonly kind: 'open' } | { readonly kind: 'closed'; readonly reason: ClosedReason };

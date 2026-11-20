@@ -23,6 +23,13 @@ export interface Migration {
 	/** What it changes, in a few words. */
 	readonly name: string;
 	readonly sql: string;
+	/**
+	 * Set when `sql` rebuilds a table (makes a new one, copies the rows, drops
+	 * the old and renames the new), which SQLite requires to change a column's
+	 * constraints. It runs with foreign keys off, so dropping the old table
+	 * deletes nothing that refers to it, and is checked before it is recorded.
+	 */
+	readonly rebuildsTables?: true;
 }
 
 /**
@@ -138,6 +145,33 @@ CREATE TABLE unreferenced_snapshots (
 	PRIMARY KEY (store_id, snapshot_id)
 ) STRICT, WITHOUT ROWID;
 `
+	},
+	{
+		version: schemaVersionOf(2),
+		name: 'reports can be closed because their snapshot is gone',
+		rebuildsTables: true,
+		sql: `
+CREATE TABLE reports_rebuilt (
+	id TEXT PRIMARY KEY,
+	identity TEXT NOT NULL,
+	source_kind TEXT NOT NULL CHECK (source_kind IN ('git')),
+	source TEXT NOT NULL,
+	store_id TEXT NOT NULL,
+	repository_name TEXT NOT NULL,
+	repository_path TEXT NOT NULL,
+	state TEXT NOT NULL CHECK (state IN ('open', 'closed')),
+	closed_reason TEXT CHECK (closed_reason IN ('reviewer', 'source-empty', 'snapshot-gone')),
+	created_at INTEGER NOT NULL,
+	last_activity_at INTEGER NOT NULL,
+	CHECK ((state = 'open') = (closed_reason IS NULL))
+) STRICT;
+INSERT INTO reports_rebuilt (id, identity, source_kind, source, store_id, repository_name, repository_path, state, closed_reason, created_at, last_activity_at)
+	SELECT id, identity, source_kind, source, store_id, repository_name, repository_path, state, closed_reason, created_at, last_activity_at FROM reports;
+DROP TABLE reports;
+ALTER TABLE reports_rebuilt RENAME TO reports;
+CREATE UNIQUE INDEX reports_one_open_per_source ON reports (identity) WHERE state = 'open';
+CREATE INDEX reports_by_activity ON reports (last_activity_at DESC, created_at DESC);
+`
 	}
 ];
 
@@ -183,31 +217,50 @@ export function migrate(
 ): Result<void, DatabaseError> {
 	const latest = newestOf(migrations.map((m) => m.version));
 	for (const migration of migrations) {
-		const applied = database.write((q): Result<void, DatabaseError> => {
-			// Read again inside the write lock, in case another copy of diff delver migrated first.
-			const done = inspect(q, database.file);
-			if (!done.ok) return done;
-			const newest = newestOf(done.value);
-			if (newest > latest) {
-				return err({ kind: 'DatabaseTooNew', file: database.file, version: newest, known: latest });
-			}
-			if (done.value.includes(migration.version)) return ok(undefined);
-			q.exec(RECORD_TABLE);
-			q.exec(`PRAGMA application_id = ${String(APPLICATION_ID)}`);
-			try {
-				q.exec(migration.sql);
-			} catch (error) {
-				return err({
-					kind: 'MigrationFailed',
-					file: database.file,
-					version: migration.version,
-					reason: error instanceof Error ? error.message : String(error)
-				});
-			}
-			recordMigration(q, migration.version, migration.name, clock.now());
-			q.exec(`PRAGMA user_version = ${String(migration.version)}`);
-			return ok(undefined);
-		});
+		const apply = (): Result<void, DatabaseError> =>
+			database.write((q): Result<void, DatabaseError> => {
+				// Read again inside the write lock, in case another copy of diff delver migrated first.
+				const done = inspect(q, database.file);
+				if (!done.ok) return done;
+				const newest = newestOf(done.value);
+				if (newest > latest) {
+					return err({
+						kind: 'DatabaseTooNew',
+						file: database.file,
+						version: newest,
+						known: latest
+					});
+				}
+				if (done.value.includes(migration.version)) return ok(undefined);
+				q.exec(RECORD_TABLE);
+				q.exec(`PRAGMA application_id = ${String(APPLICATION_ID)}`);
+				try {
+					q.exec(migration.sql);
+				} catch (error) {
+					return err({
+						kind: 'MigrationFailed',
+						file: database.file,
+						version: migration.version,
+						reason: error instanceof Error ? error.message : String(error)
+					});
+				}
+				if (migration.rebuildsTables === true) {
+					const broken = q.all('PRAGMA foreign_key_check');
+					if (broken.length > 0) {
+						return err({
+							kind: 'MigrationFailed',
+							file: database.file,
+							version: migration.version,
+							reason: `it left ${String(broken.length)} rows referring to rows that are gone`
+						});
+					}
+				}
+				recordMigration(q, migration.version, migration.name, clock.now());
+				q.exec(`PRAGMA user_version = ${String(migration.version)}`);
+				return ok(undefined);
+			});
+		const applied =
+			migration.rebuildsTables === true ? database.withForeignKeysOff(apply) : apply();
 		if (!applied.ok) return applied;
 	}
 	return ok(undefined);

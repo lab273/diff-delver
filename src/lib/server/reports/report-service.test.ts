@@ -25,6 +25,7 @@ import { reviewer, type Reviewer } from '../../../../tests/support/reviewer-git.
 import { Database, DATABASE_FILE } from '../db/index.ts';
 import { GRACE_PERIOD } from '../store/index.ts';
 import {
+	describeClosedReason,
 	describeReportError,
 	ReportService,
 	type LoadedReport,
@@ -463,6 +464,43 @@ describe('the report service', () => {
 			service.close();
 		}
 	);
+
+	it('starts a new report in place of one whose saved snapshot is gone, and closes the old one saying why', async () => {
+		const { repo, data, clock, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await rm(join(data, 'stores'), { recursive: true, force: true });
+		clock.advance(1_000);
+
+		const gone = failure(await service.load(id));
+		expect(gone).toEqual({
+			kind: 'SnapshotGone',
+			report: id,
+			source: 'Uncommitted changes',
+			open: true
+		});
+		expect(describeReportError(gone)).toMatch(
+			/is gone from diff delver's data folder.*Open Uncommitted changes again to start a new report/
+		);
+		expect(
+			failure(await service.markReviewed(id, { kind: 'file', path: path('src/app.ts') }, true)).kind
+		).toBe('SnapshotGone');
+		expect(failure(await service.assign(id, [])).kind).toBe('SnapshotGone');
+
+		const again = value(await service.open(repo.dir, spec('working-tree')));
+		expect(again).toMatchObject({ kind: 'created', report: { id: 'r_2' }, closed: id });
+		const listed = value(service.list());
+		expect(listed.map((r) => (r.kind === 'report' ? [r.id, r.state] : [r.id]))).toEqual([
+			['r_2', { kind: 'open' }],
+			[id, { kind: 'closed', reason: 'snapshot-gone' }]
+		]);
+		expect(describeClosedReason('snapshot-gone')).toMatch(/saved copy of its changes was gone/);
+		expect(value(await service.load(value(parseReportId('r_2')))).diff.files).toHaveLength(3);
+		const closed = failure(await service.load(id));
+		expect(closed).toMatchObject({ kind: 'SnapshotGone', open: false });
+		expect(describeReportError(closed)).toMatch(/Delete it/);
+		expect(describeReportError(closed)).not.toMatch(/Open Uncommitted changes again/);
+		service.close();
+	});
 
 	it('removes a snapshot nothing refers to once the grace period has passed', async () => {
 		const { repo, who, data, clock, service } = await setUp();

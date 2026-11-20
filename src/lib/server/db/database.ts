@@ -171,6 +171,20 @@ export class Database {
 		return this.#transaction('BEGIN IMMEDIATE', work);
 	}
 
+	/**
+	 * Runs `work` with foreign keys off, as SQLite's procedure for rebuilding a
+	 * table requires: the setting cannot change inside a transaction, so this is
+	 * outside one, and `work` runs its own. Only migrations use it.
+	 */
+	withForeignKeysOff<T>(work: () => T): T {
+		this.#connection.exec('PRAGMA foreign_keys = OFF');
+		try {
+			return work();
+		} finally {
+			this.#connection.exec('PRAGMA foreign_keys = ON');
+		}
+	}
+
 	/** Closes the connection. The database cannot be used afterwards. */
 	close(): void {
 		if (this.#connection.isOpen) this.#connection.close();

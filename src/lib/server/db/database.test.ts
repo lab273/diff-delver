@@ -23,7 +23,7 @@ import {
 	type Migration
 } from './index.ts';
 import { schemaVersionOf } from '#lib/core/schema-version.tiny.ts';
-import { insertReport, reportById } from './tables/reports.ts';
+import { insertReport, reportById, setReportState } from './tables/reports.ts';
 import { insertRevision } from './tables/revisions.ts';
 
 const clock = () => settableClock(at(1_700_000_000_000));
@@ -45,9 +45,12 @@ function failure(result: Result<unknown, DatabaseError>): DatabaseError {
 	return result.error;
 }
 
-/** A second schema version for the upgrade tests: a new table and a new column. */
-const VERSION_2: Migration = {
-	version: schemaVersionOf(2),
+/** The first schema version alone, to make a file as the first release of diff delver did. */
+const FIRST: readonly Migration[] = MIGRATIONS.slice(0, 1);
+
+/** A schema version after the newest, for the upgrade tests: a new table and a new column. */
+const NEXT: Migration = {
+	version: schemaVersionOf(LATEST_VERSION + 1),
 	name: 'notes, and pinned reports',
 	sql: `
 CREATE TABLE notes (
@@ -84,6 +87,30 @@ function schemaAndRows(dir: AbsolutePath): unknown {
 	}
 }
 
+/** Every row of every table but the record of migrations. */
+function rowsOf(dir: AbsolutePath): Record<string, unknown> {
+	const raw = new DatabaseSync(join(dir, DATABASE_FILE), { readOnly: true });
+	try {
+		const tables = raw
+			.prepare(
+				"SELECT name FROM sqlite_schema WHERE type = 'table' AND name != 'schema_migrations' ORDER BY name"
+			)
+			.all()
+			.map((t) => String(t.name));
+		return Object.fromEntries(
+			tables.map((name) => [
+				name,
+				raw
+					.prepare(`SELECT * FROM "${name}"`)
+					.all()
+					.map((r) => ({ ...r }))
+			])
+		);
+	} finally {
+		raw.close();
+	}
+}
+
 describe('the database', () => {
 	it('is made in the data directory, with every migration recorded and its settings on', async () => {
 		const data = absolutePath(join(await tempDirectory(), 'not', 'made', 'yet'));
@@ -106,6 +133,11 @@ describe('the database', () => {
 				version: 1,
 				name: 'reports, revisions, sections, assignments and reviewed marks',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 2,
+				name: 'reports can be closed because their snapshot is gone',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -122,7 +154,7 @@ describe('the database', () => {
 		const db = value(await Database.open(dir, later));
 		const rows = value(db.read((q) => ok(q.all('SELECT applied_at FROM schema_migrations'))));
 		db.close();
-		expect(rows.map((r) => r.applied_at)).toEqual([1_700_000_000_000]);
+		expect(rows.map((r) => r.applied_at)).toEqual(MIGRATIONS.map(() => 1_700_000_000_000));
 	});
 
 	it('refuses a database a newer diff delver has changed, and says to update', async () => {
@@ -143,15 +175,46 @@ describe('the database', () => {
 		);
 	});
 
-	it('upgrades a version 1 file to a version 2 that adds a table and a column, keeping its rows', async () => {
+	it('upgrades a version 1 file to the current schema, keeping every row and its foreign keys', async () => {
+		const dir = await tempDirectory();
+		const ids = sequentialIds();
+		const id = ids.reportId();
+		const one = value(await Database.open(dir, clock(), FIRST));
+		value(
+			one.write((q) => {
+				insertReport(q, aReport(id));
+				insertRevision(q, aRevision(ids.revisionId(), id));
+				setReportState(q, id, { kind: 'closed', reason: 'source-empty' }, at(3_000));
+				return ok(undefined);
+			})
+		);
+		one.close();
+		const before = rowsOf(dir);
+
+		const db = await opened(dir);
+		expect(rowsOf(dir)).toEqual(before);
+		const checked = value(
+			db.write((q) => {
+				const problems = q.all('PRAGMA foreign_key_check');
+				setReportState(q, id, { kind: 'closed', reason: 'snapshot-gone' }, at(4_000));
+				const reason = q.get('SELECT closed_reason FROM reports')?.closed_reason;
+				q.run('DELETE FROM reports');
+				return ok({ problems, reason, revisions: q.all('SELECT id FROM revisions') });
+			})
+		);
+		db.close();
+		expect(checked).toEqual({ problems: [], reason: 'snapshot-gone', revisions: [] });
+	});
+
+	it('upgrades a version 1 file through every migration and a next one that adds a table and a column', async () => {
 		const dir = await tempDirectory();
 		const id = sequentialIds().reportId();
-		const one = await opened(dir);
+		const one = value(await Database.open(dir, clock(), FIRST));
 		value(store(one, aReport(id)));
 		one.close();
 
 		const later = settableClock(at(1_800_000_000_000));
-		const db = value(await Database.open(dir, later, [...MIGRATIONS, VERSION_2]));
+		const db = value(await Database.open(dir, later, [...MIGRATIONS, NEXT]));
 		const read = value(
 			db.read((q) =>
 				ok({
@@ -166,15 +229,18 @@ describe('the database', () => {
 		db.close();
 		expect(read.migrations.map((m) => ({ ...m }))).toEqual([
 			{ version: 1, applied_at: 1_700_000_000_000 },
-			{ version: 2, applied_at: 1_800_000_000_000 }
+			...[...MIGRATIONS.slice(1), NEXT].map((m) => ({
+				version: m.version,
+				applied_at: 1_800_000_000_000
+			}))
 		]);
-		expect({ ...read.version }).toEqual({ user_version: 2 });
+		expect({ ...read.version }).toEqual({ user_version: NEXT.version });
 		expect(read.notes).toEqual([]);
 		expect(read.pinned.map((r) => ({ ...r }))).toEqual([{ id, pinned: 0 }]);
 		expect(report?.id).toBe(id);
 	});
 
-	it('leaves a version 1 file exactly at version 1 when version 2 fails halfway', async () => {
+	it('leaves a file exactly at its version when the next migration fails halfway', async () => {
 		const dir = await tempDirectory();
 		const one = await opened(dir);
 		value(store(one, aReport(sequentialIds().reportId())));
@@ -182,15 +248,15 @@ describe('the database', () => {
 		const before = schemaAndRows(dir);
 
 		const broken: Migration = {
-			version: schemaVersionOf(2),
+			version: NEXT.version,
 			name: 'fails after its first statements',
-			sql: `${VERSION_2.sql}\nINSERT INTO no_such_table VALUES (1);`
+			sql: `${NEXT.sql}\nINSERT INTO no_such_table VALUES (1);`
 		};
 		const error = failure(await Database.open(dir, clock(), [...MIGRATIONS, broken]));
 		expect(error).toMatchObject({
 			kind: 'MigrationFailed',
 			file: join(dir, DATABASE_FILE),
-			version: 2
+			version: NEXT.version
 		});
 		expect(describeDatabaseError(error)).toMatch(/is as it was/);
 		expect(schemaAndRows(dir)).toEqual(before);
@@ -200,13 +266,13 @@ describe('the database', () => {
 
 	it('refuses a file a list of migrations does not reach, once a newer list has upgraded it', async () => {
 		const dir = await tempDirectory();
-		value(await Database.open(dir, clock(), [...MIGRATIONS, VERSION_2])).close();
+		value(await Database.open(dir, clock(), [...MIGRATIONS, NEXT])).close();
 		const error = failure(await Database.open(dir, clock()));
 		expect(error).toEqual({
 			kind: 'DatabaseTooNew',
 			file: join(dir, DATABASE_FILE),
-			version: 2,
-			known: 1
+			version: NEXT.version,
+			known: LATEST_VERSION
 		});
 	});
 
