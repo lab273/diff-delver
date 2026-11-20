@@ -2,11 +2,19 @@
  * Runs git as a child process: arguments as an array, never a shell string, and
  * expected failures returned as typed values.
  *
- * Every run is isolated from the machine's git setup so the same command gives the
- * same output everywhere: no system or global config, no inherited `GIT_*`
- * variables, no pager, no prompts, and C-locale messages so stderr can be
- * recognised. Repository-local config still applies; diff delver's own store has
- * none that matters, and callers pass `-c` for anything they depend on.
+ * By default every run is isolated from the machine's git setup so the same
+ * command gives the same output everywhere: no system or global config, no
+ * inherited `GIT_*` variables, no pager, no prompts, and C-locale messages so
+ * stderr can be recognised. Repository-local config still applies; diff delver's
+ * own store has none that matters, and callers pass `-c` for anything they depend
+ * on.
+ *
+ * Commands run in the reviewed repository itself use the reviewer's config
+ * instead (`config: 'reviewer'`): what `git add` would store depends on their
+ * global ignore rules, line-ending and filter settings, and git refuses a
+ * repository owned by another account unless their `safe.directory` allows it.
+ * Inherited `GIT_*` variables are still dropped, so nothing in the environment
+ * can point git at another repository, index or object store.
  */
 import { spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
@@ -25,6 +33,11 @@ export interface GitCommand {
 	readonly input?: string | Uint8Array;
 	/** Extra environment, applied after the isolation settings. */
 	readonly env?: Readonly<Record<string, string>>;
+	/**
+	 * Which git config applies besides the repository's own: none (`isolated`, the
+	 * default), or the reviewer's system and global config (`reviewer`).
+	 */
+	readonly config?: 'isolated' | 'reviewer';
 }
 
 export interface GitOutput {
@@ -41,6 +54,17 @@ export interface GitNotFound {
 export interface NotARepository {
 	readonly kind: 'NotARepository';
 	readonly directory: AbsolutePath;
+	readonly stderr: GitStderr;
+}
+
+/**
+ * git refuses to work in the repository because it belongs to another user
+ * account and the reviewer's `safe.directory` setting does not allow it.
+ */
+export interface DubiousOwnership {
+	readonly kind: 'DubiousOwnership';
+	/** The repository git refused, as git named it. */
+	readonly repository: string;
 	readonly stderr: GitStderr;
 }
 
@@ -72,7 +96,10 @@ export interface GitFailed {
 	readonly stderr: GitStderr;
 }
 
-export type GitError = GitNotFound | NotARepository | BadRevision | MissingObject | GitFailed;
+export type GitError =
+	GitNotFound | NotARepository | DubiousOwnership | BadRevision | MissingObject | GitFailed;
+
+const DUBIOUS_OWNERSHIP = /detected dubious ownership in repository at '([^\n]*)'/;
 
 const NOT_A_REPOSITORY = /not a git repository/i;
 /** What git says when an object it needs is absent, with the id where it gives one. */
@@ -82,22 +109,24 @@ const BAD_REVISION =
 	/bad revision|unknown revision|needed a single revision|bad object|not a valid object name|not a tree object|invalid object name|ambiguous argument/i;
 
 /** The environment every git run gets: the parent's, minus git's own variables. */
-function isolatedEnv(extra: Readonly<Record<string, string>> | undefined): NodeJS.ProcessEnv {
+function gitEnv(command: GitCommand): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = {};
 	for (const [name, value] of Object.entries(process.env)) {
 		if (!name.startsWith('GIT_')) env[name] = value;
 	}
+	const isolation =
+		command.config === 'reviewer'
+			? {}
+			: { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: devNull, GIT_ATTR_NOSYSTEM: '1' };
 	return {
 		...env,
-		GIT_CONFIG_NOSYSTEM: '1',
-		GIT_CONFIG_GLOBAL: devNull,
-		GIT_ATTR_NOSYSTEM: '1',
+		...isolation,
 		GIT_TERMINAL_PROMPT: '0',
 		GIT_PAGER: 'cat',
 		GIT_OPTIONAL_LOCKS: '0',
 		LC_ALL: 'C',
 		LANGUAGE: 'C',
-		...extra
+		...command.env
 	};
 }
 
@@ -111,7 +140,7 @@ export async function runGit(command: GitCommand): Promise<Result<GitOutput, Git
 	return new Promise((resolve) => {
 		const child = spawn('git', command.args, {
 			cwd: command.cwd,
-			env: isolatedEnv(command.env),
+			env: gitEnv(command),
 			stdio: ['pipe', 'pipe', 'pipe']
 		});
 		const stdout: Buffer[] = [];
@@ -128,8 +157,12 @@ export async function runGit(command: GitCommand): Promise<Result<GitOutput, Git
 		});
 		child.on('close', (code) => {
 			const errText = gitStderr(Buffer.concat(stderr).toString('utf8'));
+			const dubious = DUBIOUS_OWNERSHIP.exec(errText);
 			if (code === 0) {
 				resolve(ok({ stdout: Buffer.concat(stdout), stderr: errText }));
+			} else if (dubious !== null) {
+				const repository = dubious[1] ?? command.cwd;
+				resolve(err({ kind: 'DubiousOwnership', repository, stderr: errText }));
 			} else if (NOT_A_REPOSITORY.test(errText)) {
 				resolve(err({ kind: 'NotARepository', directory: command.cwd, stderr: errText }));
 			} else if (MISSING_OBJECT.test(errText)) {
@@ -169,6 +202,8 @@ function gitErrorText(error: GitError): string {
 			return 'git could not be found. Install git and make sure it is on your PATH, then try again.';
 		case 'NotARepository':
 			return `${error.directory} is not a git repository. Run diff delver inside a repository, or pass its path.`;
+		case 'DubiousOwnership':
+			return `git refuses to work in ${error.repository} because the folder belongs to another user account on this computer. If you trust it, allow it with: git config --global --add safe.directory '${error.repository}' Then try again.`;
 		case 'BadRevision':
 			return `git does not know one of the revisions asked for: ${firstLineOf(error.stderr)} Check the name, or fetch it first.`;
 		case 'MissingObject': {

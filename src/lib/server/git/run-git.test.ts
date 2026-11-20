@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { parseExitCode, type ExitCode } from '#lib/core/exit-code.tiny.ts';
 import { gitStderr } from '#lib/core/git-stderr.tiny.ts';
 import { join } from 'node:path';
@@ -65,6 +65,45 @@ describe('runGit', () => {
 		});
 	});
 
+	it('reports a repository git refuses because another account owns it', async () => {
+		const repo = await emptyRepo();
+		const result = await runGit({
+			cwd: repo.dir,
+			args: ['rev-parse', '--git-dir'],
+			env: { GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' }
+		});
+		expect(result.ok ? undefined : result.error).toMatchObject({
+			kind: 'DubiousOwnership',
+			repository: repo.dir
+		});
+		if (!result.ok) {
+			expect(describeGitError(result.error)).toContain(
+				`git config --global --add safe.directory '${repo.dir}'`
+			);
+		}
+	});
+
+	it('reads the reviewer config only when asked to', async () => {
+		const repo = await emptyRepo();
+		const global = join(repo.dir, '..', `${repo.dir.split('/').at(-1) ?? ''}-gitconfig`);
+		await writeFile(global, '[diffdelver]\n\tprobe = from-global\n');
+		const read = (config: 'isolated' | 'reviewer') =>
+			runGitText({
+				cwd: repo.dir,
+				args: ['config', '--default', 'none', '--get', 'diffdelver.probe'],
+				env: { GIT_CONFIG_GLOBAL: global },
+				config
+			});
+		expect(await read('reviewer')).toEqual({ ok: true, value: 'from-global' });
+		// An explicit GIT_CONFIG_GLOBAL in `env` still wins over isolation, as `env` is applied last.
+		expect(await read('isolated')).toEqual({ ok: true, value: 'from-global' });
+		const isolated = await runGitText({
+			cwd: repo.dir,
+			args: ['config', '--default', 'none', '--get', 'diffdelver.probe']
+		});
+		expect(isolated).toEqual({ ok: true, value: 'none' });
+	});
+
 	it('reports an unknown revision', async () => {
 		const repo = await emptyRepo();
 		const result = await runGit({ cwd: repo.dir, args: ['rev-parse', '--verify', 'nope^{tree}'] });
@@ -87,6 +126,7 @@ describe('runGit', () => {
 		const errors: readonly GitError[] = [
 			{ kind: 'GitNotFound' },
 			{ kind: 'NotARepository', directory: absolutePath('/x'), stderr: gitStderr('') },
+			{ kind: 'DubiousOwnership', repository: '/x', stderr: gitStderr('fatal: detected') },
 			{ kind: 'BadRevision', args: ['diff-tree'], stderr: gitStderr('fatal: bad revision') },
 			{ kind: 'MissingObject', object: undefined, stderr: gitStderr('fatal: unable to read') },
 			{
@@ -102,7 +142,7 @@ describe('runGit', () => {
 				stderr: gitStderr('')
 			}
 		];
-		expect(describeGitError(errors[5] ?? { kind: 'GitNotFound' })).toMatch(
+		expect(describeGitError(errors[6] ?? { kind: 'GitNotFound' })).toMatch(
 			/^git diff-tree failed \(it stopped before it could finish\)/
 		);
 		for (const error of errors) expect(describeGitError(error).length).toBeGreaterThan(20);

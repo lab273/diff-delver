@@ -29,6 +29,7 @@ import { parseDiffTreeOutput } from '#lib/core/diff/diff-tree-output.ts';
 import type { FileDiff } from '#lib/core/diff/file-diff.ts';
 import { parseLineCount, type LineCount } from '#lib/core/line-count.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
+import { EMPTY_TREE, type ObjectFormat } from '#lib/core/object-format.ts';
 import type { TreeId } from '#lib/core/tree-id.tiny.ts';
 import { runGit, runGitText, type GitError } from './run-git.ts';
 
@@ -40,13 +41,7 @@ export type ReadDiffError = GitError | DiffOutputError;
 /** Number of unchanged lines shown around each change. */
 export const CONTEXT_LINES: LineCount = lineCount(3);
 
-/** git's built-in empty tree, which every repository has without storing it. */
-const EMPTY_TREE = {
-	sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
-	sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321'
-} as const;
-
-export type ObjectFormat = keyof typeof EMPTY_TREE;
+export type { ObjectFormat } from '#lib/core/object-format.ts';
 
 function lineCount(value: number): LineCount {
 	const parsed = parseLineCount(value);
@@ -200,14 +195,37 @@ export async function runDiffTree(
 			const set = await runGit({ cwd: dir.value, args: ['config', '--add', key, value] });
 			if (!set.ok) return set;
 		}
-		const output = await runGit({
-			cwd: dir.value,
-			args: diffTreeArgs(base, head, objectFormat)
-		});
-		return output.ok ? ok(output.value.stdout) : output;
+		return await runDiffTreeDirect(dir.value, base, head, objectFormat);
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}
+}
+
+/**
+ * Runs the diff command directly in a repository diff delver owns, such as a
+ * snapshot store, whose config and `info/attributes` it controls. Never use it on
+ * a reviewed repository: its settings would change the output.
+ */
+export async function runDiffTreeDirect(
+	ownRepository: AbsolutePath,
+	base: TreeIsh,
+	head: TreeIsh,
+	format: ObjectFormat
+): Promise<Result<Buffer, GitError>> {
+	const output = await runGit({ cwd: ownRepository, args: diffTreeArgs(base, head, format) });
+	return output.ok ? ok(output.value.stdout) : output;
+}
+
+/** The diff between two trees of a repository diff delver owns (`runDiffTreeDirect`). */
+export async function readDiffDirect(
+	ownRepository: AbsolutePath,
+	base: TreeIsh,
+	head: TreeIsh,
+	format: ObjectFormat
+): Promise<Result<readonly FileDiff[], ReadDiffError>> {
+	const output = await runDiffTreeDirect(ownRepository, base, head, format);
+	if (!output.ok) return err(output.error);
+	return parseDiffTreeOutput(output.value);
 }
 
 /** The diff between two trees of the repository at `repository`, one entry per changed file. */
