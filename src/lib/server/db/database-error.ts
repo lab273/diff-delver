@@ -116,7 +116,7 @@ export function describeDatabaseError(error: DatabaseError): ReviewerMessage {
 			);
 		case 'StoredRowInvalid':
 			return reviewerMessage(
-				`A saved entry in diff delver's database (table ${error.table}) could not be read: ${error.detail}. The database has been damaged or changed by hand. ${storedRowAdvice(error.table)} If it happens again, please report it as a bug.`
+				`A saved entry in diff delver's database (${tableInWords(error.table)}) could not be read: the database has been damaged or changed by hand. ${storedRowAdvice(error.table)} If it happens again, please report it as a bug.`
 			);
 		case 'DatabaseFailed':
 			return reviewerMessage(
@@ -139,6 +139,26 @@ function unusable(error: DatabaseUnusable): ReviewerMessage {
 			return reviewerMessage(
 				`diff delver could not open its database ${error.file} (${error.reason}). Check that its folder exists, that you can write to it and that the disk is not full, then try again.`
 			);
+	}
+}
+
+/** What a table holds, in the reviewer's words. */
+function tableInWords(table: TableName): string {
+	switch (table) {
+		case 'reports':
+			return 'a diff’s details';
+		case 'revisions':
+			return 'a saved version of a diff';
+		case 'sections':
+			return 'a diff’s sections';
+		case 'assignments':
+			return 'which section each change is in';
+		case 'reviewed_marks':
+			return 'what you marked as reviewed';
+		case 'schema_migrations':
+			return 'the record of the database’s own version';
+		case 'unreferenced_snapshots':
+			return 'the list of saved changes to remove';
 	}
 }
 

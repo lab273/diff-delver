@@ -41,6 +41,11 @@ test.describe('J0 First run', () => {
 		const notSorted = journey.byRole('region', { name: /Not sorted yet/ });
 		await journey.expectVisible(journey.within(notSorted).byText('src/discount.ts'));
 		await journey.expectVisible(journey.within(notSorted).byText('src/cart.ts'));
+		// A new file only adds lines: its size says so and nothing more, as GitHub's does.
+		const added = await journey.textOf(
+			journey.nth(journey.within(notSorted).byRole('listitem'), 2)
+		);
+		expect(added).toMatch(/^src\/discount\.ts\s+added\s+\+5\s+added$/);
 		const ignored = journey.byRole('region', { name: /Ignored/ });
 		await journey.expectVisible(journey.within(ignored).byText('pnpm-lock.yaml'));
 		await journey.expectVisible(journey.within(ignored).byText('Lockfile'));

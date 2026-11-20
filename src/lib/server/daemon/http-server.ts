@@ -24,6 +24,9 @@ const ALWAYS = {
 	'cross-origin-resource-policy': 'same-origin'
 } as const;
 
+const REFUSAL_POLICY =
+	"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
 function escapeHtml(text: string): string {
 	return text
 		.replaceAll('&', '&amp;')
@@ -75,7 +78,9 @@ function refuse(req: IncomingMessage, res: ServerResponse, refusal: Refusal): vo
 	}
 	res.writeHead(status, {
 		'content-type': 'text/html; charset=utf-8',
-		'cache-control': 'no-store'
+		'cache-control': 'no-store',
+		// The page is whole in itself: its own styles, nothing else.
+		'content-security-policy': REFUSAL_POLICY
 	});
 	res.end(refusalPage(refusal));
 }

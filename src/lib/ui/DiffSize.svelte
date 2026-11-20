@@ -1,6 +1,7 @@
 <!--
 	A diff's or a file's size as GitHub shows it: lines added in green with a +,
-	lines removed in red with a −. The signs and the words read without colour.
+	lines removed in red with a −, each only when there are some. The signs and
+	the words read without colour.
 -->
 <script lang="ts">
 	import type { LineCount } from '#lib/core/line-count.tiny.ts';
@@ -9,8 +10,12 @@
 </script>
 
 <span class="size">
-	<span class="added">+{added}<span class="visually-hidden"> added</span></span>
-	<span class="removed">−{removed}<span class="visually-hidden"> removed</span></span>
+	{#if added > 0}
+		<span class="added">+{added}<span class="visually-hidden"> added</span></span>
+	{/if}
+	{#if removed > 0}
+		<span class="removed">−{removed}<span class="visually-hidden"> removed</span></span>
+	{/if}
 </span>
 
 <style>
@@ -26,6 +31,9 @@
 
 	.removed {
 		color: var(--color-removed);
+	}
+
+	.added + .removed {
 		margin-left: 0.25rem;
 	}
 </style>

@@ -153,6 +153,13 @@ describe('the daemon’s gate', () => {
 		expect(home.status).toBe(200);
 		expect(home.body).toContain('There are no diffs in diff delver.');
 		expect(home.headers['referrer-policy']).toBe('no-referrer');
+		// The pages load nothing from anywhere but the daemon, and run only its own scripts.
+		const policy = String(home.headers['content-security-policy']);
+		expect(policy).toContain("default-src 'self'");
+		expect(policy).toMatch(/script-src 'self' 'nonce-[^']+'/);
+		expect(policy).toContain("object-src 'none'");
+		expect(policy).toContain("frame-ancestors 'none'");
+		expect(policy).not.toMatch(/script-src[^;]*unsafe/);
 
 		// The same address again, as from another browser, is out of date.
 		const again = await rawRequest(daemon.port, { path: `/?entry=${code}` });
@@ -183,6 +190,9 @@ describe('the daemon’s gate', () => {
 		expect(page.headers['content-type']).toMatch(/text\/html/);
 		expect(page.body).toContain('Open diff delver from your terminal');
 		expect(page.body).toContain('<code>diff-delver</code>');
+		expect(page.headers['content-security-policy']).toBe(
+			"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		);
 
 		const old = await rawRequest(daemon.port, { path: `/?entry=${'0'.repeat(32)}` });
 		expect(old.status).toBe(403);

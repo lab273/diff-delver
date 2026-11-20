@@ -351,6 +351,8 @@ describe('the database', () => {
 		];
 		for (const table of ofReports) {
 			expect(advice(table)).toMatch(/Delete that diff from the list of diffs/);
+			// In the reviewer's words, not the database's.
+			expect(advice(table)).not.toMatch(/table|column|_/);
 		}
 		const ofNone: TableName[] = ['schema_migrations', 'unreferenced_snapshots'];
 		for (const table of ofNone) {
@@ -387,7 +389,9 @@ describe('the database', () => {
 		db.close();
 		const error = failure(read);
 		expect(error).toMatchObject({ kind: 'StoredRowInvalid', table: 'reports' });
-		expect(describeDatabaseError(error)).toMatch(/table reports.*column store_id/);
+		if (error.kind === 'StoredRowInvalid') expect(error.detail).toMatch(/store_id/);
+		expect(describeDatabaseError(error)).toMatch(/\(a diff’s details\) could not be read/);
+		expect(describeDatabaseError(error)).not.toMatch(/reports|store_id/);
 	});
 
 	it('leaves everything as it was when a write fails or throws', async () => {

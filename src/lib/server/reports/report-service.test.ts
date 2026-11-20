@@ -515,12 +515,12 @@ describe('the report service', () => {
 		[
 			"the report's row",
 			"UPDATE reports SET repository_name = '' WHERE id = 'r_1'",
-			'table reports'
+			'(a diff’s details)'
 		],
 		[
 			'a revision row',
 			"UPDATE revisions SET left_out = 'not JSON' WHERE id = 'v_1'",
-			'table revisions'
+			'(a saved version of a diff)'
 		],
 		['its revisions are gone, so it', "DELETE FROM revisions WHERE id = 'v_1'", 'no saved version']
 	])(
@@ -550,6 +550,8 @@ describe('the report service', () => {
 			if (entry?.kind !== 'damaged') throw new Error('expected a damaged entry');
 			expect(entry.problem).toContain(problem);
 			expect(entry.problem).toMatch(/Delete/);
+			// In the reviewer's words: no table or column names.
+			expect(entry.problem).not.toMatch(/table|reports|revisions|column|_/);
 			expect(value(await service.load(good)).summary.id).toBe(good);
 
 			expect(value(await service.deleteReport(damaged)).storeProblem).toBeUndefined();

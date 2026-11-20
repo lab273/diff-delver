@@ -16,7 +16,25 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			// A prefix of its own, so the reviewer's PORT, ORIGIN or BODY_SIZE_LIMIT never reach it.
-			adapter: adapter({ envPrefix: 'DIFF_DELVER_APP_' })
+			adapter: adapter({ envPrefix: 'DIFF_DELVER_APP_' }),
+			// The pages need nothing from anywhere but the daemon, and run only its own
+			// scripts: SvelteKit adds a nonce for the ones it writes into a page. Styles
+			// may be inline, as SvelteKit's own and the bundled fonts' small faces are.
+			csp: {
+				mode: 'nonce',
+				directives: {
+					'default-src': ['self'],
+					'script-src': ['self'],
+					'style-src': ['self', 'unsafe-inline'],
+					'img-src': ['self', 'data:'],
+					'font-src': ['self', 'data:'],
+					'connect-src': ['self'],
+					'object-src': ['none'],
+					'base-uri': ['none'],
+					'form-action': ['self'],
+					'frame-ancestors': ['none']
+				}
+			}
 		})
 	],
 	test: {
