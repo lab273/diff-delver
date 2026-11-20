@@ -29,7 +29,7 @@ import { reviewer } from '../../../../tests/support/reviewer-git.ts';
 import { arbitraryAssignScenario, marksFrom } from '../../../../tests/support/synthetic-diff.ts';
 import { Database } from './database.ts';
 import { assignmentRowsFor, replaceAssignmentRows } from './tables/assignments.ts';
-import { allReports, insertReport, reportById, setReportState } from './tables/reports.ts';
+import { everyReport, insertReport, reportById, setReportState } from './tables/reports.ts';
 import { replaceReviewedRows, reviewedRowsFor } from './tables/reviewed-marks.ts';
 import { currentRevision, insertRevision } from './tables/revisions.ts';
 import { replaceSections, sectionsOf } from './tables/sections.ts';
@@ -133,14 +133,12 @@ describe('the tables', () => {
 			})
 		);
 		const after = value(
-			db.read((q) =>
-				andThen(sectionsOf(q, revision.id), (s) => andThen(allReports(q), (all) => ok({ s, all })))
-			)
+			db.read((q) => andThen(sectionsOf(q, revision.id), (s) => ok({ s, all: everyReport(q) })))
 		);
 		db.close();
 		expect(after.s).toEqual(reordered);
 		expect(after.all).toEqual([
-			{ ...report, state: { kind: 'closed', reason: 'reviewer' }, lastActivityAt: 9_000 }
+			ok({ ...report, state: { kind: 'closed', reason: 'reviewer' }, lastActivityAt: 9_000 })
 		]);
 	});
 

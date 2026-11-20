@@ -122,20 +122,26 @@ export function currentRevision(
 	return raw === undefined ? ok(undefined) : toRevision(raw);
 }
 
-/** Every report's newest revision, by report. */
+const reportOnly = z.object({ report_id: text(parseReportId) });
+
+/**
+ * Every report's newest revision, by report, each read on its own: a row that
+ * cannot be read is an error under its report, so the others can still be
+ * listed. A row whose report id cannot be read is left out, and its report
+ * then has no revision here.
+ */
 export function currentRevisions(
 	q: Queries
-): Result<ReadonlyMap<ReportId, Revision>, StoredRowInvalid> {
+): ReadonlyMap<ReportId, Result<Revision, StoredRowInvalid>> {
 	const raws = q.all(
 		`SELECT ${COLUMNS} FROM revisions AS r WHERE number = (SELECT max(number) FROM revisions WHERE report_id = r.report_id)`
 	);
-	const byReport = new Map<ReportId, Revision>();
+	const byReport = new Map<ReportId, Result<Revision, StoredRowInvalid>>();
 	for (const raw of raws) {
-		const revision = toRevision(raw);
-		if (!revision.ok) return revision;
-		byReport.set(revision.value.report, revision.value);
+		const report = parseRow('revisions', reportOnly, raw);
+		if (report.ok) byReport.set(report.value.report_id, toRevision(raw));
 	}
-	return ok(byReport);
+	return byReport;
 }
 
 /** Every revision of a report, oldest first. */
@@ -174,6 +180,32 @@ export interface SnapshotUse {
 }
 
 const use = z.object({ store_id: text(parseStoreId), snapshot_id: text(parseSnapshotId) });
+
+/**
+ * The snapshots a report's revisions refer to, read from those two columns
+ * alone, so a report whose rows are otherwise damaged can still be deleted.
+ * A row whose two columns cannot be read is left out; its snapshot is then
+ * removed once nothing refers to it (`unreferenced_snapshots`).
+ */
+export function snapshotsOfReport(q: Queries, report: ReportId): readonly SnapshotUse[] {
+	return q
+		.all('SELECT DISTINCT store_id, snapshot_id FROM revisions WHERE report_id = ?', report)
+		.flatMap((raw) => {
+			const row = parseRow('revisions', use, raw);
+			return row.ok ? [{ store: row.value.store_id, snapshot: row.value.snapshot_id }] : [];
+		});
+}
+
+/** Whether any revision refers to the snapshot. */
+export function snapshotInUse(q: Queries, snapshot: SnapshotUse): boolean {
+	return (
+		q.get(
+			'SELECT 1 AS found FROM revisions WHERE store_id = ? AND snapshot_id = ?',
+			snapshot.store,
+			snapshot.snapshot
+		) !== undefined
+	);
+}
 
 /** Every snapshot some revision refers to. */
 export function snapshotsInUse(q: Queries): Result<readonly SnapshotUse[], StoredRowInvalid> {

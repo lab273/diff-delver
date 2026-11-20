@@ -64,11 +64,12 @@ import type { UnitCount } from '#lib/core/unit-count.tiny.ts';
 import { Database, type DatabaseError, type Queries } from '../db/index.ts';
 import { assignmentRowsFor, replaceAssignmentRows } from '../db/tables/assignments.ts';
 import {
-	allReports,
 	deleteReportRow,
+	everyReport,
 	insertReport,
 	openReportFor,
 	reportById,
+	reportExists,
 	setReportState,
 	touchReport
 } from '../db/tables/reports.ts';
@@ -77,9 +78,10 @@ import {
 	currentRevision,
 	currentRevisions,
 	insertRevision,
-	revisionsOf,
 	setRevisionProgress,
-	snapshotsInUse
+	snapshotInUse,
+	snapshotsInUse,
+	snapshotsOfReport
 } from '../db/tables/revisions.ts';
 import { replaceSections, sectionsOf } from '../db/tables/sections.ts';
 import {
@@ -109,7 +111,7 @@ import {
 	readSnapshotDiff,
 	type Snapshot
 } from '../store/index.ts';
-import type { ReportError } from './report-error.ts';
+import { describeReportError, type ReportError } from './report-error.ts';
 
 export interface ReportServiceOptions {
 	/** Where the database and the stores live. */
@@ -138,6 +140,21 @@ export interface ReportSummary {
 	readonly progress: Revision['progress'];
 	/** How many files could not be included; the report page lists them. */
 	readonly leftOut: FileCount;
+}
+
+/**
+ * A report in the list. One whose saved rows cannot be read is listed as
+ * damaged, beside the others, so the reviewer can see it and delete it.
+ */
+export type ListedReport = ({ readonly kind: 'report' } & ReportSummary) | DamagedReport;
+
+/** A report whose saved rows cannot be read. `deleteReport` removes it. */
+export interface DamagedReport {
+	readonly kind: 'damaged';
+	/** Undefined only when the id itself cannot be read; such a row cannot be deleted from here. */
+	readonly id: ReportId | undefined;
+	/** What is wrong and what to do, for the reviewer. */
+	readonly problem: ReviewerMessage;
 }
 
 /** What opening a source did. */
@@ -427,22 +444,39 @@ export class ReportService {
 		});
 	}
 
-	/** Every report, open and closed, most recently active first. */
-	list(): Result<readonly ReportSummary[], ReportError> {
-		return this.#db.read((q) =>
-			andThen(allReports(q), (reports) =>
-				andThen(currentRevisions(q), (revisions): Result<ReportSummary[], ReportError> => {
-					const summaries: ReportSummary[] = [];
-					for (const report of reports) {
-						const revision = revisions.get(report.id);
-						if (revision === undefined)
-							return err({ kind: 'ReportHasNoRevision', report: report.id });
-						summaries.push(summaryOf(report, revision));
+	/**
+	 * Every report, open and closed, most recently active first. A report whose
+	 * rows cannot be read is listed as damaged in its place, so one bad row
+	 * never hides the others.
+	 */
+	list(): Result<readonly ListedReport[], ReportError> {
+		return this.#db.read((q): Result<readonly ListedReport[], ReportError> => {
+			const revisions = currentRevisions(q);
+			return ok(
+				everyReport(q).map((row): ListedReport => {
+					if (!row.ok) {
+						return {
+							kind: 'damaged',
+							id: row.error.id,
+							problem: describeReportError(row.error.error)
+						};
 					}
-					return ok(summaries);
+					const report = row.value;
+					const revision = revisions.get(report.id);
+					if (revision === undefined) {
+						return {
+							kind: 'damaged',
+							id: report.id,
+							problem: describeReportError({ kind: 'ReportHasNoRevision', report: report.id })
+						};
+					}
+					if (!revision.ok) {
+						return { kind: 'damaged', id: report.id, problem: describeReportError(revision.error) };
+					}
+					return { kind: 'report', ...summaryOf(report, revision.value) };
 				})
-			)
-		);
+			);
+		});
 	}
 
 	/**
@@ -568,25 +602,16 @@ export class ReportService {
 
 	/**
 	 * Deletes a report: its rows, then its snapshots from the store, then lets
-	 * the store collect what nothing else uses (DESIGN 3.2).
+	 * the store collect what nothing else uses (DESIGN 3.2). A damaged report
+	 * can be deleted too; it needs only its id to be readable.
 	 */
 	async deleteReport(id: ReportId): Promise<Result<Deleted, ReportError>> {
-		const removed = this.#db.write((q) =>
-			andThen(reportById(q, id), (report): Result<readonly StoredSnapshot[], ReportError> => {
-				if (report === undefined) return err<ReportError>({ kind: 'ReportNotFound', report: id });
-				return andThen(revisionsOf(q, id), (revisions) => {
-					deleteReportRow(q, id);
-					return andThen(snapshotsInUse(q), (inUse) => {
-						const used = new Set(inUse.map((s) => `${s.store}/${s.snapshot}`));
-						return ok(
-							revisions
-								.map((r): StoredSnapshot => ({ store: r.store, snapshot: r.snapshot }))
-								.filter((s) => !used.has(`${s.store}/${s.snapshot}`))
-						);
-					});
-				});
-			})
-		);
+		const removed = this.#db.write((q): Result<readonly StoredSnapshot[], ReportError> => {
+			if (!reportExists(q, id)) return err({ kind: 'ReportNotFound', report: id });
+			const snapshots = snapshotsOfReport(q, id);
+			deleteReportRow(q, id);
+			return ok(snapshots.filter((s) => !snapshotInUse(q, s)));
+		});
 		if (!removed.ok) return removed;
 		this.#checks.delete(id);
 		const removedSnapshots = await this.#removeSnapshots(removed.value);

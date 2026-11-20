@@ -370,7 +370,10 @@ describe('the report service', () => {
 
 		await repo.commit('done');
 		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'source-empty' });
-		expect(value(service.list())[0]?.state).toEqual({ kind: 'closed', reason: 'source-empty' });
+		expect(value(service.list())[0]).toMatchObject({
+			kind: 'report',
+			state: { kind: 'closed', reason: 'source-empty' }
+		});
 		expect(value(await service.checkForChanges(id))).toEqual({ kind: 'report-closed' });
 
 		// The next day's work in the same worktree is a new report; the old one stays readable.
@@ -411,6 +414,55 @@ describe('the report service', () => {
 		expect(failure(await service.deleteReport(second)).kind).toBe('ReportNotFound');
 		service.close();
 	});
+
+	it.each([
+		[
+			"the report's row",
+			"UPDATE reports SET repository_name = '' WHERE id = 'r_1'",
+			'table reports'
+		],
+		[
+			'a revision row',
+			"UPDATE revisions SET left_out = 'not JSON' WHERE id = 'v_1'",
+			'table revisions'
+		],
+		['its revisions are gone, so it', "DELETE FROM revisions WHERE id = 'v_1'", 'no saved snapshot']
+	])(
+		'lists a report as damaged when %s cannot be read, beside the others, and deletes it',
+		async (_what, damage, problem) => {
+			const { repo, data, clock, service } = await setUp();
+			const damaged = created(value(await service.open(repo.dir, spec('working-tree'))));
+			clock.advance(1_000);
+			const good = created(value(await service.open(repo.dir, spec('HEAD'))));
+			expect(await snapshotCount(data)).toBe(2);
+			const db = value(await Database.open(data, clock));
+			value(
+				db.write((q) => {
+					q.exec('PRAGMA foreign_keys = OFF');
+					q.run(damage);
+					return ok(undefined);
+				})
+			);
+			db.close();
+
+			const listed = value(service.list());
+			expect(listed.map((r) => [r.kind, r.id])).toEqual([
+				['report', good],
+				['damaged', damaged]
+			]);
+			const entry = listed[1];
+			if (entry?.kind !== 'damaged') throw new Error('expected a damaged entry');
+			expect(entry.problem).toContain(problem);
+			expect(entry.problem).toMatch(/Delete/);
+			expect(value(await service.load(good)).summary.id).toBe(good);
+
+			expect(value(await service.deleteReport(damaged)).storeProblem).toBeUndefined();
+			expect(value(service.list()).map((r) => [r.kind, r.id])).toEqual([['report', good]]);
+			expect(failure(await service.load(damaged)).kind).toBe('ReportNotFound');
+			expect(await snapshotCount(data)).toBe(problem === 'no saved snapshot' ? 2 : 1);
+			service.close();
+		}
+	);
 
 	it('removes a snapshot nothing refers to once the grace period has passed', async () => {
 		const { repo, who, data, clock, service } = await setUp();

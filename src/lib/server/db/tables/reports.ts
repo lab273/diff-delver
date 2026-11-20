@@ -105,18 +105,32 @@ export function openReportFor(
 	return raw === undefined ? ok(undefined) : toReport(raw);
 }
 
-/** Every report, most recently active first. */
-export function allReports(q: Queries): Result<readonly Report[], StoredRowInvalid> {
-	const raws = q.all(
-		`SELECT ${COLUMNS} FROM reports ORDER BY last_activity_at DESC, created_at DESC, id`
-	);
-	const reports: Report[] = [];
-	for (const raw of raws) {
-		const report = toReport(raw);
-		if (!report.ok) return report;
-		reports.push(report.value);
-	}
-	return ok(reports);
+/** A report row that could not be read: its id, when that much can be read, and why. */
+export interface UnreadableReport {
+	readonly id: ReportId | undefined;
+	readonly error: StoredRowInvalid;
+}
+
+const idOnly = z.object({ id: text(parseReportId) });
+
+/**
+ * Every report, most recently active first, each read on its own: a row that
+ * cannot be read is an error in its place, so the others can still be listed.
+ */
+export function everyReport(q: Queries): readonly Result<Report, UnreadableReport>[] {
+	return q
+		.all(`SELECT ${COLUMNS} FROM reports ORDER BY last_activity_at DESC, created_at DESC, id`)
+		.map((raw) => {
+			const report = toReport(raw);
+			if (report.ok) return report;
+			const id = parseRow('reports', idOnly, raw);
+			return err({ id: id.ok ? id.value.id : undefined, error: report.error });
+		});
+}
+
+/** Whether there is a report with this id, whether or not its row can be read. */
+export function reportExists(q: Queries, id: ReportId): boolean {
+	return q.get('SELECT 1 AS found FROM reports WHERE id = ?', id) !== undefined;
 }
 
 /** Sets a report's state, and its last activity to `at`. Says whether the report exists. */

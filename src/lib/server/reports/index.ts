@@ -20,7 +20,9 @@
  */
 export type {
 	ChangeCheck,
+	DamagedReport,
 	Deleted,
+	ListedReport,
 	LoadedReport,
 	MarkOutcome,
 	OpenOutcome,
