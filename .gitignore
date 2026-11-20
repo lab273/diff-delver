@@ -50,3 +50,5 @@ Thumbs.db
 *.sqlite-wal
 *.sqlite-shm
 *.sqlite-journal
+# except the data folder written by an earlier diff delver, a test fixture (pnpm fixtures:old-database)
+!src/lib/server/reports/fixtures/before-file-units/diff-delver.sqlite

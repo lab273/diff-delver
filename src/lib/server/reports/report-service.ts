@@ -56,7 +56,7 @@ import { applySectionRequests, type SectionRequest } from '#lib/core/reports/sec
 import { markReviewed, type ReviewTarget } from '#lib/core/review/mark-reviewed.ts';
 import { reviewProgress, unitProgressOf, type Progress } from '#lib/core/review/progress.ts';
 import { NO_MARKS, type ReviewedMarks } from '#lib/core/review/reviewed-marks.ts';
-import { andThen, err, ok, type Result } from '#lib/core/result.ts';
+import { andThen, err, map, ok, type Result } from '#lib/core/result.ts';
 import { repositoryNameOf } from '#lib/core/repository-name.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import {
@@ -71,6 +71,7 @@ import {
 	assignmentRowsOf,
 	assignmentStateFromRows,
 	changedAssignmentPaths,
+	pathsMissingFileUnit,
 	reviewedMarksFromRows,
 	reviewedRowsOf,
 	unitRowsOf,
@@ -108,12 +109,14 @@ import {
 	currentRevision,
 	currentRevisions,
 	insertRevision,
+	revisionsOf,
 	setRevisionProgress,
 	snapshotInUse,
 	snapshotsInUse,
 	snapshotsOfReport
 } from '../db/tables/revisions.ts';
 import { replaceSections, sectionsOf } from '../db/tables/sections.ts';
+import { checkedRevision, isToCheck, revisionsToCheck } from '../db/tables/revisions-to-check.ts';
 import {
 	forgetSnapshot,
 	noticeSnapshot,
@@ -549,7 +552,10 @@ export class ReportService {
 	/** Opens the service on a data directory, making its database if there is none. */
 	static async open(options: ReportServiceOptions): Promise<Result<ReportService, DatabaseError>> {
 		const db = await Database.open(options.dataDirectory, options.clock);
-		return db.ok ? ok(new ReportService(db.value, options)) : db;
+		if (!db.ok) return db;
+		const service = new ReportService(db.value, options);
+		await service.#checkOldRevisions();
+		return ok(service);
 	}
 
 	/** Closes the database. The service cannot be used afterwards. */
@@ -640,51 +646,50 @@ export class ReportService {
 
 	/** Everything a report page shows, from the database and the store; the repository is not touched. */
 	async load(id: ReportId): Promise<Result<LoadedReport, ReportError>> {
-		const found = this.#db.read((q) =>
-			andThen(
-				current(q, id),
-				(
-					c
-				): Result<
-					Current & Stored & { fresh: readonly UnitRow[]; summary: UpdateSummary | undefined },
-					ReportError
-				> =>
-					andThen(sectionsOf(q, c.revision.id), (sections) =>
-						andThen(assignmentRowsFor(q, c.revision.id), (rows) =>
-							andThen(reviewedRowsFor(q, c.revision.id), (marked) =>
-								andThen(newUnitRowsFor(q, c.revision.id), (fresh) =>
-									andThen(revisionUpdateFor(q, c.revision.id), (summary) =>
-										ok({ ...c, sections, rows, marked, fresh, summary })
-									)
+		const shown = this.#db.read((q) => current(q, id));
+		if (!shown.ok) return shown;
+		const { report } = shown.value;
+		const content = await this.#contentOf(report, shown.value.revision);
+		if (!content.ok) return content;
+		const { snapshot, diff, revision } = content.value;
+		const found = this.#db.read(
+			(
+				q
+			): Result<
+				Stored & { fresh: readonly UnitRow[]; summary: UpdateSummary | undefined },
+				ReportError
+			> =>
+				andThen(sectionsOf(q, revision.id), (sections) =>
+					andThen(assignmentRowsFor(q, revision.id), (rows) =>
+						andThen(reviewedRowsFor(q, revision.id), (marked) =>
+							andThen(newUnitRowsFor(q, revision.id), (fresh) =>
+								andThen(revisionUpdateFor(q, revision.id), (summary) =>
+									ok({ sections, rows, marked, fresh, summary })
 								)
 							)
 						)
 					)
-			)
+				)
 		);
 		if (!found.ok) return found;
-		const { report, revision, sections, rows, marked, summary } = found.value;
-		const snapshot = await this.#snapshotOf(report, revision);
-		if (!snapshot.ok) return snapshot;
-		const diff = await this.#diffOf(snapshot.value);
-		if (!diff.ok) return diff;
-		const state = assignmentStateFromRows(diff.value, rows);
+		const { sections, rows, marked, summary } = found.value;
+		const state = assignmentStateFromRows(diff, rows);
 		if (!state.ok) return state;
-		const reviewed = reviewedMarksFromRows(diff.value, marked);
+		const reviewed = reviewedMarksFromRows(diff, marked);
 		if (!reviewed.ok) return reviewed;
-		const fresh = unitSetFromRows(diff.value, found.value.fresh, 'new changes');
+		const fresh = unitSetFromRows(diff, found.value.fresh, 'new changes');
 		if (!fresh.ok) return fresh;
 		return ok({
 			summary: summaryOf(report, revision),
 			report,
 			revision,
-			snapshot: snapshot.value,
-			diff: diff.value,
+			snapshot,
+			diff: diff,
 			sections,
 			state: state.value,
 			reviewed: reviewed.value,
 			progress: reviewProgress(
-				diff.value,
+				diff,
 				state.value,
 				reviewed.value,
 				'sections',
@@ -1321,13 +1326,12 @@ export class ReportService {
 
 	/** How many files an update to `prepared` would change, from the current revision's state. */
 	async #filesChanged(found: Current, prepared: Prepared): Promise<Result<FileCount, ReportError>> {
-		const previous = await this.#snapshotOf(found.report, found.revision);
+		const previous = await this.#contentOf(found.report, found.revision);
 		if (!previous.ok) return previous;
-		const diff = await this.#diffOf(previous.value);
-		if (!diff.ok) return diff;
+		const { diff } = previous.value;
 		return this.#db.read((q) =>
-			andThen(stateOf(q, found.revision, diff.value), ({ state, marks }) =>
-				ok(carryOver(carryOverInput(diff.value, state, marks, prepared)).summary.filesChanged)
+			andThen(stateOf(q, found.revision, diff), ({ state, marks }) =>
+				ok(carryOver(carryOverInput(diff, state, marks, prepared)).summary.filesChanged)
 			)
 		);
 	}
@@ -1430,18 +1434,17 @@ export class ReportService {
 	 * no longer the one the update started from.
 	 */
 	async #writeUpdate(found: Current, prepared: Prepared): Promise<Result<Written, ReportError>> {
-		const previous = await this.#snapshotOf(found.report, found.revision);
+		const previous = await this.#contentOf(found.report, found.revision);
 		if (!previous.ok) return previous;
-		const before = await this.#diffOf(previous.value);
-		if (!before.ok) return before;
+		const before = previous.value.diff;
 		const { taken, diff } = prepared;
 		const id = found.report.id;
 		return this.#db.write((q) =>
 			andThen(currentOpen(q, id), (now): Result<Written, ReportError> => {
 				if (now.revision.id !== found.revision.id) return ok('stale');
 				return andThen(sectionsOf(q, now.revision.id), (sections) =>
-					andThen(stateOf(q, now.revision, before.value), ({ state, marks }) => {
-						const carried = carryOver(carryOverInput(before.value, state, marks, prepared));
+					andThen(stateOf(q, now.revision, before), ({ state, marks }) => {
+						const carried = carryOver(carryOverInput(before, state, marks, prepared));
 						const at = this.#clock.now();
 						const revision: Revision = {
 							id: this.#ids.revisionId(),
@@ -1499,22 +1502,21 @@ export class ReportService {
 		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
 		if (!found.ok) return found;
 		const { report, revision } = found.value;
-		const snapshot = await this.#snapshotOf(report, revision);
-		if (!snapshot.ok) return snapshot;
-		const diff = await this.#diffOf(snapshot.value);
-		if (!diff.ok) return diff;
+		const content = await this.#contentOf(report, revision);
+		if (!content.ok) return content;
+		const { diff } = content.value;
 		return this.#db.write((q) =>
 			andThen(currentAsSeen(q, id, seen), (now): Result<T, ReportError> => {
 				// The same number on another revision cannot happen; checked so it never goes unseen.
 				if (now.revision.id !== revision.id) {
 					return err({ kind: 'RevisionChangedWhileSaving', report: id });
 				}
-				return andThen(stateOf(q, revision, diff.value), ({ state, marks }) =>
-					andThen(change(q, revision, diff.value, state, marks), (changed) => {
+				return andThen(stateOf(q, revision, diff), ({ state, marks }) =>
+					andThen(change(q, revision, diff, state, marks), (changed) => {
 						setRevisionProgress(
 							q,
 							revision.id,
-							unitProgressOf(reviewProgress(diff.value, changed.state, changed.marks, 'sections'))
+							unitProgressOf(reviewProgress(diff, changed.state, changed.marks, 'sections'))
 						);
 						touchReport(q, id, this.#clock.now());
 						return ok(changed.result);
@@ -1522,6 +1524,128 @@ export class ReportService {
 				);
 			})
 		);
+	}
+
+	/**
+	 * The revision's snapshot and diff, and the revision as stored once its rows
+	 * are up to date (`#complete`). Everything that reads a revision's rows
+	 * reads its diff through this first.
+	 */
+	async #contentOf(
+		report: Report,
+		revision: Revision
+	): Promise<Result<{ snapshot: Snapshot; diff: Diff; revision: Revision }, ReportError>> {
+		const snapshot = await this.#snapshotOf(report, revision);
+		if (!snapshot.ok) return snapshot;
+		const diff = await this.#diffOf(snapshot.value);
+		if (!diff.ok) return diff;
+		const completed = await this.#complete(revision, snapshot.value, diff.value);
+		if (!completed.ok) return completed;
+		return ok({ snapshot: snapshot.value, diff: diff.value, revision: completed.value });
+	}
+
+	/**
+	 * Brings a revision written before a file with lines could also have a
+	 * file-level unit up to date (`revisions_to_check`), once: each such unit
+	 * without a row gets what a first version would have given it (the built-in
+	 * ignore rules and the snapshot's `linguist-generated` paths, the role its
+	 * path suggests, and no reviewed mark), and the revision's stored progress is
+	 * computed again from its rows, so the list of diffs, the page and the
+	 * command agree. Reads the database and the store only, never the reviewed
+	 * repository; for any other revision it is one small query. Returns the
+	 * revision with its progress as now stored.
+	 */
+	async #complete(
+		revision: Revision,
+		snapshot: Snapshot,
+		diff: Diff
+	): Promise<Result<Revision, ReportError>> {
+		const rows = this.#db.read((q) =>
+			isToCheck(q, revision.id) ? map(assignmentRowsFor(q, revision.id), (r) => [r]) : ok([])
+		);
+		if (!rows.ok) return rows;
+		const [stored] = rows.value;
+		if (stored === undefined) return ok(revision);
+		const missing = pathsMissingFileUnit(diff, stored);
+		const generated =
+			missing.size === 0 ? ok(new Set<RepoPath>()) : await generatedPaths(snapshot, [...missing]);
+		if (!generated.ok) return generated;
+		const first = autoIgnore(diff, initialState(diff), { markedGenerated: generated.value }).state;
+		return this.#db.write((q) => {
+			if (!isToCheck(q, revision.id)) {
+				return map(
+					revisionsOf(q, revision.report),
+					(all) => all.find((r) => r.id === revision.id) ?? revision
+				);
+			}
+			return andThen(assignmentRowsFor(q, revision.id), (now) => {
+				const lacking = pathsMissingFileUnit(diff, now);
+				const added = assignmentRowsOf(diff, first, lacking).filter((r) => r.units.kind === 'file');
+				const complete = [...now, ...added];
+				return andThen(assignmentStateFromRows(diff, complete), (state) =>
+					andThen(reviewedRowsFor(q, revision.id), (marked) =>
+						andThen(reviewedMarksFromRows(diff, marked), (marks): Result<Revision, ReportError> => {
+							const progress = unitProgressOf(reviewProgress(diff, state, marks, 'sections'));
+							replaceAssignmentRows(
+								q,
+								revision.id,
+								lacking,
+								complete.filter((r) => lacking.has(r.path))
+							);
+							setRevisionProgress(q, revision.id, progress);
+							checkedRevision(q, revision.id);
+							return ok({ ...revision, progress });
+						})
+					)
+				);
+			});
+		});
+	}
+
+	/**
+	 * Brings every revision written before a file with lines could also have a
+	 * file-level unit up to date (`#complete`), when the service opens, so the
+	 * list of diffs is right before any of them is opened. A revision whose
+	 * snapshot is gone can never be shown and is left as it is; one that cannot
+	 * be brought up to date now is tried again when it is next read.
+	 */
+	async #checkOldRevisions(): Promise<void> {
+		const due = this.#db.read((q) => revisionsToCheck(q));
+		if (!due.ok) {
+			this.#logOnce(
+				`Diffs saved by an earlier diff delver could not be listed: ${JSON.stringify(due.error)}`
+			);
+			return;
+		}
+		for (const { report: reportId, revision: revisionId } of due.value) {
+			const found = this.#db.read((q) =>
+				andThen(reportById(q, reportId), (report) =>
+					map(revisionsOf(q, reportId), (revisions) => ({
+						report,
+						revision: revisions.find((r) => r.id === revisionId)
+					}))
+				)
+			);
+			if (!found.ok || found.value.report === undefined || found.value.revision === undefined) {
+				this.#logOnce(
+					`A diff saved by an earlier diff delver (${reportId}) could not be read: ${found.ok ? 'it has gone' : JSON.stringify(found.error)}`
+				);
+				continue;
+			}
+			const { report, revision } = found.value;
+			const done = await this.#contentOf(report, revision);
+			if (done.ok) continue;
+			if (done.error.kind === 'SnapshotGone') {
+				this.#db.write((q) => {
+					checkedRevision(q, revision.id);
+					return ok(undefined);
+				});
+			} else {
+				this.#logOnce(
+					`A diff saved by an earlier diff delver (${reportId}) could not be brought up to date yet: ${JSON.stringify(done.error)}`
+				);
+			}
+		}
 	}
 
 	/** A snapshot's diff, read once and kept for the next few requests. */

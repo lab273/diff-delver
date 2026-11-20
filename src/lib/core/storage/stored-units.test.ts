@@ -16,6 +16,7 @@ import {
 	assignmentStateFromRows,
 	changedAssignmentPaths,
 	describeStoredStateMismatch,
+	pathsMissingFileUnit,
 	reviewedMarksFromRows,
 	reviewedRowsOf,
 	sameAssignmentState,
@@ -217,14 +218,15 @@ describe('a file-level unit beside lines', () => {
 		expect(back.ok && sameAssignmentState(withMode, sorted, back.value)).toBe(true);
 	});
 
-	it('is completed as not sorted yet when the rows predate it, keeping the lines as they were', () => {
+	it('is found missing when the rows predate it, and refused until it has a row', () => {
 		const before = rows.filter((r) => r.units.kind !== 'file');
+		expect([...pathsMissingFileUnit(withMode, before)]).toEqual([run]);
+		expect(pathsMissingFileUnit(withMode, rows).size).toBe(0);
+		// A file with no rows at all is damaged, not from before.
+		expect(pathsMissingFileUnit(withMode, []).size).toBe(0);
 		const back = assignmentStateFromRows(withMode, before);
-		if (!back.ok) throw new Error(back.error.problem);
-		const file = back.value.files.get(run);
-		expect(file?.file).toEqual({ bucket: { kind: 'uncategorised' }, role: 'code' });
-		expect(file?.new.get(2)?.bucket).toEqual({ kind: 'section', section: 'scripts' });
-		// Its marks need no completing: a unit with no mark is not reviewed.
+		expect(back.ok ? undefined : back.error.problem).toBe('units-differ');
+		// Its marks need no row: a unit with no mark is not reviewed.
 		const marks = reviewedMarksFromRows(withMode, [{ path: run, units: lines('new', 2, 2) }]);
 		expect(marks.ok && fileUnitReviewed(marks.value, run)).toBe(false);
 	});

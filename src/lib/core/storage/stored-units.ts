@@ -7,10 +7,10 @@
  * damaged or mismatched table is an error rather than a wrong review.
  *
  * A database written before files with lines could also have a file-level unit
- * (a rename, mode or kind change beside edits) has no row for that unit. Reading
- * such a file completes it: its file-level unit is not sorted yet, with the role
- * its path suggests, and not reviewed, as a new unit would be. Nothing else is
- * completed: a file with no lines and no row is still damaged.
+ * (a rename, mode or kind change beside edits) has no row for that unit.
+ * `pathsMissingFileUnit` finds such files, so the report service can store the
+ * row a first version would have given the unit before the rows are read;
+ * reading rows without it is a mismatch like any other.
  *
  * Round trip: for any state reachable from `initialState` by any sequence of
  * `assign` calls, `assignmentStateFromRows(diff, assignmentRowsOf(diff, state))`
@@ -35,8 +35,6 @@ import {
 } from '../diff/state.ts';
 import type { ReviewedMarks } from '../review/reviewed-marks.ts';
 import { fileUnitsOf, type FileUnitSet, type UnitSet } from '../diff/unit-set.ts';
-import { UNCATEGORISED } from '../diff/bucket.ts';
-import { guessRole } from '../diff/path-rules.ts';
 
 /** Some units of one file: a line range on one side, or its file-level unit. A file may have both kinds of row. */
 export type StoredUnits =
@@ -157,6 +155,28 @@ function disjoint<T extends Interval>(intervals: readonly T[]): readonly T[] | u
 	return sorted;
 }
 
+/**
+ * The files of the diff whose file-level unit beside their lines has no row
+ * while their lines have rows: rows written before such units existed (see the
+ * top of this file). A file with no rows at all is not one of them.
+ */
+export function pathsMissingFileUnit(
+	diff: Diff,
+	rows: readonly AssignmentRow[]
+): ReadonlySet<RepoPath> {
+	const withLines = new Set<RepoPath>();
+	const withFile = new Set<RepoPath>();
+	for (const row of rows) (row.units.kind === 'file' ? withFile : withLines).add(row.path);
+	const missing = new Set<RepoPath>();
+	for (const file of diff.files) {
+		const path = file.file.path;
+		if (file.hasFileUnit && file.hasLines && withLines.has(path) && !withFile.has(path)) {
+			missing.add(path);
+		}
+	}
+	return missing;
+}
+
 /** The assignment state the rows describe, checked against the diff. */
 export function assignmentStateFromRows(
 	diff: Diff,
@@ -195,12 +215,7 @@ function fileAssignmentFromRows(
 	}
 	if (fileRows.length > 1) return err('overlap');
 	const [stored] = fileRows;
-	if (stored !== undefined && !file.hasFileUnit) return err('units-differ');
-	// See the top of this file: a file-level unit beside lines, from before there were any.
-	if (stored === undefined && file.hasFileUnit && !file.hasLines) return err('units-differ');
-	const own =
-		stored ??
-		(file.hasFileUnit ? { bucket: UNCATEGORISED, role: guessRole(file.file.path) } : undefined);
+	if ((stored !== undefined) !== file.hasFileUnit) return err('units-differ');
 	const old = disjoint(segments.old);
 	const now = disjoint(segments.new);
 	if (old === undefined || now === undefined) return err('overlap');
@@ -209,7 +224,7 @@ function fileAssignmentFromRows(
 	if (!oldMap.domain.equals(file.changed.old) || !newMap.domain.equals(file.changed.new)) {
 		return err('units-differ');
 	}
-	return ok({ old: oldMap, new: newMap, file: own });
+	return ok({ old: oldMap, new: newMap, file: stored });
 }
 
 /** The rows of every file with marks, or only of `paths`. */

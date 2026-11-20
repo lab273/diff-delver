@@ -172,6 +172,18 @@ function checkStored(
 	);
 }
 
+/**
+ * That the list of diffs, the page's header and the page itself give one
+ * progress: the list's, kept with the revision, is what the loaded state gives.
+ */
+async function checkProgressAgrees(service: ReportService, report: ReportId): Promise<void> {
+	const page = value(await service.load(report));
+	const listed = value(service.list()).find((r) => r.id === report);
+	const computed = unitProgressOf(reviewProgress(page.diff, page.state, page.reviewed, 'sections'));
+	expect(listed?.kind === 'report' ? listed.progress : undefined).toEqual(computed);
+	expect(page.summary.progress).toEqual(computed);
+}
+
 /** What `load` gives the page, against the model. */
 async function checkLoaded(
 	service: ReportService,
@@ -264,6 +276,7 @@ describe('the report service against the pure model', () => {
 							}
 						}
 						checkStored(db, service, id, start.revision.id, diff, model);
+						await checkProgressAgrees(service, id);
 					}
 					await checkLoaded(service, id, diff, model);
 				} finally {
@@ -397,6 +410,7 @@ describe('the report service against the pure model', () => {
 							}
 						}
 						checkStored(db, service, id, page.revision.id, page.diff, model);
+						await checkProgressAgrees(service, id);
 					}
 					await checkLoaded(service, id, page.diff, model);
 				} finally {

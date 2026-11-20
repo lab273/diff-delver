@@ -203,6 +203,21 @@ CREATE TABLE new_units (
 	CHECK (side = 'file' OR (first_line >= 1 AND last_line >= first_line))
 ) STRICT, WITHOUT ROWID;
 `
+	},
+	{
+		version: schemaVersionOf(4),
+		name: 'revisions to check for changes to a file beside its lines',
+		sql: `
+-- Revisions written before a file with lines could also have a file-level unit
+-- (a change to its name, mode or kind): their rows may lack that unit and their
+-- stored progress leave it out. The report service gives each such unit the
+-- row a first version would, recomputes the revision's progress from its rows,
+-- and removes it from here. Revisions written later are never added.
+CREATE TABLE revisions_to_check (
+	revision_id TEXT PRIMARY KEY REFERENCES revisions (id) ON DELETE CASCADE
+) STRICT;
+INSERT INTO revisions_to_check (revision_id) SELECT id FROM revisions;
+`
 	}
 ];
 

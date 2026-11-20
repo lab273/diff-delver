@@ -410,6 +410,8 @@ describe('updating a diff', () => {
 		const where = "revision_id = 'v_1' AND path = CAST('src/app.ts' AS BLOB) AND side = 'file'";
 		expect(raw.prepare(`DELETE FROM assignments WHERE ${where}`).run().changes).toBe(1);
 		expect(raw.prepare(`DELETE FROM reviewed_marks WHERE ${where}`).run().changes).toBe(1);
+		// The migration that came with them lists every revision written before it.
+		raw.prepare("INSERT INTO revisions_to_check (revision_id) VALUES ('v_1')").run();
 		raw.close();
 
 		const page = value(await service.load(id));
@@ -434,6 +436,45 @@ describe('updating a diff', () => {
 			section: 'app'
 		});
 		expect(fileUnitInSet(again.reviewed, app)).toBe(true);
+		service.close();
+	});
+
+	it('gives the list, the page and the command one progress for a diff saved before then', async () => {
+		const repo = await emptyRepo();
+		await repo.write('pnpm-lock.yaml', lines(...numbered(12)));
+		await repo.commit('first');
+		await repo.remove('pnpm-lock.yaml');
+		await repo.write(
+			'sub/pnpm-lock.yaml',
+			lines(...numbered(5), 'changed 6', ...numbered(12).slice(6))
+		);
+		const data = await tempDirectory();
+		const first = await serviceFor(data);
+		created(value(await first.open(repo.dir, spec('working-tree'))));
+		first.close();
+		// As the previous code stored it: the moved lockfile's lines only, both ignored.
+		const raw = new DatabaseSync(join(data, DATABASE_FILE));
+		const where = "revision_id = 'v_1' AND side = 'file'";
+		expect(raw.prepare(`DELETE FROM assignments WHERE ${where}`).run().changes).toBe(1);
+		raw
+			.prepare(
+				"UPDATE revisions SET counted_units = 0, reviewed_units = 0, ignored_units = 2, uncategorised_units = 0 WHERE id = 'v_1'"
+			)
+			.run();
+		raw.prepare("INSERT INTO revisions_to_check (revision_id) VALUES ('v_1')").run();
+		raw.close();
+
+		const service = await serviceFor(data);
+		const expected = { counted: 0, reviewed: 0, ignored: 3, uncategorised: 0 };
+		const [listed] = value(service.list());
+		expect(listed?.kind === 'report' ? listed.progress : listed).toEqual(expected);
+		// Running the command again: nothing changed, and it says what the list says.
+		const again = value(await service.open(repo.dir, spec('working-tree')));
+		if (again.kind !== 'resumed') throw new Error(`expected it resumed, got ${again.kind}`);
+		expect(again.report.progress).toEqual(expected);
+		const page = value(await service.load(again.report.id));
+		expect(page.summary.progress).toEqual(expected);
+		expect(page.progress.ignored.units).toBe(3);
 		service.close();
 	});
 

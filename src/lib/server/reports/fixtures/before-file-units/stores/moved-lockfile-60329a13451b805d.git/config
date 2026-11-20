@@ -1,0 +1,9 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = true
+	logAllRefUpdates = false
+[gc]
+	auto = 0
+[diffdelver]
+	repository = /tmp/diff-delver-old-database-Z7RwqP/repos/moved-lockfile/.git

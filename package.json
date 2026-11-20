@@ -44,6 +44,7 @@
 		"journeys:update": "node scripts/journeys.ts update",
 		"journeys:repeat": "node scripts/journeys.ts repeat",
 		"fixtures:capture": "node scripts/capture-diff-fixtures.ts",
+		"fixtures:old-database": "node scripts/capture-old-database.ts",
 		"bd": "node scripts/bd.ts"
 	},
 	"devDependencies": {
