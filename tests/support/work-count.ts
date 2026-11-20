@@ -15,6 +15,12 @@
  * work over four times the input is about four times the count, quadratic work
  * sixteen. Core test files may not import dynamically, so these tests live in the
  * integration project.
+ *
+ * It counts only work done in core's own code. A built-in that core calls, such
+ * as `includes`, `indexOf`, a spread or `sort`, counts as one step whatever the
+ * size of what it works on, so a loop that calls `out.includes(x)` or builds
+ * `out = [...out, x]` counts as linear although it is quadratic. Such a slowdown
+ * shows only in the measured time.
  */
 import { Session } from 'node:inspector/promises';
 import { parseBlockCount, type BlockCount } from '../../src/lib/core/block-count.tiny.ts';
