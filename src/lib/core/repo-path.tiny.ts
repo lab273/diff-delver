@@ -1,14 +1,26 @@
+import { notDecoded } from './path-codec.ts';
 import { err, ok, type Result } from './result.ts';
 import type { Tiny } from './tiny.ts';
 
 /**
  * The path of a file inside a git tree, as git writes it: relative, separated by
- * `/`, with no empty, `.` or `..` parts.
+ * `/`, with no empty, `.` or `..` parts. Bytes that are not UTF-8 are held as
+ * U+DC80 to U+DCFF (`path-bytes.ts`), and the string is exactly what those
+ * bytes decode to, so each path has one string and each string one path.
  */
 export type RepoPath = Tiny<string, 'RepoPath'>;
 
 export type InvalidRepoPathReason =
-	'empty' | 'absolute' | 'trailing-slash' | 'empty-segment' | 'dot-segment' | 'nul-byte';
+	| 'empty'
+	| 'absolute'
+	| 'trailing-slash'
+	| 'empty-segment'
+	| 'dot-segment'
+	| 'nul-byte'
+	/** A lone surrogate that stands for no byte (`path-codec.ts`). */
+	| 'unpaired-surrogate'
+	/** Odd-byte code points that spell valid UTF-8, which is written as plain text. */
+	| 'escapes-spell-text';
 
 export interface InvalidRepoPath {
 	readonly kind: 'InvalidRepoPath';
@@ -33,5 +45,5 @@ function findProblem(value: string): InvalidRepoPathReason | undefined {
 		if (segment === '') return 'empty-segment';
 		if (segment === '.' || segment === '..') return 'dot-segment';
 	}
-	return undefined;
+	return notDecoded(value);
 }
