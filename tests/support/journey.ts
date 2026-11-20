@@ -28,9 +28,9 @@
  * inside a region (`within`) or by their place on the page (`nth`), and gets
  * back a `Target`, which it can activate, check or read, nothing more. Its
  * checks wait for the app, so it never sleeps. It moves with `press`, `type`,
- * `tabTo` and `activate`, which use the keyboard; the two
- * things a person does outside the page have their own helpers, `readClipboard`
- * and `chooseFiles`. Lint closes the rest (scripts/eslint-journey-rules.ts), so a
+ * `tabTo` and `activate`, which use the keyboard; the
+ * things a person does outside the page have their own helpers, `readClipboard`,
+ * `chooseFiles` and `editFile`. Lint closes the rest (scripts/eslint-journey-rules.ts), so a
  * journey is kept to the keyboard by what it is given, and the page is left to
  * do whatever the app does: fill in fields, change them later, click its own
  * hidden file input.
@@ -244,6 +244,11 @@ export interface Journey extends Finder {
 
 	/** What the app put on the clipboard, read as a person pasting it elsewhere would. */
 	readClipboard(): Promise<string>;
+	/**
+	 * Writes a file in a repository the journey asked for, as a person editing it
+	 * in their editor does: `path` is inside the repository, such as `src/cart.ts`.
+	 */
+	editFile(where: JourneyRepository, path: string, text: string): Promise<void>;
 	/**
 	 * Opens the file chooser by activating the target with the keyboard, then picks
 	 * these files in it, as a person does in the system's dialog.
@@ -841,6 +846,15 @@ export async function startJourney(
 		},
 		async readClipboard() {
 			return page.evaluate(() => navigator.clipboard.readText());
+		},
+		async editFile(where, path, text) {
+			const directory = REPOSITORY_PATHS.get(where);
+			if (directory === undefined) {
+				throw new Error(`${where.description} was not made by journey.repository.`);
+			}
+			const file = join(directory, path);
+			await mkdir(dirname(file), { recursive: true });
+			await writeFile(file, text);
 		},
 		async chooseFiles(target, files, key = 'Enter') {
 			const chooser = page.waitForEvent('filechooser');

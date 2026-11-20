@@ -9,6 +9,7 @@
 	import type { ListedDiff } from '#lib/api/schemas.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
+	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import CopyCommand from '#lib/ui/CopyCommand.svelte';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import Notice from '#lib/ui/Notice.svelte';
@@ -23,7 +24,7 @@
 		readonly name: string;
 	}
 
-	let dialog: HTMLDialogElement | undefined = $state();
+	let asking = $state(false);
 	let heading: HTMLHeadingElement | undefined = $state();
 	let deleting: Deleting | undefined = $state();
 	let status = $state('');
@@ -36,14 +37,14 @@
 	function askToDelete(id: ReportId, name: string): void {
 		deleting = { id, name };
 		problem = '';
-		dialog?.showModal();
+		asking = true;
 	}
 
 	async function confirmDelete(): Promise<void> {
 		if (deleting === undefined) return;
 		const { id, name } = deleting;
 		const deleted = await pageClient().deleteDiff(id);
-		dialog?.close();
+		asking = false;
 		deleting = undefined;
 		if (!deleted.ok) {
 			problem = describeApiError(deleted.error);
@@ -134,24 +135,15 @@
 	<p class="more">To open another, run <code>{RUN_COMMAND}</code> in its repository.</p>
 {/if}
 
-<dialog bind:this={dialog} aria-labelledby="delete-heading" aria-describedby="delete-what">
-	<h2 id="delete-heading">Delete {deleting?.name ?? 'this diff'}?</h2>
-	<p id="delete-what">
-		Everything diff delver keeps about it goes, including what you have marked as reviewed. Your
-		repository is not touched. The space it takes on disk is freed within an hour.
-	</p>
-	<div class="actions">
-		<button
-			type="button"
-			onclick={() => {
-				dialog?.close();
-			}}
-		>
-			Cancel
-		</button>
-		<button type="button" class="danger" onclick={confirmDelete}>Delete</button>
-	</div>
-</dialog>
+<ConfirmDialog
+	bind:open={asking}
+	heading="Delete {deleting?.name ?? 'this diff'}?"
+	confirm="Delete"
+	onconfirm={confirmDelete}
+>
+	Everything diff delver keeps about it goes, including what you have marked as reviewed. Your
+	repository is not touched. The space it takes on disk is freed within an hour.
+</ConfirmDialog>
 
 <style>
 	h1 {
@@ -253,29 +245,5 @@
 		position: absolute;
 		top: 0.75rem;
 		right: 1rem;
-	}
-
-	dialog {
-		max-width: 30rem;
-		border: 1px solid var(--color-border);
-		border-radius: 6px;
-		background: var(--color-background);
-		color: var(--color-text);
-		padding: 1rem 1.25rem;
-	}
-
-	dialog::backdrop {
-		background: rgb(0 0 0 / 40%);
-	}
-
-	dialog h2 {
-		font-size: 1.125rem;
-		margin: 0 0 0.5rem;
-	}
-
-	.actions {
-		display: flex;
-		gap: 0.5rem;
-		margin-top: 1rem;
 	}
 </style>

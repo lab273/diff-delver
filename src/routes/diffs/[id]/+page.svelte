@@ -5,11 +5,12 @@
 -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { onMount } from 'svelte';
 	import { goto, invalidate } from '$app/navigation';
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { ChangeCheckResponse, ListedFileView, NextSourceOffer } from '#lib/api/schemas.ts';
+	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
+	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import Notice from '#lib/ui/Notice.svelte';
 	import { pageClient } from '#lib/ui/client.ts';
@@ -24,16 +25,21 @@
 	let check: Check = $state({ kind: 'checking' });
 	let problem = $state('');
 	let busy = $state(false);
+	let renewing = $state(false);
 
-	async function checkForChanges(): Promise<void> {
-		const checked = await pageClient().checkForChanges(data.id);
+	async function checkForChanges(id: ReportId = data.id): Promise<void> {
+		const checked = await pageClient().checkForChanges(id);
+		if (id !== data.id) return;
 		check = checked.ok
 			? checked.value
 			: { kind: 'failed', message: describeApiError(checked.error) };
 	}
 
-	onMount(() => {
-		void checkForChanges();
+	// Again for each diff this page shows: opening another one reuses the page.
+	$effect(() => {
+		const id = data.id;
+		check = { kind: 'checking' };
+		void checkForChanges(id);
 	});
 
 	async function act(action: () => Promise<{ ok: boolean; message?: string }>): Promise<void> {
@@ -60,6 +66,33 @@
 			const opened = await pageClient().open({ directory, source: next.source });
 			if (!opened.ok) return { ok: false, message: describeApiError(opened.error) };
 			if (opened.value.kind === 'nothing') return { ok: false, message: opened.value.reason };
+			await goto(resolve('/diffs/[id]', { id: opened.value.diff.id }));
+			return { ok: true };
+		});
+	}
+
+	/**
+	 * Deletes this diff and opens its source again, as the files are now: the one
+	 * way to see a changed diff's current files until diffs can be brought up to date.
+	 */
+	async function deleteAndOpenAgain(directory: string, source: string): Promise<void> {
+		renewing = false;
+		await act(async () => {
+			const client = pageClient();
+			const deleted = await client.deleteDiff(data.id);
+			if (!deleted.ok) return { ok: false, message: describeApiError(deleted.error) };
+			const opened = await client.open({ directory, source });
+			if (!opened.ok) {
+				return {
+					ok: false,
+					message: `This diff was deleted, but it could not be opened again: ${describeApiError(opened.error)} Run diff-delver in the repository to open it.`
+				};
+			}
+			if (opened.value.kind === 'nothing') {
+				const asked = new URLSearchParams({ directory, asked: source }).toString();
+				await goto(resolve(`/start?${asked}`));
+				return { ok: true };
+			}
 			await goto(resolve('/diffs/[id]', { id: opened.value.diff.id }));
 			return { ok: true };
 		});
@@ -136,12 +169,26 @@
 			{/snippet}
 		</Notice>
 	{:else if check.kind === 'changed'}
-		<Notice heading="This diff has changed since you opened it">
+		<Notice heading="The files have changed since this diff was opened">
 			<p>
-				The files in the repository are not as they were when you opened it. What you see here is
-				how they were then.
+				What you see here is how they were then. diff delver cannot bring a diff up to date yet: to
+				see the files as they are now, delete this diff and open it again.
 			</p>
+			{#snippet actions()}
+				<button type="button" disabled={busy} onclick={() => (renewing = true)}>
+					Delete this diff and open it again
+				</button>
+			{/snippet}
 		</Notice>
+		<ConfirmDialog
+			bind:open={renewing}
+			heading="Delete this diff and open it again?"
+			confirm="Delete and open again"
+			onconfirm={() => deleteAndOpenAgain(page.directory, page.source)}
+		>
+			Everything diff delver keeps about this diff goes, including what you have marked as reviewed.
+			Your repository is not touched. Then the same changes are opened again, as the files are now.
+		</ConfirmDialog>
 	{:else if check.kind === 'nothing-left'}
 		{@const next = check.next}
 		<Notice heading="Nothing is left to review here">

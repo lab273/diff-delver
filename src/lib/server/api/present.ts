@@ -161,6 +161,7 @@ export function pageView(loaded: LoadedReport, now: Timestamp): DiffPage {
 		now,
 		summary: summaryView(loaded.summary),
 		directory: loaded.report.repositoryPath,
+		source: formatGitSourceSpec(loaded.report.source.spec),
 		leftOut: [...loaded.leftOut],
 		groups: listFiles(loaded.diff, loaded.state, loaded.sections).map((group) => ({
 			group:

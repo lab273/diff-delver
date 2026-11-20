@@ -200,6 +200,8 @@ export const DiffPageSchema = z.object({
 	summary: DiffSummarySchema,
 	/** The folder the diff was opened in, to open what its changes became. Never shown. */
 	directory: absolutePath,
+	/** What the diff was opened from, to open it again. Never shown. */
+	source,
 	/** Files that could not be included, one sentence each. */
 	leftOut: z.array(message),
 	groups: z.array(

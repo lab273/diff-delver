@@ -35,7 +35,7 @@ function described(
 			const { diff } = response;
 			const lines = [
 				response.resumed
-					? `${diff.repository}: ${diff.title}, opened again where you left it (${diff.progressText.toLowerCase()}).${response.changed ? ' The files have changed since; the page says how.' : ''}`
+					? `${diff.repository}: ${diff.title}, opened again where you left it (${diff.progressText.toLowerCase()}).${response.changed ? ' The files have changed since this diff was opened, and diff delver cannot bring a diff up to date yet: to see them as they are now, use “Delete this diff and open it again” on its page.' : ''}`
 					: `${diff.repository}: ${diff.title}, ${diff.sizeText.toLowerCase()}.`
 			];
 			if (diff.leftOut > 0) {
