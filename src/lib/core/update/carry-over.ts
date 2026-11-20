@@ -267,9 +267,16 @@ class CarryOver {
 	/**
 	 * The previous version's file that this one is, for the summary: the file at
 	 * the head path it came from, or, for a deleted file, the deleted file at the
-	 * base path it came from. Undefined when it is new to the diff.
+	 * base path it came from; and when its lines cannot be followed there (a file
+	 * that became binary, or a deleted file that came back), the previous file at
+	 * the same path, so one path is never counted as a new file and a gone one.
+	 * Undefined when it is new to the diff.
 	 */
 	#previousFile(file: DiffFile): DiffFile | undefined {
+		return this.#followedFile(file) ?? this.#input.previous.diff.byPath.get(file.file.path);
+	}
+
+	#followedFile(file: DiffFile): DiffFile | undefined {
 		const now = file.file.new;
 		if (now !== undefined) {
 			const earlier = this.#heads.earlierPath(now.path);
@@ -445,12 +452,18 @@ class CarryOver {
 			newToReview = addUnits(newToReview, counts.toReview);
 			newIgnored = addUnits(newIgnored, counts.ignored);
 			const before = previousOf.get(path);
-			const lost =
-				before === undefined ? 0 : before.unitCount - (this.#matched.get(before.file.path) ?? 0);
-			if (before !== undefined) seen.add(before.file.path);
+			// The previous file at the same path is this file too, even when another one moved here.
+			const samePath = previous.diff.byPath.get(path);
+			let lost = 0;
+			for (const earlier of new Set([before, samePath])) {
+				if (earlier === undefined) continue;
+				lost += earlier.unitCount - (this.#matched.get(earlier.file.path) ?? 0);
+				seen.add(earlier.file.path);
+			}
 			if (before === undefined || counts.toReview + counts.ignored > 0 || lost > 0) changed += 1;
 		}
 		for (const count of this.#matched.values()) matched += count;
+		// Every previous file at a path this version has a file at was seen above.
 		const gone = previous.diff.files.filter((f) => !seen.has(f.file.path)).length;
 		return {
 			filesChanged: fileCountOf(changed + gone),

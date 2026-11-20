@@ -426,4 +426,15 @@ describe('updating a diff', () => {
 		expect(fileUnitInSet(again.reviewed, app)).toBe(true);
 		service.close();
 	});
+
+	it('counts a file once when it became binary, and a deleted file once when it came back', async () => {
+		const { repo, service } = await setUp();
+		await repo.remove('README.md');
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await repo.write('src/app.ts', new Uint8Array([0, 1, 2, 0, 255]));
+		await repo.write('README.md', '# Something else\n');
+		const updated = value(await service.update(id));
+		expect(updated).toMatchObject({ kind: 'updated', summary: { filesChanged: 2, filesGone: 0 } });
+		service.close();
+	});
 });

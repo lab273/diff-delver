@@ -345,7 +345,9 @@ describe('carry-over invariants', () => {
 				expect(s.reviewedKept).toBe(unitSetSize(carried.marks));
 				expect(s.reviewedKept).toBeLessThanOrEqual(s.reviewedBefore);
 				expect(s.filesGone).toBeLessThanOrEqual(s.filesChanged);
-				expect(s.filesChanged).toBeLessThanOrEqual(before.files.length + after.files.length);
+				// A file at one path is one file, however it changed.
+				const paths = new Set([...before.files, ...after.files].map((f) => f.file.path));
+				expect(s.filesChanged).toBeLessThanOrEqual(paths.size);
 				if (s.filesChanged === 0) {
 					expect(unitSetSize(carried.fresh)).toBe(0);
 					expect(s.gone).toBe(0);

@@ -339,6 +339,30 @@ describe('carry-over', () => {
 		expect(r.summary.reviewedKept).toBe(0);
 	});
 
+	it('counts a file at the same path once when its lines cannot be followed', () => {
+		// A deleted file that came back with other content: one file changed, none gone.
+		const base = tree({ 'gone.ts': numbered('old', 4) });
+		const back = update({
+			base,
+			head: tree({}),
+			head2: tree({ 'gone.ts': ['other content'] })
+		});
+		expect(back.summary).toMatchObject({ filesChanged: 1, filesGone: 0 });
+
+		// A file edited, then turned into a binary file: one file changed, none gone.
+		const before = syntheticDiff([
+			{ path: 'data.bin', change: 'modified', hunks: [{ gap: 0, lines: ['-', '+'] }] }
+		]);
+		const after = syntheticDiff([{ path: 'data.bin', change: 'binary' }]);
+		const carried = carryOver({
+			previous: { diff: before, state: initialState(before), marks: allMarked(before) },
+			diff: after,
+			heads: { kind: 'diff', files: after.files.map((f) => f.file) },
+			bases: NO_TREE_CHANGES
+		});
+		expect(carried.summary).toMatchObject({ filesChanged: 1, filesGone: 0, gone: 2 });
+	});
+
 	it('keeps deletions and additions through a rebase that moved the base under them', () => {
 		const base = tree({ 'app.ts': numbered('line', 30) });
 		// The author removes line 20 and adds a line after line 25.
