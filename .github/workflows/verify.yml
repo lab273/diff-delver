@@ -36,14 +36,17 @@ jobs:
           # GitHub's limit on jobs in one matrix. More commits share jobs.
           MAX_JOBS: 256
         # Which commits, and why, is described in the script; its tests are next to it.
-        run: echo "batches=$(scripts/ci-commits.sh)" >> "$GITHUB_OUTPUT"
+        # The script writes the step output itself, only once the listing has
+        # succeeded, so a failure fails this step.
+        run: scripts/ci-commits.sh
 
   verify:
     name: Verify ${{ matrix.batch.name }}
     needs: commits
     runs-on: ubuntu-latest
-    # Per commit in the batch; most batches hold one.
-    timeout-minutes: ${{ 15 * matrix.batch.size }}
+    # Per commit in the batch, worked out by the script, since GitHub's
+    # expressions have no arithmetic. Most batches hold one commit.
+    timeout-minutes: ${{ matrix.batch.timeout }}
     strategy:
       fail-fast: false
       matrix:
@@ -55,8 +58,9 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ matrix.batch.first }}
-          # A batch of several commits checks each of them out in turn.
-          fetch-depth: ${{ matrix.batch.size > 1 && '0' || '1' }}
+          # A batch of several commits checks each of them out in turn, so it
+          # needs the history (0); one commit needs only itself (1).
+          fetch-depth: ${{ matrix.batch.depth }}
 
       # Reads the pnpm version from package.json "packageManager".
       - uses: pnpm/action-setup@v6
