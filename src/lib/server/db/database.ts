@@ -138,7 +138,7 @@ export class Database {
 	}
 
 	/** Runs `work` in one read transaction, so everything it reads is from one moment. */
-	read<T, E>(work: (q: Queries) => Result<T, E>): Result<T, E | DatabaseError> {
+	read<T, E = never>(work: (q: Queries) => Result<T, E>): Result<T, E | DatabaseError> {
 		return this.#transaction('BEGIN', work);
 	}
 
@@ -146,7 +146,7 @@ export class Database {
 	 * Runs `work` in one write transaction. When it returns an error or throws,
 	 * the transaction is rolled back and the database is as it was.
 	 */
-	write<T, E>(work: (q: Queries) => Result<T, E>): Result<T, E | DatabaseError> {
+	write<T, E = never>(work: (q: Queries) => Result<T, E>): Result<T, E | DatabaseError> {
 		return this.#transaction('BEGIN IMMEDIATE', work);
 	}
 

@@ -104,6 +104,19 @@ export function testsSeparateView(
 	return project(diff, state, sections, testsSeparateGroup, true);
 }
 
+/** The reviewer's two ways of grouping tests (DESIGN 4.4): with their section, or separate. */
+export type ViewKind = 'sections' | 'tests-separate';
+
+/** The group a unit with this assignment is in, in a view. */
+export function groupOf(view: ViewKind, assignment: Assignment): GroupKey {
+	switch (view) {
+		case 'sections':
+			return bucketGroup(assignment);
+		case 'tests-separate':
+			return testsSeparateGroup(assignment);
+	}
+}
+
 function bucketGroup(assignment: Assignment): GroupKey {
 	switch (assignment.bucket.kind) {
 		case 'section':
