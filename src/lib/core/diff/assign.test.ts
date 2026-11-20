@@ -13,6 +13,7 @@ import type { Side } from '../side.tiny.ts';
 import {
 	assign,
 	describeNothingTaken,
+	describeRangesTakingNothing,
 	describeRejection,
 	type AssignRejection,
 	type AssignRequest
@@ -272,6 +273,49 @@ describe('assign', () => {
 	});
 });
 
+describe('assign with ranges that take nothing', () => {
+	it('accepts an item when some of its ranges hold changed lines, and reports the ones that hold none', () => {
+		const outcome = assign(diff, state, [
+			{ file: 'src/app.ts', lines: '+1..+3,-4', section: 'alpha' }
+		]);
+		expect(outcome.rejected).toEqual([]);
+		const [item] = outcome.accepted;
+		expect(item?.units).toBe(2);
+		expect(item?.rangesTakingNothing).toEqual({
+			file: 'src/app.ts',
+			ranges: [{ side: 'old', first: 4, last: 4 }]
+		});
+		expect(item?.rangesTakingNothing && describeRangesTakingNothing(item.rangesTakingNothing)).toBe(
+			"src/app.ts: -4 holds no changed line and took nothing; the item's other ranges were assigned. Nothing more needs doing unless you meant other lines; use the +/- labels from get_diff to name them."
+		);
+	});
+
+	it('takes an addition-only hunk named by both sides of its heading', () => {
+		// The heading of this hunk is "@@ -10,7 +10,9 @@": nothing is deleted.
+		const added = syntheticDiff([
+			{
+				path: 'src/new.ts',
+				change: 'modified',
+				hunks: [{ gap: 9, lines: [' ', '+', '+', ' ', ' ', '+', ' ', ' ', ' '] }]
+			}
+		]);
+		const outcome = assign(added, initialState(added), [
+			{ file: 'src/new.ts', lines: '-10..-16,+10..+18', section: 'alpha' }
+		]);
+		expect(outcome.rejected).toEqual([]);
+		expect(outcome.accepted[0]?.units).toBe(3);
+		expect(outcome.accepted[0]?.rangesTakingNothing?.ranges).toEqual([
+			{ side: 'old', first: 10, last: 16 }
+		]);
+		expect(outcome.uncategorised).toBe(0);
+	});
+
+	it('reports nothing when every range takes something', () => {
+		const outcome = assign(diff, state, [{ file: 'src/app.ts', lines: '-2,+2', section: 'alpha' }]);
+		expect(outcome.accepted[0]?.rangesTakingNothing).toBeUndefined();
+	});
+});
+
 describe('assign rejections', () => {
 	const reject = (request: AssignRequest): AssignRejection | undefined => {
 		const outcome = assign(diff, state, [request]);
@@ -279,18 +323,25 @@ describe('assign rejections', () => {
 		return outcome.rejected[0]?.rejection;
 	};
 
-	it('rejects a range with no changed line in it, naming the nearest changed lines', () => {
-		expect(reject({ file: 'src/app.ts', lines: '+1..+3,-4', section: 'alpha' })).toEqual({
-			kind: 'NoChangedLines',
-			file: 'src/app.ts',
-			ranges: [{ side: 'old', first: 4, last: 4 }],
-			nearest: [{ side: 'old', first: 2, last: 3 }]
-		});
+	it('rejects an item whose ranges hold no changed line between them, naming the nearest ones', () => {
 		expect(reject({ file: 'src/app.ts', lines: '+5..+9', section: 'alpha' })).toEqual({
 			kind: 'NoChangedLines',
 			file: 'src/app.ts',
 			ranges: [{ side: 'new', first: 5, last: 9 }],
 			nearest: [
+				{ side: 'new', first: 2, last: 4 },
+				{ side: 'new', first: 11, last: 11 }
+			]
+		});
+		expect(reject({ file: 'src/app.ts', lines: '+5..+9,-4', section: 'alpha' })).toEqual({
+			kind: 'NoChangedLines',
+			file: 'src/app.ts',
+			ranges: [
+				{ side: 'new', first: 5, last: 9 },
+				{ side: 'old', first: 4, last: 4 }
+			],
+			nearest: [
+				{ side: 'old', first: 2, last: 3 },
 				{ side: 'new', first: 2, last: 4 },
 				{ side: 'new', first: 11, last: 11 }
 			]
@@ -573,13 +624,19 @@ describe('assign properties', () => {
 						}
 					}
 					expect(outcome.accepted[0]?.units ?? 0).toBe(taken);
-					// A line range is refused only when it holds no changed line on its side.
+					// An item of line ranges is refused only when none of its ranges holds a
+					// changed line on its side; the ranges that hold none are reported.
 					const file = d.files.find((f) => f.file.path === request.file);
 					if (request.lines !== undefined && file?.hasLines === true) {
 						const empty = rangesWithoutChanges(file, request.lines);
 						const refused = outcome.rejected[0]?.rejection.kind === 'NoChangedLines';
-						if (refused) expect(empty).toBe(true);
-						if (accepted) expect(empty).toBe(false);
+						if (refused) expect(empty.all).toBe(true);
+						if (accepted) {
+							expect(empty.all).toBe(false);
+							expect(outcome.accepted[0]?.rangesTakingNothing?.ranges.length ?? 0).toBe(
+								empty.count
+							);
+						}
 					}
 					s = outcome.state;
 				}
@@ -589,9 +646,16 @@ describe('assign properties', () => {
 	});
 });
 
-/** Whether any range of a well-formed `lines` value holds no changed line of the file. */
-function rangesWithoutChanges(file: DiffFile, lines: string): boolean {
-	return lines.split(',').some((part) => {
+/**
+ * How many ranges of a well-formed `lines` value hold no changed line of the
+ * file, and whether that is all of them.
+ */
+function rangesWithoutChanges(
+	file: DiffFile,
+	lines: string
+): { readonly count: number; readonly all: boolean } {
+	const parts = lines.split(',');
+	const count = parts.filter((part) => {
 		const match = /^([+-])(\d+)(?:\.\.[+-](\d+))?$/.exec(part);
 		if (match === null) return false;
 		const set = match[1] === '+' ? file.changed.new : file.changed.old;
@@ -599,7 +663,8 @@ function rangesWithoutChanges(file: DiffFile, lines: string): boolean {
 		const last = Number(match[3] ?? match[2]);
 		for (let n = first; n <= last; n += 1) if (set.has(n)) return false;
 		return true;
-	});
+	}).length;
+	return { count, all: count === parts.length };
 }
 
 /**

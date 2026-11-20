@@ -117,12 +117,14 @@ export type {
 	AssignTarget,
 	Destination,
 	InvalidItemProblem,
-	NothingTaken
+	NothingTaken,
+	RangesTakingNothing
 } from './assign.ts';
 export {
 	assign,
 	assignItems,
 	describeNothingTaken,
+	describeRangesTakingNothing,
 	describeRejection,
 	IGNORED_SECTION,
 	parseAssignRequest

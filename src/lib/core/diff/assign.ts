@@ -8,8 +8,11 @@
  *   those files, so it never undoes earlier, finer work.
  * - Hunk ids or line ranges within a file move exactly those units, wherever they
  *   were: the last write wins. A line range takes the changed lines inside it and
- *   may span unchanged lines (DESIGN 7.1); a range that holds no changed line on
- *   its side is rejected, naming the nearest changed lines.
+ *   may span unchanged lines (DESIGN 7.1). An item is rejected only when all its
+ *   ranges together hold no changed line, naming the nearest changed lines; a
+ *   range that holds none inside an item that takes something is reported in
+ *   the accepted item, so copying both sides of a hunk heading for a hunk that
+ *   only adds lines still works.
  * - An item with a role and no section sets the role of every unit it targets,
  *   and leaves their buckets alone. With a section, the role is set on the units
  *   the item takes.
@@ -188,6 +191,15 @@ export interface NothingTaken {
 	readonly takenEarlierInCall: boolean;
 }
 
+/**
+ * Ranges of an accepted `lines` item that held no changed line on their side,
+ * while its other ranges took something. Reported, not refused (DESIGN 7.1).
+ */
+export interface RangesTakingNothing {
+	readonly file: RepoPath;
+	readonly ranges: readonly LineRange[];
+}
+
 export interface AcceptedItem {
 	/** The item's position in the request. */
 	readonly index: ItemIndex;
@@ -195,6 +207,8 @@ export interface AcceptedItem {
 	readonly units: UnitCount;
 	/** When it took none, why. */
 	readonly nothingTaken: NothingTaken | undefined;
+	/** The item's line ranges that took nothing, when some of them did. */
+	readonly rangesTakingNothing: RangesTakingNothing | undefined;
 }
 
 export interface AssignOutcome {
@@ -248,7 +262,12 @@ function applyItems(
 					? whyNothingTaken(state, current, item.value, applied.value.files)
 					: undefined;
 			current = applied.value.state;
-			accepted.push({ index, units: applied.value.units, nothingTaken });
+			accepted.push({
+				index,
+				units: applied.value.units,
+				nothingTaken,
+				rangesTakingNothing: applied.value.rangesTakingNothing
+			});
 		} else {
 			rejected.push({ index, rejection: applied.error });
 		}
@@ -375,11 +394,17 @@ function withDiffContext(diff: Diff, rejection: AssignRejection): AssignRejectio
 type FileTarget =
 	{ readonly kind: 'whole' } | { readonly kind: 'lines'; readonly lines: SideLines };
 
+interface Resolved {
+	readonly files: ReadonlyMap<DiffFile, FileTarget>;
+	readonly rangesTakingNothing: RangesTakingNothing | undefined;
+}
+
 interface Applied {
 	readonly state: AssignmentState;
 	readonly units: UnitCount;
 	/** The files the item covered. */
 	readonly files: readonly DiffFile[];
+	readonly rangesTakingNothing: RangesTakingNothing | undefined;
 }
 
 function applyItem(
@@ -412,12 +437,17 @@ function applyItem(
 
 	const files = new Map(state.files);
 	let units = NO_UNITS;
-	for (const [file, target] of targets.value) {
+	for (const [file, target] of targets.value.files) {
 		const updated = applyToFile(fileAssignment(state, file), target, onlyUncategorised, change);
 		files.set(file.file.path, updated.assignment);
 		units = addUnits(units, updated.units);
 	}
-	return ok({ state: { files }, units, files: [...targets.value.keys()] });
+	return ok({
+		state: { files },
+		units,
+		files: [...targets.value.files.keys()],
+		rangesTakingNothing: targets.value.rangesTakingNothing
+	});
 }
 
 const MAX_BUCKETS_NAMED = 3;
@@ -486,20 +516,21 @@ function applyToFile(
 	}
 }
 
-function resolveTarget(
-	diff: Diff,
-	target: AssignTarget
-): Result<ReadonlyMap<DiffFile, FileTarget>, AssignRejection> {
+function resolveTarget(diff: Diff, target: AssignTarget): Result<Resolved, AssignRejection> {
+	const only = (files: ReadonlyMap<DiffFile, FileTarget>): Resolved => ({
+		files,
+		rangesTakingNothing: undefined
+	});
 	switch (target.kind) {
 		case 'file': {
 			const file = findFile(diff, target.path);
-			return file.ok ? ok(new Map([[file.value, { kind: 'whole' } as const]])) : file;
+			return file.ok ? ok(only(new Map([[file.value, { kind: 'whole' } as const]]))) : file;
 		}
 		case 'glob': {
 			const matches = compileGlob(target.glob);
 			const files = diff.files.filter((f) => matches(f.file.path));
 			if (files.length === 0) return err({ kind: 'GlobMatchesNothing', glob: target.glob });
-			return ok(new Map(files.map((f) => [f, { kind: 'whole' } as const])));
+			return ok(only(new Map(files.map((f) => [f, { kind: 'whole' } as const]))));
 		}
 		case 'hunks': {
 			const file = findFile(diff, target.path);
@@ -521,7 +552,9 @@ function resolveTarget(
 				old = old.union(lines.old);
 				now = now.union(lines.new);
 			}
-			return ok(new Map([[file.value, { kind: 'lines', lines: { old, new: now } } as const]]));
+			return ok(
+				only(new Map([[file.value, { kind: 'lines', lines: { old, new: now } } as const]]))
+			);
 		}
 		case 'lines': {
 			const file = findFile(diff, target.path);
@@ -533,7 +566,7 @@ function resolveTarget(
 					changedLines(file.value, range.side).intersect(RangeSet.of(range.first, range.last))
 						.isEmpty
 			);
-			if (empty.length > 0) {
+			if (empty.length === target.ranges.length) {
 				return err({
 					kind: 'NoChangedLines',
 					file: target.path,
@@ -542,7 +575,11 @@ function resolveTarget(
 				});
 			}
 			// Unchanged lines in the ranges belong to no unit, so applying them takes nothing.
-			return ok(new Map([[file.value, { kind: 'lines', lines: linesOf(target.ranges) } as const]]));
+			return ok({
+				files: new Map([[file.value, { kind: 'lines', lines: linesOf(target.ranges) } as const]]),
+				rangesTakingNothing:
+					empty.length === 0 ? undefined : { file: file.value.file.path, ranges: empty }
+			});
 		}
 	}
 }
@@ -693,6 +730,16 @@ export function describeNothingTaken(nothing: NothingTaken): TextForAgent {
 		`${target} took nothing: everything in it is already sorted (into ${where})${earlier}. ` +
 			'A whole file or a glob takes only what is still uncategorised, so it never undoes finer work. ' +
 			'To move units that are already assigned, name them with "lines" or "hunks".'
+	);
+}
+
+/** Which ranges of an accepted item took nothing, written for the agent. */
+export function describeRangesTakingNothing(report: RangesTakingNothing): TextForAgent {
+	const ranges = formatLineRanges(report.ranges);
+	const one = report.ranges.length === 1;
+	return textForAgent(
+		`${agentPath(report.file)}: ${ranges} ${one ? 'holds' : 'hold'} no changed line and took nothing; the item's other ranges were assigned. ` +
+			'Nothing more needs doing unless you meant other lines; use the +/- labels from get_diff to name them.'
 	);
 }
 
