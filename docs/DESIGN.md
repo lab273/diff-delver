@@ -203,7 +203,7 @@ number, which is stable within a snapshot:
 ```
 src/auth/session.ts  +40..+62     added lines 40 to 62 of the new file
 src/auth/session.ts  -38..-45     deleted lines 38 to 45 of the old file
-assets/logo.png      (file)       the file-level unit
+assets/logo.png      file         the file-level unit
 ```
 
 Each change line has:
@@ -362,7 +362,8 @@ Applying an update creates a new revision:
    hide code from the reviewer, and a wrong "new" only costs a second look.
 3. Matched lines keep their bucket, role and thread anchors. A matched line keeps
    its reviewed mark only when nothing within three lines of it, in the diff as
-   the reviewer reads it, is new or was removed. Familiar lines that now sit
+   the reviewer reads it, changed between the two versions: a line added, a line
+   removed, or an edit to the unchanged lines shown around it. Familiar lines that now sit
    inside changed code, such as an unchanged error check under a replaced call,
    are read again in their new surroundings.
 4. Unmatched new lines go to `Uncategorised`, marked "new since revision N". An
@@ -562,7 +563,7 @@ page says what it is, once and briefly:
 | The agent is still working | "Sorting the diff: 340 of 1,200 lines placed. You can start reading." |
 | Lines nobody sorted | "Not sorted yet: 3 files. The agent did not place these, so they are listed here." |
 | No agent connected | "No agent connected. Copy this request and paste it into your agent." with a copy button |
-| The diff changed | "This diff has changed since you opened it. Update to see 3 changed files. What you marked as reviewed stays marked on lines that did not change." (and, once comments exist, that they are kept too) |
+| The diff changed | "This diff has changed since you opened it. Update to see 3 changed files. Lines you marked as reviewed stay marked, unless they or the lines close to them changed." (and, once comments exist, that they are kept too) |
 | Lines from another section | "Shown in *Session expiry*" on the muted lines, as a link |
 | Ignored file | The reason beside the file, e.g. "Lockfile" or "Agent: re-recorded fixtures" |
 
