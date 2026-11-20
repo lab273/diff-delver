@@ -408,6 +408,29 @@ describe('the report service', () => {
 		service.close();
 	});
 
+	it('refuses a change meant for a version the diff never had, saying so truly', async () => {
+		const { repo, data, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		const second = value(parseRevisionNumber(2));
+		const app = { kind: 'file', path: path('src/app.ts') } as const;
+		const errors = [
+			failure(await service.markReviewed(id, second, app, true)),
+			failure(await service.assign(id, second, [{ file: 'src/app.ts', section: 'app' }])),
+			failure(service.upsertSections(id, second, [{ id: 'app', title: 'App' }]))
+		];
+		for (const error of errors) {
+			expect(error).toEqual({ kind: 'VersionNotFound', report: id, seen: 2, current: 1 });
+			expect(describeReportError(error)).toBe(
+				'This diff has no version 2: its newest is version 1, so nothing was changed. Reload the page to see the diff as it is now, then do it again there.'
+			);
+		}
+		const raw = new DatabaseSync(join(data, DATABASE_FILE), { readOnly: true });
+		expect(raw.prepare('SELECT COUNT(*) AS n FROM reviewed_marks').get()).toEqual({ n: 0 });
+		expect(raw.prepare('SELECT COUNT(*) AS n FROM sections').get()).toEqual({ n: 0 });
+		raw.close();
+		service.close();
+	});
+
 	it('notices a change, ignores a false alarm, and says when nothing is left without closing the report', async () => {
 		const { repo, service } = await setUp();
 		const id = created(value(await service.open(repo.dir, spec('working-tree'))));

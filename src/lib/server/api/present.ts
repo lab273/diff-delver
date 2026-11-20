@@ -252,6 +252,7 @@ export function statusOf(error: ReportError): number {
 		case 'AnotherReportOpen':
 		case 'RevisionChangedWhileSaving':
 		case 'VersionOutOfDate':
+		case 'VersionNotFound':
 		case 'DatabaseBusy':
 			return 409;
 		case 'SectionsRefused':

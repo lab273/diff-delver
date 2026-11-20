@@ -74,6 +74,19 @@ export interface VersionOutOfDate {
 }
 
 /**
+ * A change was asked for on a version newer than any the report has, which no
+ * page or agent could have seen. Nothing was changed.
+ */
+export interface VersionNotFound {
+	readonly kind: 'VersionNotFound';
+	readonly report: ReportId;
+	/** The version the caller named. */
+	readonly seen: RevisionNumber;
+	/** The report's current version, its newest. */
+	readonly current: RevisionNumber;
+}
+
+/**
  * The report's saved snapshot is gone from the data folder (its store or its
  * snapshot was deleted or moved), so the report cannot be shown or changed.
  */
@@ -106,6 +119,7 @@ export type ReportError =
 	| RepositoryReplaced
 	| RevisionChangedWhileSaving
 	| VersionOutOfDate
+	| VersionNotFound
 	| SnapshotGone
 	| SectionsRefused;
 
@@ -139,6 +153,10 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'VersionOutOfDate':
 			return reviewerMessage(
 				`This diff was updated to version ${String(error.current)} after you last looked at it, so nothing was changed: what you did was meant for version ${String(error.seen)}. Show the new version first, then do it again there.`
+			);
+		case 'VersionNotFound':
+			return reviewerMessage(
+				`This diff has no version ${String(error.seen)}: its newest is version ${String(error.current)}, so nothing was changed. Reload the page to see the diff as it is now, then do it again there.`
 			);
 		case 'SnapshotGone':
 			return reviewerMessage(

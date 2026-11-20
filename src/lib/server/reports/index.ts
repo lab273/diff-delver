@@ -45,6 +45,7 @@ export type {
 	ReportNotFound,
 	RevisionChangedWhileSaving,
 	VersionOutOfDate,
+	VersionNotFound,
 	SectionsRefused,
 	SnapshotGone
 } from './report-error.ts';

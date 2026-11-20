@@ -478,11 +478,16 @@ function currentAsSeen(
 	id: ReportId,
 	seen: RevisionNumber
 ): Result<Current, ReportError> {
-	return andThen(currentOpen(q, id), (found) =>
-		found.revision.number === seen
-			? ok(found)
-			: err({ kind: 'VersionOutOfDate', report: id, seen, current: found.revision.number })
-	);
+	return andThen(currentOpen(q, id), (found): Result<Current, ReportError> => {
+		const current = found.revision.number;
+		if (current === seen) return ok(found);
+		return err({
+			kind: seen > current ? 'VersionNotFound' : 'VersionOutOfDate',
+			report: id,
+			seen,
+			current
+		});
+	});
 }
 
 /** The assignment state and reviewed marks of a revision, checked against its diff. */
@@ -803,6 +808,7 @@ export class ReportService {
 	 * `seen` is the version the reviewer was looking at: when the diff has been
 	 * updated since, nothing is marked and the answer is `VersionOutOfDate`, so a
 	 * tick sent from a page showing version 1 never marks version 2's new lines.
+	 * A version newer than any the diff has is refused as `VersionNotFound`.
 	 */
 	async markReviewed(
 		id: ReportId,
