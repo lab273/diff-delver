@@ -113,7 +113,7 @@ Three rules shape the data model and the agent interface:
                   diff delver's own git object store, one per repository
 ```
 
-One daemon per user serves every report. It writes a lockfile with its port and a
+One daemon per data directory, which by default means one per user, serves every report. It writes a lockfile with its port and a
 random token.
 
 Commands:
@@ -310,10 +310,10 @@ A report's identity comes from its source:
 | jj change | repo and change id, so an amended change is the same report |
 | jj revset or git range | repo and the two ends as written, e.g. `main...feature-x` |
 | a single commit | repo and the commit as written |
+| git working tree or staged | repo and worktree path |
 
 An end written relative to where a worktree is, such as `HEAD`, means a different
 commit in each worktree, so the worktree is then part of the identity too.
-| git working tree or staged | repo and worktree path |
 
 A report is **open** or **closed**. `create_report` on a source with an open report
 resumes it. On a source whose last report is closed, it starts a new one. This
