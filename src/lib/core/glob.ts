@@ -34,7 +34,8 @@ export function globToRegExp(pattern: string): Result<RegExp, GlobProblem> {
 	const anywhere = !rooted && !body.includes('/');
 	const translated = translate(body, 0, false);
 	if (!translated.ok) return translated;
-	return ok(new RegExp(`^${anywhere ? '(?:.*/)?' : ''}${translated.value.regex}$`, 'u'));
+	// `s`: a path may hold newlines and other line terminators, and `.` must match them.
+	return ok(new RegExp(`^${anywhere ? '(?:.*/)?' : ''}${translated.value.regex}$`, 'su'));
 }
 
 interface Translated {

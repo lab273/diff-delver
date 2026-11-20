@@ -11,6 +11,30 @@ import { defineFixture, type Fixture } from './git-repo.ts';
 const lines = (prefix: string, count: number): string =>
 	Array.from({ length: count }, (_, i) => `${prefix} line ${String(i + 1)}\n`).join('');
 
+/**
+ * A file whose function lines hold characters that JavaScript treats as line
+ * terminators, or that are easy to mistake for them, but that git treats as
+ * ordinary text: only `\n` ends a line in git's output. A change below each one
+ * makes git use it as a hunk heading.
+ */
+const SEPARATOR_HEADINGS = [
+	'function lineSeparator() { "\u2028" }',
+	'function paragraphSeparator() { "\u2029" }',
+	'function carriageReturn() { "\r" }',
+	'function formFeed() { "\f" }',
+	'function verticalTab() { "\v" }',
+	'function nextLine() { "\u0085" }'
+];
+
+function separatorBlocks(changed: boolean): string {
+	return SEPARATOR_HEADINGS.map((heading, i) => {
+		const filler = Array.from({ length: 10 }, (_, n) =>
+			n === 6 && changed ? `  edited ${String(i)}\u2028here\n` : `  filler ${String(n)}\n`
+		);
+		return `${heading}\n${filler.join('')}`;
+	}).join('');
+}
+
 /** The commit a submodule entry points at. git does not check that it exists. */
 const SUBMODULE_BEFORE = '1111111111111111111111111111111111111111';
 const SUBMODULE_AFTER = '2222222222222222222222222222222222222222';
@@ -32,6 +56,7 @@ export const awkwardChanges: Fixture = defineFixture('awkward-changes', async (r
 	await repo.write('crlf.txt', 'one\r\ntwo\r\nthree\r\n');
 	await repo.write('long-line.txt', `${'x'.repeat(20_000)}\n`);
 	await repo.write('odd names/with space.txt', 'a file with a space in its name\n');
+	await repo.write('separators.js', separatorBlocks(false));
 	repo.setGitlink('vendor/lib', parseCommit(SUBMODULE_BEFORE));
 	await repo.commit('base', 'base');
 
@@ -61,6 +86,7 @@ export const awkwardChanges: Fixture = defineFixture('awkward-changes', async (r
 	await repo.write('odd names/new\nline.txt', 'a newline in the name\n');
 	await repo.write('odd names/tab\there.txt', 'a tab in the name\n');
 	await repo.write('added.txt', 'new\nfile\n');
+	await repo.write('separators.js', separatorBlocks(true));
 	await repo.write(
 		'assets/logo.png',
 		new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0])

@@ -59,6 +59,7 @@ describe('parseDiffTreeOutput on recorded git output', () => {
 			['added', 'odd names/tab\there.txt'],
 			['renamed', 'odd names/ünïcödé "quoted".txt'],
 			['renamed', 'renamed-after.txt'],
+			['modified', 'separators.js'],
 			['added', 'vendor/added'],
 			['modified', 'vendor/lib']
 		]);
@@ -151,6 +152,22 @@ describe('parseDiffTreeOutput on recorded git output', () => {
 	it('keeps the carriage returns of CRLF lines', () => {
 		expect(shownHunks(file('crlf.txt'))).toEqual([
 			[' 1,1 one\r', '-2 two\r', '+2 TWO\r', ' 3,3 three\r']
+		]);
+	});
+
+	it('treats only a newline as the end of a line, in hunk headings and in content', () => {
+		const f = file('separators.js');
+		expect(f.content.kind === 'text' && f.content.hunks.map((h) => h.heading)).toEqual([
+			'function lineSeparator() { "\u2028" }',
+			'function paragraphSeparator() { "\u2029" }',
+			'function carriageReturn() { "\r" }',
+			'function formFeed() { "\f" }',
+			'function verticalTab() { "\v" }',
+			'function nextLine() { "\u0085" }'
+		]);
+		expect(shownHunks(f)[0]?.filter((l) => !l.startsWith(' '))).toEqual([
+			'-8   filler 6',
+			'+8   edited 0\u2028here'
 		]);
 	});
 

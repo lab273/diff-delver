@@ -32,7 +32,12 @@ export interface PatchSection {
 }
 
 const SECTION_START = 'diff --git ';
-const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: (.*))?$/;
+/**
+ * Only `\n` ends a line in git's output, and the text has been split on it. The
+ * `s` flag lets the heading hold anything else, including the characters that
+ * JavaScript's `.` and `$` otherwise treat as line ends (`\r`, U+2028, U+2029).
+ */
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: (.*))?$/s;
 const NO_NEWLINE = '\\';
 
 class Lines {

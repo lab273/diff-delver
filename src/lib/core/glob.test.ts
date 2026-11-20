@@ -42,7 +42,12 @@ describe('glob patterns', () => {
 		['\\*.txt', 'a.txt', false],
 		['odd names/*', 'odd names/ünïcödé "quoted".txt', true],
 		['a+b(c).txt', 'a+b(c).txt', true],
-		['Makefile', 'makefile', false]
+		['Makefile', 'makefile', false],
+		// Only `/` separates; line terminators are ordinary characters in a path.
+		['src/**', 'src/new\nline.txt', true],
+		['**/x.txt', 'a\u2028b/x.txt', true],
+		['*.txt', 'odd\ndir/a\rb.txt', true],
+		['src/**/*.ts', 'src/a\u2029/b.ts', true]
 	])('%s against %s is %s', (pattern, path, expected) => {
 		expect(matches(pattern, path)).toBe(expected);
 	});

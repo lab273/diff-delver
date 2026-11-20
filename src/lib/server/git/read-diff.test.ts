@@ -51,6 +51,7 @@ describe('readDiff', () => {
 			'odd names/tab\there.txt': ['added', 1, null],
 			'odd names/ünïcödé "quoted".txt': ['renamed', 0, 'odd names/with space.txt'],
 			'renamed-after.txt': ['renamed', 0, 'renamed-before.txt'],
+			'separators.js': ['modified', 6, 'separators.js'],
 			'vendor/added': ['added', 'submodule', null],
 			'vendor/lib': ['modified', 'submodule', 'vendor/lib']
 		});
