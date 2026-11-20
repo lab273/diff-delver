@@ -2,6 +2,9 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { settableClock } from '#lib/core/clock.ts';
 import { assign } from '#lib/core/diff/assign.ts';
+import { autoIgnore } from '#lib/core/diff/auto-ignore.ts';
+import { parseGlobPattern } from '#lib/core/glob-pattern.tiny.ts';
+import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { makeDiff, type Diff } from '#lib/core/diff/diff.ts';
 import { initialState, type AssignmentState } from '#lib/core/diff/state.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
@@ -9,7 +12,11 @@ import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { repoPathBytes } from '#lib/core/path-bytes.ts';
 import { andThen, ok } from '#lib/core/result.ts';
 import type { Section } from '#lib/core/reports/report.ts';
-import { sameReviewedMarks, type ReviewedMarks } from '#lib/core/review/reviewed-marks.ts';
+import {
+	NO_MARKS,
+	sameReviewedMarks,
+	type ReviewedMarks
+} from '#lib/core/review/reviewed-marks.ts';
 import type { RevisionId } from '#lib/core/revision-id.tiny.ts';
 import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 import { parseSectionTitle } from '#lib/core/section-title.tiny.ts';
@@ -26,7 +33,11 @@ import { tempDirectory, useFixture } from '../../../../tests/support/fixture-rep
 import { take, value } from '../../../../tests/support/git-source-helpers.ts';
 import { aReport, aRevision, at } from '../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../tests/support/reviewer-git.ts';
-import { arbitraryAssignScenario, marksFrom } from '../../../../tests/support/synthetic-diff.ts';
+import {
+	arbitraryAssignScenario,
+	marksFrom,
+	syntheticDiff
+} from '../../../../tests/support/synthetic-diff.ts';
 import { Database } from './database.ts';
 import { assignmentRowsFor, replaceAssignmentRows } from './tables/assignments.ts';
 import { everyReport, insertReport, reportById, setReportState } from './tables/reports.ts';
@@ -172,6 +183,44 @@ describe('the tables', () => {
 		expect(bytes.map((b) => b.toString('hex'))).toContain(
 			Buffer.from(pathBytes('caf', 0xe9, '.txt')).toString('hex')
 		);
+	});
+
+	it('give back units ignored by a project pattern, a built-in rule and the agent, each with its reason', async () => {
+		const diff = syntheticDiff([
+			{ path: 'docs/guide.md', change: 'added', lines: 2 },
+			{ path: 'package-lock.json', change: 'added', lines: 1 },
+			{ path: 'src/gen/api.ts', change: 'added', lines: 3 },
+			{ path: 'src/app.ts', change: 'added', lines: 2 }
+		]);
+		const pattern = value(parseGlobPattern('docs/**'));
+		const generated = new Set([value(parseRepoPath('src/gen/api.ts'))]);
+		const sorted = autoIgnore(diff, initialState(diff), {
+			projectPatterns: [pattern],
+			markedGenerated: generated
+		});
+		const state = assign(diff, sorted.state, [
+			{ file: 'src/app.ts', lines: '+2', section: 'ignored', reason: 'Only *spacing*' }
+		]).state;
+		const db = await database();
+		const revision = newRevision(db, sequentialIds());
+		const loaded = storeAndLoad(db, revision, diff, state, NO_MARKS);
+		const rows = value(
+			db.read((q) =>
+				ok(
+					q.all(
+						"SELECT CAST(path AS TEXT) AS path, ignored_by, ignored_detail FROM assignments WHERE bucket = 'ignored' ORDER BY path"
+					)
+				)
+			)
+		);
+		db.close();
+		expect(sameAssignmentState(diff, state, loaded.state)).toBe(true);
+		expect(rows.map((r) => ({ ...r }))).toEqual([
+			{ path: 'docs/guide.md', ignored_by: 'pattern', ignored_detail: 'docs/**' },
+			{ path: 'package-lock.json', ignored_by: 'rule', ignored_detail: 'lockfile' },
+			{ path: 'src/app.ts', ignored_by: 'agent', ignored_detail: 'Only *spacing*' },
+			{ path: 'src/gen/api.ts', ignored_by: 'rule', ignored_detail: 'linguist-generated' }
+		]);
 	});
 
 	it('give back an equal state and equal marks for any state assign calls reach', async () => {

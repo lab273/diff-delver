@@ -140,6 +140,33 @@ describe('the report service', () => {
 		service.close();
 	});
 
+	it('makes one report and keeps one snapshot when a source is opened several times at once', async () => {
+		const { repo, who, data, clock, service } = await setUp();
+		const other = await serviceOn(data, clock, who, 'b');
+		const outcomes = await Promise.all([
+			service.open(repo.dir, spec('working-tree')),
+			service.open(repo.dir, spec('working-tree')),
+			service.open(repo.dir, spec('working-tree')),
+			other.open(repo.dir, spec('working-tree')),
+			other.open(repo.dir, spec('working-tree'))
+		]);
+		const reports = new Set(
+			outcomes
+				.map((o) => value(o))
+				.map((o) => (o.kind === 'nothing-to-review' ? undefined : o.report.id))
+		);
+		expect(reports.size).toBe(1);
+		expect(outcomes.filter((o) => value(o).kind === 'created')).toHaveLength(1);
+		expect(value(service.list())).toHaveLength(1);
+		expect(value(other.list())).toHaveLength(1);
+		expect(await snapshotCount(data)).toBe(1);
+		const [id] = [...reports];
+		if (id === undefined) throw new Error('no report');
+		expect(value(await other.load(id)).diff.files).toHaveLength(3);
+		other.close();
+		service.close();
+	});
+
 	it('says there is nothing to review, and keeps no report or snapshot, when a source has no changes', async () => {
 		const { repo, data, service } = await setUp();
 		await repo.commit('everything');
@@ -629,6 +656,39 @@ describe('the report service', () => {
 			value(await service.deleteReport(id));
 			clock.advance(GRACE_PERIOD + 1);
 			value(await service.removeUnusedSnapshots());
+		});
+		service.close();
+		expect(after).toEqual(before);
+	});
+
+	it('writes nothing to the reviewed repository when what it is asked to do fails', async () => {
+		const { repo, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		const { before, after } = await listingsAround([repo.dir], async () => {
+			expect(failure(await service.open(repo.dir, spec('no-such-branch'))).kind).toBe(
+				'UnknownRevision'
+			);
+			expect(failure(await service.open(repo.dir, spec('main...no-such-branch'))).kind).toBe(
+				'UnknownRevision'
+			);
+			expect(failure(service.upsertSections(id, [{ id: 'app' }])).kind).toBe('SectionsRefused');
+			const refused = value(await service.assign(id, [{ file: 'nope.ts', section: 'nowhere' }]));
+			expect(refused.accepted).toEqual([]);
+			expect(
+				failure(await service.markReviewed(id, { kind: 'file', path: path('nope.ts') }, true)).kind
+			).toBe('FileNotInDiff');
+			expect(failure(await service.load(value(parseReportId('r_404')))).kind).toBe(
+				'ReportNotFound'
+			);
+			value(service.closeReport(id));
+			expect(failure(await service.assign(id, [])).kind).toBe('ReportClosed');
+			const second = created(value(await service.open(repo.dir, spec('working-tree'))));
+			expect(failure(service.reopenReport(id)).kind).toBe('AnotherReportOpen');
+			expect(value(await service.checkForChanges(id))).toEqual({ kind: 'report-closed' });
+			expect(failure(await service.deleteReport(value(parseReportId('r_404')))).kind).toBe(
+				'ReportNotFound'
+			);
+			value(await service.deleteReport(second));
 		});
 		service.close();
 		expect(after).toEqual(before);
