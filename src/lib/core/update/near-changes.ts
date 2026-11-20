@@ -14,6 +14,8 @@
  */
 import type { DiffFile, SideLines } from '../diff/diff.ts';
 import { hunksOf, type DiffLine, type FileDiff, type Hunk } from '../diff/file-diff.ts';
+import type { LineCount } from '../line-count.tiny.ts';
+import { lineNumberOf, type LineNumber } from '../line-number.tiny.ts';
 import { RangeSet } from '../range-set.ts';
 
 /**
@@ -22,8 +24,8 @@ import { RangeSet } from '../range-set.ts';
  * each given as the number of the line that now follows the removal.
  */
 export interface EditPlaces {
-	readonly added: readonly number[];
-	readonly removedBefore: readonly number[];
+	readonly added: readonly LineNumber[];
+	readonly removedBefore: readonly LineNumber[];
 }
 
 /** No edits: the file is the same in both trees. */
@@ -31,8 +33,8 @@ export const NO_EDITS: EditPlaces = { added: [], removedBefore: [] };
 
 /** Where git's diff of one file between two trees edited it, in the later tree's numbers. */
 export function editPlaces(change: FileDiff): EditPlaces {
-	const added: number[] = [];
-	const removedBefore: number[] = [];
+	const added: LineNumber[] = [];
+	const removedBefore: LineNumber[] = [];
 	for (const hunk of hunksOf(change)) {
 		let nextNew = hunk.new.length === 0 ? hunk.new.start + 1 : hunk.new.start;
 		let removing = false;
@@ -45,7 +47,7 @@ export function editPlaces(change: FileDiff): EditPlaces {
 					removing = false;
 					break;
 				case 'deleted':
-					if (!removing) removedBefore.push(nextNew);
+					if (!removing) removedBefore.push(lineNumberOf(nextNew));
 					removing = true;
 					break;
 			}
@@ -64,7 +66,7 @@ export interface NearInput {
 	/** Edits between the two versions' bases, in the new base's numbers: the file's old side. */
 	readonly bases: EditPlaces;
 	/** How many shown lines away still counts as near. */
-	readonly distance: number;
+	readonly distance: LineCount;
 }
 
 /** The change lines of the file within `distance` shown lines of a new line or an edit. */

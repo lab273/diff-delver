@@ -17,3 +17,10 @@ export function parseLineCount(value: number): Result<LineCount, InvalidLineCoun
 	if (!Number.isSafeInteger(value) || value < 0) return err({ kind: 'InvalidLineCount', value });
 	return ok(value as LineCount);
 }
+
+/** A count of lines known to be valid, such as a constant; throws otherwise. */
+export function lineCountOf(value: number): LineCount {
+	const parsed = parseLineCount(value);
+	if (!parsed.ok) throw new RangeError(`Not a count of lines: ${String(value)}`);
+	return parsed.value;
+}

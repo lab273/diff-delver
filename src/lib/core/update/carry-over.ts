@@ -99,6 +99,7 @@ import { fileCountOf } from '../file-count.tiny.ts';
 import { addUnits, NO_UNITS, unitCountOf, type UnitCount } from '../unit-count.tiny.ts';
 import type { ReviewedMarks } from '../review/reviewed-marks.ts';
 import { TreeLineMap, type TreeChanges } from './line-map.ts';
+import { lineCountOf, type LineCount } from '../line-count.tiny.ts';
 import { editPlaces, linesNearChanges, NO_EDITS, type EditPlaces } from './near-changes.ts';
 import type { UpdateSummary } from './update-summary.ts';
 
@@ -106,7 +107,7 @@ import type { UpdateSummary } from './update-summary.ts';
  * How many shown lines away a new line or an edit still takes a reviewed mark
  * off a line (see the top of this file, and DESIGN 6.2 step 3).
  */
-export const MARK_DISTANCE = 3;
+export const MARK_DISTANCE: LineCount = lineCountOf(3);
 
 /** git's edits to each file, by the file's path in the later tree. */
 function editsByPath(changes: TreeChanges): ReadonlyMap<RepoPath, FileDiff> {

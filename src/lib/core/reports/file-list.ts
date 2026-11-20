@@ -14,7 +14,7 @@ import { ignoreRuleName } from '../diff/path-rules.ts';
 import { sectionView, type GroupKey, type Slice } from '../diff/slices.ts';
 import type { AssignmentState, Assignment } from '../diff/state.ts';
 import { escapedRepoPath, type EscapedPath } from '../escaped-path.tiny.ts';
-import { parseLineCount, type LineCount } from '../line-count.tiny.ts';
+import { lineCountOf, type LineCount } from '../line-count.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import { parseSectionTitle, type SectionTitle } from '../section-title.tiny.ts';
 import type { Section } from './report.ts';
@@ -53,12 +53,6 @@ export type ListedGroup =
 	  }
 	| { readonly kind: 'ignored'; readonly files: readonly ListedFile[] }
 	| { readonly kind: 'uncategorised'; readonly files: readonly ListedFile[] };
-
-function lineCount(n: number): LineCount {
-	const parsed = parseLineCount(n);
-	if (!parsed.ok) throw new RangeError(`Not a count of lines: ${n}`);
-	return parsed.value;
-}
 
 function reasonOf(assignment: Assignment): IgnoreReason | undefined {
 	const bucket = assignment.bucket;
@@ -129,8 +123,8 @@ function listedFile(slice: Slice, fresh: UnitSet): ListedFile {
 	return {
 		path: escapedRepoPath(file.path),
 		change,
-		added: lineCount(added),
-		removed: lineCount(removed),
+		added: lineCountOf(added),
+		removed: lineCountOf(removed),
 		ignored: reasons,
 		newChanges: unitCountOf(newChanges)
 	};

@@ -19,31 +19,29 @@ export interface Shown {
 	readonly version: RevisionNumber | undefined;
 }
 
-/** One check, from when it starts to when its answer comes. */
+/** One check, from when it starts to when its answer comes. Only its own `ChangeChecks` reads it. */
 export interface CheckTicket {
-	readonly number: number;
 	readonly shown: Shown;
 }
 
 export class ChangeChecks {
-	#latest = 0;
+	#latest: CheckTicket | undefined;
 	#underWay = 0;
 
 	/** Starts a check of what is shown; in the background, only when none is under way. */
 	start(shown: Shown, background: boolean): CheckTicket | undefined {
 		if (background && this.#underWay > 0) return undefined;
-		this.#latest += 1;
+		const ticket: CheckTicket = { shown };
+		this.#latest = ticket;
 		this.#underWay += 1;
-		return { number: this.#latest, shown };
+		return ticket;
 	}
 
 	/** Ends a check; whether its answer is for what the page shows now and no later check began. */
 	finish(ticket: CheckTicket, now: Shown): boolean {
 		this.#underWay -= 1;
 		return (
-			ticket.number === this.#latest &&
-			ticket.shown.id === now.id &&
-			ticket.shown.version === now.version
+			ticket === this.#latest && ticket.shown.id === now.id && ticket.shown.version === now.version
 		);
 	}
 }
