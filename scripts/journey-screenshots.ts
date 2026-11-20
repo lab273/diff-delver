@@ -16,6 +16,50 @@ import { err, ok, type Result } from '../src/lib/core/result.ts';
 /** Where the committed images are, relative to the repository. */
 export const SCREENSHOT_DIRECTORY = 'tests/journeys/screenshots';
 
+/**
+ * Set to `update` by `pnpm journeys:update` (scripts/journeys.ts): steps then
+ * rewrite the committed images that changed instead of failing on them.
+ */
+export const SCREENSHOT_MODE_VARIABLE = 'DIFF_DELVER_SCREENSHOTS';
+
+/** Set by `pnpm journeys:repeat` to a directory every screenshot is copied into. */
+export const SCREENSHOT_COPY_VARIABLE = 'DIFF_DELVER_SCREENSHOT_COPY';
+
+/** Whether a step compares its screenshots with the committed ones or rewrites them. */
+export type ScreenshotMode = 'compare' | 'update';
+
+export function screenshotMode(env: Readonly<Record<string, string | undefined>>): ScreenshotMode {
+	return env[SCREENSHOT_MODE_VARIABLE] === 'update' ? 'update' : 'compare';
+}
+
+/**
+ * The environment without the variables that change what the journeys do with
+ * their screenshots, and which of them were set. `pnpm verify` runs with this, so
+ * it only ever compares: a variable left over in a shell cannot make it rewrite
+ * the committed images and pass.
+ */
+export function withoutScreenshotVariables(env: Readonly<Record<string, string | undefined>>): {
+	readonly env: Readonly<Record<string, string | undefined>>;
+	readonly removed: readonly string[];
+} {
+	const variables = [SCREENSHOT_MODE_VARIABLE, SCREENSHOT_COPY_VARIABLE];
+	return {
+		env: Object.fromEntries(Object.entries(env).filter(([name]) => !variables.includes(name))),
+		removed: variables.filter((name) => env[name] !== undefined)
+	};
+}
+
+/** Said at the start of a journey run that rewrites images, so it is never mistaken for a check. */
+export const UPDATE_MODE_NOTICE = [
+	'',
+	'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
+	`!! ${SCREENSHOT_MODE_VARIABLE}=update: the journeys REWRITE the committed screenshots`,
+	'!! that changed instead of checking them. This run checks nothing about the images.',
+	'!! Look at every changed image before you commit it. Unset the variable to compare.',
+	'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!',
+	''
+].join('\n');
+
 /** The annotation each step adds to its test for every image it produced or checked. */
 export const SCREENSHOT_ANNOTATION = 'journey-screenshot';
 

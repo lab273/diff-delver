@@ -10,6 +10,7 @@ import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { millisecondsOf, type Milliseconds } from '../src/lib/core/milliseconds.tiny.ts';
+import { withoutScreenshotVariables } from './journey-screenshots.ts';
 import { TIME_LIMITS } from './test-time-limits.ts';
 import {
 	describeTimeWarning,
@@ -49,6 +50,12 @@ interface Step {
 	readonly name: string;
 	readonly commands: readonly Command[];
 }
+
+/**
+ * What every step runs with: this environment, without the variables that make
+ * the journeys rewrite or copy their screenshots, so verify only ever compares.
+ */
+const screenshotVariables = withoutScreenshotVariables(process.env);
 
 const inCi = process.env['CI'] !== undefined;
 const inGitHubActions = process.env['GITHUB_ACTIONS'] === 'true';
@@ -101,7 +108,7 @@ function run(command: Command): Promise<number> {
 		const child = spawn(command.program, command.args, {
 			cwd: root,
 			stdio: 'inherit',
-			env: { ...process.env, ...command.env }
+			env: { ...screenshotVariables.env, ...command.env }
 		});
 		child.on('error', (error) => {
 			console.error(`Could not start ${command.program}: ${error.message}`);
@@ -165,6 +172,12 @@ function warnAfter(): Milliseconds {
 
 async function main(): Promise<number> {
 	const runGuidance = warnAfter();
+	for (const name of screenshotVariables.removed) {
+		console.log(
+			`Notice: ${name} is set in this shell. pnpm verify ignores it and compares every ` +
+				'screenshot with the committed image; to rewrite images, run pnpm journeys:update.'
+		);
+	}
 	rmSync(reportDir, { recursive: true, force: true });
 	mkdirSync(reportDir, { recursive: true });
 

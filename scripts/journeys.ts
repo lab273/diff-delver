@@ -22,7 +22,9 @@ import {
 	auditScreenshots,
 	describeAudit,
 	producedScreenshots,
-	SCREENSHOT_DIRECTORY
+	SCREENSHOT_COPY_VARIABLE,
+	SCREENSHOT_DIRECTORY,
+	SCREENSHOT_MODE_VARIABLE
 } from './journey-screenshots.ts';
 import { comparePngPixels } from './png-pixels.ts';
 
@@ -125,7 +127,7 @@ async function update(): Promise<number> {
 	try {
 		const before = await hashes();
 		const report = join(scratch, 'report.json');
-		const code = await journeys(report, { DIFF_DELVER_SCREENSHOTS: 'update' });
+		const code = await journeys(report, { [SCREENSHOT_MODE_VARIABLE]: 'update' });
 		if (code !== 0) {
 			console.error(
 				'\nThe journeys failed on something other than a screenshot (see above), so no stale ' +
@@ -173,7 +175,7 @@ async function repeat(runsArgument: string | undefined): Promise<number> {
 		const copies = join(scratch, 'copies');
 		const code = await journeys(
 			join(scratch, 'report.json'),
-			{ DIFF_DELVER_SCREENSHOT_COPY: copies },
+			{ [SCREENSHOT_COPY_VARIABLE]: copies },
 			[`--repeat-each=${String(runs)}`]
 		);
 		const byName = new Map<string, Buffer[]>();

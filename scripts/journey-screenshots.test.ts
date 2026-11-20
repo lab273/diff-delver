@@ -6,9 +6,31 @@ import {
 	journeySlug,
 	producedScreenshots,
 	SCREENSHOT_ANNOTATION,
+	screenshotMode,
 	screenshotName,
-	stepSlug
+	stepSlug,
+	withoutScreenshotVariables
 } from './journey-screenshots.ts';
+
+describe('the screenshot mode', () => {
+	it('compares unless told to update, exactly', () => {
+		expect(screenshotMode({})).toBe('compare');
+		expect(screenshotMode({ DIFF_DELVER_SCREENSHOTS: 'Update' })).toBe('compare');
+		expect(screenshotMode({ DIFF_DELVER_SCREENSHOTS: 'update' })).toBe('update');
+	});
+
+	it('is taken out of the environment pnpm verify runs with, which says what it took', () => {
+		const { env, removed } = withoutScreenshotVariables({
+			PATH: '/bin',
+			DIFF_DELVER_SCREENSHOTS: 'update',
+			DIFF_DELVER_SCREENSHOT_COPY: '/tmp/x'
+		});
+		expect(env).toEqual({ PATH: '/bin' });
+		expect(screenshotMode(env)).toBe('compare');
+		expect(removed).toEqual(['DIFF_DELVER_SCREENSHOTS', 'DIFF_DELVER_SCREENSHOT_COPY']);
+		expect(withoutScreenshotVariables({ PATH: '/bin' }).removed).toEqual([]);
+	});
+});
 
 describe('names', () => {
 	it('turns a step name into plain lower-case words joined by hyphens', () => {

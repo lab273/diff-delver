@@ -35,7 +35,9 @@ import { test as base, type Locator, type Page, type TestInfo } from '@playwrigh
 import {
 	journeySlug,
 	SCREENSHOT_ANNOTATION,
+	SCREENSHOT_COPY_VARIABLE,
 	SCREENSHOT_DIRECTORY,
+	screenshotMode,
 	screenshotName,
 	stepSlug,
 	THEMES
@@ -55,10 +57,10 @@ const BUNDLED_FONTS: readonly string[] = ['Inter', 'JetBrains Mono'];
  * How the images are handled, set by `pnpm journeys:*` (scripts/journeys.ts):
  * compared with the committed ones (the default), or written where they changed.
  */
-const MODE = process.env['DIFF_DELVER_SCREENSHOTS'] === 'update' ? 'update' : 'compare';
+const MODE = screenshotMode(process.env);
 
 /** For the determinism check: a directory to copy every screenshot into, as taken. */
-const COPY_DIRECTORY = process.env['DIFF_DELVER_SCREENSHOT_COPY'];
+const COPY_DIRECTORY = process.env[SCREENSHOT_COPY_VARIABLE];
 
 /** The committed images are Linux images (README, "Checking the experience"). */
 export const COMPARES_SCREENSHOTS = process.platform === 'linux';
