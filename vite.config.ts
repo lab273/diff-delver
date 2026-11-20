@@ -42,6 +42,7 @@ export default defineConfig({
 					environment: 'node',
 					include: ['src/**/*.test.ts'],
 					exclude: ['src/lib/core/**'],
+					globalSetup: ['tests/support/vitest-global-setup.ts'],
 					testTimeout: INTEGRATION_TEST_BUDGET_MS,
 					hookTimeout: INTEGRATION_TEST_BUDGET_MS
 				}

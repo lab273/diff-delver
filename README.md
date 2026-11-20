@@ -55,7 +55,8 @@ cloning: `pnpm install`, then `pnpm exec playwright install chromium` once.
 | `src/routes/` | The UI and the HTTP routes. |
 | `src/**/*.test.ts` outside core | The `integration` Vitest project (3 seconds per test). |
 | `tests/journeys/` | One Playwright file per journey, `j<N>-<name>.journey.ts`, with the journey's name as its `describe`. They run in Chromium against one production build on a free port, 20 seconds per test. |
-| `tests/support/` | Shared test helpers. `accessibility.ts` scans the current screen with axe; every journey calls it on every screen it reaches. |
+| `src/lib/server/git/` | Running git. `run-git.ts` runs one command, isolated from the machine's git config, and returns typed errors; everything that calls git goes through it. |
+| `tests/support/` | Shared test helpers. `accessibility.ts` scans the current screen with axe; every journey calls it on every screen it reaches. `git-repo.ts` builds real repositories with real git, with a fixed identity and dates. `fixture-repos.ts` gives each integration test its own copy of a named fixture repository (`defineFixture`, `useFixture`), built once per run, or a fresh empty one (`emptyRepo`). |
 | `scripts/verify.ts` | The `pnpm verify` runner. |
 | `.github/workflows/verify.yml` | CI: `pnpm verify` on every commit of every push to `main`. |
 
