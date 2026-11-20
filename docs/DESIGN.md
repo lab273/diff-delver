@@ -347,8 +347,14 @@ same snapshot. A submitted review always points at the breakdown the reviewer sa
 Applying an update creates a new revision:
 
 1. Take a new snapshot.
-2. For each file (following renames), match old change lines to new ones by side
-   and text, in order.
+2. Decide which lines are the same line as before. A line is the same when git's
+   own comparison of the two versions leaves it unchanged: the two heads for added
+   lines, the two bases for deleted lines, following renames. Only edits elsewhere
+   may have moved its number. A line made only of punctuation or white space, such
+   as a lone brace, keeps its state only when a line with real content beside it in
+   the same change kept its state too, so such lines are never matched across
+   unrelated code. When in doubt a line counts as new: a wrong "reviewed" would
+   hide code from the reviewer, and a wrong "new" only costs a second look.
 3. Matched lines keep their bucket, role, reviewed mark and thread anchors.
 4. Unmatched new lines go to `Uncategorised`, marked "new since revision N". An
    attached agent is told there is work to sort.
@@ -547,7 +553,7 @@ page says what it is, once and briefly:
 | The agent is still working | "Sorting the diff: 340 of 1,200 lines placed. You can start reading." |
 | Lines nobody sorted | "Not sorted yet: 3 files. The agent did not place these, so they are listed here." |
 | No agent connected | "No agent connected. Copy this request and paste it into your agent." with a copy button |
-| The diff changed | "This diff has changed since you opened it. Update to see 3 changed files. Your ticks and comments are kept." |
+| The diff changed | "This diff has changed since you opened it. Update to see 3 changed files. What you marked as reviewed stays marked on lines that did not change." (and, once comments exist, that they are kept too) |
 | Lines from another section | "Shown in *Session expiry*" on the muted lines, as a link |
 | Ignored file | The reason beside the file, e.g. "Lockfile" or "Agent: re-recorded fixtures" |
 
@@ -603,7 +609,7 @@ the starting vocabulary, to be adjusted by watching people use it.
 | Internal term | On screen |
 |---|---|
 | report | The diff, named by its source: "Pull request #123", "Uncommitted changes", "feature-x compared with main" |
-| revision | "Update 2", with when it arrived and what changed |
+| revision | "Version 2", with when it arrived and what changed |
 | snapshot | Not shown. Its size appears on the update |
 | slice | Not named. A split file shows "part 2 of 3" |
 | bucket | Not shown |
