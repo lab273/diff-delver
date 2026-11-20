@@ -240,3 +240,17 @@ test.describe("the app's own styles", () => {
 		await journey.step('Form controls');
 	});
 });
+
+// A step once took over 30 seconds on this page, against about one on the start
+// page: it took full-page screenshots and asked about every element's font one
+// at a time. Its time is held to the journey guidance by pnpm verify.
+test.describe('a step on a long page', () => {
+	test('takes about what a step on a short page does', async ({ planted }) => {
+		const lines = Array.from(
+			{ length: 3_000 },
+			(_, i) => `<p>Line ${String(i + 1)} of the diff</p>`
+		);
+		const journey = await planted(pageWith(`<h1>Long</h1>${lines.join('')}`));
+		await journey.step('Long page');
+	});
+});

@@ -12,8 +12,11 @@
  * One `step` call does everything that must hold on every screen, so a journey
  * cannot leave part of it out (README, "Checking the experience"):
  *
- * - in the light and the dark colour scheme, a screenshot compared exactly with
- *   the committed one (tests/journeys/screenshots/), and an accessibility scan;
+ * - in the light and the dark colour scheme, a screenshot of the viewport, what a
+ *   person sees at that moment, compared exactly with the committed one
+ *   (tests/journeys/screenshots/), and an accessibility scan of the whole page. A
+ *   journey that needs to show more scrolls with the keyboard and takes another
+ *   step, so a step costs about the same however long the page is;
  * - text drawn only in the bundled fonts, every character covered by them, and
  *   drawn only once they have loaded;
  * - no error in the browser console and no request to anywhere but the app;
@@ -295,14 +298,24 @@ async function fontsNotBundled(page: Page): Promise<readonly string[]> {
 		await cdp.send('CSS.enable');
 		const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
 		type Node = typeof root;
-		const withText: { node: Node; host: Node }[] = [];
-		// `host` is the element a person sees: the <input>, not the browser's <div> inside it.
+		interface WithText {
+			readonly node: Node;
+			/** The element a person sees: the <input>, not the browser's <div> inside it. */
+			readonly host: Node;
+			/** Inside a shadow root the browser made for a form control. */
+			readonly inControl: boolean;
+			readonly text: string;
+		}
+		const withText: WithText[] = [];
 		const visit = (node: Node, inHead: boolean, host: Node | undefined): void => {
 			const head = inHead || node.nodeName === 'HEAD';
-			const ownText = (node.children ?? []).some(
-				(child) => child.nodeType === 3 && child.nodeValue.trim() !== ''
-			);
-			if (!head && node.nodeType === 1 && ownText) withText.push({ node, host: host ?? node });
+			const text = (node.children ?? [])
+				.filter((child) => child.nodeType === 3)
+				.map((child) => child.nodeValue)
+				.join('');
+			if (!head && node.nodeType === 1 && text.trim() !== '') {
+				withText.push({ node, host: host ?? node, inControl: host !== undefined, text });
+			}
 			const inner = [
 				...(node.children ?? []),
 				...(node.pseudoElements ?? []),
@@ -314,9 +327,49 @@ async function fontsNotBundled(page: Page): Promise<readonly string[]> {
 			}
 		};
 		visit(root, false, undefined);
+
+		// Which font draws a character depends only on the element's font settings and
+		// the character, so one element is asked about for each pair of the two that
+		// appears, not every element: on a long page, a few dozen instead of thousands.
+		// One snapshot gives every element's font settings; it leaves out the
+		// browser's own shadow roots, so text inside a form control is always asked about.
+		const snapshot = await cdp.send('DOMSnapshot.captureSnapshot', {
+			computedStyles: ['font-family', 'font-style', 'font-weight', 'font-stretch']
+		});
+		const settings = new Map<number, string>();
+		for (const doc of snapshot.documents) {
+			const ids = doc.nodes.backendNodeId ?? [];
+			doc.layout.nodeIndex.forEach((nodeIndex, layoutIndex) => {
+				const id = ids[nodeIndex];
+				const styles = doc.layout.styles[layoutIndex] ?? [];
+				if (id !== undefined) {
+					settings.set(id, styles.map((index) => snapshot.strings[index] ?? '').join('|'));
+				}
+			});
+		}
+		const seen = new Set<string>();
+		const asked = withText.filter(({ node, inControl, text }) => {
+			const key = settings.get(node.backendNodeId);
+			if (inControl || key === undefined) return true;
+			let added = false;
+			for (const char of text) {
+				if (/\s/.test(char)) continue;
+				const pair = `${key}\u0000${char}`;
+				if (seen.has(pair)) continue;
+				seen.add(pair);
+				added = true;
+			}
+			return added;
+		});
+
 		const problems: string[] = [];
-		for (const { node, host } of withText) {
-			const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId: node.nodeId });
+		// Every question is sent at once and answered in one go, not one round trip each.
+		const answers = await Promise.all(
+			asked.map(({ node }) => cdp.send('CSS.getPlatformFontsForNode', { nodeId: node.nodeId }))
+		);
+		for (const [index, { fonts }] of answers.entries()) {
+			const host = asked[index]?.host;
+			if (host === undefined) continue;
 			for (const font of fonts) {
 				if (!font.isCustomFont || !BUNDLED_FONTS.includes(font.familyName)) {
 					problems.push(
@@ -412,7 +465,9 @@ async function charactersNotCovered(page: Page): Promise<readonly string[]> {
 async function stableScreenshot(page: Page): Promise<Buffer> {
 	const shoot = (): Promise<Buffer> =>
 		page.screenshot({
-			fullPage: true,
+			// What a person sees at this moment: the viewport. To show more, a journey
+			// scrolls with the keyboard and takes another step.
+			fullPage: false,
 			animations: 'disabled',
 			caret: 'hide',
 			scale: 'css',
