@@ -19,7 +19,9 @@
  * It does not stop by itself when idle: it holds nothing that is not on disk,
  * but a page left open would stop working with the browser's own error. It
  * stops on `diff-delver stop`, on a signal, or when a command of another
- * version replaces it.
+ * version replaces it. It also stops when its lockfile is gone or holds another
+ * daemon's entry, as when its data folder was deleted, since then no command
+ * could find it or stop it: it checks every few seconds (`LOCK_CHECK_EVERY_MS`).
  */
 import { randomBytes } from 'node:crypto';
 import type { Server } from 'node:http';
@@ -64,6 +66,25 @@ export interface DaemonOptions {
 	readonly repository?: RepositoryOptions;
 	/** Called once the daemon has stopped, however it was asked to. */
 	readonly onStopped?: () => void;
+	/**
+	 * Runs `check` from time to time until the function it returns is called: by
+	 * default every `LOCK_CHECK_EVERY_MS`. A test gives its own, to run the check
+	 * when it chooses instead of waiting.
+	 */
+	readonly repeat?: (check: () => Promise<void>) => () => void;
+}
+
+/** How often a daemon checks that its lockfile is still there and still its own. */
+export const LOCK_CHECK_EVERY_MS = 5000;
+
+function everyFewSeconds(check: () => Promise<void>): () => void {
+	const timer = setInterval(() => {
+		void check();
+	}, LOCK_CHECK_EVERY_MS);
+	timer.unref();
+	return () => {
+		clearInterval(timer);
+	};
 }
 
 /** Where a running daemon is, and how to reach it. */
@@ -248,8 +269,10 @@ export async function startDaemon(
 			);
 		}
 	});
+	let stopChecking = (): void => undefined;
 	const stop = (): Promise<void> => {
 		stopping ??= (async () => {
+			stopChecking();
 			unregisterDaemon(lock.port);
 			await close(server);
 			await cleaned;
@@ -272,6 +295,17 @@ export async function startDaemon(
 				void stop();
 			}, 0);
 		}
+	});
+	// Its lockfile gone or another's: nothing could find or stop this daemon, so it stops.
+	const text = lockText(lock);
+	stopChecking = (options.repeat ?? everyFewSeconds)(async () => {
+		const now = await readLockfile(options.dataDirectory).catch(() => undefined);
+		if (now === undefined || stopping !== undefined) return;
+		if (now.kind !== 'none' && now.text === text) return;
+		console.log(
+			`diff delver is stopping: its lockfile in ${options.dataDirectory} is gone or belongs to another diff delver, so nothing else could find or stop it.`
+		);
+		await stop();
 	});
 	gate.settings = {
 		port: lock.port,

@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { describeApiError } from '#lib/api/client.ts';
@@ -238,6 +238,40 @@ describe('the daemon’s lock', () => {
 		// The database is closed, so another daemon can open the folder at once.
 		const next = await testDaemon({ dataDirectory });
 		expect(next.port).not.toBe(daemon.port);
+	});
+
+	it('stops itself when its lockfile is gone or holds another daemon’s entry, and not before', async () => {
+		const checks: (() => Promise<void>)[] = [];
+		/** Runs the daemons' checks now, and says whether this one has stopped since. */
+		const checked = async (daemon: { readonly stopped: Promise<void> }): Promise<boolean> => {
+			let stopped = false;
+			void daemon.stopped.then(() => {
+				stopped = true;
+			});
+			await Promise.all(checks.map((check) => check()));
+			await Promise.resolve();
+			return stopped;
+		};
+		const repeat = (check: () => Promise<void>): (() => void) => {
+			checks.push(check);
+			return () => {
+				checks.splice(checks.indexOf(check), 1);
+			};
+		};
+
+		const dataDirectory = await tempDirectory();
+		const daemon = await testDaemon({ dataDirectory, repeat });
+		expect(await checked(daemon)).toBe(false);
+		await rm(dataDirectory, { recursive: true, force: true });
+		expect(await checked(daemon)).toBe(true);
+		await expect(fetch(`${daemon.origin}/`)).rejects.toThrow();
+		expect(checks).toEqual([]);
+
+		const other = await tempDirectory();
+		const replaced = await testDaemon({ dataDirectory: other, repeat });
+		const text = await readFile(lockfilePath(other), 'utf8');
+		await writeFile(lockfilePath(other), text.replace(/"port":\d+/, '"port":9'));
+		expect(await checked(replaced)).toBe(true);
 	});
 
 	it('refuses to start a second daemon for a data folder that has one', async () => {

@@ -35,6 +35,8 @@ export interface TestDaemonOptions {
 	readonly dataDirectory?: AbsolutePath;
 	readonly version?: CodeVersion;
 	readonly who?: Reviewer;
+	/** How the daemon runs its lockfile check; by default, as the command's does. */
+	readonly repeat?: (check: () => Promise<void>) => () => void;
 }
 
 /** Starts a daemon, or says why it could not; one that starts is stopped when the test finishes. */
@@ -51,7 +53,8 @@ export async function tryStartDaemon(
 		ids: sequentialIds(),
 		version: options.version ?? version('test'),
 		app: await app,
-		repository: { gitEnv: who.gitEnv }
+		repository: { gitEnv: who.gitEnv },
+		...(options.repeat === undefined ? {} : { repeat: options.repeat })
 	});
 	if (started.ok) {
 		const daemon = started.value;
