@@ -6,13 +6,14 @@
  * same pixels differently); the pixels may not.
  */
 import { PNG } from 'pngjs';
+import { pixelCountOf, type PixelCount } from '../src/lib/core/pixel-count.tiny.ts';
 
 export type PixelComparison =
 	| { readonly kind: 'Same' }
 	| {
 			readonly kind: 'Different';
 			/** How many pixels differ, counting every pixel outside the other image when the sizes differ. */
-			readonly pixels: number;
+			readonly pixels: PixelCount;
 			readonly expectedSize: string;
 			readonly actualSize: string;
 			/** The expected image, faded, with every differing pixel in solid magenta. */
@@ -62,7 +63,7 @@ export function comparePngPixels(expected: Buffer, actual: Buffer): PixelCompari
 	}
 	return {
 		kind: 'Different',
-		pixels,
+		pixels: pixelCountOf(pixels),
 		expectedSize: size(a),
 		actualSize: size(b),
 		diff: PNG.sync.write(diff)

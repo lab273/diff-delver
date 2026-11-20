@@ -4,7 +4,9 @@
  * worth another try, how long to wait between tries, and what to tell the person
  * when it does not work.
  */
+import { attemptCountOf, type AttemptCount } from '../src/lib/core/attempt-count.tiny.ts';
 import type { ExitCode } from '../src/lib/core/exit-code.tiny.ts';
+import { millisecondsOf, type Milliseconds } from '../src/lib/core/milliseconds.tiny.ts';
 import { err, ok, type Result } from '../src/lib/core/result.ts';
 import { describeFinding, type Finding } from './private-data-scan.ts';
 
@@ -57,7 +59,7 @@ export interface PushAttempt {
  * The waits before the second, third and fourth tries. The SSH connection to the
  * remote is intermittently slow, so a timeout is usually gone on the next try.
  */
-export const RETRY_DELAYS_MS: readonly number[] = [5_000, 15_000, 30_000];
+export const RETRY_DELAYS: readonly Milliseconds[] = [5_000, 15_000, 30_000].map(millisecondsOf);
 
 /**
  * Whether a failed push failed because the network timed out, as git, ssh and
@@ -77,8 +79,8 @@ export type PushProblem =
 			/** The command again, with --anyway, to push regardless. */
 			readonly anyway: string;
 	  }
-	| { readonly kind: 'PushFailed'; readonly code: ExitCode; readonly attempts: number }
-	| { readonly kind: 'PushTimedOut'; readonly attempts: number };
+	| { readonly kind: 'PushFailed'; readonly code: ExitCode; readonly attempts: AttemptCount }
+	| { readonly kind: 'PushTimedOut'; readonly attempts: AttemptCount };
 
 /** What happened and what to do next, for the person who ran the push. */
 export function describePushProblem(problem: PushProblem): string {
@@ -128,18 +130,19 @@ export function describePushProblem(problem: PushProblem): string {
  */
 export async function pushWithRetries(
 	attempt: () => Promise<PushAttempt>,
-	wait: (ms: number) => Promise<void>,
+	wait: (ms: Milliseconds) => Promise<void>,
 	notice: (text: string) => void,
-	delays: readonly number[] = RETRY_DELAYS_MS
-): Promise<Result<number, PushProblem>> {
+	delays: readonly Milliseconds[] = RETRY_DELAYS
+): Promise<Result<AttemptCount, PushProblem>> {
 	const tries = delays.length + 1;
 	for (let n = 1; ; n += 1) {
 		const result = await attempt();
-		if (result.code === 0) return ok(n);
+		if (result.code === 0) return ok(attemptCountOf(n));
 		const timedOut = isNetworkTimeout(result.output);
 		const delay = delays[n - 1];
-		if (!timedOut) return err({ kind: 'PushFailed', code: result.code, attempts: n });
-		if (delay === undefined) return err({ kind: 'PushTimedOut', attempts: n });
+		if (!timedOut)
+			return err({ kind: 'PushFailed', code: result.code, attempts: attemptCountOf(n) });
+		if (delay === undefined) return err({ kind: 'PushTimedOut', attempts: attemptCountOf(n) });
 		notice(
 			`The push timed out (try ${String(n)} of ${String(tries)}). ` +
 				`Trying again in ${String(delay / 1000)} s.`

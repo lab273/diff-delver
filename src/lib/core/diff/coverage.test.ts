@@ -7,6 +7,7 @@ import {
 } from '../../../../tests/support/synthetic-diff.ts';
 import { recordTime } from '../../../../tests/support/measured-time.ts';
 import { now } from '../../../../tests/support/stopwatch.ts';
+import { measurementName } from '../measurement-name.tiny.ts';
 import { millisecondsOf } from '../milliseconds.tiny.ts';
 import { parseSectionId, type SectionId } from '../section-id.tiny.ts';
 import { assign, type AssignRequest } from './assign.ts';
@@ -205,6 +206,11 @@ describe('the pure model at scale', () => {
 		expect(uncategorised).toBe(50_000 - 10_000 - 10);
 		// The full size, 2,000 files and 200,000 lines, is measured in src/lib/scale.test.ts,
 		// and src/lib/work-growth.test.ts holds the work to linear growth.
-		recordTime(task, 'reading, assigning and covering', elapsed, millisecondsOf(150));
+		recordTime(
+			task,
+			measurementName('reading, assigning and covering'),
+			millisecondsOf(elapsed),
+			millisecondsOf(150)
+		);
 	});
 });

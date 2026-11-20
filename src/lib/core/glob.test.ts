@@ -2,6 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { TIME_LIMITS } from '../../../scripts/test-time-limits.ts';
 import { timed } from '../../../tests/support/measured-time.ts';
+import { measurementName } from './measurement-name.tiny.ts';
 import { compileGlob, parseGlobPattern } from './glob-pattern.tiny.ts';
 import {
 	compileGlobProgram,
@@ -191,7 +192,9 @@ describe('glob matching time', () => {
 		// A set of states for each of 2^20 tails, far more than are kept.
 		['a star and 20 marks', '*a' + '?'.repeat(20) + 'c', pseudoRandomPath(4000), false]
 	])('%s finish quickly on a long path', ([, pattern, path, expected], { task }) => {
-		const matched = timed(task, 'matching', CORE_GUIDANCE, () => run(pattern, path));
+		const matched = timed(task, measurementName('matching'), CORE_GUIDANCE, () =>
+			run(pattern, path)
+		);
 		expect(matched).toBe(expected);
 	});
 
@@ -264,7 +267,9 @@ describe('glob matching time', () => {
 	}) => {
 		const pattern = '*a'.repeat(MAX_GLOB_LENGTH / 2 - 1) + '*b';
 		expect(Array.from(pattern)).toHaveLength(MAX_GLOB_LENGTH);
-		const matched = timed(task, 'matching', CORE_GUIDANCE, () => run(pattern, 'a'.repeat(4096)));
+		const matched = timed(task, measurementName('matching'), CORE_GUIDANCE, () =>
+			run(pattern, 'a'.repeat(4096))
+		);
 		expect(matched).toBe(false);
 	});
 });

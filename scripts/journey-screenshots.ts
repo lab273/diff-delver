@@ -12,6 +12,7 @@
  */
 
 import { err, ok, type Result } from '../src/lib/core/result.ts';
+import type { StepNumber } from '../src/lib/core/step-number.tiny.ts';
 
 /** Where the committed images are, relative to the repository. */
 export const SCREENSHOT_DIRECTORY = 'tests/journeys/screenshots';
@@ -100,7 +101,12 @@ export function journeySlug(testFile: string): string {
 }
 
 /** The image file name of one step in one theme. Steps are numbered from 1. */
-export function screenshotName(journey: string, step: number, slug: string, theme: Theme): string {
+export function screenshotName(
+	journey: string,
+	step: StepNumber,
+	slug: string,
+	theme: Theme
+): string {
 	return `${journey}.${String(step).padStart(2, '0')}.${slug}.${theme}.png`;
 }
 

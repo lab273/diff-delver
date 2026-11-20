@@ -16,6 +16,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { constants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { AttemptCount } from '../src/lib/core/attempt-count.tiny.ts';
 import { parseExitCode, type ExitCode } from '../src/lib/core/exit-code.tiny.ts';
 import { err, ok, type Result } from '../src/lib/core/result.ts';
 import {
@@ -144,7 +145,7 @@ async function check(
 }
 
 /** Pushes with `bd dolt push`, `extra` going to it, trying again after a timeout. */
-async function push(extra: readonly string[]): Promise<Result<number, PushProblem>> {
+async function push(extra: readonly string[]): Promise<Result<AttemptCount, PushProblem>> {
 	const attempt = async (): Promise<PushAttempt> => {
 		const ran = await runBd(['dolt', 'push', ...extra], 'capture');
 		// bd ran for the export a moment ago, so it can only be gone if it was removed since.

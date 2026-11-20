@@ -1,4 +1,5 @@
 /** Naming the journey screenshots and finding stale ones (scripts/journey-screenshots.ts). */
+import { stepNumberOf } from '../src/lib/core/step-number.tiny.ts';
 import { describe, expect, it } from 'vitest';
 import {
 	auditScreenshots,
@@ -53,9 +54,9 @@ describe('names', () => {
 
 	it('names an image so that a listing reads in journey and step order', () => {
 		const names = [
-			screenshotName('j0-first-run', 10, 'finished', 'light'),
-			screenshotName('j0-first-run', 2, 'overview', 'dark'),
-			screenshotName('j0-first-run', 1, 'start-page', 'light')
+			screenshotName('j0-first-run', stepNumberOf(10), 'finished', 'light'),
+			screenshotName('j0-first-run', stepNumberOf(2), 'overview', 'dark'),
+			screenshotName('j0-first-run', stepNumberOf(1), 'start-page', 'light')
 		];
 		expect([...names].sort()).toEqual([
 			'j0-first-run.01.start-page.light.png',

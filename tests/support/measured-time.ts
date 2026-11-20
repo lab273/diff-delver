@@ -13,12 +13,13 @@
  * `scripts/verify.ts`.
  */
 import type { TaskMeta } from 'vitest';
+import type { MeasurementName } from '../../src/lib/core/measurement-name.tiny.ts';
 import { millisecondsOf, type Milliseconds } from '../../src/lib/core/milliseconds.tiny.ts';
 import { now } from './stopwatch.ts';
 
 /** One measurement: what was timed, how long it took, and how long it should take. */
 export interface MeasuredTime {
-	readonly what: string;
+	readonly what: MeasurementName;
 	readonly ms: Milliseconds;
 	readonly guidance: Milliseconds;
 }
@@ -38,23 +39,23 @@ export interface MeasuredTask {
 /** Records a time the test measured itself. */
 export function recordTime(
 	task: MeasuredTask,
-	what: string,
-	ms: number,
+	what: MeasurementName,
+	ms: Milliseconds,
 	guidance: Milliseconds
 ): void {
-	const record: MeasuredTime = { what, ms: millisecondsOf(ms), guidance };
+	const record: MeasuredTime = { what, ms, guidance };
 	task.meta.measuredTimes = [...(task.meta.measuredTimes ?? []), record];
 }
 
 /** Runs `work`, records how long it took against its guidance, and returns its result. */
 export function timed<T>(
 	task: MeasuredTask,
-	what: string,
+	what: MeasurementName,
 	guidance: Milliseconds,
 	work: () => T
 ): T {
 	const started = now();
 	const result = work();
-	recordTime(task, what, now() - started, guidance);
+	recordTime(task, what, millisecondsOf(now() - started), guidance);
 	return result;
 }

@@ -2,6 +2,9 @@
  * Reading test times from the Vitest and Playwright JSON reports, and warning
  * only about what went over its guidance (scripts/test-timings.ts).
  */
+import { measurementName } from '../src/lib/core/measurement-name.tiny.ts';
+import { testFile } from '../src/lib/core/test-file.tiny.ts';
+import { testName } from '../src/lib/core/test-name.tiny.ts';
 import { describe, expect, it } from 'vitest';
 import { millisecondsOf } from '../src/lib/core/milliseconds.tiny.ts';
 import { TIME_LIMITS } from './test-time-limits.ts';
@@ -31,8 +34,8 @@ const quickRun = { ms: ms(10_000), guidance: ms(120_000) };
 function timing(overrides: Partial<TestTiming>): TestTiming {
 	return {
 		layer: 'core',
-		file: 'src/lib/core/a.test.ts',
-		name: 'a works',
+		file: testFile('src/lib/core/a.test.ts'),
+		name: testName('a works'),
 		ms: ms(1),
 		measurements: [],
 		...overrides
@@ -65,13 +68,15 @@ describe('vitestTimings', () => {
 					{
 						fullName: 'scale',
 						duration: 300,
-						meta: { measuredTimes: [{ what: 'covering', ms: 180, guidance: 1000 }] }
+						meta: {
+							measuredTimes: [{ what: measurementName('covering'), ms: 180, guidance: 1000 }]
+						}
 					}
 				]
 			}
 		]);
 		expect(vitestTimings(report, ROOT)[0]?.measurements).toEqual([
-			{ what: 'covering', ms: 180, guidance: 1000 }
+			{ what: measurementName('covering'), ms: 180, guidance: 1000 }
 		]);
 	});
 
@@ -83,7 +88,9 @@ describe('vitestTimings', () => {
 					{
 						fullName: 'a',
 						duration: null,
-						meta: { measuredTimes: [{ what: 'x', ms: -1, guidance: 5 }, { what: 'y' }] }
+						meta: {
+							measuredTimes: [{ what: measurementName('x'), ms: -1, guidance: 5 }, { what: 'y' }]
+						}
 					}
 				]
 			}
@@ -138,7 +145,7 @@ describe('timeWarnings', () => {
 			timing({ ms: ms(250) }),
 			timing({ layer: 'integration', ms: ms(2_999) }),
 			timing({ layer: 'journey', ms: ms(19_000) }),
-			timing({ measurements: [{ what: 'x', ms: ms(100), guidance: ms(100) }] })
+			timing({ measurements: [{ what: measurementName('x'), ms: ms(100), guidance: ms(100) }] })
 		];
 		expect(timeWarnings(tests, TIME_LIMITS, quickRun)).toEqual([]);
 	});
@@ -154,7 +161,7 @@ describe('timeWarnings', () => {
 	});
 
 	it('warns about a measurement over its guidance even when the test is within its own', () => {
-		const measurement = { what: 'covering', ms: ms(171), guidance: ms(150) };
+		const measurement = { what: measurementName('covering'), ms: ms(171), guidance: ms(150) };
 		const test = timing({ ms: ms(200), measurements: [measurement] });
 		expect(timeWarnings([test], TIME_LIMITS, quickRun)).toEqual([
 			{ kind: 'MeasurementOverGuidance', test, measurement }
@@ -171,7 +178,7 @@ describe('timeWarnings', () => {
 
 describe('describeTimeWarning', () => {
 	it('names the test, how long it took and the guidance', () => {
-		const test = timing({ name: 'glob is quick', ms: ms(312.4) });
+		const test = timing({ name: testName('glob is quick'), ms: ms(312.4) });
 		const warning = { kind: 'TestOverGuidance', test, guidance: ms(250) } as const;
 		expect(describeTimeWarning(warning)).toBe(
 			'src/lib/core/a.test.ts > glob is quick took 312 ms, over the 250 ms guidance for a core test.'
@@ -180,8 +187,8 @@ describe('describeTimeWarning', () => {
 	});
 
 	it('names what a test measured', () => {
-		const measurement = { what: 'covering', ms: ms(171.3), guidance: ms(150) };
-		const test = timing({ name: 'scale' });
+		const measurement = { what: measurementName('covering'), ms: ms(171.3), guidance: ms(150) };
+		const test = timing({ name: testName('scale') });
 		expect(describeTimeWarning({ kind: 'MeasurementOverGuidance', test, measurement })).toBe(
 			'src/lib/core/a.test.ts > scale: covering took 171 ms, over its 150 ms guidance.'
 		);

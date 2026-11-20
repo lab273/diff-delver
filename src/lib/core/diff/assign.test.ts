@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { timed } from '../../../../tests/support/measured-time.ts';
+import { measurementName } from '../measurement-name.tiny.ts';
 import { millisecondsOf } from '../milliseconds.tiny.ts';
 import {
 	arbitraryDiff,
@@ -214,7 +215,7 @@ describe('assign', () => {
 				lines: 1
 			}))
 		);
-		const outcome = timed(task, 'assigning', millisecondsOf(250), () =>
+		const outcome = timed(task, measurementName('assigning'), millisecondsOf(250), () =>
 			assign(long, initialState(long), [
 				{ glob: `${'*a'.repeat(12)}*b`, section: 'alpha' },
 				{ glob: `${'**/'.repeat(30)}z`, section: 'alpha' },
@@ -400,7 +401,7 @@ describe('assign rejections', () => {
 			for (let n = 1; unchanged.length < 5_000; n += 1) {
 				if (changed?.has(n) !== true) unchanged.push(`+${String(n)}`);
 			}
-			const text = timed(task, 'building the refusal', millisecondsOf(100), () =>
+			const text = timed(task, measurementName('building the refusal'), millisecondsOf(100), () =>
 				message({ file: 'huge.ts', lines: unchanged.join(','), section: 'alpha' })
 			);
 			expect(text.length).toBeLessThan(600);

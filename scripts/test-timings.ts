@@ -8,11 +8,14 @@ import {
 	parseMilliseconds,
 	type Milliseconds
 } from '../src/lib/core/milliseconds.tiny.ts';
+import { measurementName, type MeasurementName } from '../src/lib/core/measurement-name.tiny.ts';
+import { testFile, type TestFile } from '../src/lib/core/test-file.tiny.ts';
+import { testName, type TestName } from '../src/lib/core/test-name.tiny.ts';
 import { CORE_TEST_DIRECTORY, type TestLayer, type TimeLimit } from './test-time-limits.ts';
 
 /** A time a test measured itself (tests/support/measured-time.ts). */
 export interface Measurement {
-	readonly what: string;
+	readonly what: MeasurementName;
 	readonly ms: Milliseconds;
 	readonly guidance: Milliseconds;
 }
@@ -21,9 +24,9 @@ export interface Measurement {
 export interface TestTiming {
 	readonly layer: TestLayer;
 	/** The test file, relative to the repository. */
-	readonly file: string;
+	readonly file: TestFile;
 	/** The test's describe blocks and title, joined with " > ". */
-	readonly name: string;
+	readonly name: TestName;
 	readonly ms: Milliseconds;
 	readonly measurements: readonly Measurement[];
 }
@@ -85,7 +88,13 @@ function measurements(meta: unknown): readonly Measurement[] {
 		const parsedMs = parseMilliseconds(ms);
 		const parsedGuidance = parseMilliseconds(guidance);
 		if (!parsedMs.ok || !parsedGuidance.ok) return [];
-		return [{ what: text(m.get('what')), ms: parsedMs.value, guidance: parsedGuidance.value }];
+		return [
+			{
+				what: measurementName(text(m.get('what'))),
+				ms: parsedMs.value,
+				guidance: parsedGuidance.value
+			}
+		];
 	});
 }
 
@@ -96,8 +105,8 @@ export function vitestTimings(report: unknown, root: string): readonly TestTimin
 		const layer: TestLayer = path.startsWith(CORE_TEST_DIRECTORY) ? 'core' : 'integration';
 		return records(file.get('assertionResults')).map((test) => ({
 			layer,
-			file: path,
-			name: text(test.get('fullName')),
+			file: testFile(path),
+			name: testName(text(test.get('fullName'))),
 			ms: duration(test.get('duration')),
 			measurements: measurements(test.get('meta'))
 		}));
@@ -119,12 +128,14 @@ export function playwrightTimings(report: unknown, root: string): readonly TestT
 				);
 				timings.push({
 					layer: 'journey',
-					file: relative(
-						testDir === '' ? text(spec.get('file')) : `${testDir}/${text(spec.get('file'))}`,
-						root
+					file: testFile(
+						relative(
+							testDir === '' ? text(spec.get('file')) : `${testDir}/${text(spec.get('file'))}`,
+							root
+						)
 					),
 					// The first title is the file's, already given by `file`.
-					name: [...here.slice(1), text(spec.get('title'))].join(' > '),
+					name: testName([...here.slice(1), text(spec.get('title'))].join(' > ')),
 					ms: millisecondsOf(ms),
 					measurements: []
 				});

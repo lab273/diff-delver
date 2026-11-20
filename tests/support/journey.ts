@@ -57,6 +57,7 @@ import {
 	type Theme
 } from '../../scripts/journey-screenshots.ts';
 import { comparePngPixels } from '../../scripts/png-pixels.ts';
+import { stepNumberOf } from '../../src/lib/core/step-number.tiny.ts';
 import { expectAccessible } from './accessibility.ts';
 
 export { expect };
@@ -692,7 +693,7 @@ export async function startJourney(
 					}
 					const shot = await stableScreenshot(page);
 					if (options.screenshots === 'check') {
-						const file = screenshotName(journeyName, number, slug.value, theme);
+						const file = screenshotName(journeyName, stepNumberOf(number), slug.value, theme);
 						const problem = await checkScreenshot(testInfo, file, `${label} (${theme})`, shot);
 						if (problem !== undefined) problems.push(problem);
 					}

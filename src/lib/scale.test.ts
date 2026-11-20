@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { recordTime } from '../../tests/support/measured-time.ts';
 import { now } from '../../tests/support/stopwatch.ts';
+import { measurementName } from './core/measurement-name.tiny.ts';
 import { millisecondsOf } from './core/milliseconds.tiny.ts';
 import { runAtScale } from '../../tests/support/synthetic-diff.ts';
 
@@ -19,6 +20,11 @@ describe('the pure diff model at full scale', () => {
 		const { elapsed, unitCount, uncategorised } = runAtScale(2_000, now);
 		expect(unitCount).toBe(200_000);
 		expect(uncategorised).toBe(200_000 - 40_000 - 10);
-		recordTime(task, 'reading, assigning and covering', elapsed, millisecondsOf(1_000));
+		recordTime(
+			task,
+			measurementName('reading, assigning and covering'),
+			millisecondsOf(elapsed),
+			millisecondsOf(1_000)
+		);
 	});
 });

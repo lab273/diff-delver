@@ -3,6 +3,11 @@
  * (scripts/bd-push.ts). The push is a scripted function here; the real one is
  * run against a throwaway database in scripts/bd.test.ts.
  */
+import { attemptCountOf } from '../src/lib/core/attempt-count.tiny.ts';
+import { fieldPath } from '../src/lib/core/field-path.tiny.ts';
+import { issueLocation } from '../src/lib/core/issue-location.tiny.ts';
+import { millisecondsOf } from '../src/lib/core/milliseconds.tiny.ts';
+import { shownText } from '../src/lib/core/shown-text.tiny.ts';
 import { describe, expect, it } from 'vitest';
 import { parseExitCode, type ExitCode } from '../src/lib/core/exit-code.tiny.ts';
 import {
@@ -93,7 +98,7 @@ describe('pushWithRetries', () => {
 			push.attempt,
 			wait(push.waits),
 			(t) => push.notices.push(t),
-			[10, 20, 30]
+			[10, 20, 30].map(millisecondsOf)
 		);
 		expect(result).toEqual({ ok: true, value: 3 });
 		expect(push.waits).toEqual([10, 20]);
@@ -105,14 +110,24 @@ describe('pushWithRetries', () => {
 
 	it('gives up after the last delay when every try times out', async () => {
 		const push = scripted([TIMEOUT]);
-		const result = await pushWithRetries(push.attempt, wait(push.waits), () => undefined, [1, 2]);
+		const result = await pushWithRetries(
+			push.attempt,
+			wait(push.waits),
+			() => undefined,
+			[1, 2].map(millisecondsOf)
+		);
 		expect(result).toEqual({ ok: false, error: { kind: 'PushTimedOut', attempts: 3 } });
 		expect(push.tries()).toBe(3);
 	});
 
 	it('does not try again after a failure that is not a timeout', async () => {
 		const push = scripted([{ code: code(128), output: 'Permission denied (publickey).' }]);
-		const result = await pushWithRetries(push.attempt, wait(push.waits), () => undefined, [1, 2]);
+		const result = await pushWithRetries(
+			push.attempt,
+			wait(push.waits),
+			() => undefined,
+			[1, 2].map(millisecondsOf)
+		);
 		expect(result).toEqual({ ok: false, error: { kind: 'PushFailed', code: 128, attempts: 1 } });
 		expect(push.tries()).toBe(1);
 	});
@@ -165,7 +180,14 @@ describe('describePushProblem', () => {
 	it('lists every finding, says nothing was pushed, and how to push anyway', () => {
 		const text = describePushProblem({
 			kind: 'FoundPrivateData',
-			findings: [{ issue: 'dd-1', field: 'notes', kind: 'Email', shown: 'a@example.com' }],
+			findings: [
+				{
+					issue: issueLocation('dd-1'),
+					field: fieldPath('notes'),
+					kind: 'Email',
+					shown: shownText('a@example.com')
+				}
+			],
 			anyway: 'pnpm bd push --anyway'
 		});
 		expect(text).toContain('Nothing was pushed');
@@ -179,8 +201,8 @@ describe('describePushProblem', () => {
 	it.each([
 		[{ kind: 'BdNotFound' }, 'Install beads'],
 		[{ kind: 'ExportFailed', code: code(2) }, 'nothing was pushed'],
-		[{ kind: 'PushFailed', code: code(1), attempts: 1 }, 'run pnpm bd push again'],
-		[{ kind: 'PushTimedOut', attempts: 4 }, 'timed out 4 times']
+		[{ kind: 'PushFailed', code: code(1), attempts: attemptCountOf(1) }, 'run pnpm bd push again'],
+		[{ kind: 'PushTimedOut', attempts: attemptCountOf(4) }, 'timed out 4 times']
 	] as const)('says what happened and what to do for %o', (problem, words) => {
 		expect(describePushProblem(problem)).toContain(words);
 	});

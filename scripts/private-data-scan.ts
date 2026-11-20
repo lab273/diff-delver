@@ -27,6 +27,10 @@
  * its length.
  */
 
+import { fieldPath, type FieldPath } from '../src/lib/core/field-path.tiny.ts';
+import { issueLocation, type IssueLocation } from '../src/lib/core/issue-location.tiny.ts';
+import { shownText, type ShownText } from '../src/lib/core/shown-text.tiny.ts';
+
 /** What kind of thing was found. */
 export type FindingKind =
 	| 'Email'
@@ -43,12 +47,12 @@ export type FindingKind =
 
 export interface Finding {
 	/** The issue's id, or the line of the export when the record has none. */
-	readonly issue: string;
+	readonly issue: IssueLocation;
 	/** Where in the record, such as `notes` or `comments[2].text`. */
-	readonly field: string;
+	readonly field: FieldPath;
 	readonly kind: FindingKind;
 	/** What was found, safe to print: a secret is masked. */
-	readonly shown: string;
+	readonly shown: ShownText;
 }
 
 export interface ScanLists {
@@ -223,10 +227,10 @@ const DETECTORS: readonly Detector[] = [
 ];
 
 /** Shows the start of a secret and its length, never the whole of it. */
-export function mask(secret: string): string {
+export function mask(secret: string): ShownText {
 	const length = Array.from(secret).length;
 	const start = length >= 12 ? Array.from(secret).slice(0, 4).join('') : '';
-	return `${start}… (${String(length)} characters)`;
+	return shownText(`${start}… (${String(length)} characters)`);
 }
 
 // --- Private terms -------------------------------------------------------------------
@@ -285,12 +289,15 @@ export function scanText(
 			const groups: readonly (string | undefined)[] = match.slice(1);
 			const value = groups.find((group) => group !== undefined) ?? match[0];
 			if (detector.accept !== undefined && !detector.accept(value, lists)) continue;
-			found.push({ kind: detector.kind, shown: detector.secret ? mask(value) : match[0] });
+			found.push({
+				kind: detector.kind,
+				shown: detector.secret ? mask(value) : shownText(match[0])
+			});
 		}
 	}
 	for (const term of lists.privateTerms) {
 		for (const match of text.matchAll(termPattern(term))) {
-			found.push({ kind: 'PrivateTerm', shown: match[0] });
+			found.push({ kind: 'PrivateTerm', shown: shownText(match[0]) });
 		}
 	}
 	return found;
@@ -328,7 +335,7 @@ export function scanExport(jsonl: string, lists: ScanLists): readonly Finding[] 
 	};
 	jsonl.split('\n').forEach((line, index) => {
 		if (line.trim() === '') return;
-		const where = `line ${String(index + 1)}`;
+		const where = issueLocation(`line ${String(index + 1)}`);
 		let record: unknown;
 		try {
 			record = JSON.parse(line);
@@ -336,13 +343,18 @@ export function scanExport(jsonl: string, lists: ScanLists): readonly Finding[] 
 			record = undefined;
 		}
 		if (typeof record !== 'object' || record === null || Array.isArray(record)) {
-			add({ issue: where, field: '(whole record)', kind: 'UnreadableRecord', shown: '' });
+			add({
+				issue: where,
+				field: fieldPath('(whole record)'),
+				kind: 'UnreadableRecord',
+				shown: shownText('')
+			});
 			return;
 		}
 		const id: unknown = Object.entries(record).find(([key]) => key === 'id')?.[1];
-		const issue = typeof id === 'string' && id !== '' ? id : where;
+		const issue = typeof id === 'string' && id !== '' ? issueLocation(id) : where;
 		walk(record, '', (field, text) => {
-			for (const found of scanText(text, lists)) add({ issue, field, ...found });
+			for (const found of scanText(text, lists)) add({ issue, field: fieldPath(field), ...found });
 		});
 	});
 	return findings;
