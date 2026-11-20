@@ -4,7 +4,9 @@
  * one fixed diff command would give for two of them, as `diff-tree` output read
  * by the real parser. Lines are compared with Myers' algorithm and grouped into
  * hunks with three lines of context, as git groups them. Renames and copies are
- * named by the test, since git's similarity guess is not what is being tested.
+ * named by the test, since git's similarity guess is not what is being tested,
+ * and so are modes: a file is a plain file unless the test makes it executable
+ * or a link, whose one line is its target.
  *
  * Pure: no Node imports, no clock and no randomness, so core tests can use it.
  */
@@ -20,11 +22,19 @@ export function tree(files: Record<string, readonly string[]>): Tree {
 	return new Map(Object.entries(files));
 }
 
+/** A file's mode in a tree: a plain file, an executable one, or a link. */
+export type TreeMode = '100644' | '100755' | '120000';
+
+/** Each file's mode, by path, where it is not a plain file. */
+export type TreeModes = Readonly<Record<string, TreeMode>>;
+
 export interface TreeDiffOptions {
 	/** Files the later tree renamed: earlier path to later path. */
 	readonly renames?: Readonly<Record<string, string>>;
 	/** Files the later tree copied: earlier path to the copy's path. */
 	readonly copies?: Readonly<Record<string, string>>;
+	/** The modes of the earlier and the later tree's files that are not plain files. */
+	readonly modes?: { readonly from?: TreeModes; readonly to?: TreeModes };
 }
 
 type Op = '=' | '-' | '+';
@@ -160,7 +170,8 @@ function blobOf(lines: readonly string[]): string {
 }
 
 const NONE = '0'.repeat(40);
-const MODE = '100644';
+const PLAIN: TreeMode = '100644';
+const LINK: TreeMode = '120000';
 
 interface Entry {
 	readonly sortKey: string;
@@ -168,48 +179,77 @@ interface Entry {
 	readonly patch: string;
 }
 
+/** One side of a file in an entry: its path, lines and mode, or nothing. */
+interface Side {
+	readonly path: string;
+	readonly lines: readonly string[];
+	readonly mode: TreeMode;
+}
+
+/** The patch text of a file added or deleted whole, as git writes it. */
+function wholeFile(kind: 'new' | 'deleted', side: Side, blob: string): string {
+	const out = [`diff --git a/${side.path} b/${side.path}\n`, `${kind} file mode ${side.mode}\n`];
+	const hunks = kind === 'new' ? hunksText([], side.lines) : hunksText(side.lines, []);
+	out.push(kind === 'new' ? `index ${NONE}..${blob}\n` : `index ${blob}..${NONE}\n`);
+	if (hunks !== '') {
+		out.push(
+			kind === 'new' ? '--- /dev/null\n' : `--- a/${side.path}\n`,
+			kind === 'new' ? `+++ b/${side.path}\n` : '+++ /dev/null\n',
+			hunks
+		);
+		// A link's target has no newline after it.
+		if (side.mode === LINK) out.push('\\ No newline at end of file\n');
+	}
+	return out.join('');
+}
+
 function entry(
-	status: 'A' | 'D' | 'M' | 'R' | 'C',
-	oldPath: string | undefined,
-	newPath: string | undefined,
-	a: readonly string[],
-	b: readonly string[]
+	status: 'A' | 'D' | 'M' | 'R' | 'C' | 'T',
+	old: Side | undefined,
+	now: Side | undefined
 ): Entry {
-	const oldBlob = oldPath === undefined ? NONE : blobOf(a);
-	const newBlob = newPath === undefined ? NONE : blobOf(b);
-	const oldMode = oldPath === undefined ? '000000' : MODE;
-	const newMode = newPath === undefined ? '000000' : MODE;
-	const shownOld = oldPath ?? newPath ?? '';
-	const shownNew = newPath ?? oldPath ?? '';
-	const paths =
-		status === 'R' || status === 'C' ? `${shownOld}\0${shownNew}\0` : `${newPath ?? shownOld}\0`;
+	const oldBlob = old === undefined ? NONE : blobOf(old.lines);
+	const newBlob = now === undefined ? NONE : blobOf(now.lines);
+	const oldMode = old?.mode ?? '000000';
+	const newMode = now?.mode ?? '000000';
+	const shownOld = old?.path ?? now?.path ?? '';
+	const shownNew = now?.path ?? old?.path ?? '';
+	const paths = status === 'R' || status === 'C' ? `${shownOld}\0${shownNew}\0` : `${shownNew}\0`;
 	const score = status === 'R' || status === 'C' ? `${status}090` : status;
 	const raw = `:${oldMode} ${newMode} ${oldBlob} ${newBlob} ${score}\0${paths}`;
+	const a = old?.lines ?? [];
+	const b = now?.lines ?? [];
 	const hunks = hunksText(a, b);
 	const header = [`diff --git a/${shownOld} b/${shownNew}\n`];
+	const modeChanged = old !== undefined && now !== undefined && old.mode !== now.mode;
+	const modes = modeChanged ? [`old mode ${oldMode}\n`, `new mode ${newMode}\n`] : [];
+	const index = `index ${oldBlob}..${newBlob}${modeChanged ? '' : ` ${newMode}`}\n`;
 	switch (status) {
 		case 'A':
-			header.push(`new file mode ${MODE}\n`, `index ${NONE}..${newBlob}\n`);
-			if (hunks !== '') header.push('--- /dev/null\n', `+++ b/${shownNew}\n`);
-			break;
 		case 'D':
-			header.push(`deleted file mode ${MODE}\n`, `index ${oldBlob}..${NONE}\n`);
-			if (hunks !== '') header.push(`--- a/${shownOld}\n`, '+++ /dev/null\n');
-			break;
+		case 'T': {
+			// A change of kind is a deletion and an addition in git's patch.
+			const parts: string[] = [];
+			if (old !== undefined) parts.push(wholeFile('deleted', old, oldBlob));
+			if (now !== undefined) parts.push(wholeFile('new', now, newBlob));
+			return { sortKey: shownNew, raw, patch: parts.join('') };
+		}
 		case 'M':
-			header.push(`index ${oldBlob}..${newBlob} ${MODE}\n`);
+			header.push(...modes);
+			if (hunks !== '' || !modeChanged) header.push(index);
 			if (hunks !== '') header.push(`--- a/${shownOld}\n`, `+++ b/${shownNew}\n`);
 			break;
 		case 'R':
 		case 'C': {
 			const word = status === 'R' ? 'rename' : 'copy';
 			header.push(
+				...modes,
 				'similarity index 90%\n',
 				`${word} from ${shownOld}\n`,
 				`${word} to ${shownNew}\n`
 			);
 			if (hunks !== '') {
-				header.push(`index ${oldBlob}..${newBlob} ${MODE}\n`);
+				header.push(index);
 				header.push(`--- a/${shownOld}\n`, `+++ b/${shownNew}\n`);
 			}
 			break;
@@ -222,29 +262,45 @@ function same(a: readonly string[], b: readonly string[]): boolean {
 	return a.length === b.length && a.every((line, i) => line === b[i]);
 }
 
+/** Whether a mode is a link's, as against a file's. */
+function isLink(mode: TreeMode): boolean {
+	return mode === LINK;
+}
+
 /** What the fixed diff command gives between two trees. */
 export function treeDiffOutput(from: Tree, to: Tree, options: TreeDiffOptions = {}): Uint8Array {
 	const renames = new Map(Object.entries(options.renames ?? {}));
 	const copies = new Map(Object.entries(options.copies ?? {}));
 	const renamedTo = new Set(renames.values());
 	const copiedTo = new Set(copies.values());
+	const fromModes = options.modes?.from ?? {};
+	const toModes = options.modes?.to ?? {};
+	const side = (tree: Tree, modes: TreeModes, path: string): Side | undefined => {
+		const lines = tree.get(path);
+		return lines === undefined ? undefined : { path, lines, mode: modes[path] ?? PLAIN };
+	};
 	const entries: Entry[] = [];
-	for (const [path, lines] of from) {
+	for (const path of from.keys()) {
+		const old = side(from, fromModes, path);
+		if (old === undefined) continue;
 		const renamed = renames.get(path);
 		if (renamed !== undefined) {
-			entries.push(entry('R', path, renamed, lines, to.get(renamed) ?? []));
+			entries.push(entry('R', old, side(to, toModes, renamed)));
 			continue;
 		}
-		const later = to.get(path);
-		if (later === undefined) entries.push(entry('D', path, undefined, lines, []));
-		else if (!same(lines, later)) entries.push(entry('M', path, path, lines, later));
+		const later = side(to, toModes, path);
+		if (later === undefined) entries.push(entry('D', old, undefined));
+		else if (isLink(old.mode) !== isLink(later.mode)) entries.push(entry('T', old, later));
+		else if (!same(old.lines, later.lines) || old.mode !== later.mode) {
+			entries.push(entry('M', old, later));
+		}
 	}
 	for (const [source, copy] of copies) {
-		entries.push(entry('C', source, copy, from.get(source) ?? [], to.get(copy) ?? []));
+		entries.push(entry('C', side(from, fromModes, source), side(to, toModes, copy)));
 	}
-	for (const [path, lines] of to) {
+	for (const path of to.keys()) {
 		if (from.has(path) || renamedTo.has(path) || copiedTo.has(path)) continue;
-		entries.push(entry('A', undefined, path, [], lines));
+		entries.push(entry('A', undefined, side(to, toModes, path)));
 	}
 	entries.sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
 	if (entries.length === 0) return new Uint8Array();

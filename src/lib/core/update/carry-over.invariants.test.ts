@@ -2,6 +2,8 @@
  * The carry-over's invariants (DESIGN 6.2), over random histories of a few
  * files: a base, a head edited from it, a later head edited from that, and a
  * base that may have moved too, with random sections, ignored lines and marks.
+ * Between the versions files are renamed, copied, made executable or not, and
+ * turned into links or back.
  */
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
@@ -10,7 +12,9 @@ import {
 	diffOf,
 	treeDiff,
 	type Tree,
-	type TreeDiffOptions
+	type TreeDiffOptions,
+	type TreeMode,
+	type TreeModes
 } from '../../../../tests/support/tree-diffs.ts';
 import { assign } from '../diff/assign.ts';
 import { autoIgnore } from '../diff/auto-ignore.ts';
@@ -87,12 +91,18 @@ const baseTree: fc.Arbitrary<Tree> = fc
 	.chain((paths) => fc.tuple(...paths.map((p) => content.map((c) => [p, c] as const))))
 	.map((entries) => new Map(entries));
 
+/** A tree with the modes of its files that are not plain files. */
+interface Version {
+	readonly tree: Tree;
+	readonly modes: TreeModes;
+}
+
 interface History {
-	readonly base: Tree;
-	readonly head: Tree;
-	readonly base2: Tree;
-	readonly head2: Tree;
-	/** Renames in the second diff and between the heads, when the later head moved a file. */
+	readonly base: Version;
+	readonly head: Version;
+	readonly base2: Version;
+	readonly head2: Version;
+	/** Renames and copies in the second diff and between the heads, when the later head made them. */
 	readonly second: TreeDiffOptions;
 	readonly heads: TreeDiffOptions;
 }
@@ -107,29 +117,98 @@ function moved(t: Tree, path: string | null): { tree: Tree; renames: Record<stri
 	return { tree: out, renames: { [path]: `moved/${path}` } };
 }
 
-const history: fc.Arbitrary<History> = baseTree.chain((base) =>
-	editedTree(base).chain((head) =>
-		fc
-			.tuple(fc.boolean(), editedTree(base), editedTree(head), fc.option(fc.constantFrom(...PATHS)))
-			.map(([rebased, edited, later, move]) => {
-				const base2 = rebased ? edited : base;
-				const renamed = head.has(move ?? '') ? moved(later, move) : moved(later, null);
-				const fromBase = Object.keys(renamed.renames).every((p) => base2.has(p));
-				return {
-					base,
-					head,
-					base2,
-					head2: renamed.tree,
-					heads: { renames: renamed.renames },
-					second: fromBase ? { renames: renamed.renames } : {}
-				};
-			})
-	)
+/** Copies `lines`, a file of the earlier tree at `path`, edited, to `copied/<path>`. */
+function copied(
+	t: Tree,
+	path: string | null,
+	lines: readonly string[] | undefined,
+	edits: readonly Edit[]
+): { tree: Tree; copies: Record<string, string> } {
+	if (path === null || lines === undefined) return { tree: t, copies: {} };
+	const out = new Map(t);
+	out.set(`copied/${path}`, applyEdits(lines, edits));
+	return { tree: out, copies: { [path]: `copied/${path}` } };
+}
+
+/** A file's mode: mostly what it was, now and then executable, plain, or a link. */
+const mode: fc.Arbitrary<TreeMode | 'kept'> = fc.oneof(
+	{ arbitrary: fc.constant('kept' as const), weight: 6 },
+	{ arbitrary: fc.constantFrom<TreeMode>('100644', '100755', '120000'), weight: 2 }
 );
+
+/** The tree's files with modes changed now and then from `earlier`, each link's content its one target. */
+function withModes(t: Tree, earlier: TreeModes): fc.Arbitrary<Version> {
+	const paths = [...t.keys()];
+	return fc.array(mode, { minLength: paths.length, maxLength: paths.length }).map((chosen) => {
+		const modes: Record<string, TreeMode> = {};
+		const tree = new Map(t);
+		for (const [i, path] of paths.entries()) {
+			const picked = chosen[i] ?? 'kept';
+			const now = picked === 'kept' ? (earlier[path] ?? '100644') : picked;
+			if (now === '100644') continue;
+			modes[path] = now;
+			if (now === '120000') tree.set(path, [t.get(path)?.[0] ?? 'alpha']);
+		}
+		return { tree, modes };
+	});
+}
+
+const history: fc.Arbitrary<History> = baseTree
+	.chain((t) => withModes(t, {}))
+	.chain((base) =>
+		editedTree(base.tree)
+			.chain((t) => withModes(t, base.modes))
+			.chain((head) =>
+				fc
+					.tuple(
+						fc.boolean(),
+						editedTree(base.tree),
+						editedTree(head.tree),
+						fc.option(fc.constantFrom(...PATHS)),
+						fc.option(fc.constantFrom(...PATHS)),
+						fc.array(edit, { maxLength: 2 })
+					)
+					.chain(([rebased, edited, later, move, copy, copyEdits]) => {
+						const renamed = head.tree.has(move ?? '') ? moved(later, move) : moved(later, null);
+						const source = copy !== null && copy !== move ? head.tree.get(copy) : undefined;
+						const withCopy = copied(renamed.tree, copy, source, copyEdits);
+						return fc
+							.tuple(
+								rebased ? withModes(edited, base.modes) : fc.constant(base),
+								withModes(withCopy.tree, head.modes)
+							)
+							.map(([base2, head2]) => {
+								const fromBase2 = (paths: Record<string, string>) =>
+									Object.keys(paths).every((p) => base2.tree.has(p));
+								return {
+									base,
+									head,
+									base2,
+									head2,
+									heads: { renames: renamed.renames, copies: withCopy.copies },
+									second: {
+										...(fromBase2(renamed.renames) ? { renames: renamed.renames } : {}),
+										...(fromBase2(withCopy.copies) ? { copies: withCopy.copies } : {})
+									}
+								};
+							});
+					})
+			)
+	);
+
+/** The diff between two versions, with their modes. */
+function versionDiff(from: Version, to: Version, options: TreeDiffOptions = {}) {
+	return diffOf(from.tree, to.tree, { ...options, modes: { from: from.modes, to: to.modes } });
+}
+
+/** git's edits between two versions' trees, with their modes. */
+function versionChanges(from: Version, to: Version, options: TreeDiffOptions = {}) {
+	return treeDiff(from.tree, to.tree, { ...options, modes: { from: from.modes, to: to.modes } });
+}
 
 /** A history with a random sorting of its first diff and random marks on it. */
 const scenario = history.chain((h) => {
-	const before = diffOf(h.base, h.head);
+	const before = versionDiff(h.base, h.head);
 	return fc.tuple(
 		fc.constant(h),
 		fc.constant(before),
@@ -276,17 +355,34 @@ function within(small: Map<string, number>, large: Map<string, number>): boolean
 
 describe('carry-over invariants', () => {
 	it('holds them after any history', () => {
+		// What the histories did between the versions, to be sure they cover it.
+		const seen = new Set<string>();
 		fc.assert(
 			fc.property(scenario, ([h, before, requests, flags]) => {
 				const state = sorted(before, requests);
 				const marks = marksFrom(before, flags);
-				const after = diffOf(h.base2, h.head2, h.second);
+				const after = versionDiff(h.base2, h.head2, h.second);
+				const headChanges = versionChanges(h.head, h.head2, h.heads);
+				const baseChanges = versionChanges(h.base, h.base2);
+				for (const change of headChanges) {
+					if (change.status === 'copied' || change.status === 'type-changed') {
+						seen.add(change.status);
+					}
+					if (change.old !== undefined && change.new !== undefined) {
+						if (change.old.mode !== change.new.mode) seen.add('mode');
+					}
+				}
 				const carried = carryOver({
 					previous: { diff: before, state, marks },
 					diff: after,
-					heads: { kind: 'diff', files: treeDiff(h.head, h.head2, h.heads) },
-					bases: { kind: 'diff', files: treeDiff(h.base, h.base2) }
+					heads: { kind: 'diff', files: headChanges },
+					bases: { kind: 'diff', files: baseChanges }
 				});
+
+				// No file-level unit is marked unless as many were marked before.
+				const markedFileUnits = (set: UnitSet): number =>
+					[...set.files.values()].filter((f) => f.file).length;
+				expect(markedFileUnits(carried.marks)).toBeLessThanOrEqual(markedFileUnits(marks));
 
 				// Every change unit of the new diff is in exactly one bucket.
 				const rows = assignmentStateFromRows(after, assignmentRowsOf(after, carried.state));
@@ -332,8 +428,8 @@ describe('carry-over invariants', () => {
 				// No mark within MARK_DISTANCE shown lines of a new line or of an edit between the versions.
 				expect(
 					marksNearChanges(after, carried.marks, carried.fresh, {
-						heads: TreeLineMap.of({ kind: 'diff', files: treeDiff(h.head, h.head2, h.heads) }),
-						bases: TreeLineMap.of({ kind: 'diff', files: treeDiff(h.base, h.base2) })
+						heads: TreeLineMap.of({ kind: 'diff', files: headChanges }),
+						bases: TreeLineMap.of({ kind: 'diff', files: baseChanges })
 					})
 				).toEqual([]);
 
@@ -355,6 +451,7 @@ describe('carry-over invariants', () => {
 			}),
 			{ numRuns: 150 }
 		);
+		expect([...seen].sort()).toEqual(['copied', 'mode', 'type-changed']);
 	});
 
 	it('changes nothing when the diff is the same', () => {
