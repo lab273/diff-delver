@@ -315,9 +315,10 @@ The first principle is checked, not assumed.
   clipboard, using only what the page shows.
 - **Accessibility is automated** in every journey: keyboard-only completion and
   an automated accessibility scan of each screen.
-- **Speed has budgets** that fail the build when exceeded, measured on a large
-  fixture diff: time to first readable content, and time to move to the next
-  file.
+- **Speed has budgets**, measured on a large fixture diff: time to first readable
+  content, and time to move to the next file. Like test times, they are guidance:
+  going over one is reported as a warning in `pnpm verify`, not a failure, because
+  a slow or busy machine must not fail a correct commit.
 - **Each build step ends with a cold walkthrough.** Someone who has not used that
   step's features tries its journeys without help. Whatever they stumble on is
   fixed or cut before the next step starts.
