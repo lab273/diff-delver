@@ -88,6 +88,7 @@ describe('runGit', () => {
 			{ kind: 'GitNotFound' },
 			{ kind: 'NotARepository', directory: absolutePath('/x'), stderr: gitStderr('') },
 			{ kind: 'BadRevision', args: ['diff-tree'], stderr: gitStderr('fatal: bad revision') },
+			{ kind: 'MissingObject', object: undefined, stderr: gitStderr('fatal: unable to read') },
 			{
 				kind: 'GitFailed',
 				args: ['diff-tree'],
@@ -101,7 +102,7 @@ describe('runGit', () => {
 				stderr: gitStderr('')
 			}
 		];
-		expect(describeGitError(errors[4] ?? { kind: 'GitNotFound' })).toMatch(
+		expect(describeGitError(errors[5] ?? { kind: 'GitNotFound' })).toMatch(
 			/^git diff-tree failed \(it stopped before it could finish\)/
 		);
 		for (const error of errors) expect(describeGitError(error).length).toBeGreaterThan(20);

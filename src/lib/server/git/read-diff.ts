@@ -9,6 +9,15 @@
  * diff runs in an empty bare repository made for the purpose, which borrows the
  * reviewed repository's objects as an alternate: it sees the same trees and
  * blobs, and none of the settings.
+ *
+ * A partial clone (DESIGN 3.1 plans a blobless fetch for GitHub) lacks blobs
+ * until they are needed, and git fetches them from the clone's promisor remote.
+ * The empty repository has no remote, so the remotes that promise objects are
+ * carried over, with only the settings that say where and how to fetch:
+ * `remote.<name>.url`, `.promisor` and `.partialclonefilter`,
+ * `extensions.partialClone`, and `url.<base>.insteadOf`. None of them changes a
+ * diff. The blobs fetched land in the empty repository and go with it, so the
+ * reviewed repository is never written to.
  */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -115,6 +124,47 @@ function alternatesLine(path: string): string {
 	return `"${quoted}"\n`;
 }
 
+/** The settings that say where a partial clone fetches missing objects from. */
+const FETCH_SETTING =
+	/^(?:extensions\.partialclone|remote\..+\.(?:url|promisor|partialclonefilter)|url\..+\.insteadof)$/;
+
+/**
+ * The repository's settings for fetching objects it lacks, as key and value
+ * pairs to set in another repository: none unless it is a partial clone.
+ */
+async function promisorSettings(
+	repository: AbsolutePath
+): Promise<Result<readonly (readonly [string, string])[], GitError>> {
+	const listed = await runGit({ cwd: repository, args: ['config', '--null', '--list'] });
+	if (!listed.ok) return listed;
+	const all = listed.value.stdout
+		.toString('utf8')
+		.split('\0')
+		.filter((entry) => entry !== '')
+		.map((entry): readonly [string, string] => {
+			const newline = entry.indexOf('\n');
+			return newline === -1 ? [entry, ''] : [entry.slice(0, newline), entry.slice(newline + 1)];
+		})
+		.filter(([key]) => FETCH_SETTING.test(key));
+	const remoteOf = (key: string): string | undefined =>
+		key.startsWith('remote.') ? key.slice('remote.'.length, key.lastIndexOf('.')) : undefined;
+	const promisors = new Set<string>();
+	for (const [key, value] of all) {
+		if (key === 'extensions.partialclone') promisors.add(value);
+		else if (key.endsWith('.promisor') && /^(?:true|yes|on|1)$/i.test(value)) {
+			const remote = remoteOf(key);
+			if (remote !== undefined) promisors.add(remote);
+		}
+	}
+	if (promisors.size === 0) return ok([]);
+	return ok(
+		all.filter(([key]) => {
+			const remote = remoteOf(key);
+			return remote === undefined || promisors.has(remote);
+		})
+	);
+}
+
 /**
  * Runs the diff command for two trees of the repository at `repository` and
  * returns git's raw output, as `readDiff` reads it and `pnpm fixtures:capture`
@@ -144,6 +194,12 @@ export async function runDiffTree(
 		});
 		if (!init.ok) return init;
 		await writeFile(join(scratch, 'objects', 'info', 'alternates'), alternatesLine(objects.value));
+		const promisor = await promisorSettings(repository);
+		if (!promisor.ok) return promisor;
+		for (const [key, value] of promisor.value) {
+			const set = await runGit({ cwd: dir.value, args: ['config', '--add', key, value] });
+			if (!set.ok) return set;
+		}
 		const output = await runGit({
 			cwd: dir.value,
 			args: diffTreeArgs(base, head, objectFormat)

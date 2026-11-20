@@ -5,6 +5,7 @@ import { parseTreeId } from '#lib/core/tree-id.tiny.ts';
 import { assign } from '#lib/core/diff/assign.ts';
 import { makeDiff } from '#lib/core/diff/diff.ts';
 import { initialState } from '#lib/core/diff/state.ts';
+import type { CommitId } from '#lib/core/commit-id.tiny.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import { escapedRepoPath, repoPathBytes } from '#lib/core/path-bytes.ts';
 import {
@@ -16,8 +17,8 @@ import {
 } from '../../../../tests/support/diff-fixtures.ts';
 import { emptyRepo, useFixture } from '../../../../tests/support/fixture-repos.ts';
 import { absolutePath, GitRepo } from '../../../../tests/support/git-repo.ts';
-import { readDiff } from './read-diff.ts';
-import { runGit } from './run-git.ts';
+import { readDiff, runDiffTree } from './read-diff.ts';
+import { describeGitError, runGit } from './run-git.ts';
 
 async function diffOf(fixture: typeof awkwardChanges): Promise<readonly FileDiff[]> {
 	const repo = await useFixture(fixture);
@@ -211,5 +212,69 @@ describe('readDiff', () => {
 		if (!missing.ok || !other.ok) throw new Error('bad test ids');
 		const result = await readDiff(repo.dir, other.value, missing.value);
 		expect(result.ok ? undefined : result.error.kind).toBe('BadRevision');
+	});
+
+	describe('in a blobless partial clone', () => {
+		/** A repository with a base and a head commit, and a blobless bare clone of it over file://. */
+		async function blobless(): Promise<{
+			readonly origin: GitRepo;
+			readonly clone: GitRepo;
+			readonly base: CommitId;
+			readonly head: CommitId;
+		}> {
+			const origin = await emptyRepo();
+			await origin.git('config', 'uploadpack.allowFilter', 'true');
+			await origin.git('config', 'uploadpack.allowAnySHA1InWant', 'true');
+			await origin.write('a.txt', 'one\ntwo\nthree\n');
+			await origin.write('moved-from.txt', 'some\nlines\nto\nmove\n');
+			const base = (await origin.commit('base')).commit;
+			await origin.write('a.txt', 'one\n2\nthree\nfour\n');
+			await origin.remove('moved-from.txt');
+			await origin.write('moved-to.txt', 'some\nlines\nto\nmove\n');
+			const head = (await origin.commit('head')).commit;
+			const holder = await emptyRepo();
+			const dir = absolutePath(join(holder.dir, 'clone.git'));
+			await origin.git(
+				'clone',
+				'--quiet',
+				'--bare',
+				'--filter=blob:none',
+				`file://${origin.dir}`,
+				dir
+			);
+			return { origin, clone: GitRepo.open(dir), base, head };
+		}
+
+		it('fetches the blobs it needs from the promisor remote, and the diff is the same', async () => {
+			const { origin, clone, base, head } = await blobless();
+			// The clone has the commits and trees, but none of the file contents.
+			const missing = await clone.git('rev-list', '--objects', '--missing=print', head);
+			expect(missing.match(/^\?/gm)?.length).toBeGreaterThan(0);
+			// Settings of the clone that would change the diff still do not apply.
+			await clone.git('config', 'core.bigFileThreshold', '1');
+			await clone.git('config', 'diff.renames', 'false');
+			const expected = await runDiffTree(origin.dir, base, head);
+			const actual = await runDiffTree(clone.dir, base, head);
+			expect(actual.ok && actual.value.toString('utf8')).toBe(
+				expected.ok && expected.value.toString('utf8')
+			);
+			const files = await readDiff(clone.dir, base, head);
+			expect(files.ok && files.value.map((f) => [f.status, f.path])).toEqual([
+				['modified', 'a.txt'],
+				['renamed', 'moved-to.txt']
+			]);
+		});
+
+		it('says an object could not be read when the remote cannot supply it', async () => {
+			const { origin, clone, base, head } = await blobless();
+			await clone.git('config', 'remote.origin.url', `file://${origin.dir}/nowhere`);
+			const result = await readDiff(clone.dir, base, head);
+			expect(result.ok ? undefined : result.error.kind).toBe('MissingObject');
+			if (!result.ok && result.error.kind === 'MissingObject') {
+				expect(describeGitError(result.error)).toMatch(
+					/^git could not read the object [0-9a-f]{40}: it is not in the repository/
+				);
+			}
+		});
 	});
 });

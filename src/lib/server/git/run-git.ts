@@ -51,6 +51,18 @@ export interface BadRevision {
 	readonly stderr: GitStderr;
 }
 
+/**
+ * An object git needed is not in the repository and could not be fetched: in a
+ * partial clone the promisor remote could not be reached or does not have it,
+ * otherwise the repository is damaged.
+ */
+export interface MissingObject {
+	readonly kind: 'MissingObject';
+	/** The object id, when git named it. */
+	readonly object: string | undefined;
+	readonly stderr: GitStderr;
+}
+
 /** git ran and failed for another reason. */
 export interface GitFailed {
 	readonly kind: 'GitFailed';
@@ -60,9 +72,12 @@ export interface GitFailed {
 	readonly stderr: GitStderr;
 }
 
-export type GitError = GitNotFound | NotARepository | BadRevision | GitFailed;
+export type GitError = GitNotFound | NotARepository | BadRevision | MissingObject | GitFailed;
 
 const NOT_A_REPOSITORY = /not a git repository/i;
+/** What git says when an object it needs is absent, with the id where it gives one. */
+const MISSING_OBJECT =
+	/unable to read (?:tree |blob )?\(?([0-9a-f]{40,64})|could not fetch ([0-9a-f]{40,64}) from promisor remote|missing (?:blob|tree|commit) object '?([0-9a-f]{40,64})/i;
 const BAD_REVISION =
 	/bad revision|unknown revision|needed a single revision|bad object|not a valid object name|not a tree object|invalid object name|ambiguous argument/i;
 
@@ -117,6 +132,12 @@ export async function runGit(command: GitCommand): Promise<Result<GitOutput, Git
 				resolve(ok({ stdout: Buffer.concat(stdout), stderr: errText }));
 			} else if (NOT_A_REPOSITORY.test(errText)) {
 				resolve(err({ kind: 'NotARepository', directory: command.cwd, stderr: errText }));
+			} else if (MISSING_OBJECT.test(errText)) {
+				const match = MISSING_OBJECT.exec(errText);
+				// Only the group of the phrase that matched holds the id.
+				const ids: readonly (string | undefined)[] = match?.slice(1) ?? [];
+				const object = ids.find((id) => id !== undefined);
+				resolve(err({ kind: 'MissingObject', object, stderr: errText }));
 			} else if (BAD_REVISION.test(errText)) {
 				resolve(err({ kind: 'BadRevision', args: command.args, stderr: errText }));
 			} else {
@@ -150,6 +171,10 @@ function gitErrorText(error: GitError): string {
 			return `${error.directory} is not a git repository. Run diff delver inside a repository, or pass its path.`;
 		case 'BadRevision':
 			return `git does not know one of the revisions asked for: ${firstLineOf(error.stderr)} Check the name, or fetch it first.`;
+		case 'MissingObject': {
+			const which = error.object === undefined ? 'an object' : `the object ${error.object}`;
+			return `git could not read ${which}: it is not in the repository, and it could not be fetched (${firstLineOf(error.stderr)}). If the repository is a partial clone, check that its remote can be reached, for example with "git fetch", then try again. Otherwise the repository may be damaged: "git fsck" says what is missing.`;
+		}
 		case 'GitFailed': {
 			const how =
 				error.exitCode === undefined
