@@ -4,7 +4,7 @@
  * list, or a rule to a table, and give a new rule a short name, because the
  * reviewer sees that name as the reason.
  */
-import { compileGlob, parseGlobPattern, type GlobMatcher } from '../glob-pattern.tiny.ts';
+import { compileGlobs, parseGlobPattern, type GlobMatcher } from '../glob-pattern.tiny.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import type { Role } from '../role.tiny.ts';
 
@@ -151,12 +151,12 @@ export type IgnoreRuleId = (typeof IGNORE_RULES)[number]['id'];
 export type RoleRuleId = (typeof ROLE_RULES)[number]['id'];
 
 function compileAll(globs: readonly string[]): GlobMatcher {
-	const matchers = globs.map((glob) => {
+	const patterns = globs.map((glob) => {
 		const parsed = parseGlobPattern(glob);
 		if (!parsed.ok) throw new Error(`A built-in glob does not compile: ${glob}`);
-		return compileGlob(parsed.value);
+		return parsed.value;
 	});
-	return (path) => matchers.some((matches) => matches(path));
+	return compileGlobs(patterns);
 }
 
 const compiledRoleRules = ROLE_RULES.map((rule) => ({ ...rule, matches: compileAll(rule.globs) }));

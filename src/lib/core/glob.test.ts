@@ -1,6 +1,14 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { now } from '../../../tests/support/stopwatch.ts';
 import { compileGlob, parseGlobPattern } from './glob-pattern.tiny.ts';
+import {
+	compileGlobProgram,
+	compileGlobUnion,
+	globStepBound,
+	MAX_GLOB_LENGTH,
+	runGlobProgram
+} from './glob.ts';
 import { parseRepoPath } from './repo-path.tiny.ts';
 
 function matches(pattern: string, path: string): boolean {
@@ -63,7 +71,14 @@ describe('glob patterns', () => {
 		['[$.|]', 'a', false],
 		['[😀]', '😀', true],
 		['[😀-😂]', '😁', true],
-		['[!😀]', '😁', true]
+		['[!😀]', '😁', true],
+		// A class never matches the "/" between folders, like "*" and "?".
+		['a[.-0]b', 'a/b', false],
+		['a[.-0]b', 'a.b', true],
+		['a[.-0]b', 'a0b', true],
+		['a[!x]b', 'a/b', false],
+		['a[!x]b', 'a.b', true],
+		['a[^x]b', 'a/b', false]
 	])('%s against %s is %s', (pattern, path, expected) => {
 		expect(matches(pattern, path)).toBe(expected);
 	});
@@ -74,7 +89,14 @@ describe('glob patterns', () => {
 		['{a,b', 'unclosed-brace'],
 		['abc\\', 'trailing-escape'],
 		['[z-a]', 'bad-range'],
-		['x[b-a]y', 'bad-range']
+		['x[b-a]y', 'bad-range'],
+		['a[/]b', 'slash-in-class'],
+		['a[x/]b', 'slash-in-class'],
+		['a[\\/]b', 'slash-in-class'],
+		['a[!/]b', 'slash-in-class'],
+		['a[.-/]b', 'slash-in-class'],
+		['a'.repeat(MAX_GLOB_LENGTH + 1), 'too-long'],
+		['😀'.repeat(MAX_GLOB_LENGTH + 1), 'too-long']
 	])('rejects %j as %s', (value, problem) => {
 		expect(parseGlobPattern(value)).toEqual({
 			ok: false,
@@ -117,5 +139,127 @@ describe('glob patterns', () => {
 				expect(matches(escaped, path)).toBe(true);
 			})
 		);
+	});
+
+	it('accepts a pattern of the longest length, counting characters, not UTF-16 units', () => {
+		expect(parseGlobPattern('a'.repeat(MAX_GLOB_LENGTH)).ok).toBe(true);
+		expect(parseGlobPattern('😀'.repeat(MAX_GLOB_LENGTH)).ok).toBe(true);
+	});
+});
+
+/** A path of `a` and `b` that does not repeat soon, made without randomness. */
+function pseudoRandomPath(length: number): string {
+	let x = 1;
+	let out = '';
+	for (let i = 0; i < length; i += 1) {
+		x = (x * 1103515245 + 12345) % 2147483648;
+		out += x % 7 < 3 ? 'a' : 'b';
+	}
+	return out;
+}
+
+describe('glob matching time', () => {
+	/** Runs a pattern against a path and checks the work against the bound. */
+	function run(pattern: string, path: string): boolean {
+		const program = compileGlobProgram(pattern);
+		if (!program.ok) throw new Error(`bad test pattern ${pattern}`);
+		const result = runGlobProgram(program.value, path);
+		expect(result.steps).toBeLessThanOrEqual(globStepBound(program.value, Array.from(path).length));
+		return result.matched;
+	}
+
+	// Each of these took seconds or never finished as a backtracking regular expression.
+	it.each([
+		['12 stars', '*a'.repeat(12) + '*b', 'a'.repeat(40), false],
+		['40 stars', '*a'.repeat(40) + '*b', 'a'.repeat(4000), false],
+		['40 stars that match', '*a'.repeat(40) + '*', 'a'.repeat(4000), true],
+		['7 globstars', '**/'.repeat(7) + 'z', Array.from({ length: 30 }, () => 'a').join('/'), false],
+		[
+			'80 globstars',
+			'**/'.repeat(80) + 'z',
+			Array.from({ length: 2000 }, () => 'a').join('/'),
+			false
+		],
+		['25 brace groups', '{*,*a,a*}'.repeat(25) + 'b', 'a'.repeat(4000), false],
+		['100 stars and marks', '*?'.repeat(100) + 'b', 'a'.repeat(4000), false],
+		['40 mixed stars', '**/*a'.repeat(40) + 'b', 'a/'.repeat(2000) + 'a', false],
+		// A set of states for each of 2^20 tails, far more than are kept.
+		['a star and 20 marks', '*a' + '?'.repeat(20) + 'c', pseudoRandomPath(4000), false]
+	])('%s finish quickly on a long path', (_name, pattern, path, expected) => {
+		const started = now();
+		expect(run(pattern, path)).toBe(expected);
+		expect(now() - started).toBeLessThan(250);
+	});
+
+	it('never takes more steps than the bound, whatever the pattern and path', () => {
+		const piece = fc.constantFrom(
+			'*',
+			'**',
+			'**/',
+			'?',
+			'a',
+			'b',
+			'/',
+			'{',
+			'}',
+			',',
+			'[a-c]',
+			'[!a]'
+		);
+		const pattern = fc.array(piece, { maxLength: 60 }).map((p) => p.join(''));
+		const path = fc
+			.array(fc.constantFrom('a', 'b', 'c', '/'), { minLength: 1, maxLength: 300 })
+			.map((p) => p.join(''));
+		fc.assert(
+			fc.property(pattern, path, (p, x) => {
+				const program = compileGlobProgram(p);
+				if (!program.ok) return;
+				const result = runGlobProgram(program.value, x);
+				expect(result.steps).toBeLessThanOrEqual(globStepBound(program.value, x.length));
+			}),
+			{ numRuns: 300 }
+		);
+	});
+
+	it('keeps the bound when one program runs on many paths and reuses what it learnt', () => {
+		const program = compileGlobProgram('*a' + '?'.repeat(12) + '*c');
+		if (!program.ok) throw new Error('bad test pattern');
+		for (let i = 0; i < 50; i += 1) {
+			const path = pseudoRandomPath(200 + i) + (i % 2 === 0 ? 'c' : '');
+			const result = runGlobProgram(program.value, path);
+			expect(result.matched).toBe(i % 2 === 0 && path.slice(0, -13).includes('a'));
+			expect(result.steps).toBeLessThanOrEqual(globStepBound(program.value, path.length));
+		}
+	});
+
+	it('matches a union of patterns exactly when one of them matches', () => {
+		const piece = fc.constantFrom('*', '**/', '?', 'a', 'b', '/', '[ab]', '{a,b/}');
+		const pattern = fc.array(piece, { minLength: 1, maxLength: 6 }).map((p) => p.join(''));
+		const path = fc
+			.array(fc.constantFrom('a', 'b', '/'), { minLength: 1, maxLength: 12 })
+			.map((p) => p.join(''));
+		fc.assert(
+			fc.property(fc.array(pattern, { minLength: 1, maxLength: 4 }), fc.array(path), (ps, xs) => {
+				const union = compileGlobUnion(ps);
+				const each = ps.map(compileGlobProgram);
+				if (!union.ok) {
+					expect(each.some((p) => !p.ok)).toBe(true);
+					return;
+				}
+				for (const x of xs) {
+					const any = each.some((p) => p.ok && runGlobProgram(p.value, x).matched);
+					expect(runGlobProgram(union.value, x).matched).toBe(any);
+				}
+			}),
+			{ numRuns: 300 }
+		);
+	});
+
+	it('runs the worst pattern of the longest length against a 4,096-character path within the core limit', () => {
+		const pattern = '*a'.repeat(MAX_GLOB_LENGTH / 2 - 1) + '*b';
+		expect(Array.from(pattern)).toHaveLength(MAX_GLOB_LENGTH);
+		const started = now();
+		expect(run(pattern, 'a'.repeat(4096))).toBe(false);
+		expect(now() - started).toBeLessThan(250);
 	});
 });

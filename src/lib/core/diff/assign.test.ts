@@ -1,5 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { now } from '../../../../tests/support/stopwatch.ts';
 import {
 	arbitraryDiff,
 	GLOBS,
@@ -199,6 +200,31 @@ describe('assign', () => {
 			[1, 'MalformedGlob'],
 			[2, 'GlobMatchesNothing']
 		]);
+	});
+
+	it('matches a pathological glob against many long paths quickly, and refuses an overlong one', () => {
+		const long = syntheticDiff(
+			Array.from({ length: 200 }, (_, i) => ({
+				path: `${'a/'.repeat(100)}${'a'.repeat(200)}${String(i)}`,
+				change: 'added' as const,
+				lines: 1
+			}))
+		);
+		const started = now();
+		const outcome = assign(long, initialState(long), [
+			{ glob: `${'*a'.repeat(12)}*b`, section: 'alpha' },
+			{ glob: `${'**/'.repeat(30)}z`, section: 'alpha' },
+			{ glob: 'a'.repeat(300), section: 'alpha' }
+		]);
+		expect(now() - started).toBeLessThan(250);
+		expect(outcome.rejected.map((r) => [r.index, r.rejection.kind])).toEqual([
+			[0, 'GlobMatchesNothing'],
+			[1, 'GlobMatchesNothing'],
+			[2, 'MalformedGlob']
+		]);
+		const overlong = outcome.rejected[2]?.rejection;
+		if (overlong === undefined) throw new Error('no rejection');
+		expect(describeRejection(overlong)).toContain('longer than 256 characters');
 	});
 
 	it('accepts a path that is not UTF-8 in its escaped form, plain or JSON-quoted', () => {

@@ -1,4 +1,4 @@
-import { globToRegExp, type GlobProblem } from './glob.ts';
+import { compileGlobProgram, compileGlobUnion, runGlobProgram, type GlobProblem } from './glob.ts';
 import { err, ok, type Result } from './result.ts';
 import type { RepoPath } from './repo-path.tiny.ts';
 import type { Tiny } from './tiny.ts';
@@ -13,7 +13,7 @@ export interface InvalidGlobPattern {
 }
 
 export function parseGlobPattern(value: string): Result<GlobPattern, InvalidGlobPattern> {
-	const compiled = globToRegExp(value);
+	const compiled = compileGlobProgram(value);
 	if (!compiled.ok) return err({ kind: 'InvalidGlobPattern', value, problem: compiled.error });
 	return ok(value as GlobPattern);
 }
@@ -22,8 +22,16 @@ export function parseGlobPattern(value: string): Result<GlobPattern, InvalidGlob
 export type GlobMatcher = (path: RepoPath) => boolean;
 
 export function compileGlob(pattern: GlobPattern): GlobMatcher {
-	const compiled = globToRegExp(pattern);
+	const compiled = compileGlobProgram(pattern);
 	if (!compiled.ok) throw new Error(`A parsed glob failed to compile: ${pattern}`);
-	const regex = compiled.value;
-	return (path) => regex.test(path);
+	const program = compiled.value;
+	return (path) => runGlobProgram(program, path).matched;
+}
+
+/** Tests paths against several patterns at once: true when any of them matches. */
+export function compileGlobs(patterns: readonly GlobPattern[]): GlobMatcher {
+	const compiled = compileGlobUnion(patterns);
+	if (!compiled.ok) throw new Error(`A parsed glob failed to compile: ${compiled.error.pattern}`);
+	const program = compiled.value;
+	return (path) => runGlobProgram(program, path).matched;
 }
