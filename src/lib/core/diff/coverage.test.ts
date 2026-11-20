@@ -203,7 +203,8 @@ describe('the pure model at scale', () => {
 		const { elapsed, unitCount, uncategorised } = runAtScale(500, now);
 		expect(unitCount).toBe(50_000);
 		expect(uncategorised).toBe(50_000 - 10_000 - 10);
-		// The full size, 2,000 files and 200,000 lines, is measured in src/lib/scale.test.ts.
+		// The full size, 2,000 files and 200,000 lines, is measured in src/lib/scale.test.ts,
+		// and src/lib/work-growth.test.ts holds the work to linear growth.
 		recordTime(task, 'reading, assigning and covering', elapsed, millisecondsOf(150));
 	});
 });

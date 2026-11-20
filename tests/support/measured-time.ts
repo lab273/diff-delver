@@ -4,9 +4,10 @@
  * A size test that times the code under test must not fail because the machine
  * is slow or busy (README, "Testing"). It records what it measured here, against
  * the time it should take, and `pnpm verify` lists every measurement over its
- * guidance as a warning, beside the tests over theirs. A real blow-up still fails:
- * the test hits its hang timeout. Where the work can be bounded without the clock,
- * as the glob matcher's step count is, the test asserts that bound as well.
+ * guidance as a warning, beside the tests over theirs. A time cannot show a
+ * slowdown on its own, so the work is bounded without the clock as well: by the
+ * glob matcher's step count, or by counting it at two sizes
+ * (tests/support/work-count.ts, src/lib/work-growth.test.ts).
  *
  * The records travel in the test's `meta`, which Vitest's JSON report carries to
  * `scripts/verify.ts`.

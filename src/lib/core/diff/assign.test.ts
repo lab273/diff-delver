@@ -393,6 +393,7 @@ describe('assign rejections', () => {
 			return describeRejection(rejection);
 		};
 
+		// The time is guidance; src/lib/work-growth.test.ts holds the work to linear growth.
 		it('keeps a refusal of 5,000 empty ranges short, and builds it quickly', ({ task }) => {
 			const changed = huge.files[0]?.changed.new;
 			const unchanged: string[] = [];
