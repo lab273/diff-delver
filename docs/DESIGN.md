@@ -519,7 +519,9 @@ When everything is ticked, the page offers **Finish review**.
 
 **Three things you can do to code.** Select lines and the same small menu always
 appears: **Comment**, **Flag**, **Ask**. Selecting is a click on the `+` beside a
-line, with shift-click or a drag to extend.
+line, with shift-click or a drag to extend. By keyboard it is the same thing:
+move to a line with the arrow keys, hold Shift with the arrow keys to extend the
+selection, and press Enter to open the menu.
 
 **States explained in place.** Wherever something could puzzle a newcomer, the
 page says what it is, once and briefly:
@@ -561,7 +563,10 @@ needed for a first review.
   other occurrences. Proper symbol navigation is out of v1.
 - Non-diff lines can be selected, commented on and flagged like any other.
 - Drag in the gutter to select a range, then comment, flag or raise a request.
-- Keyboard: next and previous slice, tick, comment, flag, expand, toggle tests.
+- Keyboard: next and previous slice, tick, comment, flag, expand, toggle tests,
+  and selecting a range of lines (arrow keys to move, Shift with them to extend,
+  Enter for the menu). Every line of a diff, on either side, can be reached and
+  selected without a pointer.
 
 ### 8.4 Visual diffs
 
