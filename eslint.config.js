@@ -51,6 +51,23 @@ const LABEL_MAKERS = [
 	}
 ];
 
+/**
+ * The tables' writes of a revision's sorting, which only the report service's
+ * `SortingWrites` calls, counting each one, so a search index is never used
+ * once its sorting has changed.
+ */
+const SORTING_WRITES = [
+	{
+		regex: 'db/tables/(?:sections|assignments)(?:\\.ts)?$',
+		importNames: ['replaceSections', 'replaceAssignmentRows'],
+		message:
+			'Write sections and assignment rows through SortingWrites (src/lib/server/reports/sorting-writes.ts), which counts each write for the search index.'
+	}
+];
+
+/** Files that may write a revision's sorting directly: `SortingWrites`, the tables, and tests. */
+const SORTING_WRITE_FILES = ['src/lib/server/reports/sorting-writes.ts', 'src/lib/server/db/**'];
+
 /** Files that may use a label maker: the module that makes the value, and tests. */
 const LABEL_MAKER_FILES = ['src/lib/server/git/run-git.ts', '**/*.test.ts'];
 
@@ -162,6 +179,13 @@ export default defineConfig(
 	},
 	{
 		files: ['**/*.ts', '**/*.js', '**/*.svelte'],
+		ignores: LABEL_MAKER_FILES,
+		rules: {
+			'no-restricted-imports': ['error', { patterns: [...LABEL_MAKERS, ...SORTING_WRITES] }]
+		}
+	},
+	{
+		files: SORTING_WRITE_FILES,
 		ignores: LABEL_MAKER_FILES,
 		rules: { 'no-restricted-imports': ['error', { patterns: LABEL_MAKERS }] }
 	},

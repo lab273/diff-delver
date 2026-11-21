@@ -121,7 +121,7 @@ import { fileCountOf, type FileCount } from '#lib/core/file-count.tiny.ts';
 import { snapshotCountOf, type SnapshotCount } from '#lib/core/snapshot-count.tiny.ts';
 import { NO_UNITS, type UnitCount } from '#lib/core/unit-count.tiny.ts';
 import { Database, type DatabaseError, type Queries } from '../db/index.ts';
-import { assignmentRowsFor, replaceAssignmentRows } from '../db/tables/assignments.ts';
+import { assignmentRowsFor } from '../db/tables/assignments.ts';
 import {
 	deleteReportRow,
 	everyReport,
@@ -150,8 +150,9 @@ import {
 	snapshotsInUse,
 	snapshotsOfReport
 } from '../db/tables/revisions.ts';
-import { replaceSections, sectionsOf } from '../db/tables/sections.ts';
+import { sectionsOf } from '../db/tables/sections.ts';
 import { writesElsewhere } from '../db/data-version.ts';
+import { SortingWrites } from './sorting-writes.ts';
 import { checkedRevision, isToCheck, revisionsToCheck } from '../db/tables/revisions-to-check.ts';
 import {
 	forgetSnapshot,
@@ -702,11 +703,10 @@ export class ReportService {
 	 */
 	readonly #searchIndexes = new Map<string, SearchIndex>();
 	/**
-	 * How many times each revision's sorting, its sections and which lines are
-	 * in them, has been written by this service: part of a search index's key,
-	 * so an index is never used once what it was made from has changed.
+	 * Every write of a revision's sorting, its sections and which lines are in
+	 * them, counted: the count is part of a search index's key.
 	 */
-	readonly #sortingWrites = new Map<RevisionId, number>();
+	readonly #sorting = new SortingWrites();
 
 	private constructor(db: Database, options: ReportServiceOptions) {
 		this.#db = db;
@@ -978,7 +978,7 @@ export class ReportService {
 								{ diff, unitsIn: (section) => totals.get(section)?.units ?? NO_UNITS }
 							);
 							if (!next.ok) return err({ kind: 'SectionsRefused', problems: next.error });
-							this.#replaceSections(q, revision.id, next.value.sections);
+							this.#sorting.replaceSections(q, revision.id, next.value.sections);
 							replaceReferenceRows(q, revision.id, referenceRowsOf(next.value.references));
 							touchReport(q, id, this.#clock.now());
 							return ok(next.value.sections);
@@ -1025,7 +1025,7 @@ export class ReportService {
 					knownSections: new Set(sections.map((s) => s.id))
 				});
 				const changed = changedAssignmentPaths(diff, state, outcome.state);
-				this.#replaceAssignmentRows(
+				this.#sorting.replaceAssignmentRows(
 					q,
 					revision.id,
 					changed,
@@ -1188,7 +1188,7 @@ export class ReportService {
 		const key =
 			elsewhere.value === undefined
 				? undefined
-				: `${revision.id}\u0000${view}\u0000${String(this.#sortingWrites.get(revision.id) ?? 0)}\u0000${String(elsewhere.value)}`;
+				: `${revision.id}\u0000${view}\u0000${String(this.#sorting.countOf(revision.id))}\u0000${String(elsewhere.value)}`;
 		let found = key === undefined ? undefined : this.#searchIndexes.get(key);
 		if (found === undefined) {
 			const stored = this.#db.read(
@@ -1225,23 +1225,6 @@ export class ReportService {
 			if (count !== undefined && count > 0) matches.push({ ...part, matches: count });
 		}
 		return ok(matches);
-	}
-
-	/** Replaces a revision's sections, counting it as a change to its sorting. */
-	#replaceSections(q: Queries, revision: RevisionId, sections: readonly Section[]): void {
-		this.#sortingWrites.set(revision, (this.#sortingWrites.get(revision) ?? 0) + 1);
-		replaceSections(q, revision, sections);
-	}
-
-	/** Replaces a revision's assignment rows, counting it as a change to its sorting. */
-	#replaceAssignmentRows(
-		q: Queries,
-		revision: RevisionId,
-		files: ReadonlySet<RepoPath> | 'all',
-		rows: readonly AssignmentRow[]
-	): void {
-		this.#sortingWrites.set(revision, (this.#sortingWrites.get(revision) ?? 0) + 1);
-		replaceAssignmentRows(q, revision, files, rows);
 	}
 
 	/** Keeps a search index, as the most recently used, and lets the oldest go. */
@@ -1734,7 +1717,7 @@ export class ReportService {
 				if (raced !== undefined) return ok(raced.id);
 				insertReport(q, report);
 				insertRevision(q, revision);
-				this.#replaceAssignmentRows(
+				this.#sorting.replaceAssignmentRows(
 					q,
 					revision.id,
 					'all',
@@ -2019,14 +2002,14 @@ export class ReportService {
 							)
 						};
 						insertRevision(q, revision);
-						this.#replaceSections(q, revision.id, sections);
+						this.#sorting.replaceSections(q, revision.id, sections);
 						replaceReferenceRows(
 							q,
 							revision.id,
 							referenceRowsOf(carryUnitSets(input, references.value))
 						);
 						if (overview.value !== undefined) storeOverview(q, revision.id, overview.value);
-						this.#replaceAssignmentRows(
+						this.#sorting.replaceAssignmentRows(
 							q,
 							revision.id,
 							'all',
@@ -2152,7 +2135,7 @@ export class ReportService {
 					andThen(reviewedRowsFor(q, revision.id), (marked) =>
 						andThen(reviewedMarksFromRows(diff, marked), (marks): Result<Revision, ReportError> => {
 							const progress = unitProgressOf(reviewProgress(diff, state, marks, 'sections'));
-							this.#replaceAssignmentRows(
+							this.#sorting.replaceAssignmentRows(
 								q,
 								revision.id,
 								lacking,

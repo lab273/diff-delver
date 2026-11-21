@@ -178,6 +178,38 @@ describe('searching a diff', () => {
 			value(await other.upsertSections(id, FIRST, [{ id: 'late', title: 'Late' }]));
 			value(await other.assign(id, FIRST, [{ file: 'src/sum.ts', lines: '+4', section: 'late' }]));
 			expect(await groups()).toEqual(['late 1', 'uncategorised 1']);
+
+			// Each kind of write here that changes the sorting, each seen by the
+			// next search: this service's own writes leave the database's
+			// data_version as it is, so only its count of them tells the index it is
+			// out of date.
+			const total = value(parseSearchText('const total'));
+			const sorted = async (): Promise<string[]> =>
+				value(await service.searchDiff(id, FIRST, 'sections', total, options)).map((p) =>
+					p.group.kind === 'section' ? p.group.section : p.group.kind
+				);
+			expect(await sorted()).toEqual(['late', 'uncategorised']);
+			// A section added, empty, and after the others.
+			value(await service.upsertSections(id, FIRST, [{ id: 'middle', title: 'Middle' }]));
+			expect(await sorted()).toEqual(['late', 'uncategorised']);
+			// Lines put in it.
+			value(
+				await service.assign(id, FIRST, [{ file: 'src/sum.ts', lines: '+31', section: 'middle' }])
+			);
+			expect(await sorted()).toEqual(['late', 'middle', 'uncategorised']);
+			// The sections put in another order.
+			value(await service.upsertSections(id, FIRST, [], ['middle', 'late', 'early']));
+			expect(await sorted()).toEqual(['middle', 'late', 'uncategorised']);
+			// Lines ignored.
+			value(
+				await service.assign(id, FIRST, [
+					{ file: 'src/sum.ts', lines: '+4', section: 'ignored', reason: 'Not this time' }
+				])
+			);
+			expect(await sorted()).toEqual(['middle', 'uncategorised', 'ignored']);
+			// The emptied section removed, which no search can tell.
+			value(await service.upsertSections(id, FIRST, [], undefined, ['late']));
+			expect(await sorted()).toEqual(['middle', 'uncategorised', 'ignored']);
 		} finally {
 			other.close();
 			service.close();
