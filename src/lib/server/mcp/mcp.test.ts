@@ -689,6 +689,35 @@ describe('the agent interface, through the stdio shim', () => {
 		expect(await markerExists()).toBe(false);
 	});
 
+	it('keeps the address and the next step of create_report however long the paths it lists', async () => {
+		const repo = await emptyRepo();
+		await repo.write('README.md', '# Long names\n');
+		await repo.commit('first');
+		const odd = new Uint8Array(200).fill(0xff);
+		const slash = new TextEncoder().encode('/');
+		for (let i = 0; i < 16; i += 1) {
+			const folders = Array.from({ length: 8 }, (_, f) =>
+				f === 0 ? [...odd.slice(1), 0x41 + i] : [...odd]
+			);
+			const path = [
+				...folders.flatMap((f) => [...f, ...slash]),
+				...new TextEncoder().encode('package-lock.json')
+			];
+			await repo.writeRaw(new Uint8Array(path), '{}\n');
+		}
+		const { session } = await agentIn(repo);
+		const created = await session.call('create_report', { source: 'working-tree' });
+		expect(created.refused, created.text.slice(0, 300)).toBe(false);
+		expect(created.text.length).toBeLessThan(10_000);
+		expect(created.text).toMatch(
+			/^Ignored automatically, so the person need not review them: \[a path shortened here, [\d,]+ characters left out: "(\\\\xFF)+…(\\\\xFF)+\/package-lock\.json"; get_manifest lists it whole\] \(Lockfile\), .* and \d+ more\. Leave them/m
+		);
+		expect(created.text).toMatch(
+			/Give the person this address to open it in their browser: http:\S+\?entry=/
+		);
+		expect(created.text).toMatch(/\nNext: call get_manifest with "report": "r_[0-9a-f]+"\.$/);
+	});
+
 	it('writes what a repository holds so that none of it can add a line to an answer', async () => {
 		const { session } = await agentIn(await useFixture(forging));
 		const report = reportIn(await session.call('create_report', { source: 'working-tree' }));

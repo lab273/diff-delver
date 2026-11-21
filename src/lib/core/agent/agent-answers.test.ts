@@ -11,10 +11,18 @@ import { parseSectionId } from '../section-id.tiny.ts';
 import { MAX_SECTION_TITLE_LENGTH, parseSectionTitle } from '../section-title.tiny.ts';
 import { MAX_SECTIONS } from '../reports/section-requests.ts';
 import type { Section } from '../reports/report.ts';
+import { agentPath } from '../diff/agent-text.ts';
+import { decodePathBytes } from '../path-bytes.ts';
+import { parseRepoPath } from '../repo-path.tiny.ts';
 import {
 	boundedAnswer,
 	grouped,
+	listedPath,
 	MAX_ANSWER_LENGTH,
+	MAX_LIST_LENGTH,
+	MAX_LISTED_PATH_LENGTH,
+	namesListed,
+	sentencesListed,
 	PAGE_LENGTH,
 	type ReportHeading
 } from './answer.ts';
@@ -312,6 +320,38 @@ describe('answers for an agent', () => {
 			'Item 0: took 1 change line into Ignored.',
 			'Item 1: took 3 change lines into section "one", moving 1 of them out of Ignored and 1 out of section "two".'
 		]);
+	});
+
+	it('list names and sentences by length as well as by count, and shorten a long path keeping its start and end', () => {
+		const odd = decodePathBytes(new Uint8Array(Array.from({ length: 200 }, () => 0xff)));
+		const long = value(
+			parseRepoPath(`${Array.from({ length: 8 }, () => odd).join('/')}/package-lock.json`)
+		);
+		expect(agentPath(long).length).toBeGreaterThan(8_000);
+		const listed = listedPath(long);
+		expect(listed.length).toBeLessThanOrEqual(MAX_LISTED_PATH_LENGTH + 80);
+		expect(listed).toMatch(
+			/^\[a path shortened here, [\d,]+ characters left out: "(\\\\xFF)+…(\\\\xFF)*\/package-lock\.json"; get_manifest lists it whole\]$/
+		);
+		// Only whole escapes are kept: the characters left out and kept add up to the whole.
+		const kept = /: (".*"); get_manifest/.exec(listed)?.[1] ?? '';
+		const left = Number((/([\d,]+) characters left out/.exec(listed)?.[1] ?? '').replace(/,/g, ''));
+		expect(kept.length - 1 + left).toBe(agentPath(long).length);
+		expect(listedPath(value(parseRepoPath('src/a.ts')))).toBe('src/a.ts');
+
+		const names = Array.from({ length: 16 }, () => `${listed} (Lockfile)`);
+		const sentence = namesListed(names, 15);
+		expect(sentence.length).toBeLessThanOrEqual(MAX_LIST_LENGTH + 100);
+		expect(sentence).toMatch(/ and \d+ more$/);
+		const huge = Array.from({ length: 16 }, () => `${'x'.repeat(10_000)}.json`);
+		expect(namesListed(huge).length).toBeLessThanOrEqual(MAX_LIST_LENGTH + 100);
+		expect(namesListed(huge)).toMatch(
+			/^x+… \[[\d,]+ characters left out\] …x+\.json, .* and \d+ more$/
+		);
+		const sentences = sentencesListed('Left out: ', huge);
+		expect(sentences.join('\n').length).toBeLessThanOrEqual(MAX_LIST_LENGTH + 100);
+		expect(sentences.at(-1)).toMatch(/^Left out: and \d+ more like these\.$/);
+		expect(namesListed(['a', 'b', 'c'])).toBe('a, b, c');
 	});
 
 	it('cut an answer that would be too long, at a line, and say so', () => {

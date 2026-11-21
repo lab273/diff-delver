@@ -20,6 +20,7 @@ import {
 	counted,
 	grouped,
 	headingLine,
+	listedPath,
 	namesListed,
 	PAGE_LENGTH,
 	type ReportHeading
@@ -79,7 +80,10 @@ export function renderCoverage(input: CoverageInput, budget = PAGE_LENGTH): Text
 		let length = out.join('\n').length;
 		let shown = 0;
 		for (const units of left) {
-			const line = `${agentPath(units.path)} ${unitsText(units)}`;
+			// A path is written whole, to be sent back, unless it alone would crowd out the rest.
+			const whole = agentPath(units.path);
+			const path = whole.length > budget / 8 ? listedPath(units.path) : whole;
+			const line = `${path} ${unitsText(units)}`;
 			if (shown > 0 && length + line.length + 1 > budget * 0.75) break;
 			out.push(line);
 			length += line.length + 1;

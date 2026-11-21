@@ -25,6 +25,7 @@ import {
 	counted,
 	grouped,
 	headingLine,
+	listedPath,
 	namesListed,
 	PAGE_LENGTH,
 	quotedAgentText,
@@ -441,10 +442,10 @@ function autoIgnoredFiles(page: LoadedReport): readonly string[] {
 		if (by?.kind !== 'ignored') continue;
 		switch (by.by.kind) {
 			case 'rule':
-				out.push(`${agentPath(file.file.path)} (${ignoreRuleName(by.by.rule)})`);
+				out.push(`${listedPath(file.file.path)} (${ignoreRuleName(by.by.rule)})`);
 				break;
 			case 'pattern':
-				out.push(`${agentPath(file.file.path)} (project pattern ${by.by.pattern})`);
+				out.push(`${listedPath(file.file.path)} (project pattern ${by.by.pattern})`);
 				break;
 			case 'agent':
 				break;

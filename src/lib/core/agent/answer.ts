@@ -4,8 +4,10 @@
  * at about 25,000 tokens; it starts by naming the report and the version it is
  * of; and numbers and lists are written the same way everywhere.
  */
+import { agentPath, agentPathPieces } from '../diff/agent-text.ts';
 import { visibleText } from '../hidden-characters.ts';
 import { jsonQuoted } from '../json-quoted.ts';
+import type { RepoPath } from '../repo-path.tiny.ts';
 import type { ReportId } from '../report-id.tiny.ts';
 import type { ReviewerMessage } from '../reviewer-message.tiny.ts';
 import type { RevisionNumber } from '../revision-number.tiny.ts';
@@ -58,10 +60,78 @@ export function changes(n: number): string {
 /** At most this many names are listed in a sentence; the rest are counted. */
 export const MAX_NAMED = 20;
 
-/** Names joined with commas, the first `MAX_NAMED` of them, then how many more. */
+/**
+ * A list in an answer that is not paged, such as the files ignored
+ * automatically, holds at most about this many characters, whatever the
+ * names in it; the rest are counted. So what comes after it, the address, the
+ * next step and the counts, always fits.
+ */
+export const MAX_LIST_LENGTH = 4_000;
+
+/** One item of such a list is at most this long; a longer one is shortened, keeping its start and end. */
+export const MAX_LISTED_ITEM_LENGTH = 600;
+
+/**
+ * Names joined with commas: the first `max` of them that fit in
+ * `MAX_LIST_LENGTH`, each shortened past `MAX_LISTED_ITEM_LENGTH`, then how
+ * many more.
+ */
 export function namesListed(names: readonly string[], max: number = MAX_NAMED): string {
-	if (names.length <= max) return names.join(', ');
-	return `${names.slice(0, max).join(', ')} and ${grouped(names.length - max)} more`;
+	const shown: string[] = [];
+	let length = 0;
+	for (const name of names) {
+		if (shown.length >= max) break;
+		const item = shortened(name, MAX_LISTED_ITEM_LENGTH);
+		if (shown.length > 0 && length + item.length + 2 > MAX_LIST_LENGTH) break;
+		shown.push(item);
+		length += item.length + 2;
+	}
+	const more = names.length - shown.length;
+	return more === 0 ? shown.join(', ') : `${shown.join(', ')} and ${grouped(more)} more`;
+}
+
+/**
+ * Text of at most about `max` characters: as it is, or its start and its end
+ * with how much was left out between them, never splitting a character.
+ */
+export function shortened(text: string, max: number): string {
+	if (text.length <= max) return text;
+	const chars = Array.from(text);
+	const keep = Math.max(1, Math.floor((max - 40) / 2));
+	if (chars.length <= 2 * keep) return text;
+	const left = chars.length - 2 * keep;
+	return `${chars.slice(0, keep).join('')}… [${counted(left, 'character', 'characters')} left out] …${chars.slice(-keep).join('')}`;
+}
+
+/** A path in a list of an answer is at most this long, as `agentPath` writes it; a longer one is shortened. */
+export const MAX_LISTED_PATH_LENGTH = 300;
+
+/**
+ * A path in a list of an answer that is not paged: as `agentPath` writes it,
+ * or, past `max` characters, only its start and end, marked as shortened so it
+ * is never taken for a path to send back, with where to read it whole.
+ */
+export function listedPath(path: RepoPath, max: number = MAX_LISTED_PATH_LENGTH): TextForAgent {
+	const whole = agentPath(path);
+	if (whole.length <= max) return whole;
+	const { quoted, pieces } = agentPathPieces(path);
+	const half = Math.floor(max / 3);
+	let start = quoted ? '"' : '';
+	let i = 0;
+	while (i < pieces.length && start.length + (pieces[i]?.length ?? 0) <= half) {
+		start += pieces[i] ?? '';
+		i += 1;
+	}
+	let end = quoted ? '"' : '';
+	let j = pieces.length;
+	while (j > i && end.length + (pieces[j - 1]?.length ?? 0) <= half) {
+		end = `${pieces[j - 1] ?? ''}${end}`;
+		j -= 1;
+	}
+	const left = whole.length - start.length - end.length;
+	return textForAgent(
+		`[a path shortened here, ${counted(left, 'character', 'characters')} left out: ${start}…${end}; get_manifest lists it whole]`
+	);
 }
 
 /** `a, b and c`. */
@@ -100,12 +170,23 @@ function jsonEscaped(text: string): string {
 /** At most this many sentences of a list, such as the files left out of a snapshot, are written out. */
 export const MAX_SENTENCES = 10;
 
-/** Lines that each begin with `prefix`, the first `MAX_SENTENCES` of them, then how many more. */
+/**
+ * Lines that each begin with `prefix`: the first `MAX_SENTENCES` of them that
+ * fit in `MAX_LIST_LENGTH`, each shortened past `MAX_LISTED_ITEM_LENGTH`, then
+ * how many more.
+ */
 export function sentencesListed(prefix: string, items: readonly string[]): readonly string[] {
-	const shown = items.slice(0, MAX_SENTENCES).map((item) => `${prefix}${item}`);
-	return items.length > MAX_SENTENCES
-		? [...shown, `${prefix}and ${grouped(items.length - MAX_SENTENCES)} more like these.`]
-		: shown;
+	const shown: string[] = [];
+	let length = 0;
+	for (const item of items) {
+		if (shown.length >= MAX_SENTENCES) break;
+		const line = `${prefix}${shortened(item, MAX_LISTED_ITEM_LENGTH)}`;
+		if (shown.length > 0 && length + line.length + 1 > MAX_LIST_LENGTH) break;
+		shown.push(line);
+		length += line.length + 1;
+	}
+	const more = items.length - shown.length;
+	return more > 0 ? [...shown, `${prefix}and ${grouped(more)} more like these.`] : shown;
 }
 
 /**

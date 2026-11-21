@@ -54,16 +54,24 @@ export const DEFAULT_MAX_LINE_LENGTH: CharacterCount = characterCount(500);
 
 /** How a path is written for the agent: escaped, and as a JSON string when it needs quoting. */
 export function agentPath(path: RepoPath): TextForAgent {
-	const shown = escapedRepoPath(path);
-	// Quotes, backslashes, control characters (newline, tab, ...) and line or
-	// paragraph separators would make it ambiguous or break the line.
-	const needsQuoting = /["\\\p{Cc}\p{Zl}\p{Zp}]/u.test(shown) || shown.trim() !== shown;
-	return textForAgent(needsQuoting ? jsonString(shown) : shown);
+	const { quoted, pieces } = agentPathPieces(path);
+	const inner = pieces.join('');
+	return textForAgent(quoted ? `"${inner}"` : inner);
 }
 
-/** JSON.stringify, with U+2028 and U+2029 escaped too, so the string stays on one line. */
-function jsonString(text: string): string {
-	return jsonQuoted(text);
+/**
+ * A path as `agentPath` writes it, in pieces, one for each character of the
+ * path (`\\xFF` for an odd byte in a quoted path), so it can be shortened
+ * without splitting an escape; and whether it is written as a JSON string.
+ */
+export function agentPathPieces(path: RepoPath): { quoted: boolean; pieces: readonly string[] } {
+	const shown: string = escapedRepoPath(path);
+	// Quotes, backslashes, control characters (newline, tab, ...) and line or
+	// paragraph separators would make it ambiguous or break the line.
+	const quoted = /["\\\p{Cc}\p{Zl}\p{Zp}]/u.test(shown) || shown.trim() !== shown;
+	// Every backslash of an escaped form starts `\\` or `\xHH`; a plain one has none.
+	const pieces = shown.match(/\\\\|\\x[0-9A-F]{2}|[\s\S]/gu) ?? [];
+	return { quoted, pieces: quoted ? pieces.map((p) => jsonQuoted(p).slice(1, -1)) : pieces };
 }
 
 /** One file's diff as labelled text. */
