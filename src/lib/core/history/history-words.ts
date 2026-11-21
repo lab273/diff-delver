@@ -6,6 +6,8 @@
  * Written out by hand, in UTC, so they read the same on every machine and do
  * not depend on its language or timezone.
  */
+import type { FileCount } from '../file-count.tiny.ts';
+import type { LineCount } from '../line-count.tiny.ts';
 import { describeTimeAgo } from '../time-ago.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import type { Timestamp } from '../timestamp.tiny.ts';
@@ -164,16 +166,17 @@ export type LastFetch =
 	| { readonly kind: 'never'; readonly remotes: readonly RemoteName[] }
 	| { readonly kind: 'fetched'; readonly at: Timestamp; readonly remotes: readonly RemoteName[] };
 
-function remotesText(remotes: readonly RemoteName[]): string {
+/** The one remote by its name, with what cannot be seen written out, or undefined when there are several. */
+function onlyRemote(remotes: readonly RemoteName[]): string | undefined {
 	const [only, ...others] = remotes;
-	return only !== undefined && others.length === 0
-		? visibleText(only)
-		: `its ${formatCount(remotes.length)} remotes`;
+	return only !== undefined && others.length === 0 ? visibleText(only) : undefined;
 }
 
 /**
  * When the repository last fetched, in a sentence, or undefined when it has no
  * remote: "Last fetched from origin 3 days ago (12 January 2026, 10:00 UTC)."
+ * With several remotes the time is that of whichever was fetched last, so it
+ * says "from one of its 3 remotes" and no more than that.
  */
 export function describeLastFetch(fetch: LastFetch, now: Timestamp): ReviewerMessage | undefined {
 	switch (fetch.kind) {
@@ -181,21 +184,51 @@ export function describeLastFetch(fetch: LastFetch, now: Timestamp): ReviewerMes
 			return undefined;
 		case 'never':
 			return reviewerMessage(
-				`This copy has no record of fetching from ${remotesText(fetch.remotes)}, so it may lack commits made there.`
+				`This copy has no record of fetching from ${onlyRemote(fetch.remotes) ?? `its ${formatCount(fetch.remotes.length)} remotes`}, so it may lack commits made there.`
 			);
 		case 'fetched':
+			// git records when it last fetched, not from where: with several remotes,
+			// the others may have been fetched long before, or never.
 			return reviewerMessage(
-				`Last fetched from ${remotesText(fetch.remotes)} ${describeWhen(fetch.at, now)}.`
+				`Last fetched from ${onlyRemote(fetch.remotes) ?? `one of its ${formatCount(fetch.remotes.length)} remotes`} ${describeWhen(fetch.at, now)}.`
 			);
 	}
 }
 
 /** What the button that asks the remotes what they have says. */
 export function describeCheckButton(remotes: readonly RemoteName[]): ReviewerMessage {
-	const [only, ...others] = remotes;
+	const only = onlyRemote(remotes);
 	return reviewerMessage(
-		only !== undefined && others.length === 0
-			? `Check ${visibleText(only)} for new commits`
-			: 'Check the remotes for new commits'
+		only === undefined ? 'Check the remotes for new commits' : `Check ${only} for new commits`
+	);
+}
+
+/** What the page says while the remotes are being asked. */
+export function describeAsking(remotes: readonly RemoteName[]): ReviewerMessage {
+	return reviewerMessage(`Asking ${onlyRemote(remotes) ?? 'the remotes'}…`);
+}
+
+/**
+ * How many files a commit changes, after its lines added and removed, which
+ * are drawn as numbers before it: "3 files", and when it has no lines to draw,
+ * as a commit that only renames a file or changes a binary one, "1 file, no
+ * lines changed".
+ */
+export function describeCommitFiles(
+	files: FileCount,
+	added: LineCount,
+	removed: LineCount
+): ReviewerMessage {
+	if (files === 0) return reviewerMessage('No files changed');
+	const count = files === 1 ? '1 file' : `${formatCount(files)} files`;
+	return reviewerMessage(added === 0 && removed === 0 ? `${count}, no lines changed` : count);
+}
+
+/** What the page says in place of the branches when the repository has none to choose from. */
+export function describeNoBranches(noCommits: boolean): ReviewerMessage {
+	return reviewerMessage(
+		noCommits
+			? 'This repository has no commits yet, so there is nothing to choose from. Make a first commit, then reload this page.'
+			: 'This repository has no branches, so there is nothing to choose from here. To review the commit that is checked out, run diff-delver open HEAD in a terminal in the repository.'
 	);
 }

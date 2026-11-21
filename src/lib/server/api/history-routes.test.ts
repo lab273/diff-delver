@@ -92,5 +92,20 @@ describe('the chooser’s routes', () => {
 		);
 		const offline = await client.checkRemotes({ directory: repo.dir });
 		expect(offline.ok && offline.value.remotes).toEqual([]);
+		expect(value(await client.history({ directory: repo.dir, find: '' })).noCommits).toBe(false);
+	});
+
+	it('say a repository has no commits yet, or only none on a branch', async () => {
+		const client = clientOf(await testDaemon());
+		const empty = await emptyRepo();
+		const nothing = value(await client.history({ directory: empty.dir, find: '' }));
+		expect([nothing.branches, nothing.noCommits]).toEqual([[], true]);
+		// A commit checked out with no branch at all: there are commits, and no branch to choose.
+		await empty.write('a.txt', 'a\n');
+		const { commit } = await empty.commit('Start');
+		await empty.git('checkout', '--quiet', '--detach', commit);
+		await empty.git('branch', '--quiet', '-D', 'main');
+		const detached = value(await client.history({ directory: empty.dir, find: '' }));
+		expect([detached.branches, detached.noCommits]).toEqual([[], false]);
 	});
 });

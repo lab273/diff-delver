@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import { fileCountOf } from '../file-count.tiny.ts';
+import { lineCountOf } from '../line-count.tiny.ts';
 import { parseTimestamp, type Timestamp } from '../timestamp.tiny.ts';
 import { parseBranchRef, type BranchRef } from './branch-ref.tiny.ts';
 import { commitCountOf } from './commit-count.tiny.ts';
 import {
 	describeAhead,
+	describeAsking,
 	describeBranchPlace,
 	describeCheckButton,
+	describeCommitFiles,
 	describeExactTime,
 	describeForkPoint,
 	describeLastCommit,
 	describeLastFetch,
+	describeNoBranches,
 	describeNothingAhead,
 	describeWholeBranch,
 	shownBranch
@@ -115,10 +120,43 @@ describe('the chooser’s words', () => {
 				{ kind: 'fetched', at: now, remotes: [remote('origin'), remote('upstream')] },
 				now
 			)
-		).toBe('Last fetched from its 2 remotes just now (15 January 2026, 09:30 UTC).');
+		).toBe('Last fetched from one of its 2 remotes just now (15 January 2026, 09:30 UTC).');
+		expect(
+			describeLastFetch({ kind: 'never', remotes: [remote('origin'), remote('upstream')] }, now)
+		).toBe(
+			'This copy has no record of fetching from its 2 remotes, so it may lack commits made there.'
+		);
 		expect(describeCheckButton(origin)).toBe('Check origin for new commits');
 		expect(describeCheckButton([remote('a'), remote('b')])).toBe(
 			'Check the remotes for new commits'
+		);
+	});
+
+	it('names a remote it is asking with what cannot be seen written out', () => {
+		expect(describeAsking([remote('origin')])).toBe('Asking origin…');
+		expect(describeAsking([remote('ori\u202egin')])).toBe('Asking ori\\u202Egin…');
+		expect(describeAsking([remote('a'), remote('b')])).toBe('Asking the remotes…');
+	});
+
+	it('says a commit with no lines to count changes no lines', () => {
+		const files = (n: number) => fileCountOf(n);
+		const lines = (n: number) => lineCountOf(n);
+		expect(describeCommitFiles(files(3), lines(4), lines(0))).toBe('3 files');
+		expect(describeCommitFiles(files(1), lines(0), lines(2))).toBe('1 file');
+		// A rename alone, or a change to a binary file.
+		expect(describeCommitFiles(files(1), lines(0), lines(0))).toBe('1 file, no lines changed');
+		expect(describeCommitFiles(files(1200), lines(0), lines(0))).toBe(
+			'1,200 files, no lines changed'
+		);
+		expect(describeCommitFiles(files(0), lines(0), lines(0))).toBe('No files changed');
+	});
+
+	it('says what to do when a repository has nothing to choose from', () => {
+		expect(describeNoBranches(true)).toBe(
+			'This repository has no commits yet, so there is nothing to choose from. Make a first commit, then reload this page.'
+		);
+		expect(describeNoBranches(false)).toMatch(
+			/^This repository has no branches, .* run diff-delver open HEAD in a terminal/
 		);
 	});
 });

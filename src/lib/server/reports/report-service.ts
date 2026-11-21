@@ -165,6 +165,7 @@ import {
 import {
 	checkRemote,
 	commitsSince,
+	headCommit,
 	lastFetch,
 	listBranches,
 	listCommits,
@@ -548,6 +549,8 @@ export interface RepositoryBranches {
 	readonly repository: ReviewerMessage;
 	readonly branches: Branches;
 	readonly lastFetch: LastFetch;
+	/** The repository has no commits yet: no branch, and nothing checked out. */
+	readonly noCommits: boolean;
 }
 
 function worktreeOf(repo: LocalRepository): AbsolutePath {
@@ -841,10 +844,15 @@ export class ReportService {
 		if (!repo.ok) return repo;
 		const branches = await listBranches(repo.value, find);
 		if (!branches.ok) return branches;
+		// Only asked of a repository with no branch at all: one with a branch has commits.
+		const none = find.trim() === '' && branches.value.shown.length === 0;
+		const head = none ? await headCommit(repo.value) : undefined;
+		if (head?.ok === false) return head;
 		return ok({
 			repository: repositoryLabel(worktreeOf(repo.value)),
 			branches: branches.value,
-			lastFetch: await lastFetch(repo.value, branches.value.remotes, branches.value.main)
+			lastFetch: await lastFetch(repo.value, branches.value.remotes, branches.value.main),
+			noCommits: head !== undefined && head.value === undefined
 		});
 	}
 

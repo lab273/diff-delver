@@ -27,12 +27,15 @@
 	} from '#lib/core/history/commit-selection.ts';
 	import {
 		describeAhead,
+		describeAsking,
 		describeBranchPlace,
 		describeCheckButton,
+		describeCommitFiles,
 		describeExactTime,
 		describeForkPoint,
 		describeLastCommit,
 		describeLastFetch,
+		describeNoBranches,
 		describeNothingAhead,
 		describeWholeBranch,
 		UNKNOWN_COMMIT_TIME
@@ -296,10 +299,12 @@
 	{@const now = loaded.now}
 	{@const fetched = describeLastFetch(loaded.lastFetch, now)}
 	<h1>Choose what to review in {loaded.repository}</h1>
-	<p class="lead">
-		Choose a branch, then tick the commits to review. Tick two to review them and every commit
-		between.
-	</p>
+	{#if !loaded.noCommits}
+		<p class="lead">
+			Choose a branch, then tick the commits to review. Tick two to review them and every commit
+			between.
+		</p>
+	{/if}
 
 	{#if fetched !== undefined}
 		<section class="remote" aria-label="Your copy and its remote">
@@ -309,7 +314,7 @@
 			</button>
 			<div class="checked" role="status" aria-busy={checking}>
 				{#if checking}
-					<p>Asking {loaded.remotes.length === 1 ? loaded.remotes[0] : 'the remotes'}…</p>
+					<p>{describeAsking(loaded.remotes)}</p>
 				{:else if checkProblem !== ''}
 					<p>{checkProblem}</p>
 				{:else if checked !== undefined}
@@ -342,7 +347,7 @@
 				{:else if branches.length === 0}
 					<p class="quiet">
 						{find.trim() === ''
-							? 'This repository has no branches yet.'
+							? describeNoBranches(loaded.noCommits)
 							: 'No branch has that in its name.'}
 					</p>
 				{:else}
@@ -472,7 +477,7 @@
 										{#if row.size !== null}
 											<span>
 												<DiffSize added={row.size.added} removed={row.size.removed} />
-												{row.size.files === 1 ? '1 file' : `${formatCount(row.size.files)} files`}
+												{describeCommitFiles(row.size.files, row.size.added, row.size.removed)}
 											</span>
 										{/if}
 									</span>

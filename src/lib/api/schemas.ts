@@ -706,6 +706,8 @@ export const HistorySchema = z.object({
 	),
 	/** How many branches match, shown or not. */
 	matching: parsed(z.number(), parseBranchCount),
+	/** The repository has no commits yet: no branch, and nothing checked out. */
+	noCommits: z.boolean(),
 	remotes: z.array(remoteName),
 	lastFetch: z.discriminatedUnion('kind', [
 		z.object({ kind: z.literal('no-remote') }),

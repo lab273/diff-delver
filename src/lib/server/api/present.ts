@@ -238,6 +238,7 @@ export function historyView(found: RepositoryBranches, now: Timestamp): HistoryV
 			ahead: b.ahead ?? null
 		})),
 		matching: branches.matching,
+		noCommits: found.noCommits,
 		remotes: [...branches.remotes],
 		lastFetch:
 			found.lastFetch.kind === 'no-remote'

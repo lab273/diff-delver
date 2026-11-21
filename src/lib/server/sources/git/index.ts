@@ -32,6 +32,7 @@ export {
 	remotesOf,
 	trackedBranches
 } from './history.ts';
+export { headCommit } from './resolve.ts';
 export type { LocalRepository, RepositoryOptions } from './local-repository.ts';
 export { locateRepository, storeIdFor } from './local-repository.ts';
 export type { GitSnapshot } from './snapshot-git-source.ts';
