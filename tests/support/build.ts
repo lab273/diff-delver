@@ -35,6 +35,16 @@ function oldest(paths: readonly string[]): number {
 	return Math.min(...paths.map((path) => statSync(path, { throwIfNoEntry: false })?.mtimeMs ?? 0));
 }
 
+/**
+ * The environment the build runs in: the tests' own, but always for
+ * production. Vitest sets NODE_ENV to `test`, and a build that inherited it
+ * would be a development one, whose app serves `pnpm dev`'s daemon on the
+ * machine's own data folder instead of the test's.
+ */
+export function buildEnvironment(): NodeJS.ProcessEnv {
+	return { ...process.env, NODE_ENV: 'production' };
+}
+
 export function ensureBuild(): void {
 	const sources = Math.max(...INPUTS.map((input) => newest(join(ROOT, input))));
 	if (oldest(OUTPUTS) > sources) return;
@@ -44,7 +54,11 @@ export function ensureBuild(): void {
 		['build', '--logLevel', 'warn'],
 		['build', '--config', 'vite.cli.config.ts', '--logLevel', 'warn']
 	]) {
-		const built = spawnSync(bin('vite'), args, { cwd: ROOT, stdio: 'inherit' });
+		const built = spawnSync(bin('vite'), args, {
+			cwd: ROOT,
+			stdio: 'inherit',
+			env: buildEnvironment()
+		});
 		if (built.status !== 0) throw new Error('The build failed; see above.');
 	}
 }
