@@ -2,6 +2,9 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { describeApiError } from '#lib/api/client.ts';
+import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
+import { escapedRepoPath } from '#lib/core/path-bytes.ts';
+import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseAbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { tokenCookieName } from '#lib/core/daemon/request-gate.ts';
 import {
@@ -11,6 +14,7 @@ import {
 	useFixture
 } from '../../../../tests/support/fixture-repos.ts';
 import {
+	browserClient,
 	browserCookie,
 	clientOf,
 	rawRequest,
@@ -90,7 +94,8 @@ describe('the daemon', () => {
 		});
 		expect(value(await client.checkForChanges(id))).toEqual({ kind: 'closed' });
 		expect(value(await client.reopenDiff(id)).diff.state).toEqual({ kind: 'open' });
-		expect(value(await client.deleteDiff(id))).toEqual({ problem: null });
+		const browser = await browserClient(daemon);
+		expect(value(await browser.deleteDiff(id))).toEqual({ problem: null });
 		expect(value(await client.listDiffs()).diffs).toEqual([]);
 
 		const gone = await client.loadDiff(id);
@@ -210,6 +215,52 @@ describe('the daemon’s gate', () => {
 		const token = await rawRequest(daemon.port, { path: `/?token=${daemon.token}` });
 		expect(token.status).toBe(403);
 		expect(token.headers['set-cookie']).toBeUndefined();
+	});
+
+	it('opens the same stored draft with a new CLI link after a daemon restart', async () => {
+		const dataDirectory = await tempDirectory();
+		const repo = await useFixture(edited);
+		const first = await testDaemon({ dataDirectory });
+		const command = clientOf(first);
+		const opened = value(await command.start({ directory: repo.dir }));
+		if (opened.kind !== 'opened') throw new Error(opened.kind);
+		const id = opened.diff.id;
+		const browser = await browserClient(first);
+		const saved = value(
+			await browser.addDraftComment(id, {
+				version: opened.diff.version,
+				anchor: {
+					path: escapedRepoPath(value(parseRepoPath('src/a.ts'))),
+					side: 'new',
+					first: lineNumberOf(1),
+					last: lineNumberOf(1)
+				},
+				body: 'Keep this draft through a restart.'
+			})
+		);
+		const cookie = await browserCookie(first);
+		const unused = value(await command.entryCode()).code;
+		await first.stop();
+
+		const second = await testDaemon({ dataDirectory });
+		const delve = `/diffs/${id}`;
+		// Even if a port is reused, the two daemons have different grants.
+		const oldToken = cookie.split('=', 2)[1] ?? '';
+		const oldCookie = `${tokenCookieName(second.port)}=${oldToken}`;
+		expect(
+			(await rawRequest(second.port, { path: delve, headers: { cookie: oldCookie } })).status
+		).toBe(403);
+		expect((await rawRequest(second.port, { path: `${delve}?entry=${unused}` })).status).toBe(403);
+		expect(
+			(
+				await rawRequest(second.port, {
+					path: '/api/daemon',
+					headers: { authorization: `Bearer ${first.token}` }
+				})
+			).status
+		).toBe(403);
+		const renewed = await browserClient(second);
+		expect(value(await renewed.draftComments(id))).toEqual([saved]);
 	});
 
 	it('gives the command an entry code, and only with its token', async () => {

@@ -768,8 +768,11 @@ The quoted code is inserted by the server from the snapshot.
   or in an address. Browser links carry a single-use code, good for two minutes,
   which the daemon exchanges for a session cookie. A link opened by the local
   `diff-delver` command grants access to private drafts. Links from MCP open the
-  Delve and preserve any review access the browser already has. Pages load only
-  the daemon's own resources and scripts.
+  Delve and preserve any review access the browser already has. The grants use
+  separate Strict cookies. A cross-site entry commits a local page before
+  continuing to the Delve, so the browser can send those cookies. The daemon
+  requires a review grant to read or save drafts or delete a Delve. Pages load
+  only the daemon's own resources and scripts.
 - Browsers send a cookie to every port of a host, so another server on the same
   machine that the person visits would receive this cookie. That is accepted for a
   tool one person runs on their own machine.

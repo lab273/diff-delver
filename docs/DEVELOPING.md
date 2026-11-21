@@ -140,8 +140,10 @@ the path bytes, side and line range in that tree. The service checks the
 current version again in the transaction that saves the comment. Both comment
 routes require a review session cookie. The command's bearer token can issue
 a review entry code. MCP uses a separate bearer token and issues entry codes
-that open the viewer while preserving any existing review session. The open
-Delve page keeps unsaved comments across viewer replacement. Gutter movement
+that open the viewer with a separate cookie. A cross-site link commits a local
+page before opening the Delve, so the browser sends its Strict cookies on the
+clean URL. The same review grant protects Delve deletion. The open Delve page
+keeps unsaved comments across viewer replacement. Gutter movement
 uses the logical rows of the chosen layout and draws the destination chunk
 when needed.
 

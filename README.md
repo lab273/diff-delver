@@ -96,6 +96,14 @@ as a file. For Claude Code, save it as `~/.claude/skills/diff-delver/SKILL.md`.
 The MCP server uses the same data folder as the command. Add `--no-open` after `mcp`
 to have the agent give you the page's address instead of opening a browser.
 
+To enable draft comments after following an agent's link, run `diff-delver choose`
+in the repository with the same data folder. Let it open a tab in the same browser,
+then return to the Delve and reload it.
+
+If an older MCP shim stops connecting after an upgrade, update the agent's
+`diff-delver mcp` command and restart its MCP server so it uses the new build.
+After a daemon restart, use a fresh CLI link to restore browser review access.
+
 ### Keep reviewing as the code changes
 
 When your files change, the page says so and offers **Update**. Running the command

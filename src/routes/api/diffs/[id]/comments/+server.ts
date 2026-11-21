@@ -1,9 +1,9 @@
 import { AddDraftCommentSchema, type DraftCommentView } from '#lib/api/schemas.ts';
 import { escapedRepoPath, resolveEscapedPath } from '#lib/core/path-bytes.ts';
 import type { DraftComment } from '#lib/core/review/draft-comment.ts';
-import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
-import { failure, serviceFailure } from '#lib/server/api/present.ts';
+import { serviceFailure } from '#lib/server/api/present.ts';
 import { diffId, readBody, unknownPath } from '#lib/server/api/request.ts';
+import { canReview, reviewSessionRequired } from '#lib/server/api/review-session.ts';
 import type { RequestHandler } from './$types';
 
 function commentView(comment: DraftComment): DraftCommentView {
@@ -12,29 +12,9 @@ function commentView(comment: DraftComment): DraftCommentView {
 
 const privateResponse = { 'cache-control': 'no-store' };
 
-function browserOnly(
-	request: Request,
-	isReviewBrowser: (cookieHeader: string | undefined) => boolean
-): Response | undefined {
-	// The daemon's gate checks the Origin for changes made with a cookie.
-	// Require that path through the gate, even when the caller also has a bearer token.
-	if (
-		!request.headers.has('authorization') &&
-		isReviewBrowser(request.headers.get('cookie') ?? undefined)
-	)
-		return;
-	return failure(
-		403,
-		'BrowserSessionRequired',
-		reviewerMessage(
-			'To read or save draft comments, run diff-delver in a terminal in your repository and use the browser it opens.'
-		)
-	);
-}
-
 export const GET: RequestHandler = ({ locals, params, request }) => {
-	const refused = browserOnly(request, locals.daemon.isReviewBrowser);
-	if (refused !== undefined) return refused;
+	if (!canReview(locals.daemon, request))
+		return reviewSessionRequired('read or save draft comments');
 	const id = diffId(params.id);
 	if (!id.ok) return id.error;
 	const comments = locals.daemon.service.draftComments(id.value);
@@ -44,8 +24,8 @@ export const GET: RequestHandler = ({ locals, params, request }) => {
 };
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {
-	const refused = browserOnly(request, locals.daemon.isReviewBrowser);
-	if (refused !== undefined) return refused;
+	if (!canReview(locals.daemon, request))
+		return reviewSessionRequired('read or save draft comments');
 	const id = diffId(params.id);
 	if (!id.ok) return id.error;
 	const parsed = await readBody(request, AddDraftCommentSchema);

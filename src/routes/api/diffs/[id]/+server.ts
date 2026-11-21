@@ -1,6 +1,7 @@
 import { PageQuerySchema, type DeletedResponse, type DiffPage } from '#lib/api/schemas.ts';
 import { pageView, serviceFailure } from '#lib/server/api/present.ts';
 import { diffId, readQuery } from '#lib/server/api/request.ts';
+import { canReview, reviewSessionRequired } from '#lib/server/api/review-session.ts';
 import type { RequestHandler } from './$types';
 
 /**
@@ -19,7 +20,8 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 };
 
 /** Deletes a diff, with what diff delver saved of it. */
-export const DELETE: RequestHandler = async ({ locals, params }) => {
+export const DELETE: RequestHandler = async ({ locals, params, request }) => {
+	if (!canReview(locals.daemon, request)) return reviewSessionRequired('delete a Delve');
 	const id = diffId(params.id);
 	if (!id.ok) return id.error;
 	const deleted = await locals.daemon.service.deleteReport(id.value);

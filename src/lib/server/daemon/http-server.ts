@@ -4,6 +4,7 @@
  * how to open diff delver; a refused API call answers with the same message as
  * JSON.
  */
+import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { ApiErrorBody } from '#lib/api/schemas.ts';
 import {
@@ -65,6 +66,46 @@ code { font-family: ui-monospace, monospace; }
 function header(req: IncomingMessage, name: string): string | undefined {
 	const value = req.headers[name];
 	return Array.isArray(value) ? value[0] : value;
+}
+
+const CONTINUE_ENTRY = "location.replace(document.querySelector('a').href)";
+const ENTRY_POLICY = `${REFUSAL_POLICY}; script-src 'sha256-${createHash('sha256').update(CONTINUE_ENTRY).digest('base64')}'`;
+
+/**
+ * A cross-site redirect remains cross-site all the way to its destination,
+ * which means even a just-set Strict cookie stays off the last request.
+ * Commit a same-origin document first, then replace it with the clean URL.
+ */
+function enter(
+	req: IncomingMessage,
+	res: ServerResponse,
+	location: string,
+	setCookie: string | undefined
+): void {
+	const headers = {
+		...(setCookie === undefined ? {} : { 'set-cookie': setCookie }),
+		'cache-control': 'no-store'
+	};
+	const site = header(req, 'sec-fetch-site');
+	const crossSiteDocument =
+		site === 'cross-site' &&
+		header(req, 'sec-fetch-mode') === 'navigate' &&
+		header(req, 'sec-fetch-dest') === 'document';
+	const unlabelledDocument =
+		site === undefined && header(req, 'accept')?.includes('text/html') === true;
+	if (req.method === 'GET' && (crossSiteDocument || unlabelledDocument)) {
+		res.writeHead(200, {
+			...headers,
+			'content-type': 'text/html; charset=utf-8',
+			'content-security-policy': ENTRY_POLICY
+		});
+		res.end(
+			`<!doctype html><html lang="en"><meta charset="utf-8"><title>Opening diff delver</title><a href="${escapeHtml(location)}">Continue to diff delver</a><script>${CONTINUE_ENTRY}</script></html>`
+		);
+		return;
+	}
+	res.writeHead(303, { ...headers, location });
+	res.end();
 }
 
 function refuse(req: IncomingMessage, res: ServerResponse, refusal: Refusal): void {
@@ -139,12 +180,7 @@ export function daemonServer(
 				});
 				return;
 			case 'enter':
-				res.writeHead(303, {
-					location: decision.location,
-					...(decision.setCookie === undefined ? {} : { 'set-cookie': decision.setCookie }),
-					'cache-control': 'no-store'
-				});
-				res.end();
+				enter(req, res, decision.location, decision.setCookie);
 				return;
 			case 'refuse':
 				refuse(req, res, decision.refusal);

@@ -15,8 +15,8 @@
  * The browser is let in by the address the command opens, which carries a
  * single-use entry code (`?entry=…`, `entry-codes.ts`), never the token itself:
  * a process's arguments, such as the browser opener's, can be read by anyone on
- * the machine. That request is answered with a redirect to the same address
- * without the code, setting the token as a cookie for this daemon alone, so
+ * the machine. That request continues to the same address without the code,
+ * setting a cookie for this daemon alone, so
  * nothing secret stays in the address bar or the history or leaks in a
  * `Referer`. A code works once, for two minutes; a browser that already has the
  * cookie is sent on even with a used code, as when it opens the address again
@@ -104,6 +104,11 @@ export function tokenCookieName(port: PortNumber): string {
 	return `diff-delver-${String(port)}`;
 }
 
+/** The MCP link's cookie has its own name, so it cannot replace a review cookie. */
+export function viewCookieName(port: PortNumber): string {
+	return `${tokenCookieName(port)}-view`;
+}
+
 /** The hosts the daemon answers to. */
 function hostsOf(port: PortNumber): readonly string[] {
 	return [`127.0.0.1:${String(port)}`, `localhost:${String(port)}`];
@@ -170,18 +175,21 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 	}
 	const reading = READING.has(request.method.toUpperCase());
 
-	const cookie = cookieValue(request.cookie, tokenCookieName(settings.port));
-	const review = cookie !== undefined && isToken(settings.browserToken, cookie);
-	const view = cookie !== undefined && isToken(settings.viewToken, cookie);
+	const reviewCookie = cookieValue(request.cookie, tokenCookieName(settings.port));
+	const viewCookie = cookieValue(request.cookie, viewCookieName(settings.port));
+	const review = reviewCookie !== undefined && isToken(settings.browserToken, reviewCookie);
+	const view = viewCookie !== undefined && isToken(settings.viewToken, viewCookie);
 	if (reading && hasEntryCode(request.target)) {
 		const { location, code } = withoutEntryCode(request.target);
 		const grant = settings.redeemEntryCode(code);
 		if (grant === 'review' || (grant === 'view' && !review)) {
 			const token = grant === 'review' ? settings.browserToken : settings.viewToken;
+			const name =
+				grant === 'review' ? tokenCookieName(settings.port) : viewCookieName(settings.port);
 			return {
 				kind: 'enter',
 				location: localPath(location),
-				setCookie: `${tokenCookieName(settings.port)}=${token}; Path=/; HttpOnly; SameSite=Strict`
+				setCookie: `${name}=${token}; Path=/; HttpOnly; SameSite=Strict`
 			};
 		}
 		if (review || view) {
@@ -204,7 +212,8 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 
 	// MCP is served only to programs that bring the token themselves.
 	if (isMcpTarget(request.target)) return { kind: 'refuse', refusal: 'no-token' };
-	if (cookie === undefined) return { kind: 'refuse', refusal: 'no-token' };
+	if (reviewCookie === undefined && viewCookie === undefined)
+		return { kind: 'refuse', refusal: 'no-token' };
 	if (!review && !view) return { kind: 'refuse', refusal: 'wrong-token' };
 	if (!reading && request.origin !== `http://${host}`) {
 		return { kind: 'refuse', refusal: 'wrong-origin' };

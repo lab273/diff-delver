@@ -116,7 +116,7 @@
 					</div>
 					<p class="details">{diff.problem}</p>
 				{/if}
-				{#if diff.id !== null}
+				{#if data.canReview && diff.id !== null}
 					{@const id = diff.id}
 					<button
 						type="button"
@@ -141,8 +141,8 @@
 	confirm="Delete"
 	onconfirm={confirmDelete}
 >
-	Everything diff delver keeps about it goes, including what you have marked as reviewed. Your
-	repository is not touched. The space it takes on disk is freed within an hour.
+	Deleting this Delve removes its draft comments and reviewed marks. Your repository stays as it is.
+	The space it takes on disk is freed within an hour.
 </ConfirmDialog>
 
 <style>

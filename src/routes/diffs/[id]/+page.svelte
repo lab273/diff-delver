@@ -25,6 +25,8 @@
 	import { parsePartIndex, type PartIndex } from '#lib/core/part-index.tiny.ts';
 	import FileList from '#lib/ui/viewer/FileList.svelte';
 	import { SvelteMap } from 'svelte/reactivity';
+	import CopyCommand from '#lib/ui/CopyCommand.svelte';
+	import { RUN_COMMAND } from '#lib/ui/run-command.ts';
 	import CommentEditor from '#lib/ui/viewer/CommentEditor.svelte';
 	import { CommentDraft } from '#lib/ui/viewer/draft-comment.svelte.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
@@ -1133,24 +1135,42 @@
 					onoption={setSearchOption}
 				/>
 			{/if}
-			{#key summary.id}
-				<DraftComments
-					id={summary.id}
-					version={summary.version}
-					changes={draft.changes}
-					bind:control={draftsControl}
-				/>
-				<CommentEditor
-					{draft}
-					id={summary.id}
-					version={summary.version}
-					open={summary.state.kind === 'open'}
-					{showNewer}
-					ondiscard={() => {
-						draftsControl?.focus();
-					}}
-				/>
-			{/key}
+			{#if data.canReview}
+				{#key summary.id}
+					<DraftComments
+						id={summary.id}
+						version={summary.version}
+						changes={draft.changes}
+						bind:control={draftsControl}
+					/>
+					<CommentEditor
+						{draft}
+						id={summary.id}
+						version={summary.version}
+						open={summary.state.kind === 'open'}
+						{showNewer}
+						ondiscard={() => {
+							draftsControl?.focus();
+						}}
+					/>
+				{/key}
+			{:else}
+				<Notice heading="Enable draft comments">
+					<p>Run this in a terminal in your repository, using the same data folder as the agent.</p>
+					<CopyCommand command={`${RUN_COMMAND} choose`} label="Copy the command" />
+					<p>Let the command open a tab in this browser. Then return here and reload this Delve.</p>
+					{#snippet actions()}
+						<button
+							type="button"
+							onclick={() => {
+								location.reload();
+							}}
+						>
+							Reload this Delve
+						</button>
+					{/snippet}
+				</Notice>
+			{/if}
 
 			<!-- A new version is a new viewer: its parts are drawn afresh, never reused. -->
 			{#key viewer}
@@ -1223,7 +1243,7 @@
 										{viewer}
 										{state}
 										{previousVersion}
-										canComment={summary.state.kind === 'open'}
+										canComment={data.canReview && summary.state.kind === 'open'}
 										{draft}
 										ontick={tickPart}
 										ongo={goTo}

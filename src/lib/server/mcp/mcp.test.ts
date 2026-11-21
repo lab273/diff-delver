@@ -933,6 +933,40 @@ describe('/mcp over HTTP', () => {
 			/Give the person this address to open it in their browser: http:\S+\?entry=/
 		);
 		expect(opened).toHaveLength(1);
+
+		const id = value(parseReportId(report.split('/').at(-1) ?? ''));
+		const loaded = value(await clientOf(daemon).loadDiff(id));
+		const part = loaded.groups
+			.flatMap((group) => group.parts)
+			.find((part) => part.path === 'src/cart.ts');
+		if (part === undefined) throw new Error('The shop diff should contain src/cart.ts');
+		const draft = {
+			version: loaded.summary.version,
+			anchor: { path: part.path, side: 'new', first: 1, last: 1 },
+			body: 'Draft text only the reviewer can remove.'
+		};
+		const post = await rawRequest(daemon.port, {
+			method: 'POST',
+			path: comments,
+			headers: { cookie: review, origin: daemon.origin, 'content-type': 'application/json' },
+			body: JSON.stringify(draft)
+		});
+		expect(post.status).toBe(201);
+		const remove = (cookie: string) =>
+			rawRequest(daemon.port, {
+				method: 'DELETE',
+				path: `/api${report}`,
+				headers: { cookie, origin: daemon.origin, 'content-type': 'application/json' }
+			});
+		const refused = await remove(view);
+		expect(refused.status).toBe(403);
+		expect(JSON.parse(refused.body)).toMatchObject({ error: { kind: 'BrowserSessionRequired' } });
+		const stored = await rawRequest(daemon.port, { path: comments, headers: { cookie: review } });
+		expect(JSON.parse(stored.body)).toEqual([JSON.parse(post.body)]);
+		expect((await remove(review)).status).toBe(200);
+		expect(
+			(await rawRequest(daemon.port, { path: comments, headers: { cookie: review } })).status
+		).toBe(404);
 	});
 
 	it('opens no window for a session that has had one, and says why', async () => {
