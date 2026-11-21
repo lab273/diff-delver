@@ -35,7 +35,12 @@ import {
 	startDaemon,
 	type RunningDaemon
 } from '../../src/lib/server/daemon/daemon.ts';
+import { committedRecording, replay } from '../agent-trials/replay.ts';
+import { normaliser } from '../agent-trials/recording.ts';
 import { absolutePath, defineFixture, GitRepo, type Fixture } from './git-repo.ts';
+import { buildLedger } from './ledger.ts';
+import { mcpOverHttp } from './mcp-client.ts';
+import { buildShop } from './scripted-categorisation.ts';
 
 /** The variable naming the run's folder, which the global setup makes and removes. */
 export const JOURNEY_ROOT_VARIABLE = 'DIFF_DELVER_JOURNEY_ROOT';
@@ -451,6 +456,14 @@ export const JOURNEY_REPOSITORIES = {
 		await repo.write('data/rows.txt', numbered('new'));
 	}),
 
+	/**
+	 * The agent trials' repositories (tests/agent-trials/), for the journeys that
+	 * show what an agent made of them. Each is copied into a folder named as the
+	 * trial named it, so the page says the same as the agent read.
+	 */
+	'trial-shop': defineFixture('shop', buildShop),
+	'trial-ledger': defineFixture('ledger', buildLedger),
+
 	/** On main, with nothing uncommitted and no other branch: nothing new to review. */
 	'nothing-new': defineFixture('nothing-new', async (repo) => {
 		await repo.write('src/app.ts', lines('export const name = "app";'));
@@ -468,8 +481,8 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /** Builds a fixture once per run; workers that race each build their own and the first rename wins. */
-async function template(fixture: Fixture): Promise<string> {
-	const done = join(root(), 'templates', fixture.name);
+async function template(key: string, fixture: Fixture): Promise<string> {
+	const done = join(root(), 'templates', key);
 	if (await exists(done)) return done;
 	const building = join(root(), 'building', randomUUID());
 	await fixture.build(await GitRepo.init(absolutePath(building), fixture.options));
@@ -500,8 +513,15 @@ let app: Promise<AppHandler> | undefined;
 /** One journey's world: its folder, its daemon and the repositories it has asked for. */
 export interface JourneyWorld {
 	readonly daemon: RunningDaemon;
-	/** A private copy of a named repository, in a folder of that name. */
+	/** A private copy of a named repository, in a folder named as its fixture is. */
 	repository(name: JourneyRepositoryName): Promise<string>;
+	/**
+	 * A recorded agent trial (tests/agent-trials/recordings/), replayed in
+	 * `directory` against this journey's daemon: every MCP call, in order, as
+	 * the agent sent it. Fails if the tools now accept or refuse one of them
+	 * otherwise. Gives the address of the page of the report the agent sorted.
+	 */
+	agentTrial(recording: string, directory: string): Promise<string>;
 	/**
 	 * What `diff-delver <args>` prints, and the address it opens, run in `directory`
 	 * (or the journey's own empty folder) against this journey's daemon.
@@ -538,12 +558,36 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 	return {
 		daemon,
 		async repository(name) {
-			const copy = join(dir, randomUUID(), name);
-			await cp(await template(JOURNEY_REPOSITORIES[name]), copy, {
+			const fixture = JOURNEY_REPOSITORIES[name];
+			const copy = join(dir, randomUUID(), fixture.name);
+			await cp(await template(name, fixture), copy, {
 				recursive: true,
 				verbatimSymlinks: true
 			});
 			return copy;
+		},
+		async agentTrial(name, directory) {
+			const recording = await committedRecording(name);
+			const session = await mcpOverHttp({
+				origin: daemon.origin,
+				token: daemon.token,
+				directory
+			});
+			const data = join(dir, 'data');
+			const paths = { repository: directory, data, trial: dir };
+			try {
+				const { changed } = await replay(recording, session, paths, normaliser(paths));
+				if (changed.length > 0) {
+					throw new Error(
+						`The tools no longer take ${name}'s calls as recorded:\n${changed.join('\n')}`
+					);
+				}
+			} finally {
+				await session.close();
+			}
+			const report = recording.finalState.at(-1)?.id;
+			if (report === undefined) throw new Error(`${name} made no report.`);
+			return entryAddress(daemon.origin, `/diffs/${report}`, daemon.entryCode());
 		},
 		async command(args, directory) {
 			const parsed = parseCommandLine(args);

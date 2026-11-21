@@ -197,6 +197,14 @@ export interface Journey extends Finder {
 	 * empty folder that is not a repository.
 	 */
 	command(args: readonly string[], where?: JourneyRepository): Promise<CommandRun>;
+	/**
+	 * What a recorded agent trial did (tests/agent-trials/recordings/, by file
+	 * name, such as `shop.claude.json`), done again in `where` against this
+	 * journey's daemon: the agent's MCP calls, in order, as it sent them. Gives
+	 * the address the agent gave the person, for `open`. Fails if the tools now
+	 * accept or refuse one of the calls otherwise.
+	 */
+	agentTrial(recording: string, where: JourneyRepository): Promise<string>;
 	/** Opens a page of the app by its path, as a person does from a link: `/`, `/reports/1`. */
 	open(path: string): Promise<void>;
 	/**
@@ -824,6 +832,14 @@ export async function startJourney(
 			const repo: JourneyRepository = Object.freeze({ description: `the ${name} repository` });
 			REPOSITORY_PATHS.set(repo, await world.repository(name));
 			return repo;
+		},
+		async agentTrial(recording, where) {
+			if (world === undefined) throw new Error('This journey has no daemon to replay a trial on.');
+			const directory = REPOSITORY_PATHS.get(where);
+			if (directory === undefined) {
+				throw new Error(`${where.description} was not made by journey.repository.`);
+			}
+			return world.agentTrial(recording, directory);
 		},
 		async command(args, where) {
 			if (world === undefined)
