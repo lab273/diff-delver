@@ -26,7 +26,9 @@ import {
 	grouped,
 	headingLine,
 	namesListed,
+	PAGE_LENGTH,
 	quotedAgentText,
+	sentencesListed,
 	type ReportHeading
 } from '#lib/core/agent/answer.ts';
 import { renderAssign, MAX_ASSIGN_ITEMS } from '#lib/core/agent/assign-answer.ts';
@@ -53,7 +55,7 @@ import { compileGlob, parseGlobPattern } from '#lib/core/glob-pattern.tiny.ts';
 import { parseLineNumber, type LineNumber } from '#lib/core/line-number.tiny.ts';
 import { unitSetSize } from '#lib/core/diff/unit-set.ts';
 import { parseReportId, type ReportId } from '#lib/core/report-id.tiny.ts';
-import { MAX_REFERENCES } from '#lib/core/reports/section-requests.ts';
+import { MAX_REFERENCES, MAX_SECTIONS } from '#lib/core/reports/section-requests.ts';
 import { describeDiffSize } from '#lib/core/reports/describe-report.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
@@ -394,7 +396,7 @@ async function opened(outcome: OpenOutcome, context: ToolContext): Promise<Resul
 			return err(
 				[
 					`Nothing to review in ${outcome.source}: ${outcome.reason}`,
-					...outcome.leftOut.map((l) => `Left out: ${l}`),
+					...sentencesListed('Left out: ', outcome.leftOut),
 					...(outcome.next === undefined
 						? []
 						: [
@@ -437,7 +439,7 @@ async function opened(outcome: OpenOutcome, context: ToolContext): Promise<Resul
 			`Ignored automatically, so the person need not review them: ${namesListed(autoIgnored, 15)}. Leave them, or move them into a section with assign and "lines" if they need a look.`
 		);
 	}
-	for (const left of page.value.leftOut) out.push(`Left out of the diff: ${left}`);
+	out.push(...sentencesListed('Left out of the diff: ', page.value.leftOut));
 	const browser =
 		outcome.kind === 'created' && context.openBrowser
 			? await context.open(context.entryAddress(`/diffs/${report.id}`))
@@ -512,13 +514,21 @@ function listed(includeClosed: boolean, context: ToolContext): Result<string, st
 				: 'There are no open reports. Call create_report to make one, or list_reports with "include_closed": true for closed ones.'
 		);
 	}
-	const lines = wanted.slice(0, MAX_REPORTS_LISTED).map((r) => {
+	const all = wanted.slice(0, MAX_REPORTS_LISTED).map((r) => {
 		if (r.kind === 'damaged') {
 			return `- ${r.id ?? 'a report'} is damaged and cannot be read: ${r.problem}`;
 		}
 		const sorted = `${grouped(r.progress.uncategorised)} of ${changes(r.progress.counted + r.progress.ignored)} not sorted yet`;
 		return `- ${r.id}: ${r.title} in ${r.repository}, ${r.state.kind}, version ${String(r.revision)}, ${describeDiffSize(r.size).toLowerCase()}; ${sorted}.`;
 	});
+	// As many as fit in a page, so the count of the rest and the next step are never cut.
+	const lines: string[] = [];
+	let length = 0;
+	for (const line of all) {
+		if (lines.length > 0 && length + line.length + 1 > PAGE_LENGTH) break;
+		lines.push(line);
+		length += line.length + 1;
+	}
 	const more = wanted.length - lines.length;
 	return ok(
 		[
@@ -888,7 +898,7 @@ const upsertSections = tool({
 	title: 'Make, change, order and remove sections',
 	description: [
 		'Sections are the reading order you give the diff: each is one thing a reviewer can hold in their head, with a title and a Markdown summary. Make them here before assigning lines to them with assign; plan them as the order a reviewer should read in, what to understand first.',
-		'Each entry of "sections" names a section by "id": a new one needs a "title", and goes at the end of the reading order; an existing one keeps whatever the entry leaves out. "order", when given, is the whole new reading order. "remove" removes sections that hold no lines.',
+		`Each entry of "sections" names a section by "id": a new one needs a "title", and goes at the end of the reading order; an existing one keeps whatever the entry leaves out. "order", when given, is the whole new reading order. "remove" removes sections that hold no lines. A report has at most ${String(MAX_SECTIONS)} sections.`,
 		`"references" are a section's cross-references: lines that live in another section and matter to this one, as a list of { "file", "lines" }. A changed line has one home; a cross-reference shows it from another section without moving it, and counts towards neither coverage nor ticks. Given, it replaces the section's list; left out, the list is kept. ${LINES_EXPLAINED}`,
 		'All or nothing: if anything is wrong, nothing changes and the answer says what. Sending the same call again changes nothing more.'
 	].join('\n\n'),
@@ -925,7 +935,7 @@ const upsertSections = tool({
 						.describe('The whole list of cross-references; [] clears it.')
 				})
 			)
-			.max(100)
+			.max(MAX_SECTIONS)
 			.describe('The sections to make or change; [] when only reordering or removing.'),
 		order: z
 			.array(z.string().max(64))
@@ -934,7 +944,7 @@ const upsertSections = tool({
 			.describe('Every section id, in the new reading order.'),
 		remove: z
 			.array(z.string().max(64))
-			.max(100)
+			.max(MAX_SECTIONS)
 			.optional()
 			.describe(
 				'Ids of sections to remove. Only a section that holds no lines can be removed; move its lines first.'

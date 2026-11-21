@@ -53,6 +53,14 @@ export interface SectionRequest {
 export const MAX_REFERENCES = 50;
 
 /**
+ * The most sections a report may have. A section is one thing a reviewer can
+ * hold in their head, read in order; a reading order longer than this is no
+ * longer one a person can follow, and every answer that lists the sections
+ * stays short enough to read whole.
+ */
+export const MAX_SECTIONS = 50;
+
+/**
  * Each section's cross-references: changed units of the diff that live in
  * another section and matter to this one. A section with none has no entry.
  */
@@ -107,6 +115,7 @@ export type SectionProblem =
 			readonly rejection: AssignRejection;
 	  }
 	| { readonly kind: 'TooManyReferences'; readonly index: ItemIndex; readonly given: number }
+	| { readonly kind: 'TooManySections'; readonly count: number }
 	| { readonly kind: 'RemoveUnknown'; readonly id: string; readonly known: readonly SectionId[] }
 	| { readonly kind: 'RemoveNotEmpty'; readonly id: SectionId; readonly units: UnitCount }
 	| { readonly kind: 'RemovedAndChanged'; readonly id: SectionId }
@@ -148,6 +157,10 @@ export function describeSectionProblem(problem: SectionProblem): ReviewerMessage
 		case 'TooManyReferences':
 			return reviewerMessage(
 				`Item ${String(problem.index)}: ${String(problem.given)} cross-references is more than ${String(MAX_REFERENCES)}. Keep the ones a reader of this section most needs; a range such as "+40..+62" can cover many lines at once.`
+			);
+		case 'TooManySections':
+			return reviewerMessage(
+				`This would make ${String(problem.count)} sections, and a report has at most ${String(MAX_SECTIONS)}: each section is one thing a reviewer holds in their head, so a reading order longer than that is too long to follow. Join closely related changes into one section, or remove sections that hold nothing.`
 			);
 		case 'RemoveUnknown':
 			return reviewerMessage(
@@ -330,6 +343,9 @@ export function applySectionChange(
 		const ordered = applySectionRequests(kept, [], change.order);
 		if (!ordered.ok) problems.push(...ordered.error);
 		else kept = ordered.value;
+	}
+	if (kept.length > MAX_SECTIONS && kept.length > existing.sections.length) {
+		problems.push({ kind: 'TooManySections', count: kept.length });
 	}
 	return problems.length > 0 ? err(problems) : ok({ sections: kept, references });
 }

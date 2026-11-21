@@ -314,6 +314,42 @@ describe('the agent interface, through the stdio shim', () => {
 		);
 	});
 
+	it('keeps every answer whole with as many sections as a report may have, and refuses one more', async () => {
+		const { session } = await shopAgent();
+		const report = reportIn(await session.call('create_report', {}));
+		const title = '\u0001'.repeat(200);
+		const id = (i: number) => `s${String(i).padStart(2, '0')}-${'a'.repeat(60)}`;
+		const made = await session.call('upsert_sections', {
+			report,
+			version: 1,
+			sections: Array.from({ length: 50 }, (_, i) => ({ id: id(i), title }))
+		});
+		expect(made.refused, made.text).toBe(false);
+		expect(made.text).toMatch(/^50 sections, in reading order:$/m);
+		expect(made.text).toMatch(/\nNext: put change lines into the sections with assign/);
+		const more = await session.call('upsert_sections', {
+			report,
+			version: 1,
+			sections: [{ id: 'one-more', title: 'One more' }]
+		});
+		expect(more.refused).toBe(true);
+		expect(more.text).toMatch(
+			/This would make 51 sections, and a report has at most 50: each section is one thing a reviewer holds in their head/
+		);
+		for (const [tool, args] of [
+			['get_manifest', { report }],
+			['get_coverage', { report }],
+			['list_reports', {}],
+			['upsert_sections', { report, version: 1, sections: [] }]
+		] as const) {
+			const answer = await session.call(tool, args);
+			expect(answer.text, tool).not.toMatch(/The rest of this answer was cut/);
+			expect(answer.text.length, tool).toBeLessThan(40_000);
+		}
+		const manifest = await session.call('get_manifest', { report });
+		expect(manifest.text).toMatch(/^Files \(all 7, by path/m);
+	});
+
 	it('pages a diff longer than one answer, and refuses a cursor once the diff has moved on', async () => {
 		const agent = await agentIn(await useFixture(long));
 		const { session, repo } = agent;

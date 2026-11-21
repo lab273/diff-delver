@@ -67,13 +67,42 @@ export function listInWords(items: readonly string[]): string {
 /** At most this many characters of an agent's own text are repeated in an answer. */
 const MAX_ECHOED = 80;
 
-/** The agent's own text, cut and quoted as a JSON string, so it can never break an answer. */
+/**
+ * The agent's own text, cut and quoted as a JSON string, so it can never break
+ * an answer: at most `max` characters of it, and at most twice that once
+ * escaped, so text of characters JSON escapes (`\u0001` is six) stays short.
+ */
 export function quotedAgentText(text: string, max: number = MAX_ECHOED): string {
 	const chars = Array.from(text);
-	const cut = chars.length <= max ? text : `${chars.slice(0, max).join('')}…`;
-	return JSON.stringify(cut)
+	let kept = 0;
+	let length = 0;
+	for (const char of chars) {
+		const escaped = jsonEscaped(char).length;
+		if (kept >= max || length + escaped > 2 * max) break;
+		kept += 1;
+		length += escaped;
+	}
+	const cut = kept === chars.length ? text : `${chars.slice(0, kept).join('')}…`;
+	return `"${jsonEscaped(cut)}"`;
+}
+
+/** Text escaped as inside a JSON string, with U+2028 and U+2029 escaped too, so it stays on one line. */
+function jsonEscaped(text: string): string {
+	return JSON.stringify(text)
+		.slice(1, -1)
 		.replace(/\u2028/g, '\\u2028')
 		.replace(/\u2029/g, '\\u2029');
+}
+
+/** At most this many sentences of a list, such as the files left out of a snapshot, are written out. */
+export const MAX_SENTENCES = 10;
+
+/** Lines that each begin with `prefix`, the first `MAX_SENTENCES` of them, then how many more. */
+export function sentencesListed(prefix: string, items: readonly string[]): readonly string[] {
+	const shown = items.slice(0, MAX_SENTENCES).map((item) => `${prefix}${item}`);
+	return items.length > MAX_SENTENCES
+		? [...shown, `${prefix}and ${grouped(items.length - MAX_SENTENCES)} more like these.`]
+		: shown;
 }
 
 /**

@@ -8,7 +8,8 @@ import { parseReportId } from '../report-id.tiny.ts';
 import { reviewerMessage } from '../reviewer-message.tiny.ts';
 import { parseRevisionNumber } from '../revision-number.tiny.ts';
 import { parseSectionId } from '../section-id.tiny.ts';
-import { parseSectionTitle } from '../section-title.tiny.ts';
+import { MAX_SECTION_TITLE_LENGTH, parseSectionTitle } from '../section-title.tiny.ts';
+import { MAX_SECTIONS } from '../reports/section-requests.ts';
 import type { Section } from '../reports/report.ts';
 import {
 	boundedAnswer,
@@ -98,6 +99,30 @@ describe('answers for an agent', () => {
 		expect(manifestPosition({ ...at, version: 1 }, input)).toBe(false);
 		expect(manifestPosition({ ...at, key: filterKey('other') }, input)).toBe(false);
 		expect(manifestPosition({ ...at, file: 2_000 }, input)).toBe(false);
+	});
+
+	it('keep the cursor and the files on the first page of the manifest, with as many sections as a report may have', () => {
+		// The longest ids, and titles of the longest kind once quoted: characters JSON writes as \u0001.
+		const sections: Section[] = Array.from({ length: MAX_SECTIONS }, (_, i) => ({
+			id: value(parseSectionId(`s${String(i).padStart(2, '0')}-${'a'.repeat(60)}`)),
+			title: value(parseSectionTitle('\u0001'.repeat(MAX_SECTION_TITLE_LENGTH))),
+			summary: undefined
+		}));
+		const text = renderManifest({
+			heading,
+			diff: large,
+			state: initialState(large),
+			sections,
+			references: new Map(),
+			overview: undefined,
+			leftOut: Array.from({ length: 500 }, (_, i) => `file-${String(i)} could not be read.`)
+		});
+		expect(text.length).toBeLessThanOrEqual(PAGE_LENGTH + 1_000);
+		expect(boundedAnswer(text)).toBe(text);
+		expect(text).toMatch(/^Files 1 to [\d,]+ of 2,000, by path/m);
+		expect(cursorOf(text)).toBeDefined();
+		expect(text).toMatch(/^Left out of the diff: and 490 more like these\.$/m);
+		expect(text.split('\n').filter((l) => l.startsWith('  s'))).toHaveLength(MAX_SECTIONS);
 	});
 
 	it('split a file longer than a page, carrying on from its hunk header, and keep shorter files whole', () => {

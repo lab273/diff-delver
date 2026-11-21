@@ -175,7 +175,7 @@
 		{
 			"name": "upsert_sections",
 			"title": "Make, change, order and remove sections",
-			"description": "Sections are the reading order you give the diff: each is one thing a reviewer can hold in their head, with a title and a Markdown summary. Make them here before assigning lines to them with assign; plan them as the order a reviewer should read in, what to understand first.\n\nEach entry of \"sections\" names a section by \"id\": a new one needs a \"title\", and goes at the end of the reading order; an existing one keeps whatever the entry leaves out. \"order\", when given, is the whole new reading order. \"remove\" removes sections that hold no lines.\n\n\"references\" are a section's cross-references: lines that live in another section and matter to this one, as a list of { \"file\", \"lines\" }. A changed line has one home; a cross-reference shows it from another section without moving it, and counts towards neither coverage nor ticks. Given, it replaces the section's list; left out, the list is kept. \"lines\" names change lines by the labels get_diff gives them: \"+40..+62\" is added lines 40 to 62 of the new file, \"-38..-45\" deleted lines 38 to 45 of the old file, \"+40\" one line; join ranges with commas: \"+40..+62,-38..-45\". A range takes only the changed lines inside it, so it may span unchanged ones. \"file\" names the change to the file itself (a rename, a mode change, or a change with no lines, such as a binary file): \"lines\": \"file\" or \"file,+3..+9\".\n\nAll or nothing: if anything is wrong, nothing changes and the answer says what. Sending the same call again changes nothing more.",
+			"description": "Sections are the reading order you give the diff: each is one thing a reviewer can hold in their head, with a title and a Markdown summary. Make them here before assigning lines to them with assign; plan them as the order a reviewer should read in, what to understand first.\n\nEach entry of \"sections\" names a section by \"id\": a new one needs a \"title\", and goes at the end of the reading order; an existing one keeps whatever the entry leaves out. \"order\", when given, is the whole new reading order. \"remove\" removes sections that hold no lines. A report has at most 50 sections.\n\n\"references\" are a section's cross-references: lines that live in another section and matter to this one, as a list of { \"file\", \"lines\" }. A changed line has one home; a cross-reference shows it from another section without moving it, and counts towards neither coverage nor ticks. Given, it replaces the section's list; left out, the list is kept. \"lines\" names change lines by the labels get_diff gives them: \"+40..+62\" is added lines 40 to 62 of the new file, \"-38..-45\" deleted lines 38 to 45 of the old file, \"+40\" one line; join ranges with commas: \"+40..+62,-38..-45\". A range takes only the changed lines inside it, so it may span unchanged ones. \"file\" names the change to the file itself (a rename, a mode change, or a change with no lines, such as a binary file): \"lines\": \"file\" or \"file,+3..+9\".\n\nAll or nothing: if anything is wrong, nothing changes and the answer says what. Sending the same call again changes nothing more.",
 			"inputSchema": {
 				"type": "object",
 				"properties": {
@@ -191,7 +191,7 @@
 						"description": "The version of the report you read, from the first line of get_manifest, get_diff or get_coverage (\"..., version 2.\"). A change is refused if the diff has been updated since, so you never sort lines you have not seen."
 					},
 					"sections": {
-						"maxItems": 100,
+						"maxItems": 50,
 						"type": "array",
 						"items": {
 							"type": "object",
@@ -255,7 +255,7 @@
 					},
 					"remove": {
 						"description": "Ids of sections to remove. Only a section that holds no lines can be removed; move its lines first.",
-						"maxItems": 100,
+						"maxItems": 50,
 						"type": "array",
 						"items": {
 							"type": "string",

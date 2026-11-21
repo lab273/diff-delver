@@ -33,6 +33,7 @@ import {
 	headingLine,
 	PAGE_LENGTH,
 	quotedAgentText,
+	sentencesListed,
 	type ReportHeading
 } from './answer.ts';
 import { filterKey, pageCursor, type CursorPosition } from './page-cursor.tiny.ts';
@@ -129,7 +130,7 @@ function summary(input: ManifestInput): readonly string[] {
 			out.push(`  ${section.id}: ${quotedAgentText(section.title, 120)}, ${parts.join(', ')}`);
 		}
 	}
-	for (const left of input.leftOut) out.push(`Left out of the diff: ${left}`);
+	out.push(...sentencesListed('Left out of the diff: ', input.leftOut));
 	return out;
 }
 
