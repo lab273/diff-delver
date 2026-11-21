@@ -38,7 +38,7 @@
 		type GroupInfo,
 		type TickTarget
 	} from '#lib/ui/viewer/viewer.svelte.ts';
-	import { withSetting, type SettingChange } from '#lib/core/settings.ts';
+	import { withSetting, type Layout, type SettingChange } from '#lib/core/settings.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -50,6 +50,9 @@
 	let check: Check = $state({ kind: 'checking' });
 	let problem = $state('');
 	let busy = $state(false);
+
+	/** Wide enough for two sides of code next to each other, with the rail beside them. */
+	const WIDE_ENOUGH = '(min-width: 50rem)';
 
 	/** Once a minute while the page is in view, besides whenever the person comes back to it. */
 	const LOOK_AGAIN_EVERY = 60_000;
@@ -233,9 +236,55 @@
 			: undefined
 	);
 
+	/** Whether the window is wide enough for two sides; a narrower one shows one column, nothing lost. */
+	let wide = $state(true);
+	$effect(() => {
+		const query = window.matchMedia(WIDE_ENOUGH);
+		wide = query.matches;
+		const changed = (): void => {
+			wide = query.matches;
+		};
+		query.addEventListener('change', changed);
+		return () => {
+			query.removeEventListener('change', changed);
+		};
+	});
+	const layout = $derived<Layout>(wide ? settings.layout : 'unified');
+	$effect(() => {
+		if (viewer !== undefined) viewer.layout = layout;
+	});
+
+	/**
+	 * Changes how the diff is drawn without moving the reader: the part at the
+	 * top of the screen (or the one they are on, when it is on the screen) stays
+	 * where it was, however much taller or shorter its lines are drawn now.
+	 */
+	async function keepingPlace(change: () => void): Promise<void> {
+		const parts = [...document.querySelectorAll<HTMLElement>('article.part')];
+		const current =
+			viewer?.current === undefined
+				? null
+				: document.getElementById(`part-${String(viewer.current)}`);
+		const onScreen = (element: HTMLElement): boolean => {
+			const box = element.getBoundingClientRect();
+			return box.bottom > 0 && box.top < window.innerHeight;
+		};
+		const anchor =
+			current !== null && onScreen(current)
+				? current
+				: parts.find((p) => p.getBoundingClientRect().bottom > 0);
+		const before = anchor?.getBoundingClientRect().top;
+		change();
+		await tick();
+		if (anchor === undefined || before === undefined || !anchor.isConnected) return;
+		window.scrollBy(0, anchor.getBoundingClientRect().top - before);
+	}
+
 	/** Changes a setting on the page at once, and has diff delver remember it for every diff. */
 	async function changeSetting(change: SettingChange, said: string): Promise<void> {
-		settings = withSetting(settings, change);
+		await keepingPlace(() => {
+			settings = withSetting(settings, change);
+		});
 		if (viewer !== undefined) {
 			viewer.colouring = settings.colours;
 			viewer.announcement = said;
@@ -244,6 +293,17 @@
 		if (!saved.ok && viewer !== undefined) {
 			viewer.announcement = `${said} It could not be remembered for next time: ${describeApiError(saved.error)}`;
 		}
+	}
+
+	function setLayout(chosen: Layout): void {
+		void changeSetting(
+			{ name: 'layout', value: chosen },
+			chosen === 'side-by-side'
+				? wide
+					? 'Changes are shown side by side: before on the left, after on the right.'
+					: 'Changes will be shown side by side when the window is wider; it is too narrow now.'
+				: 'Changes are shown in one column.'
+		);
 	}
 
 	function setColours(colours: boolean): void {
@@ -451,6 +511,9 @@
 				return;
 			case 'only-unreviewed':
 				setOnlyWaiting(!onlyWaiting);
+				return;
+			case 'side-by-side':
+				setLayout(settings.layout === 'side-by-side' ? 'unified' : 'side-by-side');
 				return;
 			case 'help':
 				helpOpen = true;
@@ -687,6 +750,31 @@
 				>
 					Only what I have not reviewed
 				</button>
+				<div class="switch" role="group" aria-label="Show changes">
+					<button
+						type="button"
+						aria-pressed={settings.layout === 'unified'}
+						onclick={() => {
+							setLayout('unified');
+						}}
+					>
+						Unified
+					</button>
+					<button
+						type="button"
+						aria-pressed={settings.layout === 'side-by-side'}
+						onclick={() => {
+							setLayout('side-by-side');
+						}}
+					>
+						Side by side <kbd aria-hidden="true">s</kbd>
+					</button>
+				</div>
+				{#if settings.layout === 'side-by-side' && !wide}
+					<p class="narrow">
+						The window is too narrow for two sides, so changes are in one column.
+					</p>
+				{/if}
 				<button
 					type="button"
 					aria-pressed={settings.colours}
@@ -976,6 +1064,12 @@
 
 	.quiet {
 		font-weight: 400;
+	}
+
+	.narrow {
+		margin: 0;
+		color: var(--color-muted);
+		font-size: 0.8125rem;
 	}
 
 	.group {

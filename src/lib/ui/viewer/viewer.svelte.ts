@@ -55,6 +55,7 @@ import { describeChanges, formatCount } from '#lib/core/viewer/words.ts';
 import { pageClient } from '#lib/ui/client.ts';
 import { SvelteMap } from 'svelte/reactivity';
 import type { ColourRun } from '#lib/core/highlight/colour-run.ts';
+import type { Layout } from '#lib/core/settings.ts';
 import { spansOf } from '#lib/core/viewer/line-spans.ts';
 import { couldBeColoured } from '#lib/core/highlight/language.ts';
 import { AskedLines, COLOUR_REQUESTS_AT_ONCE, PART_REQUESTS_AT_ONCE, Turns } from './requests.ts';
@@ -311,6 +312,11 @@ export class Viewer {
 	refused = $state<Refusal>();
 	/** Whether code is coloured by language; the person's setting. */
 	colouring = $state(true);
+	/**
+	 * How parts' lines are drawn: the person's setting, but one column when the
+	 * window is too narrow for two.
+	 */
+	layout = $state<Layout>('unified');
 
 	/** Where each part is; fixed for the viewer's life, so not reactive. */
 	readonly #byKey: ReadonlyMap<string, PartIndex>;

@@ -241,3 +241,63 @@ test('a diff of 2,000 files and 200,000 changed lines opens and moves at once', 
 		await world.close();
 	}
 });
+
+test('side by side, a diff of 2,000 files opens and moves at once, and a change of 80,000 rows shows quickly', async ({
+	page
+}, testInfo) => {
+	const world = await makeJourneyWorld();
+	try {
+		const run = await world.command([], await world.repository('large'));
+		await page.goto(run.address);
+		await expect(page.locator('#part-0 td.code').first()).toHaveText('old line 1');
+		// Side by side is remembered, so the page opened again shows it from the start.
+		await page.keyboard.press('s');
+		await expect(page.locator('table.split').first()).toBeVisible();
+		const opening = performance.now();
+		await page.reload();
+		await page.waitForFunction(
+			() => document.querySelector('#part-0 table.split td.code')?.textContent === 'old line 1',
+			undefined,
+			{ polling: 'raf' }
+		);
+		record(
+			testInfo,
+			'time to first readable content side by side, 2,000 files',
+			performance.now() - opening,
+			1_500
+		);
+		await page.getByRole('button', { name: /^Start reviewing/ }).press('Enter');
+		await expect(page.locator('#part-0-toggle')).toBeFocused();
+		let slowest = 0;
+		for (let at = 1; at <= 5; at += 1) {
+			slowest = Math.max(
+				slowest,
+				await timeKey(page, 'j', { at, text: 'old line 1', focused: true })
+			);
+		}
+		record(testInfo, 'time to move to the next file side by side, 2,000 files', slowest, 200);
+		const ticked = await timeKey(page, 'r', { at: 5, focused: true, checked: true });
+		record(testInfo, 'time to tick a file side by side, 2,000 files', ticked, 500);
+
+		// One change of 80,000 rows, side by side: 40,000 rows of pairs.
+		const long = await world.command([], await world.repository('long-file'));
+		await page.goto(long.address);
+		const part = page.getByRole('article', { name: 'data/rows.txt' });
+		await part.getByRole('button', { name: 'Show this large change' }).focus();
+		const showing = performance.now();
+		await page.keyboard.press('Enter');
+		await page.waitForFunction(
+			() => document.querySelector('#part-0 table.split td.code')?.textContent === 'old line 1',
+			undefined,
+			{ polling: 'raf' }
+		);
+		record(
+			testInfo,
+			'time to show a change of 80,000 rows side by side',
+			performance.now() - showing,
+			1_000
+		);
+	} finally {
+		await world.close();
+	}
+});

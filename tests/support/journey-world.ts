@@ -101,6 +101,26 @@ const CHECKOUT = [
 	'// End of checkout.'
 ];
 
+/**
+ * The changes of `src/pairs.ts` in the reading repository, for side by side: two
+ * lines replaced by three (two beside two, one beside nothing), a line removed
+ * with nothing in its place, and a line added where there was none.
+ */
+const PAIRS_BEFORE = {
+	at5: ['export const price5 = 50;', 'export const price6 = 60;'],
+	at20: ['export const price20 = 200;'],
+	at35: ['export const price35 = 350;']
+} as const;
+const PAIRS_AFTER = {
+	at5: [
+		'export const price5 = 55; // rounded up',
+		'export const price6 = 65; // rounded up',
+		'export const price6Note = "was 60";'
+	],
+	at20: [],
+	at35: ['export const price35 = 350;', 'export const price35b = 355;']
+} as const;
+
 /** The checkout as the shop's uncommitted changes leave it: the summary says when a code was used. */
 export const CHECKOUT_CHANGED = CHECKOUT.flatMap((line, i) =>
 	i === 19
@@ -245,6 +265,22 @@ export const JOURNEY_REPOSITORIES = {
 	 * space at the end, a CRLF ending and a character that cannot be seen, in a string.
 	 */
 	reading: defineFixture('reading', async (repo) => {
+		/** Forty lines of prices, with `changed` in place of lines 5 and 6, 20 and 35. */
+		const pairs = (changed: {
+			readonly at5: readonly string[];
+			readonly at20: readonly string[];
+			readonly at35: readonly string[];
+		}): string =>
+			lines(
+				...Array.from({ length: 40 }, (_, i): readonly string[] => {
+					const n = i + 1;
+					if (n === 5) return changed.at5;
+					if (n === 6) return [];
+					if (n === 20) return changed.at20;
+					if (n === 35) return changed.at35;
+					return [`export const price${String(n)} = ${String(n * 10)};`];
+				}).flat()
+			);
 		const lexer = (rule: string): string =>
 			lines(
 				'/**',
@@ -299,7 +335,9 @@ export const JOURNEY_REPOSITORIES = {
 				'}'
 			)
 		);
+		await repo.write('src/pairs.ts', pairs(PAIRS_BEFORE));
 		await repo.commit('Start');
+		await repo.write('src/pairs.ts', pairs(PAIRS_AFTER));
 		await repo.write('src/lexer.ts', lexer('A number is a word, and keeps its digits.'));
 		await repo.write(
 			'app/models.py',

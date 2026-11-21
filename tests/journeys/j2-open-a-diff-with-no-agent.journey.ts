@@ -7,7 +7,8 @@ import { expect, test } from '../support/journey.ts';
 // file made executable shown and ticked, odd characters shown for what they
 // are, a binary file and a large one, the lockfile ignored with its reason,
 // and the by-file view with every file once; then code to read, coloured by
-// language, with its marks over the colours, and plain when asked.
+// language, with its marks over the colours, and plain when asked; and side
+// by side.
 test.describe('J2 Open a diff with no agent', () => {
 	test('the command opens the branch, offers a choice, or says there is nothing new', async ({
 		journey
@@ -213,5 +214,35 @@ test.describe('J2 Open a diff with no agent', () => {
 		await journey.step('Code shown plain');
 		await journey.activate(colours);
 		await journey.expectState(colours, { pressed: true });
+
+		// Side by side: before on the left, after on the right, a removed run beside
+		// the added run that replaces it, a line with nothing in its place beside an
+		// empty cell, and unchanged lines opened across both sides.
+		await journey.press('s');
+		await journey.expectState(journey.byRole('button', { name: 'Side by side' }), {
+			pressed: true
+		});
+		// Tab went through the last file on its way to the switch, so that is where the
+		// reader is: back one.
+		await journey.press('k');
+		const pairs = journey.byRole('article', { name: 'src/pairs.ts' });
+		await journey.expectFocused(journey.byRole('button', { name: 'src/pairs.ts', exact: true }));
+		await journey.expectVisible(
+			journey.within(pairs).byRole('table', { name: 'Lines side by side of src/pairs.ts' })
+		);
+		await journey.activate(
+			journey.within(pairs).byRole('button', { name: 'Show all 7 unchanged lines' })
+		);
+		// An unchanged line opened is on both sides.
+		const price13 = journey.within(pairs).byText('export const price13 = 130;');
+		await journey.expectVisible(journey.nth(price13, 1));
+		await journey.expectVisible(journey.nth(price13, 2));
+		await journey.step('Side by side');
+		// Back to one column, from the keyboard: the reader stays on the same file.
+		await journey.press('s');
+		await journey.expectVisible(
+			journey.within(pairs).byRole('table', { name: 'Lines of src/pairs.ts' })
+		);
+		await journey.expectInView(journey.byRole('button', { name: 'src/pairs.ts', exact: true }));
 	});
 });

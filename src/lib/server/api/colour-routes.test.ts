@@ -105,16 +105,22 @@ describe('the person’s settings', () => {
 		const dataDirectory = await tempDirectory();
 		const first = await testDaemon({ dataDirectory });
 		try {
-			expect(value(await clientOf(first).readSettings())).toEqual({ colours: true });
-			expect(value(await clientOf(first).changeSetting({ name: 'colours', value: false }))).toEqual(
-				{ colours: false }
-			);
+			const client = clientOf(first);
+			expect(value(await client.readSettings())).toEqual({ colours: true, layout: 'unified' });
+			value(await client.changeSetting({ name: 'colours', value: false }));
+			expect(value(await client.changeSetting({ name: 'layout', value: 'side-by-side' }))).toEqual({
+				colours: false,
+				layout: 'side-by-side'
+			});
 		} finally {
 			await first.stop();
 		}
 		const second = await testDaemon({ dataDirectory });
 		try {
-			expect(value(await clientOf(second).readSettings())).toEqual({ colours: false });
+			expect(value(await clientOf(second).readSettings())).toEqual({
+				colours: false,
+				layout: 'side-by-side'
+			});
 		} finally {
 			await second.stop();
 		}

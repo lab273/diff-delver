@@ -1,9 +1,14 @@
 <!--
-	One part's lines, as GitHub draws a unified diff: a table with the line
-	numbers of both sides, a + or − beside each changed line so colour is never
-	the only sign, its code, and between hunks the unchanged lines that are
-	hidden, with what opens them. Changes that belong to another group are muted
-	and say where they are; lines new since the previous version say so.
+	One part's lines, as GitHub draws a diff: a table with the line numbers of
+	both sides, a + or − beside each changed line so colour is never the only
+	sign, its code, and between hunks the unchanged lines that are hidden, with
+	what opens them. Changes that belong to another group are muted and say
+	where they are; lines new since the previous version say so.
+
+	Unified, the lines are one column, as git writes them. Side by side, the old
+	side is on the left and the new on the right, paired as GitHub pairs them
+	(`core/viewer/side-by-side.ts`); each row is read left to right, and the
+	table's column headers, "Before" and "After", say which side a cell is on.
 -->
 <script lang="ts">
 	import type { GroupKeyView, ShownLineView } from '#lib/api/schemas.ts';
@@ -15,10 +20,12 @@
 	import { hiddenCount, nextStep } from './viewer.svelte.ts';
 	import { drawLine } from './draw-line.ts';
 	import { tick } from 'svelte';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { chunksOf } from '#lib/core/viewer/chunks.ts';
 	import { EXPANSION_STEP, type Direction } from '#lib/core/viewer/expansion.ts';
 	import { countOf } from '#lib/core/viewer/words.ts';
+	import { sideBySide, type LineSide, type SideRow } from '#lib/core/viewer/side-by-side.ts';
+	import type { Layout } from '#lib/core/settings.ts';
 
 	let {
 		viewer,
@@ -28,7 +35,8 @@
 		previousVersion,
 		ongo,
 		colours,
-		busy
+		busy,
+		layout
 	}: {
 		viewer: Viewer;
 		at: PartIndex;
@@ -37,6 +45,8 @@
 		colours: LineColours | undefined;
 		/** Whether colours are on their way: the lines say they are busy until they come. */
 		busy: boolean;
+		/** One column, or old and new side by side. */
+		layout: Layout;
 		path: EscapedPath;
 		/** The version before this one, for "new since version 1"; null for a first version. */
 		previousVersion: RevisionNumber | null;
@@ -51,7 +61,31 @@
 				b.lines.some((l) => l.kind !== 'context' && l.home.kind === 'here' && l.home.fresh)
 		)
 	);
-	const columns = $derived(hasFresh ? 5 : 4);
+	const split = $derived(layout === 'side-by-side');
+	/** Columns of one side by side: number, the "new" badge when any line has it, marker and code. */
+	const sideColumns = $derived(hasFresh ? 4 : 3);
+	const columns = $derived(split ? sideColumns * 2 : hasFresh ? 5 : 4);
+
+	function sideOf(line: ShownLineView): LineSide {
+		switch (line.kind) {
+			case 'context':
+				return 'both';
+			case 'deleted':
+				return 'old';
+			case 'added':
+				return 'new';
+		}
+	}
+
+	/** The lines that start a run of another group's changes, with that group, to say where once. */
+	function notesOf(shown: readonly ShownLineView[]): ReadonlyMap<ShownLineView, GroupKeyView> {
+		const notes = new SvelteMap<ShownLineView, GroupKeyView>();
+		for (const [i, line] of shown.entries()) {
+			const group = startsElsewhere(shown, i);
+			if (group !== undefined) notes.set(line, group);
+		}
+		return notes;
+	}
 
 	function name(group: GroupKeyView): string {
 		return viewer.groupWithKey(group)?.name ?? 'another group';
@@ -170,68 +204,193 @@
 	{/if}
 {/snippet}
 
-{#snippet lines(shown: readonly ShownLineView[], key: string)}
-	{#each chunksOf(shown.length) as chunk (chunk.first)}
-		{#if chunk.first === 0 || drawn.has(`${key}:${String(chunk.first)}`)}
-			{#each shown.slice(chunk.first, chunk.end) as line, k (k)}
-				{@const elsewhere = startsElsewhere(shown, chunk.first + k)}
-				{#if elsewhere !== undefined}
-					<tr class="note">
-						<td colspan={columns} class="where">
-							Shown in <a
-								href="#{viewer.groupWithKey(elsewhere)?.anchor ?? ''}"
-								aria-label="Go to {shownPath(path)} in {name(elsewhere)}"
-								onclick={(event) => {
-									event.preventDefault();
-									ongo(elsewhere);
-								}}
-							>
-								{name(elsewhere)}
-							</a>
-						</td>
-					</tr>
-				{/if}
-				{@render row(line)}
-			{/each}
-		{:else}
-			<!-- Drawn when it comes near the screen; until then, the room it will take. -->
-			<tr class="pending" aria-hidden="true" use:drawWhenNear={`${key}:${String(chunk.first)}`}>
-				<td colspan={columns} style:height="{(chunk.end - chunk.first) * ROW_HEIGHT}px"></td>
-			</tr>
-		{/if}
-	{/each}
-{/snippet}
-
-{#snippet opened(line: OpenLine)}
-	<tr class="context opened">
-		<td class="number">{line.old}</td>
-		<td class="number">{line.new}</td>
-		{#if hasFresh}<td class="badge"></td>{/if}
-		<td class="marker"></td>
-		<td
-			class="code"
-			use:drawLine={{ text: line.text, changed: false, runs: colours?.new.get(line.new) }}
-		></td>
+{#snippet where(elsewhere: GroupKeyView)}
+	<tr class="note">
+		<td colspan={columns} class="where">
+			Shown in <a
+				href="#{viewer.groupWithKey(elsewhere)?.anchor ?? ''}"
+				aria-label="Go to {shownPath(path)} in {name(elsewhere)}"
+				onclick={(event) => {
+					event.preventDefault();
+					ongo(elsewhere);
+				}}
+			>
+				{name(elsewhere)}
+			</a>
+		</td>
 	</tr>
 {/snippet}
 
-<table class="lines" aria-label="Lines of {shownPath(path)}" aria-busy={busy}>
-	<colgroup>
-		<col class="number-column" />
-		<col class="number-column" />
-		{#if hasFresh}<col class="badge-column" />{/if}
-		<col class="marker-column" />
-		<col />
-	</colgroup>
-	<thead class="visually-hidden">
-		<tr>
-			<th scope="col">Line before</th>
-			<th scope="col">Line after</th>
-			{#if hasFresh}<th scope="col">New</th>{/if}
-			<th scope="col">Change</th>
-			<th scope="col">Code</th>
+{#snippet pending(key: string, rows: number)}
+	<!-- Drawn when it comes near the screen; until then, the room it will take. -->
+	<tr class="pending" aria-hidden="true" use:drawWhenNear={key}>
+		<td colspan={columns} style:height="{rows * ROW_HEIGHT}px"></td>
+	</tr>
+{/snippet}
+
+{#snippet lines(shown: readonly ShownLineView[], key: string)}
+	{#if split}
+		{@const rows = sideBySide(shown, sideOf)}
+		{@const notes = notesOf(shown)}
+		{#each chunksOf(rows.length) as chunk (chunk.first)}
+			{#if chunk.first === 0 || drawn.has(`${key}:${String(chunk.first)}`)}
+				{#each rows.slice(chunk.first, chunk.end) as pair, k (k)}
+					{@const elsewhere =
+						(pair.old === undefined ? undefined : notes.get(pair.old)) ??
+						(pair.new === undefined ? undefined : notes.get(pair.new))}
+					{#if elsewhere !== undefined}{@render where(elsewhere)}{/if}
+					{@render pairRow(pair)}
+				{/each}
+			{:else}
+				{@render pending(`${key}:${String(chunk.first)}`, chunk.end - chunk.first)}
+			{/if}
+		{/each}
+	{:else}
+		{#each chunksOf(shown.length) as chunk (chunk.first)}
+			{#if chunk.first === 0 || drawn.has(`${key}:${String(chunk.first)}`)}
+				{#each shown.slice(chunk.first, chunk.end) as line, k (k)}
+					{@const elsewhere = startsElsewhere(shown, chunk.first + k)}
+					{#if elsewhere !== undefined}{@render where(elsewhere)}{/if}
+					{@render row(line)}
+				{/each}
+			{:else}
+				{@render pending(`${key}:${String(chunk.first)}`, chunk.end - chunk.first)}
+			{/if}
+		{/each}
+	{/if}
+{/snippet}
+
+{#snippet cell(line: ShownLineView | undefined, side: 'old' | 'new')}
+	{@const kind = line === undefined ? 'empty' : line.kind}
+	{@const cellClass = `cell-${kind}${line !== undefined && isElsewhere(line) ? ' cell-elsewhere' : ''}${line !== undefined && isFresh(line) ? ' cell-fresh' : ''}`}
+	<td class="number {cellClass}" class:side-start={side === 'new'}>
+		{line === undefined
+			? ''
+			: side === 'old'
+				? line.kind === 'added'
+					? ''
+					: line.old
+				: line.kind === 'deleted'
+					? ''
+					: line.new}
+	</td>
+	{#if hasFresh}
+		<td class="badge {cellClass}">
+			{#if line !== undefined && isFresh(line)}<span class="new">
+					new<span class="visually-hidden"> since version {previousVersion}</span>
+				</span>{/if}
+		</td>
+	{/if}
+	<td class="marker {cellClass}">
+		{#if line?.kind === 'added'}<span aria-hidden="true">+</span><span class="visually-hidden">
+				Added
+			</span>{:else if line?.kind === 'deleted'}<span aria-hidden="true">−</span><span
+				class="visually-hidden"
+			>
+				Removed
+			</span>{/if}
+	</td>
+	{#if line === undefined}
+		<td class="code {cellClass}"></td>
+	{:else}
+		<td
+			class="code {cellClass}"
+			use:drawLine={{ text: line.text, changed: line.kind !== 'context', runs: runsOf(line) }}
+		></td>
+	{/if}
+{/snippet}
+
+{#snippet pairRow(pair: SideRow<ShownLineView>)}
+	<tr class="pair">
+		{@render cell(pair.old, 'old')}
+		{@render cell(pair.new, 'new')}
+	</tr>
+	{#if pair.old?.noNewlineAtEnd === true || pair.new?.noNewlineAtEnd === true}
+		<tr class="note">
+			<td colspan={sideColumns} class="eof">
+				{pair.old?.noNewlineAtEnd === true ? 'No newline at end of file' : ''}
+			</td>
+			<td colspan={sideColumns} class="eof side-start">
+				{pair.new?.noNewlineAtEnd === true ? 'No newline at end of file' : ''}
+			</td>
 		</tr>
-	</thead>
+	{/if}
+{/snippet}
+
+{#snippet opened(line: OpenLine)}
+	{#if split}
+		<tr class="pair opened">
+			{#each ['old', 'new'] as side (side)}
+				<td class="number cell-context" class:side-start={side === 'new'}>
+					{side === 'old' ? line.old : line.new}
+				</td>
+				{#if hasFresh}<td class="badge cell-context"></td>{/if}
+				<td class="marker cell-context"></td>
+				<td
+					class="code cell-context"
+					use:drawLine={{ text: line.text, changed: false, runs: colours?.new.get(line.new) }}
+				></td>
+			{/each}
+		</tr>
+	{:else}
+		<tr class="context opened">
+			<td class="number">{line.old}</td>
+			<td class="number">{line.new}</td>
+			{#if hasFresh}<td class="badge"></td>{/if}
+			<td class="marker"></td>
+			<td
+				class="code"
+				use:drawLine={{ text: line.text, changed: false, runs: colours?.new.get(line.new) }}
+			></td>
+		</tr>
+	{/if}
+{/snippet}
+
+<table
+	class="lines"
+	class:split
+	aria-label="{split ? 'Lines side by side' : 'Lines'} of {shownPath(path)}"
+	aria-busy={busy}
+>
+	{#if split}
+		<colgroup>
+			{#each ['old', 'new'] as side (side)}
+				<col class="number-column" />
+				{#if hasFresh}<col class="badge-column" />{/if}
+				<col class="marker-column" />
+				<col />
+			{/each}
+		</colgroup>
+		<thead class="visually-hidden">
+			<tr>
+				<th scope="col">Line before</th>
+				{#if hasFresh}<th scope="col">New</th>{/if}
+				<th scope="col">Change before</th>
+				<th scope="col">Before</th>
+				<th scope="col">Line after</th>
+				{#if hasFresh}<th scope="col">New</th>{/if}
+				<th scope="col">Change after</th>
+				<th scope="col">After</th>
+			</tr>
+		</thead>
+	{:else}
+		<colgroup>
+			<col class="number-column" />
+			<col class="number-column" />
+			{#if hasFresh}<col class="badge-column" />{/if}
+			<col class="marker-column" />
+			<col />
+		</colgroup>
+		<thead class="visually-hidden">
+			<tr>
+				<th scope="col">Line before</th>
+				<th scope="col">Line after</th>
+				{#if hasFresh}<th scope="col">New</th>{/if}
+				<th scope="col">Change</th>
+				<th scope="col">Code</th>
+			</tr>
+		</thead>
+	{/if}
 	<tbody>
 		{#each blocks as block, b (b)}
 			{#if block.kind === 'hidden'}
@@ -421,6 +580,44 @@
 	.elsewhere .marker {
 		background: var(--color-subtle);
 		color: var(--color-muted);
+	}
+
+	/* Side by side: each cell is coloured by its own side's line. */
+	td.cell-added {
+		background: var(--color-diff-added);
+	}
+
+	td.cell-added.number,
+	td.cell-added.marker {
+		background: var(--color-diff-added-gutter);
+		color: var(--color-text);
+	}
+
+	td.cell-deleted {
+		background: var(--color-diff-removed);
+	}
+
+	td.cell-deleted.number,
+	td.cell-deleted.marker {
+		background: var(--color-diff-removed-gutter);
+		color: var(--color-text);
+	}
+
+	td.cell-empty {
+		background: var(--color-subtle);
+	}
+
+	td.cell-elsewhere {
+		background: var(--color-subtle);
+		color: var(--color-muted);
+	}
+
+	td.cell-fresh.badge {
+		box-shadow: inset 3px 0 0 var(--color-accent);
+	}
+
+	.side-start {
+		border-left: 1px solid var(--color-border);
 	}
 
 	.fresh .badge {

@@ -285,6 +285,7 @@
 						blocks={lines.blocks}
 						colours={viewer.colouring ? state.colours : undefined}
 						busy={state.colouring > 0}
+						layout={viewer.layout}
 						path={part.path}
 						{previousVersion}
 						ongo={(group: GroupKeyView) => {

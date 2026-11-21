@@ -16,6 +16,7 @@ export type KeyAction =
 	| 'toggle-open'
 	| 'whole-file'
 	| 'only-unreviewed'
+	| 'side-by-side'
 	| 'help';
 
 /** Each shortcut, as the help lists it. */
@@ -38,6 +39,11 @@ export const SHORTCUTS: readonly {
 		keys: ['u'],
 		does: 'Show only what you have not reviewed, or everything',
 		action: 'only-unreviewed'
+	},
+	{
+		keys: ['s'],
+		does: 'Show changes side by side, or in one column',
+		action: 'side-by-side'
 	},
 	{ keys: ['?'], does: 'Show these shortcuts', action: 'help' }
 ];

@@ -16,26 +16,35 @@ import type { Queries } from '../database.ts';
 import type { StoredRowInvalid } from '../database-error.ts';
 
 const row = z.discriminatedUnion('name', [
-	z.object({ name: z.literal('colours'), value: z.enum(['on', 'off']) })
+	z.object({
+		name: z.literal('colours'),
+		value: z.enum(['on', 'off']).transform((v) => v === 'on')
+	}),
+	z.object({ name: z.literal('layout'), value: z.enum(['unified', 'side-by-side']) })
 ]);
 
 /** The settings as stored: the defaults, with every row's change. */
 export function readSettings(q: Queries): Result<ViewSettings, StoredRowInvalid> {
 	const rows = parseRows('settings', row, q.all('SELECT name, value FROM settings ORDER BY name'));
 	if (!rows.ok) return rows;
-	let settings = DEFAULT_SETTINGS;
-	for (const stored of rows.value) {
-		settings = withSetting(settings, { name: stored.name, value: stored.value === 'on' });
+	return ok(rows.value.reduce(withSetting, DEFAULT_SETTINGS));
+}
+
+/** A setting's value as its row holds it. */
+function stored(change: SettingChange): string {
+	switch (change.name) {
+		case 'colours':
+			return change.value ? 'on' : 'off';
+		case 'layout':
+			return change.value;
 	}
-	return ok(settings);
 }
 
 /** Stores one setting, replacing what was stored for it. */
 export function writeSetting(q: Queries, change: SettingChange): void {
-	const value = change.value ? 'on' : 'off';
 	q.run(
 		'INSERT INTO settings (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = excluded.value',
 		change.name,
-		value
+		stored(change)
 	);
 }

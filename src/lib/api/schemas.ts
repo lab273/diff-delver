@@ -446,12 +446,14 @@ export const LinesSchema = z.object({
 export type LinesView = z.output<typeof LinesSchema>;
 
 /** GET and POST /api/settings: how the person likes diffs shown (`core/settings.ts`). */
-export const SettingsSchema = z.object({ colours: z.boolean() });
+const LayoutSchema = z.enum(['unified', 'side-by-side']);
+export const SettingsSchema = z.object({ colours: z.boolean(), layout: LayoutSchema });
 export type SettingsView = z.output<typeof SettingsSchema>;
 
 /** POST /api/settings: one setting changed. */
 export const SettingChangeSchema = z.discriminatedUnion('name', [
-	z.object({ name: z.literal('colours'), value: z.boolean() })
+	z.object({ name: z.literal('colours'), value: z.boolean() }),
+	z.object({ name: z.literal('layout'), value: LayoutSchema })
 ]);
 export type SettingChangeRequest = z.output<typeof SettingChangeSchema>;
 

@@ -6,17 +6,28 @@
  * data folder of its own, starts from the defaults.
  */
 
+/** A part's lines one under another, as one column, or old and new side by side. */
+export type Layout = 'unified' | 'side-by-side';
+
 export interface ViewSettings {
 	/** Code coloured by language, or plain. */
 	readonly colours: boolean;
+	readonly layout: Layout;
 }
 
-export const DEFAULT_SETTINGS: ViewSettings = { colours: true };
+export const DEFAULT_SETTINGS: ViewSettings = { colours: true, layout: 'unified' };
 
 /** One setting changed: its name and its new value. */
-export type SettingChange = { readonly name: 'colours'; readonly value: boolean };
+export type SettingChange =
+	| { readonly name: 'colours'; readonly value: boolean }
+	| { readonly name: 'layout'; readonly value: Layout };
 
 /** The settings with one changed. */
 export function withSetting(settings: ViewSettings, change: SettingChange): ViewSettings {
-	return { ...settings, colours: change.value };
+	switch (change.name) {
+		case 'colours':
+			return { ...settings, colours: change.value };
+		case 'layout':
+			return { ...settings, layout: change.value };
+	}
 }
