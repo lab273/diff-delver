@@ -10,6 +10,8 @@
  * uses it instead of starting one of its own.
  */
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { Bucket } from '#lib/core/diff/bucket.ts';
@@ -191,3 +193,26 @@ export async function sortedReports(
 
 /** Where a trial keeps its recordings, relative to the repository. */
 export const RECORDINGS_DIRECTORY = join(import.meta.dirname, 'recordings');
+
+const ROOT = join(import.meta.dirname, '..', '..');
+/** The skill an agent is given (DESIGN 7.3). */
+export const SKILL_FILE = join(ROOT, 'plugins', 'claude-code', 'skills', 'diff-delver', 'SKILL.md');
+/** What an agent sees of the MCP server (`pnpm mcp:surface`). */
+export const SURFACE_FILE = join(
+	ROOT,
+	'src',
+	'lib',
+	'server',
+	'mcp',
+	'fixtures',
+	'agent-surface.json'
+);
+
+function sha256(path: string): string {
+	return `sha256:${createHash('sha256').update(readFileSync(path)).digest('hex')}`;
+}
+
+/** The hashes a recording made now would hold, to tell an older recording from a current one. */
+export function currentHashes(): { readonly agentSurface: string; readonly skill: string } {
+	return { agentSurface: sha256(SURFACE_FILE), skill: sha256(SKILL_FILE) };
+}

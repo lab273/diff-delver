@@ -1,9 +1,11 @@
 /**
  * `pnpm verify`: everything a commit must pass, in order, stopping at the first
- * failure. Prints how long each step took, the slowest tests, and a warning for
+ * failure. Prints how long each step took, the slowest tests, a warning for
  * every test over the time guidance for its type and for a run that has become
- * unreasonably long. Time never fails the run (README, "Testing"); only a test that
- * hangs past its hang timeout does, and that is the test failing.
+ * unreasonably long, and the notices tests recorded (tests/support/test-notices.ts),
+ * such as an agent trial recorded with an older skill. Neither time nor a notice
+ * fails the run (README, "Testing"); only a test that hangs past its hang timeout
+ * does, and that is the test failing.
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
@@ -11,6 +13,7 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { millisecondsOf, type Milliseconds } from '../src/lib/core/milliseconds.tiny.ts';
 import { withoutScreenshotVariables } from './journey-screenshots.ts';
+import { vitestNotices } from './test-notices.ts';
 import { TIME_LIMITS } from './test-time-limits.ts';
 import {
 	describeTimeWarning,
@@ -232,6 +235,22 @@ async function main(): Promise<number> {
 				const file = warningFile(warning);
 				const where = file === undefined ? '' : `file=${file},`;
 				console.log(`::warning ${where}title=Over the time guidance::${gitHubEscape(message)}`);
+			}
+		}
+	}
+
+	const notices = vitestNotices(readJson(vitestReport), root);
+	if (notices.length > 0) {
+		heading(
+			`\u001b[33m⚠ ${String(notices.length)} ${notices.length === 1 ? 'notice' : 'notices'} from the tests. ` +
+				'They do not fail the run; each says what to do.\u001b[0m'
+		);
+		for (const notice of notices) {
+			console.log(`\u001b[33m  ⚠ ${notice.text}\u001b[0m`);
+			if (inGitHubActions) {
+				console.log(
+					`::warning file=${notice.file},title=Notice from the tests::${gitHubEscape(notice.text)}`
+				);
 			}
 		}
 	}

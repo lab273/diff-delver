@@ -2,9 +2,10 @@
  * Every committed recording (tests/agent-trials/recordings/), replayed through
  * the real stdio shim to a real daemon on the same fixture repository, with
  * the trial's fixed clock and sequential ids: each call is accepted or refused
- * as it was, and the diff ends up sorted exactly as the agent left it. An
- * answer worded differently since is reported, not failed: the recording is
- * then older than the current answers, and can be recorded again.
+ * as it was, and the diff ends up sorted exactly as the agent left it. A
+ * recording made with an older tool surface or skill, and an answer worded
+ * differently since, are reported where `pnpm verify` lists its warnings, not
+ * failed: the recording can be recorded again.
  *
  * Also: no recording holds personal or machine-specific data, since they are
  * public.
@@ -19,10 +20,12 @@ import { defineFixture, tempDirectory, useFixture } from '../support/fixture-rep
 import { absolutePath } from '../support/git-repo.ts';
 import { mcpThroughShim } from '../support/mcp-client.ts';
 import { reviewer } from '../support/reviewer-git.ts';
-import { normaliser, type Recording } from './recording.ts';
+import { recordNotice } from '../support/test-notices.ts';
+import { normaliser, olderThan, recordAgain, type Recording } from './recording.ts';
 import { committedRecordings, replay } from './replay.ts';
 import {
 	builtVersion,
+	currentHashes,
 	sortedReports,
 	startTrialDaemon,
 	TRIAL_FIXTURES,
@@ -85,19 +88,28 @@ describe('agent trial recordings', () => {
 	});
 
 	for (const { name, recording } of recordings) {
-		it(`replay as recorded: ${name}`, async () => {
+		it(`replay as recorded: ${name}`, async ({ task }) => {
 			const { changed, reworded, finalState } = await replayed(recording);
 			expect(
 				changed,
-				`${name}: the tools now answer these recorded calls differently. Record the trial again (pnpm trials:run), or find what changed.`
+				`${name}: the tools now answer these recorded calls differently. Record the trial again (${recordAgain(recording)}), or find what changed.`
 			).toEqual([]);
 			expect(
 				finalState,
 				`${name}: replaying the calls no longer sorts the diff as the agent left it.`
 			).toEqual(recording.finalState);
+			// Not failures: the recording still replays, but is not what an agent would see now.
+			const older = olderThan(recording, currentHashes());
+			if (older.length > 0) {
+				recordNotice(
+					task,
+					`The agent trial ${name} was recorded with an older version of ${older.join(' and ')}. Record it again with ${recordAgain(recording)} when the difference matters to an agent.`
+				);
+			}
 			if (reworded.length > 0) {
-				console.warn(
-					`${name} is older than the current answers: calls ${reworded.join(', ')} are answered in other words now. Record it again with pnpm trials:run when the wording matters.`
+				recordNotice(
+					task,
+					`The agent trial ${name} is older than the current answers: ${reworded.length === 1 ? 'call' : 'calls'} ${reworded.join(', ')} ${reworded.length === 1 ? 'is' : 'are'} answered in other words now. Record it again with ${recordAgain(recording)} when the wording matters.`
 				);
 			}
 		});

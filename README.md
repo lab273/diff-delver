@@ -112,7 +112,7 @@ github:` does when it fetches diff delver.
 
 | Command | What it does |
 |---|---|
-| `pnpm verify` | Everything a commit must pass, failing fast: Prettier check, ESLint, `svelte-check`, a production build, the Vitest suite (whose daemon and command tests use the build), the Playwright journeys with their committed screenshots, and the viewer's speed on a large diff (`tests/speed/`). Prints the time per step, the slowest tests, and a warning for each test over the time guidance under [Testing](#testing) and for a run over two minutes (`VERIFY_WARN_AFTER_SECONDS` changes that); time never fails it. |
+| `pnpm verify` | Everything a commit must pass, failing fast: Prettier check, ESLint, `svelte-check`, a production build, the Vitest suite (whose daemon and command tests use the build), the Playwright journeys with their committed screenshots, and the viewer's speed on a large diff (`tests/speed/`). Prints the time per step, the slowest tests, and a warning for each test over the time guidance under [Testing](#testing) and for a run over two minutes (`VERIFY_WARN_AFTER_SECONDS` changes that), and the notices tests record (`tests/support/test-notices.ts`), such as an agent trial recorded with an older skill; neither time nor a notice fails it. |
 | `pnpm dev` | The app with live reload, on the data folder in `DIFF_DELVER_DATA_DIRECTORY` or this machine's default, without the daemon's checks: for working on the pages. |
 | `pnpm build` | A production build into `build/`: the app (`vite build`, the Node adapter's `build/handler.js`), then the command (`vite.cli.config.ts`, `build/cli/diff-delver.js`). `node bin/diff-delver.js` runs it. The integration tests that run the command make it themselves when it is older than its sources. Its version is the package version marked `-dev` and a hash of the code; with `DIFF_DELVER_RELEASE_VERSION` set, as the release workflow sets it, the release's version instead. |
 | `pnpm test` | Every Vitest test, core and integration. |
@@ -174,7 +174,7 @@ github:` does when it fetches diff delver.
 | `scripts/release-package.ts`, `release-check.ts`, `release-preflight.ts` | Releasing (see [Releasing](#releasing)): `pnpm release:package` and `pnpm release:check`, and the release workflow's checks of what the person typed, run first and again just before the release, against the tags and releases `release-names.sh` lists. `release.test.ts` packs the build `pnpm verify` made and checks it, offline; `release-workflow.test.ts` holds the workflow to its rules and runs the checks. The release version (`src/lib/core/release-version.tiny.ts`) is three whole numbers with a `v` tag, and which of a running daemon and the command is newer, and what the command says when it replaced an older one or uses a newer one, with how to upgrade, is `src/lib/core/cli/replaced-daemon.ts`. |
 | `scripts/test-time-limits.ts` | Each type of test's time guidance and its hang timeout, the only time limit that fails a test. The Vitest and Playwright configs and `pnpm verify` read it. |
 | `scripts/journeys.ts` | `pnpm journeys:update`, `pnpm journeys:repeat`, and the check `pnpm verify` runs after the journeys for committed screenshots no step produces. `journey-screenshots.ts` names the images and finds stale ones; `png-pixels.ts` compares two images pixel for pixel; `woff-to-sfnt.ts` unpacks a WOFF font. |
-| `scripts/test-timings.ts` | Reads the test reports and works out which tests went over their guidance, for `pnpm verify`. |
+| `scripts/test-timings.ts` | Reads the test reports and works out which tests went over their guidance, for `pnpm verify`; `test-notices.ts` reads the notices tests recorded. |
 | `scripts/eslint-journey-rules.ts` | What lint forbids in journey files: Playwright's other fixtures, the methods that run code in the page or change it without input, direct input, and dynamic property access. |
 | `scripts/eslint-core-purity.ts` | The lint rule `core/purity`, for what core may not touch that the built-in rules cannot see: `Date` other than `Date.UTC` and `new Date(value)`, `Temporal.Now`, `Intl`, `Reflect.construct`, `import.meta` and locale- or timezone-dependent methods. Tested by `scripts/core-purity-rule.test.ts`. |
 | `scripts/capture-diff-fixtures.ts` | The `pnpm fixtures:capture` script. `capture-old-database.ts` is `pnpm fixtures:old-database`'s, and `mcp-surface.ts` `pnpm mcp:surface`'s. |
@@ -488,8 +488,10 @@ changed because of them, are in [tests/agent-trials/README.md](tests/agent-trial
 - **Replay.** `pnpm verify` sends every recording's calls, in order, through the real
   shim to a real daemon on the same fixture, with the trials' fixed clock and
   sequential ids. A call the tools now accept or refuse otherwise fails it, naming the
-  recording and the call; so does a final sorting that differs. An answer worded
-  differently since only says the recording is older than the current answers.
+  recording and the call; so does a final sorting that differs. A recording made
+  with an older tool surface or skill (its `hashes`), and one whose answers are
+  worded differently now, are listed among `pnpm verify`'s warnings with the command
+  that records them again; neither fails it.
 - **Screenshots.** A recording can also have a journey,
   `tests/journeys/trial-<fixture>-<agent>.journey.ts`, which replays it on the
   journey's daemon (`journey.agentTrial`) and takes the page's steps like any

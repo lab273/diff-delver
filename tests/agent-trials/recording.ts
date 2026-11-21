@@ -107,6 +107,29 @@ export const RecordingSchema = z.object({
 });
 export type Recording = z.output<typeof RecordingSchema>;
 
+/** The command that records a trial again: `pnpm trials:run --agent codex --fixture shop --without-skill`. */
+export function recordAgain(recording: Recording): string {
+	return `pnpm trials:run --agent ${recording.agent.cli} --fixture ${recording.fixture}${recording.skill ? '' : ' --without-skill'}`;
+}
+
+/**
+ * What a recording was made with that is not what an agent is given now: the
+ * tool surface, and the skill when the trial gave it. Empty when it is current.
+ */
+export function olderThan(
+	recording: Recording,
+	current: { readonly agentSurface: string; readonly skill: string }
+): readonly string[] {
+	const older: string[] = [];
+	if (recording.hashes.agentSurface !== current.agentSurface) {
+		older.push('the tools (src/lib/server/mcp/fixtures/agent-surface.json)');
+	}
+	if (recording.skill && recording.hashes.skill !== current.skill) {
+		older.push('the skill (plugins/claude-code/skills/diff-delver/SKILL.md)');
+	}
+	return older;
+}
+
 /** The file a recording is kept in: `shop.claude.json`, `shop.codex.no-skill.json`. */
 export function recordingName(fixture: string, agent: AgentName, skill: boolean): string {
 	return `${fixture}.${agent}${skill ? '' : '.no-skill'}.json`;

@@ -38,8 +38,7 @@
  * another folder than the CLI's own, and `--out <folder>` writes the recording
  * and the transcript there instead of `recordings/` and `transcripts/`.
  */
-import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, readFileSync, rmSync } from 'node:fs';
+import { accessSync, constants, existsSync, rmSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir, userInfo } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -75,7 +74,9 @@ import {
 	type Recording
 } from './recording.ts';
 import {
+	currentHashes,
 	RECORDINGS_DIRECTORY,
+	SKILL_FILE,
 	sortedReports,
 	startTrialDaemon,
 	TRIAL_FIXTURES,
@@ -87,8 +88,6 @@ import {
 const ROOT = join(import.meta.dirname, '..', '..');
 const PROXY = join(import.meta.dirname, 'proxy.ts');
 const PLUGIN = join(ROOT, 'plugins', 'claude-code');
-const SKILL = join(PLUGIN, 'skills', 'diff-delver', 'SKILL.md');
-const SURFACE = join(ROOT, 'src', 'lib', 'server', 'mcp', 'fixtures', 'agent-surface.json');
 /** The agent's own transcript, its reasoning between calls: for a developer to read, never committed. */
 const TRANSCRIPTS = join(import.meta.dirname, 'transcripts');
 
@@ -157,10 +156,6 @@ function parseOptions(argv: readonly string[]): Options {
 		}
 	}
 	return { agent, fixture, skill, timeLimitSeconds, cli, loginFrom, out };
-}
-
-function sha256(path: string): string {
-	return `sha256:${createHash('sha256').update(readFileSync(path)).digest('hex')}`;
 }
 
 /** How long a short command, such as asking a CLI its version, may take. */
@@ -343,7 +338,7 @@ async function runClaude(trial: Trial): Promise<AgentRun> {
 			join(PLUGIN, '.claude-plugin', 'plugin.json'),
 			join(plugin, '.claude-plugin', 'plugin.json')
 		);
-		await copyFile(SKILL, join(plugin, 'skills', 'diff-delver', 'SKILL.md'));
+		await copyFile(SKILL_FILE, join(plugin, 'skills', 'diff-delver', 'SKILL.md'));
 	}
 	const env = agentEnvironment(trial, {
 		CLAUDE_CONFIG_DIR: configDirectory,
@@ -473,7 +468,7 @@ async function runCodex(trial: Trial): Promise<AgentRun> {
 	const login = linkForTrial(credentials, join(codexHome, 'auth.json'));
 	if (trial.options.skill) {
 		await mkdir(join(codexHome, 'skills', 'diff-delver'), { recursive: true });
-		await copyFile(SKILL, join(codexHome, 'skills', 'diff-delver', 'SKILL.md'));
+		await copyFile(SKILL_FILE, join(codexHome, 'skills', 'diff-delver', 'SKILL.md'));
 	}
 	const env = agentEnvironment(trial, { CODEX_HOME: codexHome });
 	const version = await versionOf(trial.cli, env);
@@ -811,7 +806,7 @@ async function main(): Promise<void> {
 			recordedOn: new Date().toISOString().slice(0, 10),
 			prompt: TRIAL_PROMPT,
 			skill: options.skill,
-			hashes: { agentSurface: sha256(SURFACE), skill: sha256(SKILL) },
+			hashes: currentHashes(),
 			bounds: {
 				timeLimitSeconds: options.timeLimitSeconds,
 				turnLimit: options.agent === 'claude' ? CLAUDE_TURN_LIMIT : null
