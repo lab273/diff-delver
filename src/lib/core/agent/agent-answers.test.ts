@@ -1,6 +1,8 @@
+import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { syntheticDiff } from '../../../../tests/support/synthetic-diff.ts';
 import { assign } from '../diff/assign.ts';
+import { coverage } from '../diff/coverage.ts';
 import { initialState } from '../diff/state.ts';
 import { parseReportId } from '../report-id.tiny.ts';
 import { reviewerMessage } from '../reviewer-message.tiny.ts';
@@ -107,6 +109,8 @@ describe('answers for an agent', () => {
 		const input: DiffPageInput = {
 			heading,
 			files: diff.files,
+			selected: () => true,
+			stable: true,
 			asked: 'the whole diff',
 			key: 'k1',
 			repeat: ''
@@ -132,6 +136,78 @@ describe('answers for an agent', () => {
 		// Every added line of big.ts once, and the one of a.ts and c.ts.
 		expect(labels).toHaveLength(20_002);
 		expect(new Set(labels.filter((l, i) => i > 0 && i < labels.length - 1)).size).toBe(20_000);
+	});
+
+	it('page only what is not sorted yet without skipping a file, however it is sorted between pages', () => {
+		const diff = syntheticDiff(
+			Array.from({ length: 60 }, (_, i) => ({
+				path: `f${String(i).padStart(2, '0')}.ts`,
+				change: 'added' as const,
+				lines: 300
+			}))
+		);
+		const known = { knownSections: new Set([value(parseSectionId('a'))]) };
+		/** Reads every page, sorting what `between` says after each, and gives the files shown. */
+		const read = (between: (shown: readonly string[], page: number) => readonly string[]) => {
+			let state = initialState(diff);
+			const touched = new Set<string>();
+			const shownAll: string[] = [];
+			let start = { file: 0, line: 0 };
+			for (let page = 0; page < 100; page += 1) {
+				const left = new Set(coverage(diff, state).remaining.map((r) => r.path));
+				const text = renderDiffPage(
+					{
+						heading,
+						files: diff.files,
+						selected: (f) => left.has(f.file.path),
+						stable: false,
+						asked: 'the files with change lines not sorted yet',
+						key: 'k1',
+						repeat: ''
+					},
+					start
+				);
+				expect(text.length).toBeLessThanOrEqual(PAGE_LENGTH + 1_000);
+				expect(text).not.toMatch(/ of \d/);
+				const shown = text.split('\n').flatMap((l) => /^## (f\d\d\.ts)$/.exec(l)?.[1] ?? []);
+				shownAll.push(...shown);
+				const sort = between(shown, page);
+				for (const path of sort) touched.add(path);
+				state = assign(
+					diff,
+					state,
+					sort.map((file) => ({ file, section: 'a' })),
+					known
+				).state;
+				const cursor = cursorOf(text);
+				if (cursor === undefined) return { shownAll, touched };
+				const position = value(parsePageCursor(cursor));
+				start = { file: position.file, line: position.line };
+			}
+			throw new Error('Too many pages');
+		};
+		// The reproduction: each page sorted before the next is read.
+		const sorted = read((shown) => shown);
+		expect(sorted.shownAll).toEqual(diff.files.map((f) => f.file.path));
+		// Any interleaving: each file shown at most once, in order, and every file never sorted shown.
+		fc.assert(
+			fc.property(
+				fc.array(fc.array(fc.integer({ min: 0, max: 59 }), { maxLength: 20 }), {
+					maxLength: 12
+				}),
+				(sorts) => {
+					const { shownAll, touched } = read((_, page) =>
+						(sorts[page] ?? []).map((i) => `f${String(i).padStart(2, '0')}.ts`)
+					);
+					expect(new Set(shownAll).size).toBe(shownAll.length);
+					expect([...shownAll].sort()).toEqual(shownAll);
+					for (const f of diff.files) {
+						if (!touched.has(f.file.path)) expect(shownAll).toContain(f.file.path);
+					}
+				}
+			),
+			{ numRuns: 40 }
+		);
 	});
 
 	it('list what is left of 2,000 files briefly, and count the rest', () => {

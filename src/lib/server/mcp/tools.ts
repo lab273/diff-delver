@@ -31,7 +31,7 @@ import {
 } from '#lib/core/agent/answer.ts';
 import { renderAssign, MAX_ASSIGN_ITEMS } from '#lib/core/agent/assign-answer.ts';
 import { renderCoverage } from '#lib/core/agent/coverage-answer.ts';
-import { diffPosition, renderDiffPage } from '#lib/core/agent/diff-pages.ts';
+import { diffPosition, renderDiffPage, type DiffPageInput } from '#lib/core/agent/diff-pages.ts';
 import { MAX_FILE_LINES, renderFileLines, sideInWords } from '#lib/core/agent/file-answer.ts';
 import { manifestPosition, renderManifest } from '#lib/core/agent/manifest.ts';
 import {
@@ -598,9 +598,12 @@ const getDiff = tool({
 		if (!page.ok) return page;
 		const selected = selectFiles(page.value, input.files, input.only_uncategorised === true);
 		if (!selected.ok) return selected;
-		const pages = {
+		const chosen = new Set(selected.value.files);
+		const pages: DiffPageInput = {
 			heading: headingOf(page.value),
-			files: selected.value.files,
+			files: page.value.diff.files,
+			selected: (file) => chosen.has(file),
+			stable: input.only_uncategorised !== true,
 			asked: selected.value.asked,
 			key: filterKey(JSON.stringify([input.files ?? null, input.only_uncategorised === true])),
 			repeat:
