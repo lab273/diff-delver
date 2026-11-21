@@ -193,5 +193,31 @@ test.describe('J16 Reading and finding', () => {
 		await journey.expectText(found, '1 of 1 match in 1 file');
 		await journey.expectInView(journey.within(lexer).byText('Numbers are words', { exact: false }));
 		await journey.step('A removed line matched side by side');
+
+		// The files change while the search is open. After an update it stays open,
+		// with what is in the box, searched again in the new version.
+		await journey.editFile(reading, 'notes/words.md', 'Numbers are words, as the lexer says.\n');
+		await journey.returnToPage();
+		const changed = journey.byRole('region', { name: 'Your files have changed' });
+		await journey.activate(journey.within(changed).byRole('button', { name: 'Update' }));
+		const updated = journey.byRole('heading', { name: 'Updated to version 2 just now' });
+		await journey.expectFocused(updated);
+		await journey.expectText(found, '2 matches in 2 files. Press Enter to go to the first.');
+		await journey.step('A search kept through an update');
+		// Moving to a match and closing the search brings the reader back to where
+		// they were in this version, and focus to where it was.
+		await journey.press('/');
+		await journey.expectFocused(searchBox);
+		await journey.press('Enter');
+		await journey.expectText(found, '1 of 2 matches in 2 files');
+		await journey.expectInView(
+			journey
+				.within(journey.byRole('article', { name: 'notes/words.md' }))
+				.byText('Numbers are words', { exact: false })
+		);
+		await journey.press('Escape');
+		await journey.expectHidden(search);
+		await journey.expectInView(updated);
+		await journey.expectFocused(updated);
 	});
 });

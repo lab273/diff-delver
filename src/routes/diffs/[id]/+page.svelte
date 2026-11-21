@@ -228,15 +228,20 @@
 	let onlyWaiting = $state(startOnlyWaiting);
 	/** How the person likes diffs shown, remembered by diff delver for every diff. */
 	let settings = $state(untrack(() => data.settings));
-	const viewer = $derived(
-		data.loaded.ok
-			? new Viewer(
-					data.loaded.value,
-					untrack(() => onlyWaiting),
-					untrack(() => settings)
-				)
-			: undefined
-	);
+	/** The viewer made last, whose search a newer version's takes over. */
+	let lastViewer: Viewer | undefined;
+	const viewer = $derived.by(() => {
+		if (!data.loaded.ok) return undefined;
+		const made = new Viewer(
+			data.loaded.value,
+			untrack(() => onlyWaiting),
+			untrack(() => settings),
+			pageClient(),
+			untrack(() => lastViewer?.search.handOver())
+		);
+		lastViewer = made;
+		return made;
+	});
 
 	/** Whether the window is wide enough for two sides; a narrower one shows one column, nothing lost. */
 	let wide = $state(true);
@@ -487,6 +492,19 @@
 	/** Moving to a match is under way: the search says it is busy. */
 	let movingToMatch = $state(false);
 
+	// A newer version keeps the search open, with what is in the box, searched
+	// again; where it moved the reader was in the older one, so is forgotten.
+	$effect(() => {
+		const shown = viewer;
+		if (shown === undefined) return;
+		untrack(() => {
+			beforeSearch = undefined;
+			// What had focus when it opened was drawn for the older version, and is gone.
+			if (searchOpenedFrom?.isConnected !== true) searchOpenedFrom = null;
+			if (shown.search.open && shown.search.text !== '') void shown.search.search();
+		});
+	});
+
 	function nextFrame(): Promise<void> {
 		return new Promise((resolve) => {
 			requestAnimationFrame(() => {
@@ -519,8 +537,10 @@
 
 	async function openSearch(): Promise<void> {
 		if (viewer === undefined) return;
-		if (!viewer.search.open) {
-			const active = document.activeElement;
+		const active = document.activeElement;
+		// Where focus goes back to when the search closes: what had it when the search
+		// opened, or, when that went with an older version, what has it now.
+		if (!viewer.search.open || (searchOpenedFrom === null && active?.id !== SEARCH_INPUT)) {
 			searchOpenedFrom = active instanceof HTMLElement && active !== document.body ? active : null;
 			viewer.search.open = true;
 		}

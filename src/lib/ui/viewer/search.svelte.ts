@@ -28,6 +28,12 @@ import type { BlockState, PartState, Viewer } from './viewer.svelte.ts';
 /** How long typing pauses before the diff is searched, so a search is not sent for every key. */
 export const SEARCH_PAUSE_MS = 150;
 
+/** A search as a newer version's viewer takes it over: open or not, and what is in the box. */
+export interface CarriedSearch {
+	readonly open: boolean;
+	readonly text: string;
+}
+
 /** What the daemon found for the text and options last searched. */
 export type Found =
 	| { readonly kind: 'none' }
@@ -104,12 +110,28 @@ export class DiffSearch {
 
 	constructor(
 		viewer: Viewer,
-		options: { matchCase: boolean; changedOnly: boolean; skipClosed: boolean }
+		options: { matchCase: boolean; changedOnly: boolean; skipClosed: boolean },
+		carried?: CarriedSearch
 	) {
 		this.#viewer = viewer;
 		this.matchCase = options.matchCase;
 		this.changedOnly = options.changedOnly;
 		this.skipClosed = options.skipClosed;
+		if (carried !== undefined) {
+			this.open = carried.open;
+			this.text = carried.text;
+		}
+	}
+
+	/**
+	 * Hands the search over to the viewer of a newer version, which searches it
+	 * again: whether it is open and what is in the box. This one stops, so no
+	 * answer about the older version lands after it.
+	 */
+	handOver(): CarriedSearch {
+		clearTimeout(this.#pause);
+		this.#asked += 1;
+		return { open: this.open, text: this.text };
 	}
 
 	get options(): DiffSearchOptions {

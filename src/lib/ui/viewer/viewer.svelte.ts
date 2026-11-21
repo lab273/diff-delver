@@ -65,7 +65,7 @@ import {
 } from '#lib/core/viewer/white-space.ts';
 import { AskedLines, COLOUR_REQUESTS_AT_ONCE, PART_REQUESTS_AT_ONCE, Turns } from './requests.ts';
 import { hiddenIn } from './white-space-notice.ts';
-import { DiffSearch } from './search.svelte.ts';
+import { DiffSearch, type CarriedSearch } from './search.svelte.ts';
 
 /** How many parts are drawn at first, and how many more after each frame. */
 export const FIRST_BATCH = 40;
@@ -380,7 +380,9 @@ export class Viewer {
 		page: DiffPage,
 		onlyWaiting: boolean,
 		settings: ViewSettings,
-		client: ApiClient = pageClient()
+		client: ApiClient = pageClient(),
+		/** The search of the version shown before, which this one takes over. */
+		search?: CarriedSearch
 	) {
 		this.client = client;
 		this.summary = $state.raw(page.summary);
@@ -432,11 +434,15 @@ export class Viewer {
 		const fileAt = new SvelteMap<EscapedPath, number>();
 		for (const [at, file] of page.files.entries()) fileAt.set(file.path, at);
 		this.#fileAt = fileAt;
-		this.search = new DiffSearch(this, {
-			matchCase: settings.searchMatchCase,
-			changedOnly: settings.searchChangedOnly,
-			skipClosed: settings.searchSkipClosed
-		});
+		this.search = new DiffSearch(
+			this,
+			{
+				matchCase: settings.searchMatchCase,
+				changedOnly: settings.searchChangedOnly,
+				skipClosed: settings.searchSkipClosed
+			},
+			search
+		);
 	}
 
 	/** The group a part is in. */
