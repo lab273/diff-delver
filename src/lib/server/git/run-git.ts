@@ -49,6 +49,12 @@ export interface GitCommand {
 	 * commands in the reviewed repository, which also never fetch a missing object.
 	 */
 	readonly config?: 'isolated' | 'reviewer';
+	/**
+	 * Stops git, and everything it started (such as ssh), when the signal fires;
+	 * the result is then `GitFailed` with no exit code. With one, git runs in a
+	 * session of its own, with no terminal it or ssh could ask anything on.
+	 */
+	readonly stopWhen?: AbortSignal;
 }
 
 export interface GitOutput {
@@ -219,11 +225,30 @@ export async function runGit(command: GitCommand): Promise<Result<GitOutput, Git
 
 function spawnGit(command: GitCommand): Promise<Result<GitOutput, GitError>> {
 	return new Promise((resolve) => {
+		const stopWhen = command.stopWhen;
 		const child = spawn('git', command.args, {
 			cwd: command.cwd,
 			env: gitEnv(command),
-			stdio: ['pipe', 'pipe', 'pipe']
+			stdio: ['pipe', 'pipe', 'pipe'],
+			detached: stopWhen !== undefined
 		});
+		if (stopWhen !== undefined) {
+			const stop = (): void => {
+				// The whole session: git and whatever it started, such as ssh.
+				if (child.pid !== undefined && child.exitCode === null) {
+					try {
+						process.kill(-child.pid, 'SIGKILL');
+					} catch {
+						child.kill('SIGKILL');
+					}
+				}
+			};
+			if (stopWhen.aborted) stop();
+			else stopWhen.addEventListener('abort', stop, { once: true });
+			child.on('close', () => {
+				stopWhen.removeEventListener('abort', stop);
+			});
+		}
 		const stdout: Buffer[] = [];
 		const stderr: Buffer[] = [];
 		child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));

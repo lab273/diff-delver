@@ -11,7 +11,18 @@
  * const changed = later.ok && later.value !== taken.value.identity;
  * ```
  */
+export type { RemoteOutcome } from './check-remote.ts';
+export { checkRemote, REMOTE_CHECK_SECONDS } from './check-remote.ts';
 export { commitsSince } from './commits-since.ts';
+export type { BranchSummary, Branches, CommitPage, CommitSize, CommitSummary } from './history.ts';
+export {
+	BRANCHES_SHOWN,
+	COMMITS_PER_PAGE,
+	lastFetch,
+	listBranches,
+	listCommits,
+	rangeSize
+} from './history.ts';
 export type { LocalRepository, RepositoryOptions } from './local-repository.ts';
 export { locateRepository, storeIdFor } from './local-repository.ts';
 export type { GitSnapshot } from './snapshot-git-source.ts';

@@ -65,7 +65,7 @@ export type RemoteCheckError =
 	| { readonly kind: 'RemoteCheckFailed'; readonly remote: RemoteName; readonly detail: string };
 
 const NEEDS_LOGIN =
-	/authentication failed|could not read (?:username|password)|terminal prompts disabled|permission denied|host key verification failed|invalid credentials|\b40[13]\b/i;
+	/authentication failed|could not read (?:username|password)|unable to get (?:username|password)|terminal prompts disabled|permission denied|host key verification failed|invalid credentials|\b40[13]\b/i;
 const NOT_FOUND = /repository not found|does not appear to be a git repository|not found|\b404\b/i;
 const UNREACHABLE =
 	/could not resolve host|could not resolve hostname|connection refused|network is unreachable|connection timed out|operation timed out|no route to host|failed to connect|unable to access|could not read from remote repository|name or service not known|temporary failure in name resolution/i;

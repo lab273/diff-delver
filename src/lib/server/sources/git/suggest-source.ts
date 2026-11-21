@@ -17,6 +17,7 @@
  * is given with the last commit as a candidate.
  */
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { parseBranchRef, type BranchRef } from '#lib/core/history/branch-ref.tiny.ts';
 import { parseCommitId, type CommitId } from '#lib/core/commit-id.tiny.ts';
 import { fileCountOf, type FileCount } from '#lib/core/file-count.tiny.ts';
 import { ok, type Result } from '#lib/core/result.ts';
@@ -138,6 +139,23 @@ async function mainBranches(repo: LocalRepository): Promise<Result<Branches, Git
 		if (ref !== undefined) found.push(ref);
 	}
 	return branches(found);
+}
+
+/**
+ * The branch other branches are compared with, as the no-argument start finds
+ * it, or undefined when none can be told. When more than one is plausible,
+ * the one the start would list first.
+ */
+export async function mainBranch(
+	repo: LocalRepository
+): Promise<Result<BranchRef | undefined, GitSourceError>> {
+	const branches = await mainBranches(repo);
+	if (!branches.ok) return branches;
+	for (const name of branches.value.mains) {
+		const ref = parseBranchRef(name);
+		if (ref.ok) return ok(ref.value);
+	}
+	return ok(undefined);
 }
 
 /**

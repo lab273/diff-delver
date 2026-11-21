@@ -80,7 +80,7 @@ export async function treeOf(
 }
 
 /** The commits a shallow clone has without their parents. */
-async function shallowBoundary(repo: LocalRepository): Promise<ReadonlySet<string>> {
+export async function shallowBoundary(repo: LocalRepository): Promise<ReadonlySet<string>> {
 	if (!repo.shallow) return new Set();
 	const text = await readFile(join(repo.commonDir, 'shallow'), 'utf8').catch(() => '');
 	return new Set(text.split('\n').filter((line) => line !== ''));

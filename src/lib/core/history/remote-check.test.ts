@@ -69,6 +69,7 @@ describe('comparing a remote with what this copy fetched', () => {
 	it('tells why a remote could not be asked from what git and ssh say', () => {
 		const kinds = [
 			"fatal: could not read Username for 'https://example.invalid': terminal prompts disabled",
+			'fatal: unable to get password from user',
 			'git@example.invalid: Permission denied (publickey).\nfatal: Could not read from remote repository.',
 			"fatal: '/nowhere' does not appear to be a git repository\nfatal: Could not read from remote repository.",
 			'remote: Repository not found.',
@@ -77,6 +78,7 @@ describe('comparing a remote with what this copy fetched', () => {
 			'fatal: something else'
 		].map((stderr) => classifyRemoteFailure(origin, stderr).kind);
 		expect(kinds).toEqual([
+			'RemoteNeedsLogin',
 			'RemoteNeedsLogin',
 			'RemoteNeedsLogin',
 			'RemoteNotFound',
