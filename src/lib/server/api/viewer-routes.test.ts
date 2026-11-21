@@ -126,8 +126,52 @@ describe('the viewer’s routes', () => {
 			headers: { authorization: `Bearer ${daemon.token}` }
 		});
 		expect(backwards.status).toBe(400);
+		// Said as what is wrong, with no empty field name before it.
+		expect(backwards.body).toContain(
+			'diff delver could not read this request (the first line comes after the last)'
+		);
+		// A file the version does not change is said to be so, not that it cannot be marked.
+		const gone = await client.readPart(id, part('src/none.ts'));
+		expect(gone).toMatchObject({ ok: false, error: { reason: 'FileNotInDiff' } });
+		if (!gone.ok) {
+			expect(describeApiError(gone.error)).toBe(
+				'src/none.ts is not one of the files this version of the diff changes. Reload the page to see the files it changes now.'
+			);
+		}
 		const never = await client.readPart(id, { ...part('src/long.ts'), version: revision(4) });
 		expect(never).toMatchObject({ ok: false, error: { status: 409, reason: 'VersionNotFound' } });
+	});
+
+	it('stops saying an update unmarked a change once the reviewer has marked it again', async () => {
+		const repo = await useFixture(viewed);
+		const daemon = await testDaemon();
+		const client = clientOf(daemon);
+		const started = value(await client.start({ directory: repo.dir }));
+		if (started.kind !== 'opened') throw new Error(started.kind);
+		const id = started.diff.id;
+		const long = (version: number, reviewed: boolean) =>
+			client.markReviewed(id, {
+				version: revision(version),
+				target: { kind: 'slice', group: { kind: 'uncategorised' }, path: path('src/long.ts') },
+				reviewed,
+				view: 'sections'
+			});
+		value(await long(1, true));
+		// A line next to "line ten" changes: its mark is taken off, and the page says why.
+		await repo.write(
+			'src/long.ts',
+			numbered(1, 9) + 'line ten\nline eleven\n' + numbered(12, 49) + numbered(51, 60)
+		);
+		value(await client.updateDiff(id));
+		const tallyOf = (marked: { parts: readonly { path: string; tally: unknown }[] }) =>
+			marked.parts.find((p) => p.path === 'src/long.ts')?.tally;
+		const page = value(await client.loadDiff(id));
+		expect(tallyOf({ parts: page.groups.flatMap((g) => g.parts) })).toMatchObject({
+			unmarked: 2
+		});
+		// Marked again and unmarked by the reviewer: the update is no longer the reason.
+		expect(tallyOf(value(await long(2, true)))).toMatchObject({ unmarked: 0 });
+		expect(tallyOf(value(await long(2, false)))).toMatchObject({ reviewed: 0, unmarked: 0 });
 	});
 
 	it('marks a part, a file and a group on the version shown, and refuses once the diff was updated', async () => {

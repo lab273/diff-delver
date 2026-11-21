@@ -14,6 +14,8 @@
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { ChangeCheckResponse, NextSourceOffer } from '#lib/api/schemas.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
+	import type { EscapedPath } from '#lib/core/path-bytes.ts';
+	import { previousRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import Notice from '#lib/ui/Notice.svelte';
 	import { ChangeChecks, type Shown } from '#lib/ui/change-checks.ts';
 	import { pageClient } from '#lib/ui/client.ts';
@@ -316,7 +318,7 @@
 		await afterTick(await viewer.tick({ kind: 'file', path: file.path }, reviewed));
 	}
 
-	async function goTo(path: string, group: GroupKeyView): Promise<void> {
+	async function goTo(path: EscapedPath, group: GroupKeyView): Promise<void> {
 		const at = viewer?.partOf(group, path);
 		if (at !== undefined) await goToPart(at, true);
 	}
@@ -420,7 +422,7 @@
 	{@const updated = page.update}
 	{@const overall = viewer.overall}
 	{@const allDone = overall.units > 0 && overall.reviewed === overall.units}
-	{@const previousVersion = summary.version > 1 ? summary.version - 1 : null}
+	{@const previousVersion = previousRevisionNumber(summary.version)}
 	{@const ignoredUnits = summary.progress.ignored}
 	<div class="viewer">
 		<div class="top">

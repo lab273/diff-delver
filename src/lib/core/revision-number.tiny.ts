@@ -24,3 +24,8 @@ export const FIRST_REVISION = 1 as RevisionNumber;
 export function nextRevisionNumber(number: RevisionNumber): RevisionNumber {
 	return (number + 1) as RevisionNumber;
 }
+
+/** The revision before this one, or null for a first revision. */
+export function previousRevisionNumber(number: RevisionNumber): RevisionNumber | null {
+	return number > 1 ? ((number - 1) as RevisionNumber) : null;
+}

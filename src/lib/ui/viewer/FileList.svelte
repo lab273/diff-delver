@@ -7,6 +7,7 @@
 <script lang="ts">
 	import type { FileView, GroupKeyView } from '#lib/api/schemas.ts';
 	import { describeTally } from '#lib/core/viewer/words.ts';
+	import type { EscapedPath } from '#lib/core/path-bytes.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import { done, type Viewer } from './viewer.svelte.ts';
 
@@ -17,7 +18,7 @@
 	}: {
 		viewer: Viewer;
 		ontick: (file: FileView, reviewed: boolean) => Promise<void>;
-		ongo: (path: string, group: GroupKeyView) => void;
+		ongo: (path: EscapedPath, group: GroupKeyView) => void;
 	} = $props();
 
 	const shown = $derived(

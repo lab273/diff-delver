@@ -57,3 +57,20 @@ export function insertUnmarkedUnitRows(
 		);
 	}
 }
+
+/** Replaces the unmarked units of the files at `paths` with `rows`, which are only of those files. */
+export function replaceUnmarkedUnitRows(
+	q: Queries,
+	revision: RevisionId,
+	paths: ReadonlySet<RepoPath>,
+	rows: readonly UnitRow[]
+): void {
+	for (const path of paths) {
+		q.run(
+			'DELETE FROM unmarked_units WHERE revision_id = ? AND path = ?',
+			revision,
+			repoPathBytes(path)
+		);
+	}
+	insertUnmarkedUnitRows(q, revision, rows);
+}

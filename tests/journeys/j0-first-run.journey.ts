@@ -104,6 +104,19 @@ test.describe('J0 First run', () => {
 		);
 		await journey.expectHidden(journey.within(checkout).byText('// End of checkout.'));
 		await journey.expectVisible(journey.within(checkout).byText('16 unchanged lines'));
+		// Below the change, twenty more at a time.
+		await journey.activate(
+			journey
+				.within(checkout)
+				.byRole('button', { name: '20 more unchanged lines: 25 to 44', exact: true })
+		);
+		await journey.expectVisible(
+			journey.within(checkout).byText('export function refund(order: Order): string {')
+		);
+		await journey.expectVisible(
+			journey.within(checkout).byText('1 unchanged line', { exact: true })
+		);
+		await journey.step('Twenty more unchanged lines');
 
 		await journey.press('r');
 		await journey.press('n');

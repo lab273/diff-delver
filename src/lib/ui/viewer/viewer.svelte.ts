@@ -23,7 +23,8 @@ import type {
 	ViewName
 } from '#lib/api/schemas.ts';
 import { groupKeyId } from '#lib/core/group-key-id.tiny.ts';
-import type { LineNumber } from '#lib/core/line-number.tiny.ts';
+import { lineNumberOf, type LineNumber } from '#lib/core/line-number.tiny.ts';
+import type { EscapedPath } from '#lib/core/path-bytes.ts';
 import type { LineText } from '#lib/core/line-text.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
@@ -49,8 +50,8 @@ export const LARGE_PART_ROWS = 800;
 
 /** An unchanged line opened in a part, numbered on both sides. */
 export interface OpenLine {
-	readonly old: number;
-	readonly new: number;
+	readonly old: LineNumber;
+	readonly new: LineNumber;
 	readonly text: LineText;
 }
 
@@ -111,7 +112,7 @@ export interface GroupInfo {
 	readonly count: number;
 }
 
-function keyOf(group: GroupKeyView, path: string): string {
+function keyOf(group: GroupKeyView, path: EscapedPath): string {
 	return `${groupKeyId(group)}\u0000${path}`;
 }
 
@@ -254,7 +255,7 @@ export class Viewer {
 	}
 
 	/** Where a file's part in a group is in reading order. */
-	partOf(group: GroupKeyView, path: string): number | undefined {
+	partOf(group: GroupKeyView, path: EscapedPath): number | undefined {
 		return this.#byKey.get(keyOf(group, path));
 	}
 
@@ -362,7 +363,7 @@ export class Viewer {
 		}
 		const offset = hidden.old.first - hidden.new.first;
 		const lines = read.value.lines.map((l): OpenLine => ({
-			old: l.number + offset,
+			old: lineNumberOf(l.number + offset),
 			new: l.number,
 			text: l.text
 		}));

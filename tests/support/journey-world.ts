@@ -53,7 +53,7 @@ function root(): string {
 
 const lines = (...text: readonly string[]): string => `${text.join('\n')}\n`;
 
-/** The shop's checkout, 40 lines long: long enough to have unchanged lines to open. */
+/** The shop's checkout, 45 lines long: long enough to have unchanged lines to open, a step at a time below the change. */
 const CHECKOUT = [
 	"import { total } from './cart.ts';",
 	'',
@@ -93,6 +93,10 @@ const CHECKOUT = [
 	'\tif (!canPay(order)) return validate(order);',
 	"\tconsole.log('Paying', summary(order));",
 	'\treturn receipt(order);',
+	'}',
+	'',
+	'export function refund(order: Order): string {',
+	'\treturn `Refunded: ${summary(order)}`;',
 	'}',
 	'// End of checkout.'
 ];

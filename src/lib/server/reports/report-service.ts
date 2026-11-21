@@ -41,6 +41,7 @@ import { partBlocks, type PartBlock } from '#lib/core/viewer/part-lines.ts';
 import { initialState, type AssignmentState } from '#lib/core/diff/state.ts';
 import type { IdSource } from '#lib/core/ids.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
+import type { RevisionId } from '#lib/core/revision-id.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { ReportIdentity } from '#lib/core/report-identity.tiny.ts';
 import {
@@ -85,7 +86,7 @@ import {
 	type ReviewedRow,
 	type UnitRow
 } from '#lib/core/storage/stored-units.ts';
-import type { UnitSet } from '#lib/core/diff/unit-set.ts';
+import { withoutUnits, type UnitSet } from '#lib/core/diff/unit-set.ts';
 import { carryOver } from '#lib/core/update/carry-over.ts';
 import type { TreeChanges } from '#lib/core/update/line-map.ts';
 import type { UpdateSummary } from '#lib/core/update/update-summary.ts';
@@ -108,7 +109,11 @@ import {
 	touchReport
 } from '../db/tables/reports.ts';
 import { insertNewUnitRows, newUnitRowsFor } from '../db/tables/new-units.ts';
-import { insertUnmarkedUnitRows, unmarkedUnitRowsFor } from '../db/tables/unmarked-units.ts';
+import {
+	insertUnmarkedUnitRows,
+	replaceUnmarkedUnitRows,
+	unmarkedUnitRowsFor
+} from '../db/tables/unmarked-units.ts';
 import { replaceReviewedRows, reviewedRowsFor } from '../db/tables/reviewed-marks.ts';
 import { insertRevisionUpdate, revisionUpdateFor } from '../db/tables/revision-updates.ts';
 import {
@@ -887,6 +892,13 @@ export class ReportService {
 						marked.files,
 						reviewedRowsOf(marked.marks, marked.files)
 					);
+					// A change the last update unmarked and the reviewer has marked again is
+					// theirs now: unticking it later is not the update's doing, so the page no
+					// longer says it was.
+					if (reviewed) {
+						const unmarked = forgetMarkedAgain(q, revision.id, diff, marked.marks, marked.files);
+						if (!unmarked.ok) return unmarked;
+					}
 					return ok({
 						result: {
 							reviewed: marked.marks,
@@ -1897,4 +1909,33 @@ export class ReportService {
 		}
 		return { snapshots: snapshotCountOf(count), storeProblem: undefined };
 	}
+}
+
+/**
+ * Takes the changes the reviewer has just marked out of the units the update
+ * that made this revision unmarked, for the files the mark touched.
+ */
+function forgetMarkedAgain(
+	q: Queries,
+	revision: RevisionId,
+	diff: Diff,
+	marks: ReviewedMarks,
+	files: ReadonlySet<RepoPath>
+): Result<void, ReportError> {
+	const rows: UnitRow[] = [];
+	for (const path of files) {
+		const found = unmarkedUnitRowsFor(q, revision, path);
+		if (!found.ok) return found;
+		rows.push(...found.value);
+	}
+	if (rows.length === 0) return ok(undefined);
+	const unmarked = unitSetFromRows(diff, rows, 'unmarked changes');
+	if (!unmarked.ok) return unmarked;
+	replaceUnmarkedUnitRows(
+		q,
+		revision,
+		files,
+		unitRowsOf(withoutUnits(unmarked.value, marks), files)
+	);
+	return ok(undefined);
 }

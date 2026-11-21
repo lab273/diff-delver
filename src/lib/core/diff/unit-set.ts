@@ -74,3 +74,21 @@ export function sameUnitSet(a: UnitSet, b: UnitSet): boolean {
 	}
 	return true;
 }
+
+/** The units of `set` that are not in `taken`. */
+export function withoutUnits(set: UnitSet, taken: UnitSet): UnitSet {
+	const files = new Map<RepoPath, FileUnitSet>();
+	for (const [path, file] of set.files) {
+		const out = taken.files.get(path);
+		const left =
+			out === undefined
+				? file
+				: fileUnitsOf(
+						file.old.subtract(out.old),
+						file.new.subtract(out.new),
+						file.file && !out.file
+					);
+		if (left !== undefined) files.set(path, left);
+	}
+	return { files };
+}

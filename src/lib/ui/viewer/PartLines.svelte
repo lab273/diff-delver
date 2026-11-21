@@ -7,9 +7,12 @@
 -->
 <script lang="ts">
 	import type { GroupKeyView, ShownLineView } from '#lib/api/schemas.ts';
-	import type { BlockState, Viewer } from './viewer.svelte.ts';
+	import type { EscapedPath } from '#lib/core/path-bytes.ts';
+	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
+	import type { BlockState, OpenLine, Viewer } from './viewer.svelte.ts';
 	import { hiddenCount, nextStep } from './viewer.svelte.ts';
 	import { drawLine } from './draw-line.ts';
+	import { EXPANSION_STEP } from '#lib/core/viewer/expansion.ts';
 	import { countOf } from '#lib/core/viewer/words.ts';
 
 	let {
@@ -23,9 +26,9 @@
 		viewer: Viewer;
 		at: number;
 		blocks: BlockState[];
-		path: string;
+		path: EscapedPath;
 		/** The version before this one, for "new since version 1"; null for a first version. */
-		previousVersion: number | null;
+		previousVersion: RevisionNumber | null;
 		/** Goes to the part of this file in another group. */
 		ongo: (group: GroupKeyView) => void;
 	} = $props();
@@ -122,7 +125,7 @@
 	{/each}
 {/snippet}
 
-{#snippet opened(line: { old: number; new: number; text: ShownLineView['text'] })}
+{#snippet opened(line: OpenLine)}
 	<tr class="context opened">
 		<td class="number">{line.old}</td>
 		<td class="number">{line.new}</td>
@@ -166,26 +169,30 @@
 								<span class="hidden-count">
 									{countOf(left, 'unchanged line', 'unchanged lines')}
 								</span>
-								{#if !isTop && down !== undefined && left > 20}
+								{#if !isTop && down !== undefined && left > EXPANSION_STEP}
 									<button
 										type="button"
 										class="open"
 										disabled={block.busy}
-										aria-label="Show unchanged lines {down.first} to {down.last}"
 										onclick={() => viewer.openLines(at, b, 'down')}
 									>
-										↓ 20 more
+										<span aria-hidden="true">↓</span>
+										{EXPANSION_STEP} more<span class="visually-hidden">
+											unchanged lines: {down.first} to {down.last}
+										</span>
 									</button>
 								{/if}
-								{#if !isEnd && up !== undefined && left > 20}
+								{#if !isEnd && up !== undefined && left > EXPANSION_STEP}
 									<button
 										type="button"
 										class="open"
 										disabled={block.busy}
-										aria-label="Show unchanged lines {up.first} to {up.last}"
 										onclick={() => viewer.openLines(at, b, 'up')}
 									>
-										↑ 20 more
+										<span aria-hidden="true">↑</span>
+										{EXPANSION_STEP} more<span class="visually-hidden">
+											unchanged lines: {up.first} to {up.last}
+										</span>
 									</button>
 								{/if}
 								<button

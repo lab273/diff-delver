@@ -21,10 +21,18 @@ export async function readBody<T>(
 	}
 	const parsed = schema.safeParse(json);
 	if (parsed.success) return ok(parsed.data);
-	const issue = parsed.error.issues[0];
-	return err(
-		badRequest(`${issue?.path.join('.') ?? 'body'}: ${issue?.message ?? 'not as expected'}`)
-	);
+	return err(badRequest(describeIssue(parsed.error.issues[0])));
+}
+
+/**
+ * What was wrong with a request, from the first issue its schema found: the
+ * field and what is wrong with it, or only what is wrong when it is about the
+ * whole request, such as a range given the wrong way round.
+ */
+function describeIssue(issue: z.core.$ZodIssue | undefined): string {
+	if (issue === undefined) return 'it is not as expected';
+	const field = issue.path.map(String).join('.');
+	return field === '' ? issue.message : `${field}: ${issue.message}`;
 }
 
 /** A diff's id from the address, or the answer for an address that names none. */
@@ -49,10 +57,7 @@ export function readQuery<T>(url: URL, schema: z.ZodType<T>): Result<T, Response
 	for (const [name, value] of url.searchParams) fields[name] = value;
 	const parsed = schema.safeParse(fields);
 	if (parsed.success) return ok(parsed.data);
-	const issue = parsed.error.issues[0];
-	return err(
-		badRequest(`${issue?.path.join('.') ?? 'query'}: ${issue?.message ?? 'not as expected'}`)
-	);
+	return err(badRequest(describeIssue(parsed.error.issues[0])));
 }
 
 /** The answer for a path that names no file a diff could have. */

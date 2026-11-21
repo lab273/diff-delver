@@ -6,7 +6,9 @@
 -->
 <script lang="ts">
 	import type { GroupKeyView, PartLines as PartLinesView } from '#lib/api/schemas.ts';
-	import { describeByteSize, countOf, describeTally } from '#lib/core/viewer/words.ts';
+	import { describeByteSize, countOf, describeTally, formatCount } from '#lib/core/viewer/words.ts';
+	import type { EscapedPath } from '#lib/core/path-bytes.ts';
+	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import PartLines from './PartLines.svelte';
 	import { done, type PartState, type Viewer } from './viewer.svelte.ts';
@@ -21,9 +23,9 @@
 	}: {
 		viewer: Viewer;
 		state: PartState;
-		previousVersion: number | null;
+		previousVersion: RevisionNumber | null;
 		ontick: (at: number, reviewed: boolean) => Promise<void>;
-		ongo: (path: string, group: GroupKeyView) => void;
+		ongo: (path: EscapedPath, group: GroupKeyView) => void;
 		/** Shows the diff's newer version, when a tick was refused for being behind it. */
 		onshownewer: () => void;
 	} = $props();
@@ -117,7 +119,9 @@
 		{/each}
 		{#if part.tally.fresh > 0 && !ignored}
 			<span class="fresh">
-				{part.tally.fresh} new<span class="visually-hidden"> since version {previousVersion}</span>
+				{formatCount(part.tally.fresh)} new<span class="visually-hidden">
+					since version {previousVersion}
+				</span>
 			</span>
 		{/if}
 		{#each part.ignored as reason, r (r)}

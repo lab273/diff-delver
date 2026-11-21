@@ -42,7 +42,7 @@ export function describeMarkError(error: MarkError): ReviewerMessage {
 	switch (error.kind) {
 		case 'FileNotInDiff':
 			return reviewerMessage(
-				`${escapedRepoPath(error.path)} is not one of the changed files, so it cannot be marked as reviewed. Reload the page to see the current files.`
+				`${escapedRepoPath(error.path)} is not one of the files this version of the diff changes. Reload the page to see the files it changes now.`
 			);
 		case 'NothingToMark':
 			return reviewerMessage(
