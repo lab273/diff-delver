@@ -14,7 +14,7 @@
 						"maxLength": 500
 					},
 					"directory": {
-						"description": "The repository, as a folder in it. Leave it out for the folder you were started in; give it when you work across several repositories. A relative path is taken from the folder you were started in.",
+						"description": "The repository, as a folder in it. Leave it out for the folder you were started in. Another repository is opened only if the person has opened it with diff delver themselves. A relative path is taken from the folder you were started in.",
 						"type": "string",
 						"maxLength": 4096
 					}

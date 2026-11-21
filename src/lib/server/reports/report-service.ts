@@ -27,6 +27,7 @@
  * and makes the next revision in one transaction. Earlier revisions stay
  * stored, with their snapshots.
  */
+import type { ObjectFormat } from '#lib/core/object-format.ts';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { Clock } from '#lib/core/clock.ts';
 import { assign, type AssignOutcome, type AssignRequest } from '#lib/core/diff/assign.ts';
@@ -165,6 +166,7 @@ import {
 	snapshotGitSource,
 	sourceHasChanges,
 	sourceIdentity,
+	storeIdFor,
 	suggestSource,
 	type GitSnapshot,
 	type LocalRepository,
@@ -916,6 +918,19 @@ export class ReportService {
 	 * rows cannot be read is listed as damaged in its place, so one bad row
 	 * never hides the others.
 	 */
+	/**
+	 * Whether diff delver has a report, open or closed, of the repository whose
+	 * common git directory is `commonDir`: one the person has opened here. Read
+	 * from the database alone; the repository is not touched.
+	 */
+	hasReportOfRepository(commonDir: AbsolutePath): Result<boolean, ReportError> {
+		const formats: readonly ObjectFormat[] = ['sha1', 'sha256'];
+		const stores = new Set(formats.map((format) => storeIdFor(commonDir, format)));
+		return this.#db.read((q) =>
+			ok(everyReport(q).some((report) => report.ok && stores.has(report.value.store)))
+		);
+	}
+
 	list(): Result<readonly ListedReport[], ReportError> {
 		return this.#db.read((q): Result<readonly ListedReport[], ReportError> => {
 			const revisions = currentRevisions(q);

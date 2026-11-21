@@ -73,6 +73,7 @@ import {
 	type OpenOutcome,
 	type ReportService
 } from '../reports/index.ts';
+import { repositoryOnDisk } from '../sources/git/index.ts';
 import { listSnapshotPaths, readSnapshotFile, readSnapshotLines } from '../store/index.ts';
 import { describeForAgent } from './agent-errors.ts';
 import { describeInputProblems } from './input-problems.ts';
@@ -279,11 +280,11 @@ const createReport = tool({
 			.max(4096)
 			.optional()
 			.describe(
-				'The repository, as a folder in it. Leave it out for the folder you were started in; give it when you work across several repositories. A relative path is taken from the folder you were started in.'
+				'The repository, as a folder in it. Leave it out for the folder you were started in. Another repository is opened only if the person has opened it with diff delver themselves. A relative path is taken from the folder you were started in.'
 			)
 	}),
 	run: async (input, context) => {
-		const directory = directoryFor(input.directory, context.directory);
+		const directory = await directoryFor(input.directory, context);
 		if (!directory.ok) return directory;
 		if (input.source === undefined) {
 			const started = await context.service.start(directory.value);
@@ -335,10 +336,23 @@ const createReport = tool({
 	}
 });
 
-function directoryFor(
+/**
+ * The folder `create_report` opens. Left out, the folder the agent was started
+ * in, which the person chose. Given, it is the agent's choice, and opening it
+ * runs git there with that repository's own config, which can name commands git
+ * runs (a clean filter, run by `git add`); so it is opened only when it is in
+ * the repository the agent was started in, or in one the person has opened
+ * with diff delver in this data folder. Which repository a folder is in is
+ * found from the files alone (`repositoryOnDisk`), so nothing runs in a folder
+ * that is refused; and an accepted one is opened from the top of that
+ * repository, not from the folder named, so git finds the repository that
+ * was checked, never one in a folder below it.
+ */
+async function directoryFor(
 	given: string | undefined,
-	startedIn: AbsolutePath | undefined
-): Result<AbsolutePath, string> {
+	context: ToolContext
+): Promise<Result<AbsolutePath, string>> {
+	const startedIn = context.directory;
 	if (given === undefined) {
 		return startedIn === undefined
 			? err(
@@ -352,11 +366,26 @@ function directoryFor(
 		);
 	}
 	const path = parseAbsolutePath(resolve(startedIn ?? '/', given));
-	return path.ok
-		? ok(path.value)
-		: err(
-				`${quotedAgentText(given, 120)} cannot be read as a folder. Give the absolute path of a folder in the repository.`
-			);
+	if (!path.ok) {
+		return err(
+			`${quotedAgentText(given, 120)} cannot be read as a folder. Give the absolute path of a folder in the repository.`
+		);
+	}
+	const found = await repositoryOnDisk(path.value);
+	if (found !== undefined) {
+		const home = startedIn === undefined ? undefined : await repositoryOnDisk(startedIn);
+		if (home?.commonDir === found.commonDir) return ok(found.top);
+		const opened = context.service.hasReportOfRepository(found.commonDir);
+		if (!opened.ok) return err(describeForAgent(opened.error));
+		if (opened.value) return ok(found.top);
+	}
+	return err(
+		[
+			`${quotedAgentText(given, 120)} was not opened, and nothing was run there: it is not in the repository you were started in, nor in one the person has opened with diff delver.`,
+			"diff delver opens a repository for an agent only where the person started the agent, or where they have opened it with diff delver themselves, because opening it runs git with that repository's own settings.",
+			'Tell the person: to have it reviewed, they can run diff-delver once in that folder themselves, and then you can call create_report with it again. Or leave "directory" out to open the repository you were started in.'
+		].join(' ')
+	);
 }
 
 async function opened(outcome: OpenOutcome, context: ToolContext): Promise<Result<string, string>> {

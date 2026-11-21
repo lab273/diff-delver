@@ -6,7 +6,8 @@
  * stopped when its test finishes.
  */
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { access, cp, readFile, symlink } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { BUILT_COMMAND } from '../../../../tests/support/build.ts';
@@ -14,10 +15,11 @@ import { clientOf, rawRequest, testDaemon } from '../../../../tests/support/daem
 import { listingsAround } from '../../../../tests/support/directory-listing.ts';
 import {
 	defineFixture,
+	emptyRepo,
 	tempDirectory,
 	useFixture
 } from '../../../../tests/support/fixture-repos.ts';
-import type { GitRepo } from '../../../../tests/support/git-repo.ts';
+import { absolutePath, GitRepo } from '../../../../tests/support/git-repo.ts';
 import {
 	cursorIn,
 	mcpOverHttp,
@@ -465,6 +467,89 @@ describe('the agent interface, through the stdio shim', () => {
 		const now = await readLockfile(data);
 		expect(now.kind === 'lock' && now.lock.pid).not.toBe(lock.lock.pid);
 		expect(session.stderr()).toBe('');
+	});
+
+	it('opens a folder an agent names only in its own repository or one the person opened, running nothing anywhere else', async () => {
+		const agent = await shopAgent();
+		const { session, data, who } = agent;
+		const marker = join(await tempDirectory(), 'marker');
+		// A repository whose own config runs a command whenever git adds a file to an index.
+		const evil = await emptyRepo();
+		await evil.write('.gitattributes', '* filter=evil\n');
+		await evil.write('a.txt', 'one\n');
+		await evil.commit('first');
+		await evil.git('config', 'filter.evil.clean', `touch '${marker}'; cat`);
+		await evil.write('a.txt', 'two\n');
+		// The same inside the agent's own repository, as a repository of its own, and a link to it.
+		const nested = GitRepo.open(absolutePath(join(agent.repo.dir, 'vendor', 'nested')));
+		await cp(evil.dir, nested.dir, { recursive: true });
+		await symlink(evil.dir, join(agent.repo.dir, 'link-out'));
+		const markerExists = () =>
+			access(marker).then(
+				() => true,
+				() => false
+			);
+
+		const own = reportIn(await session.call('create_report', {}));
+		for (const directory of [
+			evil.dir,
+			join(evil.dir, '.git'),
+			nested.dir,
+			'vendor/nested',
+			'link-out',
+			`../${basename(evil.dir)}`,
+			join(agent.repo.dir, '..', basename(evil.dir))
+		]) {
+			const answer = await session.call('create_report', { directory, source: 'working-tree' });
+			expect(answer.refused, directory).toBe(true);
+			expect(answer.text).toMatch(
+				/was not opened, and nothing was run there: it is not in the repository you were started in, nor in one the person has opened with diff delver\..*Tell the person: to have it reviewed, they can run diff-delver once in that folder themselves/
+			);
+		}
+		// No other call an agent can make runs anything there either.
+		for (const [tool, args] of [
+			['get_file', { report: own, path: join(evil.dir, 'a.txt') }],
+			['get_file', { report: own, path: '../link-out/a.txt' }],
+			['get_diff', { report: own, files: [join(evil.dir, 'a.txt')] }],
+			[
+				'assign',
+				{
+					report: own,
+					version: 1,
+					items: [{ file: join(evil.dir, 'a.txt'), section: 'ignored', reason: 'x' }]
+				}
+			],
+			[
+				'upsert_sections',
+				{
+					report: own,
+					version: 1,
+					sections: [
+						{ id: 'x', title: 'x', references: [{ file: join(evil.dir, 'a.txt'), lines: '+1' }] }
+					]
+				}
+			],
+			['list_reports', { include_closed: true }],
+			['get_manifest', { report: own }],
+			['get_coverage', { report: own }]
+		] as const) {
+			await session.call(tool, args);
+		}
+		expect(await markerExists()).toBe(false);
+
+		// A folder inside the agent's own repository opens it, from its top.
+		const inside = await session.call('create_report', { directory: 'src' });
+		expect(reportIn(inside)).toBe(own);
+
+		// Once the person has opened the repository themselves, the agent may open it too.
+		await run(['--no-open', '--data-directory', data], evil.dir, who);
+		expect(await markerExists()).toBe(true);
+		const theirs = await session.call('create_report', {
+			directory: evil.dir,
+			source: 'working-tree'
+		});
+		expect(theirs.refused, theirs.text).toBe(false);
+		expect(reportIn(theirs)).not.toBe(own);
 	});
 
 	it('reads only the two sides of the snapshot, never what is around them', async () => {
