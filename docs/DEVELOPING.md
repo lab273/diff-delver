@@ -15,10 +15,11 @@ There are three documents, and nothing is said in two of them:
 Keep the README short. It shows the main ways the tool is used, and what does not
 work yet; detail belongs here or in the design. Its pictures are the journeys'
 committed screenshots (`tests/journeys/screenshots/`), in both themes, never images
-made for it, so they change with the interface. What is built so far, and what is not, is in the README
-under [What works today](../README.md#what-works-today). `scripts/documents.test.ts` fails when
-a document links to a file or a heading that is not there, or the README shows a
-picture that is not a journey's.
+made for it, so they change with the interface. What is built so far, and what is
+not, is in the README under [What works today](../README.md#what-works-today).
+`scripts/documents.test.ts` fails when a document links to a file or a heading that
+is not there, or the README shows a picture that is not a journey's, or shows it in
+the wrong theme.
 
 ## User experience comes first
 

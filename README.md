@@ -46,7 +46,7 @@ compared with the main branch, and if there is more than one likely choice, it a
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="tests/journeys/screenshots/j0-first-run.02.the-uncommitted-changes.dark.png">
-  <img src="tests/journeys/screenshots/j0-first-run.02.the-uncommitted-changes.light.png" alt="Uncommitted changes opened in diff delver before any agent has sorted them: every file is listed under Not sorted yet" width="800">
+  <img src="tests/journeys/screenshots/j0-first-run.02.the-uncommitted-changes.light.png" alt="Uncommitted changes opened in diff delver before any agent has sorted them: the files to review are listed under Not sorted yet, and the lockfile is set aside as Ignored" width="800">
 </picture>
 
 On the page you can:
@@ -93,14 +93,16 @@ that Codex sorted in one of the project's recorded trials.
 
 The agent sorts better when it has the project's skill, one file of advice on how to
 sort a diff for a reviewer:
-[`skills/diff-delver/SKILL.md`](skills/diff-delver/SKILL.md). Give it to your agent
-as a file. For Claude Code, copy the `skills/diff-delver` folder into
-`~/.claude/skills/`.
+[`SKILL.md`](plugins/claude-code/skills/diff-delver/SKILL.md). Give it to your agent
+as a file. For Claude Code, save it as `~/.claude/skills/diff-delver/SKILL.md`.
+
+The MCP server uses the same data folder as the command. Add `--no-open` after `mcp`
+to have the agent give you the page's address instead of opening a browser.
 
 ### Keep reviewing as the code changes
 
 When your files change, the page says so and offers **Update**. Running the command
-again does the same. Your sections and ticks are kept. A tick is taken off only where
+again brings the diff up to date too. Your sections and ticks are kept. A tick is taken off only where
 the lines, or lines close to them, changed, and the page says why.
 
 <picture>
@@ -127,7 +129,7 @@ Other commands and options:
 | | |
 |---|---|
 | `--no-open` | Print the page's address instead of opening a browser. The address works once, within two minutes. |
-| `diff-delver stop` | Stop diff delver. It otherwise keeps running in the background, so pages stay open. |
+| `diff-delver stop` | Stop diff delver. It otherwise keeps running in the background, so pages stay open. Any copy can stop whichever one is running. |
 | `diff-delver serve` | Run it in this terminal until Ctrl+C, instead of in the background. |
 | `--data-directory <folder>` | Keep its data in this folder. The `DIFF_DELVER_DATA_DIRECTORY` environment variable does the same. |
 | `--help`, `--version` | Show the help, or which version this is. |
@@ -148,7 +150,8 @@ diff delver keeps your diffs and ticks in one folder of its own,
 
 Not built yet:
 
-- The agent's summaries and overview are stored but not shown on the page yet.
+- The agent's summaries, overview and cross-references between sections are stored
+  but not shown on the page yet.
 - Comments on lines, and copying a finished review to the clipboard.
 - Pull requests as a source, and visual diffs.
 - A setup command and an installable Claude Code plugin. For now you add the MCP
@@ -159,9 +162,9 @@ The plan is in [docs/DESIGN.md](docs/DESIGN.md).
 
 ### Upgrading
 
-npx keeps running the copy it installed first, even after a newer release. To move to
-the newest release, delete npx's copies (they are only a cache) and run the same
-command again:
+npx needs the network each time it runs, but it keeps running the copy it installed
+first, even after a newer release. To move to the newest release, delete npx's copies
+(they are only a cache) and run the same command again:
 
 - Linux and macOS: `rm -rf ~/.npm/_npx`
 - Windows: delete the `_npx` folder in `%LocalAppData%\npm-cache`
@@ -179,7 +182,7 @@ Run the same install again to move to the newest release.
 
 A newer diff delver replaces an older one that is still running, and says so; open
 its pages again afterwards. An older copy never replaces a newer one: it uses the
-newer one, says so, and names the folder to delete.
+newer one, says so, and says how to upgrade.
 
 diff delver is not published to npm, and never will be under this name. Releases are
 files on [GitHub](https://github.com/lab273/diff-delver/releases).
@@ -207,7 +210,8 @@ For a coding agent, add the build as its MCP server:
 claude mcp add diff-delver -- node <clone>/bin/diff-delver.js mcp
 ```
 
-After pulling changes, run `pnpm install` again, which rebuilds it.
+After pulling changes, run `pnpm install` and then `pnpm build`. Without the build
+you keep running the old code.
 
 To work on diff delver itself:
 

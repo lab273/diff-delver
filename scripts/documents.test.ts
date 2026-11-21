@@ -18,9 +18,14 @@ const DOCUMENTS = [
 ];
 const SCREENSHOTS = 'tests/journeys/screenshots/';
 
+/** A document without its fenced code: a fence closes with at least as many backticks as opened it. */
+function withoutFences(markdown: string): string {
+	return markdown.replace(/^(`{3,})[^\n]*\n[\s\S]*?^\1`*[ \t]*$/gm, '');
+}
+
 /** A document without its code, where a bracket or a `#` is not a link or a heading. */
 function prose(markdown: string): string {
-	return markdown.replace(/^```[\s\S]*?^```/gm, '').replace(/`[^`\n]*`/g, '');
+	return withoutFences(markdown).replace(/`[^`\n]*`/g, '');
 }
 
 /** What a document links to or shows: Markdown links and images, and HTML `src` and `srcset`. */
@@ -37,8 +42,7 @@ function targets(markdown: string): string[] {
 function headingAnchors(markdown: string): Set<string> {
 	const anchors = new Set<string>();
 	// A heading keeps the words of its inline code, so only fenced code is taken out.
-	const text = markdown.replace(/^```[\s\S]*?^```/gm, '');
-	for (const match of text.matchAll(/^#{1,6} +(.+?) *$/gm)) {
+	for (const match of withoutFences(markdown).matchAll(/^#{1,6} +(.+?) *$/gm)) {
 		const words = (match[1] ?? '')
 			.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
 			.toLowerCase()
@@ -85,9 +89,29 @@ describe('the documents', () => {
 		expect(steps('dark')).toEqual(steps('light'));
 	});
 
-	it('keeps the heading the command sends people to for upgrading', async () => {
-		// src/lib/core/cli/replaced-daemon.ts prints this address.
-		expect(headingAnchors(await read('README.md')).has('upgrading')).toBe(true);
+	it('shows each picture light by default and dark to a reader whose theme is dark', async () => {
+		const readme = await read('README.md');
+		const shown = [...readme.matchAll(/<picture>[\s\S]*?<\/picture>/g)].map(([picture]) => ({
+			dark: /<source media="\(prefers-color-scheme: dark\)" srcset="([^"]+)\.dark\.png">/.exec(
+				picture
+			)?.[1],
+			light: /<img src="([^"]+)\.light\.png" alt="[^"]+"/.exec(picture)?.[1]
+		}));
+		expect(shown.length).toBeGreaterThan(0);
+		// Every picture of the README is in a <picture>, and none outside one.
+		expect(shown.length * 2).toBe(targets(readme).filter((t) => t.endsWith('.png')).length);
+		for (const { dark, light } of shown) {
+			expect(light).toBeDefined();
+			expect(dark).toBe(light);
+		}
+	});
+
+	it('keeps the headings that code sends people to', async () => {
+		const anchors = headingAnchors(await read('README.md'));
+		// src/lib/core/cli/replaced-daemon.ts prints the address of "Upgrading".
+		expect(anchors.has('upgrading')).toBe(true);
+		// src/lib/ui/run-command.ts names "Use it".
+		expect(anchors.has('use-it')).toBe(true);
 	});
 
 	it.each(['CLAUDE.md', 'AGENTS.md'])('%s is a link to the developer guidance', async (name) => {
