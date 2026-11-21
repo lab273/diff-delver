@@ -31,6 +31,7 @@
 	import { isFindKey, shortcutOf } from '#lib/ui/viewer/keys.ts';
 	import SearchBar from '#lib/ui/viewer/SearchBar.svelte';
 	import type { CurrentMatch } from '#lib/ui/viewer/search.svelte.ts';
+	import { whenReaderMoves } from '#lib/ui/viewer/reader-input.ts';
 	import {
 		done,
 		NEXT_BATCH,
@@ -626,25 +627,37 @@
 		centre();
 		// Centred again whenever the diff's size changes, until a frame passes with
 		// no change and no part above still fetching its lines, or the reader moves
-		// on. The bound only ends the keeping of a match already centred, if a part's
+		// on: by their own input (a wheel, a touch, a key, the scroll bar), which
+		// the page's own scrolling never makes, or to another part, as with j or k.
+		// The bound only ends the keeping of a match already centred, if a part's
 		// lines never come.
 		const diff = element.closest('.content') ?? document.body;
-		const since = { resized: false };
+		const since = { resized: false, readerMoved: false };
+		const keeping = (): boolean =>
+			!since.readerMoved &&
+			movesAsked <= 1 &&
+			viewer === shown &&
+			shown.search.open &&
+			shown.current === match.at;
 		const observer = new ResizeObserver(() => {
 			since.resized = true;
-			if (element.isConnected) centre();
+			if (element.isConnected && keeping()) centre();
+		});
+		const stopListening = whenReaderMoves(window, () => {
+			since.readerMoved = true;
 		});
 		observer.observe(diff);
 		try {
 			for (let frame = 0; frame < SETTLE_FRAMES_AT_MOST; frame += 1) {
 				await nextFrame();
-				if (movesAsked > 1 || viewer !== shown || !shown.search.open) return;
+				if (!keeping()) return;
 				const fetching = shown.parts.some((p) => p.index < match.at && p.lines.kind === 'loading');
 				if (!since.resized && !fetching) return;
 				since.resized = false;
 			}
 		} finally {
 			observer.disconnect();
+			stopListening();
 		}
 	}
 
