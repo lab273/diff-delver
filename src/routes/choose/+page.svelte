@@ -12,7 +12,7 @@
 	import { untrack } from 'svelte';
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { BranchView, CommitView, RemoteCheckView } from '#lib/api/schemas.ts';
-	import { branchName, type BranchRef } from '#lib/core/history/branch-ref.tiny.ts';
+	import { branchName } from '#lib/core/history/branch-ref.tiny.ts';
 	import {
 		describeCut,
 		describeReviewButton,
@@ -61,7 +61,15 @@
 	let finding = $state(false);
 	let findProblem = $state('');
 
-	let branch: BranchRef | undefined = $state(first?.branch);
+	/**
+	 * The branch whose commits are shown, as it was listed when it was chosen.
+	 * Kept apart from the list, so finding branches by name changes neither the
+	 * commits shown nor their controls.
+	 */
+	let chosen: BranchView | undefined = $state(
+		loaded?.branches.find((b) => b.ref === first?.branch)
+	);
+	const branch = $derived(chosen?.ref);
 	let rows: readonly CommitView[] = $state(first?.page.ok === true ? first.page.value.commits : []);
 	let next = $state(first?.page.ok === true ? first.page.value.next : null);
 	let commitsProblem = $state(
@@ -82,9 +90,8 @@
 	let checked: RemoteCheckView | undefined = $state();
 	let checkProblem = $state('');
 
-	const shownBranch = $derived(branches.find((b) => b.ref === branch));
 	const main = loaded?.main ?? undefined;
-	const isMain = $derived(shownBranch?.main ?? (branch !== undefined && branch === main));
+	const isMain = $derived(chosen?.main ?? false);
 	/** The first row the main branch has too, where the branch's own commits end. */
 	const forkAt = $derived(main === undefined || isMain ? -1 : rows.findIndex((row) => row.onMain));
 	const count = $derived(selectedCount(selection));
@@ -124,9 +131,10 @@
 
 	let commitLoads = 0;
 
-	async function chooseBranch(ref: BranchRef): Promise<void> {
+	async function chooseBranch(listed: BranchView): Promise<void> {
+		const ref = listed.ref;
 		if (directory === undefined || ref === branch) return;
-		branch = ref;
+		chosen = listed;
 		selection = NOTHING_SELECTED;
 		cutNote = '';
 		size = undefined;
@@ -341,7 +349,7 @@
 									value={listed.ref}
 									checked={listed.ref === branch}
 									onchange={() => {
-										void chooseBranch(listed.ref);
+										void chooseBranch(listed);
 									}}
 								/>
 								<span class="branch-text">
@@ -373,15 +381,15 @@
 		<section class="commits" aria-labelledby="commits-heading" aria-busy={loadingCommits}>
 			{#if branch !== undefined}
 				<h2 id="commits-heading">Commits on <VisibleText text={branchName(branch)} /></h2>
-				{#if main !== undefined && !isMain && shownBranch?.ahead != null}
-					{#if shownBranch.ahead > 0}
+				{#if main !== undefined && !isMain && chosen?.ahead != null}
+					{#if chosen.ahead > 0}
 						<button
 							type="button"
 							class="primary whole"
 							aria-disabled={opening}
 							onclick={reviewWholeBranch}
 						>
-							{describeWholeBranch(main, shownBranch.ahead)}
+							{describeWholeBranch(main, chosen.ahead)}
 						</button>
 						<p class="quiet">Or tick commits below to review only those.</p>
 					{:else}

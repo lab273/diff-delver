@@ -123,6 +123,13 @@ test.describe('J17 Choose commits to review', () => {
 		const menu = journey.byRole('radio', { name: /^origin\/new-menu/ });
 		await journey.expectVisible(menu);
 		await journey.expectHidden(discounts);
+		// The commits shown, and what can be done with them, stay as they were.
+		await journey.expectVisible(
+			journey.byRole('button', {
+				name: 'Review the whole branch: 3 commits, compared with origin/main'
+			})
+		);
+		await journey.expectVisible(journey.byRole('region', { name: 'Commits on discounts' }));
 		await journey.tabTo(menu);
 		await journey.press('Space');
 		await journey.expectVisible(
