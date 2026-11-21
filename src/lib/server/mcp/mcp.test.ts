@@ -708,6 +708,12 @@ describe('the agent interface, through the stdio shim', () => {
 		expect(folder.text).toMatch(
 			/src is a folder on the new side \(after the change\), with 1 entry, each with its whole path:\n- src\/values\.ts\n/
 		);
+		const root = await read({ path: '.' });
+		expect(root.refused).toBe(false);
+		expect(root.text).toMatch(
+			/The repository's root is a folder on the new side \(after the change\), with 3 entries, each with its whole path:\n- README\.md\n- outside\n- src \(a folder\)\n/
+		);
+		expect((await read({ path: '.', side: 'old' })).text).toMatch(/with 2 entries/);
 		const readme = await read({ path: 'README.md', side: 'old' });
 		expect(readme.text).toMatch(/1 {2}# Long$/);
 	});

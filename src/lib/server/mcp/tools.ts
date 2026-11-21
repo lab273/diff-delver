@@ -712,13 +712,16 @@ const getFile = tool({
 	title: "Read any file of the diff's two sides",
 	description: [
 		'Reads lines of any file in the repository as the diff has it, for context beyond the diff: the new side (after the change, the default) or the old side (before it). Files the diff does not change can be read too. Lines are numbered as get_diff numbers them, so "+120" in the diff is line 120 of the new side.',
-		`At most ${grouped(MAX_FILE_LINES)} lines at once: give "lines" such as "1..200" or "+120..+180", and the answer says what to ask for next. A folder's path lists what is in it. Only the repository's own files at the diff's two versions can be read, and none larger than 8 MB: nothing outside the repository, and nothing changed since the report's version was taken.`
+		`At most ${grouped(MAX_FILE_LINES)} lines at once: give "lines" such as "1..200" or "+120..+180", and the answer says what to ask for next. A folder's path lists what is in it, and "." lists the repository's root. Only the repository's own files at the diff's two versions can be read, and none larger than 8 MB: nothing outside the repository, and nothing changed since the report's version was taken.`
 	].join('\n\n'),
 	readOnly: true,
 	example: '{ "report": "r_7f3a9c01", "path": "src/auth/session.ts", "lines": "1..200" }',
 	schema: z.strictObject({
 		report: reportField,
-		path: z.string().max(4096).describe(`The file or folder. ${PATHS_EXPLAINED}`),
+		path: z
+			.string()
+			.max(4096)
+			.describe(`The file or folder; "." for the repository's root. ${PATHS_EXPLAINED}`),
 		side: z
 			.enum(['new', 'old'])
 			.optional()
@@ -737,11 +740,12 @@ const getFile = tool({
 		const range = linesWanted(input.lines, input.side);
 		if (!range.ok) return range;
 		const { side } = range.value;
+		if (ROOT_NAMES.has(input.path)) return ok(await folderListing(page.value, side, undefined));
 		const candidates = pathsNamedBy(input.path);
 		const [primary] = candidates;
 		if (primary === undefined) {
 			return err(
-				`${quotedAgentText(input.path, 120)} is not a path inside the repository. Paths are relative to its root, such as "src/app.ts", with no leading "/" and no "." or ".." parts; nothing outside the repository can be read.`
+				`${quotedAgentText(input.path, 120)} is not a path inside the repository. Paths are relative to its root, such as "src/app.ts", with no leading "/" and no "." or ".." parts, or "." for the root; nothing outside the repository can be read.`
 			);
 		}
 		const snapshot = page.value.snapshot;
@@ -822,6 +826,9 @@ const MAX_FILE_BYTES: ByteSize = (() => {
 	if (!size.ok) throw new RangeError('8 MiB is a byte size');
 	return size.value;
 })();
+
+/** What names the repository's root, for listing it. */
+const ROOT_NAMES: ReadonlySet<string> = new Set(['.', './', '']);
 
 /** At most this many entries of a folder are listed. */
 const MAX_FOLDER_ENTRIES = 300;
