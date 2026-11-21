@@ -28,6 +28,9 @@
 	import { sideBySide, type LineSide, type SideRow } from '#lib/core/viewer/side-by-side.ts';
 	import type { Quieted } from '#lib/core/viewer/white-space.ts';
 	import type { Layout } from '#lib/core/settings.ts';
+	import type { Mark } from '#lib/core/search/marks.ts';
+	import { ROWS_PER_CHUNK } from '#lib/core/viewer/chunks.ts';
+	import type { PartMarks } from './search.svelte.ts';
 
 	let {
 		viewer,
@@ -38,7 +41,8 @@
 		ongo,
 		colours,
 		busy,
-		layout
+		layout,
+		marks
 	}: {
 		viewer: Viewer;
 		at: PartIndex;
@@ -54,7 +58,43 @@
 		previousVersion: RevisionNumber | null;
 		/** Goes to the part of this file in another group. */
 		ongo: (group: GroupKeyView) => void;
+		/** A search's matches in the part, to mark; undefined when it has none. */
+		marks: PartMarks | undefined;
 	} = $props();
+
+	/** The current search match's place, when it is in this part. */
+	const current = $derived(viewer.search.current?.at === at ? viewer.search.current : undefined);
+
+	/** A line's matches, to mark on it. */
+	function marksOn(line: object): readonly Mark[] | undefined {
+		return marks?.lines.get(line);
+	}
+
+	/** Whether the match the person is on is on this line, so the page can scroll to it. */
+	function holdsCurrent(line: object): boolean {
+		return current?.place.kind === 'line' && current.place.line === line;
+	}
+
+	// The chunk of a long hunk holding the current match is drawn, wherever it is.
+	$effect(() => {
+		const place = current?.place;
+		if (place?.kind !== 'line' || place.opened) return;
+		const block = blocks[place.block];
+		if (block?.kind !== 'hunk') return;
+		const shown = viewer.drawnLines(block);
+		const holds = (item: Drawn | undefined): boolean =>
+			item !== undefined &&
+			(item.kind === 'line'
+				? item.line === place.line
+				: item.removed === place.line || item.added === place.line);
+		const row = split
+			? pairedRows(shown).findIndex((pair) => holds(pair.old) || holds(pair.new))
+			: shown.findIndex(holds);
+		if (row < ROWS_PER_CHUNK) return;
+		drawn.add(
+			`${String(place.block)}:${String(Math.floor(row / ROWS_PER_CHUNK) * ROWS_PER_CHUNK)}`
+		);
+	});
 
 	const hasFresh = $derived(
 		blocks.some(
@@ -199,7 +239,12 @@
 </script>
 
 {#snippet row(line: ShownLineView)}
-	<tr class={line.kind} class:elsewhere={isElsewhere(line)} class:fresh={isFresh(line)}>
+	<tr
+		class={line.kind}
+		class:elsewhere={isElsewhere(line)}
+		class:fresh={isFresh(line)}
+		data-current-match={holdsCurrent(line) ? '' : undefined}
+	>
 		<td class="number">{line.kind === 'added' ? '' : line.old}</td>
 		<td class="number">{line.kind === 'deleted' ? '' : line.new}</td>
 		{#if hasFresh}
@@ -220,7 +265,12 @@
 		</td>
 		<td
 			class="code"
-			use:drawLine={{ text: line.text, changed: line.kind !== 'context', runs: runsOf(line) }}
+			use:drawLine={{
+				text: line.text,
+				changed: line.kind !== 'context',
+				runs: runsOf(line),
+				marks: marksOn(line)
+			}}
 		></td>
 	</tr>
 	{#if line.noNewlineAtEnd}
@@ -238,6 +288,7 @@
 		class="context quiet"
 		class:elsewhere={isElsewhere(added)}
 		class:fresh={isFresh(removed) || isFresh(added)}
+		data-current-match={holdsCurrent(added) || holdsCurrent(removed) ? '' : undefined}
 	>
 		<td class="number">{removed.kind === 'deleted' ? removed.old : ''}</td>
 		<td class="number">{added.kind === 'added' ? added.new : ''}</td>
@@ -249,7 +300,15 @@
 			</td>
 		{/if}
 		<td class="marker"><span class="visually-hidden">White space changed</span></td>
-		<td class="code" use:drawLine={{ text: added.text, changed: false, runs: runsOf(added) }}></td>
+		<td
+			class="code"
+			use:drawLine={{
+				text: added.text,
+				changed: false,
+				runs: runsOf(added),
+				marks: marksOn(added)
+			}}
+		></td>
 	</tr>
 {/snippet}
 
@@ -406,19 +465,30 @@
 				<td class="marker cell-context"></td>
 				<td
 					class="code cell-context"
-					use:drawLine={{ text: line.text, changed: false, runs: colours?.new.get(line.new) }}
+					data-current-match={side === 'new' && holdsCurrent(line) ? '' : undefined}
+					use:drawLine={{
+						text: line.text,
+						changed: false,
+						runs: colours?.new.get(line.new),
+						marks: marksOn(line)
+					}}
 				></td>
 			{/each}
 		</tr>
 	{:else}
-		<tr class="context opened">
+		<tr class="context opened" data-current-match={holdsCurrent(line) ? '' : undefined}>
 			<td class="number">{line.old}</td>
 			<td class="number">{line.new}</td>
 			{#if hasFresh}<td class="badge"></td>{/if}
 			<td class="marker"></td>
 			<td
 				class="code"
-				use:drawLine={{ text: line.text, changed: false, runs: colours?.new.get(line.new) }}
+				use:drawLine={{
+					text: line.text,
+					changed: false,
+					runs: colours?.new.get(line.new),
+					marks: marksOn(line)
+				}}
 			></td>
 		</tr>
 	{/if}

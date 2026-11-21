@@ -10,6 +10,7 @@ import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseRevisionNumber, type RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
+import { parseSearchText } from '#lib/core/search/search-text.tiny.ts';
 import { clientOf, rawRequest, testDaemon } from '../../../../tests/support/daemons.ts';
 import { defineFixture, useFixture } from '../../../../tests/support/fixture-repos.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
@@ -140,6 +141,48 @@ describe('the viewer’s routes', () => {
 		}
 		const never = await client.readPart(id, { ...part('src/long.ts'), version: revision(4) });
 		expect(never).toMatchObject({ ok: false, error: { status: 409, reason: 'VersionNotFound' } });
+	});
+
+	it('search the version shown, part by part, and refuse text that is not one line to find', async () => {
+		const repo = await useFixture(viewed);
+		const daemon = await testDaemon();
+		try {
+			const client = clientOf(daemon);
+			const started = value(await client.start({ directory: repo.dir }));
+			if (started.kind !== 'opened') throw new Error(started.kind);
+			const id = started.diff.id;
+			const search = (text: string, matchCase = false) =>
+				client.searchDiff(id, {
+					version: revision(1),
+					view: 'sections',
+					text: value(parseSearchText(text)),
+					matchCase,
+					changedOnly: false
+				});
+			// The hunk around "line ten", three lines either side; the path; nothing in the binary file.
+			expect(value(await search('line t')).parts).toEqual([
+				{ group: { kind: 'uncategorised' }, path: 'src/long.ts', matches: 1 }
+			]);
+			expect(value(await search('LINE', true)).parts).toEqual([]);
+			// Ignored files are searched too: the path, and the line on each side.
+			expect(value(await search('lock')).parts).toEqual([
+				{ group: { kind: 'ignored' }, path: 'pnpm-lock.yaml', matches: 3 }
+			]);
+			const auth = { authorization: `Bearer ${daemon.token}` };
+			const empty = await rawRequest(daemon.port, {
+				path: `/api/diffs/${id}/search?version=1&view=sections&text=&matchCase=false&changedOnly=false`,
+				headers: auth
+			});
+			expect(empty.status).toBe(400);
+			const later = await rawRequest(daemon.port, {
+				path: `/api/diffs/${id}/search?version=2&view=sections&text=x&matchCase=false&changedOnly=false`,
+				headers: auth
+			});
+			// A version the diff never had.
+			expect(later.status).toBe(409);
+		} finally {
+			await daemon.stop();
+		}
 	});
 
 	it('says a request that got no answer from a running daemon did not reach it, and only one that has stopped has stopped', async () => {

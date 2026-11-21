@@ -30,6 +30,7 @@ export type {
 	MarkOutcome,
 	OpenOutcome,
 	PartColours,
+	PartMatches,
 	PartContent,
 	SideColours,
 	ReportServiceOptions,

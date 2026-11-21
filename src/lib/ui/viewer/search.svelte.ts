@@ -1,0 +1,383 @@
+/**
+ * Searching within the diff from its page (DESIGN 8.3): the search box's text
+ * and options, what the daemon found (how many matches each part has, across
+ * the whole diff, never only the parts drawn), which match the person is on,
+ * and what moving to matches opened, so closing the search puts it all back.
+ *
+ * Typing never moves the reader: matches are counted and marked as the person
+ * types, and Enter, or Next, goes to the next one. Moving to a match opens its
+ * part when it is closed, shows a large change, and shows a hunk's white-space
+ * changes when the match is in one drawn as an unchanged line.
+ *
+ * What is counted follows the page: parts the filter hides are not, nor, with
+ * "Skip closed files", parts that are closed; lines opened around a change are.
+ */
+import { describeApiError } from '#lib/api/client.ts';
+import type { DiffSearchView } from '#lib/api/schemas.ts';
+import { partIndexOf, type PartIndex } from '#lib/core/part-index.tiny.ts';
+import type { DiffSearchOptions } from '#lib/core/search/diff-search.ts';
+import { searchedQuery } from '#lib/core/search/find-text.ts';
+import type { Mark } from '#lib/core/search/marks.ts';
+import { parseSearchText, type SearchText } from '#lib/core/search/search-text.tiny.ts';
+import { shownPath } from '#lib/core/shown-path.tiny.ts';
+import { countOf, formatCount } from '#lib/core/viewer/words.ts';
+import { pageClient } from '#lib/ui/client.ts';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { openedMatches, placesIn, type MatchPlace } from './search-places.ts';
+import type { Viewer } from './viewer.svelte.ts';
+
+/** How long typing pauses before the diff is searched, so a search is not sent for every key. */
+export const SEARCH_PAUSE_MS = 150;
+
+/** What the daemon found for the text and options last searched. */
+export type Found =
+	| { readonly kind: 'none' }
+	| { readonly kind: 'searching' }
+	| { readonly kind: 'failed'; readonly message: string }
+	| {
+			readonly kind: 'found';
+			readonly text: SearchText;
+			/** The text in its searched form. */
+			readonly query: string;
+			readonly options: DiffSearchOptions;
+			/** Each part's matches, by its place in reading order. */
+			readonly counts: ReadonlyMap<PartIndex, number>;
+	  };
+
+/** The match the person is on: a part, and the match's place among that part's. */
+export interface CurrentMatch {
+	readonly at: PartIndex;
+	readonly index: number;
+	readonly place: MatchPlace;
+}
+
+/** Where a part's matches are, for drawing them: on its path, and on each line. */
+export interface PartMarks {
+	readonly path: readonly Mark[];
+	readonly lines: ReadonlyMap<object, readonly (Mark & { readonly index: number })[]>;
+}
+
+const NO_LINE_MARKS: PartMarks['lines'] = new Map();
+
+/** What moving to matches changed, to put back when the search is closed or cleared. */
+interface Changed {
+	readonly opened: Set<PartIndex>;
+	readonly large: Set<PartIndex>;
+	readonly whiteSpace: { readonly at: PartIndex; readonly block: number }[];
+}
+
+export class DiffSearch {
+	readonly #viewer: Viewer;
+	/** Whether the search box is shown. */
+	open = $state(false);
+	/** What is in the box. */
+	text = $state('');
+	matchCase = $state(false);
+	changedOnly = $state(false);
+	skipClosed = $state(false);
+	found = $state<Found>({ kind: 'none' });
+	current = $state<CurrentMatch>();
+	#changed: Changed = { opened: new SvelteSet(), large: new SvelteSet(), whiteSpace: [] };
+	/** Bumped for each search sent, so an answer to an older one is dropped. */
+	#asked = 0;
+	#pause: ReturnType<typeof setTimeout> | undefined;
+
+	constructor(
+		viewer: Viewer,
+		options: { matchCase: boolean; changedOnly: boolean; skipClosed: boolean }
+	) {
+		this.#viewer = viewer;
+		this.matchCase = options.matchCase;
+		this.changedOnly = options.changedOnly;
+		this.skipClosed = options.skipClosed;
+	}
+
+	get options(): DiffSearchOptions {
+		return { matchCase: this.matchCase, changedOnly: this.changedOnly };
+	}
+
+	/** Whether a part's matches count, with the filter and the options as they are. */
+	counts(at: PartIndex): boolean {
+		const state = this.#viewer.parts[at];
+		if (state === undefined || !this.#viewer.shows(at)) return false;
+		return !(this.skipClosed && !state.open);
+	}
+
+	/** A part's matches: the daemon's count, and those in lines the page opened. */
+	matchesIn(at: PartIndex): number {
+		const found = this.found;
+		if (found.kind !== 'found' || !this.counts(at)) return 0;
+		const counted = found.counts.get(at) ?? 0;
+		const lines = this.#viewer.parts[at]?.lines;
+		return lines?.kind === 'loaded'
+			? counted + openedMatches(lines.blocks, found.query, found.options)
+			: counted;
+	}
+
+	/** Every match counted, and in how many files. */
+	get totals(): { readonly matches: number; readonly files: number } {
+		if (this.found.kind !== 'found') return { matches: 0, files: 0 };
+		let matches = 0;
+		const files = new SvelteSet<string>();
+		for (const state of this.#viewer.parts) {
+			const here = this.matchesIn(state.index);
+			if (here === 0) continue;
+			matches += here;
+			files.add(state.part.path);
+		}
+		return { matches, files: files.size };
+	}
+
+	/** The current match's place among all of them, from 1. */
+	get ordinal(): number | undefined {
+		const current = this.current;
+		if (current === undefined) return undefined;
+		let before = 0;
+		for (let at = 0; at < current.at; at += 1) before += this.matchesIn(partIndexOf(at));
+		return before + current.index + 1;
+	}
+
+	/** What the search box says of what was found. */
+	get summary(): string {
+		const found = this.found;
+		switch (found.kind) {
+			case 'none':
+				return '';
+			case 'searching':
+				return 'Searching…';
+			case 'failed':
+				return found.message;
+			case 'found': {
+				const { matches, files } = this.totals;
+				if (matches === 0) return 'No matches';
+				const where = `${countOf(matches, 'match', 'matches')} in ${countOf(files, 'file', 'files')}`;
+				const ordinal = this.ordinal;
+				return ordinal === undefined
+					? `${where}. Press Enter to go to the first.`
+					: `${formatCount(ordinal)} of ${where}`;
+			}
+		}
+	}
+
+	/** Where a part's matches are, for drawing them; undefined when it has none to draw. */
+	marksIn(at: PartIndex): PartMarks | undefined {
+		const found = this.found;
+		const state = this.#viewer.parts[at];
+		if (found.kind !== 'found' || state === undefined || !this.counts(at)) return undefined;
+		if ((found.counts.get(at) ?? 0) === 0 && state.lines.kind !== 'loaded') return undefined;
+		const places = this.#placesOf(at);
+		if (places.length === 0) return undefined;
+		const current = this.current?.at === at ? this.current.index : undefined;
+		const path: Mark[] = [];
+		const lines = new SvelteMap<object, (Mark & { index: number })[]>();
+		for (const [index, place] of places.entries()) {
+			const mark = { start: place.start, length: place.length, current: index === current };
+			if (place.kind === 'path') {
+				path.push(mark);
+				continue;
+			}
+			const on = lines.get(place.line);
+			if (on === undefined) lines.set(place.line, [{ ...mark, index }]);
+			else on.push({ ...mark, index });
+		}
+		return { path, lines: lines.size === 0 ? NO_LINE_MARKS : lines };
+	}
+
+	#placesOf(at: PartIndex): readonly MatchPlace[] {
+		const found = this.found;
+		const state = this.#viewer.parts[at];
+		if (found.kind !== 'found' || state === undefined) return [];
+		return placesIn(
+			shownPath(state.part.path),
+			state.lines.kind === 'loaded' ? state.lines.blocks : undefined,
+			found.query,
+			found.options
+		);
+	}
+
+	/** The text in the box changed: the diff is searched once typing pauses. */
+	typed(text: string): void {
+		this.text = text;
+		clearTimeout(this.#pause);
+		this.#pause = setTimeout(() => {
+			void this.search();
+		}, SEARCH_PAUSE_MS);
+	}
+
+	/**
+	 * Searches the diff for what is in the box, with the options as they are.
+	 * An empty box puts back what moving to matches changed, and finds nothing.
+	 */
+	async search(): Promise<void> {
+		clearTimeout(this.#pause);
+		const asked = (this.#asked += 1);
+		this.current = undefined;
+		if (this.text === '') {
+			this.found = { kind: 'none' };
+			this.putBack();
+			return;
+		}
+		const text = parseSearchText(this.text);
+		if (!text.ok) {
+			this.found = {
+				kind: 'failed',
+				message:
+					text.error.reason === 'too-long'
+						? 'That is too long to search for: search for part of it.'
+						: 'Search for text on one line.'
+			};
+			return;
+		}
+		const options = this.options;
+		this.found = { kind: 'searching' };
+		const viewer = this.#viewer;
+		const answer = await pageClient().searchDiff(viewer.id, {
+			version: viewer.version,
+			view: viewer.view,
+			text: text.value,
+			matchCase: options.matchCase,
+			changedOnly: options.changedOnly
+		});
+		if (asked !== this.#asked) return;
+		if (!answer.ok) {
+			this.found = {
+				kind: 'failed',
+				message: `Could not search: ${describeApiError(answer.error)}`
+			};
+			return;
+		}
+		this.found = {
+			kind: 'found',
+			text: text.value,
+			query: searchedQuery(text.value, options.matchCase),
+			options,
+			counts: this.#countsOf(answer.value)
+		};
+	}
+
+	#countsOf(answer: DiffSearchView): ReadonlyMap<PartIndex, number> {
+		const counts = new SvelteMap<PartIndex, number>();
+		for (const part of answer.parts) {
+			const at = this.#viewer.partOf(part.group, part.path);
+			if (at !== undefined) counts.set(at, part.matches);
+		}
+		return counts;
+	}
+
+	/**
+	 * The next match, or the previous, from the one the person is on, or from
+	 * the part they are on; past the last it goes round to the first. The part
+	 * it is in has its lines fetched first, when the page lacks them.
+	 */
+	async step(forward: boolean): Promise<CurrentMatch | undefined> {
+		const found = this.found;
+		if (found.kind !== 'found') return undefined;
+		const viewer = this.#viewer;
+		const count = viewer.parts.length;
+		const current = this.current;
+		const from = current?.at ?? viewer.current ?? partIndexOf(forward ? 0 : Math.max(0, count - 1));
+		for (let n = 0; n <= count; n += 1) {
+			const raw = forward ? from + n : from - n;
+			const at = partIndexOf(((raw % count) + count) % count);
+			if (!this.counts(at) || this.matchesIn(at) === 0) continue;
+			const places = await this.#loadedPlaces(at);
+			if (found !== this.found) return undefined;
+			// From the match the person is on, the one after it; anywhere else, a part's
+			// first (or last). The last turn comes back to where it began, so the search
+			// goes round within a part that holds every match.
+			const index =
+				n === 0 && current !== undefined
+					? current.index + (forward ? 1 : -1)
+					: forward
+						? 0
+						: places.length - 1;
+			const place = places[index];
+			if (place === undefined) continue;
+			return this.#moveTo(at, index, place);
+		}
+		return undefined;
+	}
+
+	async #loadedPlaces(at: PartIndex): Promise<readonly MatchPlace[]> {
+		const state = this.#viewer.parts[at];
+		if (state !== undefined && state.lines.kind !== 'loaded') await this.#viewer.load(at);
+		return this.#placesOf(at);
+	}
+
+	/** Makes a match the current one, and the page show it: its part open and its line drawn. */
+	#moveTo(at: PartIndex, index: number, place: MatchPlace): CurrentMatch {
+		const viewer = this.#viewer;
+		const state = viewer.parts[at];
+		if (state !== undefined) {
+			if (!state.open) {
+				state.open = true;
+				this.#changed.opened.add(at);
+			}
+			if (viewer.isLarge(state)) {
+				state.showLarge = true;
+				this.#changed.large.add(at);
+			}
+			if (place.kind === 'line' && state.lines.kind === 'loaded') {
+				const block = state.lines.blocks[place.block];
+				if (block?.kind === 'hunk' && viewer.hideWhiteSpace && !block.showWhiteSpace) {
+					const drawn = viewer.drawnLines(block);
+					if (
+						drawn.some(
+							(d) => d.kind === 'quiet' && (d.removed === place.line || d.added === place.line)
+						)
+					) {
+						block.showWhiteSpace = true;
+						this.#changed.whiteSpace.push({ at, block: place.block });
+					}
+				}
+			}
+		}
+		viewer.current = at;
+		viewer.drawUpTo(at);
+		const moved = { at, index, place };
+		this.current = moved;
+		return moved;
+	}
+
+	/** What the page says of the current match, for screen readers. */
+	describeCurrent(): string {
+		const current = this.current;
+		const state = current === undefined ? undefined : this.#viewer.parts[current.at];
+		if (current === undefined || state === undefined) return this.summary;
+		const path = shownPath(state.part.path);
+		const where =
+			current.place.kind === 'path'
+				? `in the name of ${path}`
+				: `in ${path}, line ${String('new' in current.place.line ? current.place.line.new : current.place.line.old)}`;
+		return `${this.summary}, ${where}.`;
+	}
+
+	/** Puts back what moving to matches opened and showed. */
+	putBack(): void {
+		const viewer = this.#viewer;
+		for (const at of this.#changed.opened) {
+			const state = viewer.parts[at];
+			if (state !== undefined) state.open = false;
+		}
+		for (const at of this.#changed.large) {
+			const state = viewer.parts[at];
+			if (state !== undefined) state.showLarge = false;
+		}
+		for (const { at, block } of this.#changed.whiteSpace) {
+			const lines = viewer.parts[at]?.lines;
+			const hunk = lines?.kind === 'loaded' ? lines.blocks[block] : undefined;
+			if (hunk?.kind === 'hunk') hunk.showWhiteSpace = false;
+		}
+		this.#changed = { opened: new SvelteSet(), large: new SvelteSet(), whiteSpace: [] };
+		this.current = undefined;
+	}
+
+	/** Closes the search: nothing found, and the page as it was. */
+	close(): void {
+		clearTimeout(this.#pause);
+		this.#asked += 1;
+		this.open = false;
+		this.found = { kind: 'none' };
+		this.putBack();
+	}
+}

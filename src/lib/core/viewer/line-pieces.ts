@@ -32,7 +32,7 @@ export type LinePiece =
 	| { readonly kind: 'escape'; readonly shown: string; readonly character: string };
 
 /** How many characters of the line a piece stands for. */
-function lengthOf(piece: LinePiece): number {
+export function lengthOf(piece: LinePiece): number {
 	switch (piece.kind) {
 		case 'text':
 		case 'trailing':
@@ -129,3 +129,21 @@ export function linePieces(
 	flush();
 	return coloured(pieces, runs);
 }
+
+/** How line pieces are measured and cut, for marking matches on them (`search/marks.ts`). */
+export const LINE_PIECE_SHAPE = {
+	size: lengthOf,
+	cut: (piece: LinePiece, from: number, to: number): LinePiece | undefined => {
+		switch (piece.kind) {
+			case 'text':
+				return piece.colour === undefined
+					? { kind: 'text', text: piece.text.slice(from, to) }
+					: { kind: 'text', text: piece.text.slice(from, to), colour: piece.colour };
+			case 'trailing':
+				return { kind: 'trailing', text: piece.text.slice(from, to) };
+			case 'tab':
+			case 'escape':
+				return undefined;
+		}
+	}
+};

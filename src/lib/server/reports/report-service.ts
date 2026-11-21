@@ -38,6 +38,15 @@ import type { LineCount } from '#lib/core/line-count.tiny.ts';
 import { lineNumberOf, type LineNumber } from '#lib/core/line-number.tiny.ts';
 import type { Side } from '#lib/core/side.tiny.ts';
 import { partBlocks, type LineSpan, type PartBlock } from '#lib/core/viewer/part-lines.ts';
+import { frameOf, NO_PART_MARKS } from '#lib/core/viewer/parts.ts';
+import {
+	DiffSearchIndex,
+	searchedLines,
+	type DiffSearchOptions
+} from '#lib/core/search/diff-search.ts';
+import type { MatchCount } from '#lib/core/search/match-count.tiny.ts';
+import type { SearchText } from '#lib/core/search/search-text.tiny.ts';
+import { shownRepoPath } from '#lib/core/shown-path.tiny.ts';
 import type { ColourRun } from '#lib/core/highlight/colour-run.ts';
 import { languageOf } from '#lib/core/highlight/language.ts';
 import { linesOf } from '#lib/core/file-text.ts';
@@ -386,6 +395,19 @@ export interface PartContent {
 		{ readonly old: ByteSize | undefined; readonly new: ByteSize | undefined } | undefined;
 }
 
+/** One part's matches, for a search of the diff (`searchDiff`). */
+export interface PartMatches {
+	readonly group: GroupKey;
+	readonly path: RepoPath;
+	readonly matches: MatchCount;
+}
+
+/** Every part of a revision as a search reads it, in reading order, with its group and path. */
+interface SearchIndex {
+	readonly parts: readonly { readonly group: GroupKey; readonly path: RepoPath }[];
+	readonly index: DiffSearchIndex;
+}
+
 /** Whether an open report's source has moved on since its current revision. */
 type SourceCheck =
 	/** Nothing changed, or the fingerprint raised a false alarm. */
@@ -431,6 +453,9 @@ const FIRST_LINE = lineNumberOf(1);
 
 /** How many diffs to keep in memory: the reports a reviewer has open at once. */
 const CACHED_DIFFS = 8;
+
+/** How many diffs' search indexes to keep in memory, most recently searched last. */
+const CACHED_SEARCH_INDEXES = 4;
 
 /** How many times a write is tried again when a new revision appeared while its diff was read. */
 const RETRIES = 3;
@@ -627,6 +652,11 @@ export class ReportService {
 	readonly #logged = new Set<string>();
 	/** Files' colours, kept by blob and language for the daemon's life. */
 	readonly #colours: ColourCache;
+	/**
+	 * Search indexes of the diffs searched last, by revision, view and how the
+	 * revision's lines are sorted, so sorting them again makes a new one.
+	 */
+	readonly #searchIndexes = new Map<string, SearchIndex>();
 
 	private constructor(db: Database, options: ReportServiceOptions) {
 		this.#db = db;
@@ -1016,6 +1046,70 @@ export class ReportService {
 			blocks: partBlocks(file, group, state.value, view, fresh.value, headLines),
 			sizes
 		});
+	}
+
+	/**
+	 * Searches the revision numbered `version` for `query` (DESIGN 8.3): each
+	 * part of `view`, in reading order, with how many matches it has in its path
+	 * and its hunks' lines (`core/search/diff-search.ts`); parts with none are
+	 * left out. The answer is one entry per part, never one per match, so it is
+	 * bounded by the size of the diff's frame; where each match is, the page
+	 * finds in the part's lines when it has them. What a revision's parts read
+	 * is worked out once and kept while its sorting stays the same.
+	 */
+	async searchDiff(
+		id: ReportId,
+		version: RevisionNumber,
+		view: ViewKind,
+		query: SearchText,
+		options: DiffSearchOptions
+	): Promise<Result<readonly PartMatches[], ReportError>> {
+		const shown = this.#db.read((q) => asOf(q, id, version));
+		if (!shown.ok) return shown;
+		const content = await this.#contentOf(shown.value.report, shown.value.revision);
+		if (!content.ok) return content;
+		const { diff, revision } = content.value;
+		const stored = this.#db.read(
+			(q): Result<{ sections: readonly Section[]; rows: readonly AssignmentRow[] }, ReportError> =>
+				andThen(sectionsOf(q, revision.id), (sections) =>
+					andThen(assignmentRowsFor(q, revision.id), (rows) => ok({ sections, rows }))
+				)
+		);
+		if (!stored.ok) return stored;
+		const sections = stored.value.sections.map((s) => s.id);
+		const key = `${revision.id}\u0000${view}\u0000${JSON.stringify([sections, stored.value.rows])}`;
+		let found = this.#searchIndexes.get(key);
+		if (found === undefined) {
+			const state = assignmentStateFromRows(diff, stored.value.rows);
+			if (!state.ok) return state;
+			const frame = frameOf(diff, state.value, NO_PART_MARKS, view, sections);
+			const parts = frame.groups.flatMap((g) => g.parts);
+			found = {
+				parts: parts.map((p) => ({ group: p.group, path: p.file.file.path })),
+				index: new DiffSearchIndex(
+					parts.map((p) => ({
+						path: shownRepoPath(p.file.file.path),
+						lines: searchedLines(
+							partBlocks(p.file, p.group, state.value, view, NO_PART_MARKS.fresh, undefined)
+						)
+					}))
+				)
+			};
+		}
+		this.#searchIndexes.delete(key);
+		this.#searchIndexes.set(key, found);
+		while (this.#searchIndexes.size > CACHED_SEARCH_INDEXES) {
+			const oldest = this.#searchIndexes.keys().next();
+			if (oldest.done === true) break;
+			this.#searchIndexes.delete(oldest.value);
+		}
+		const counts = found.index.counts(query, options);
+		const matches: PartMatches[] = [];
+		for (const [i, part] of found.parts.entries()) {
+			const count = counts[i];
+			if (count !== undefined && count > 0) matches.push({ ...part, matches: count });
+		}
+		return ok(matches);
 	}
 
 	/**

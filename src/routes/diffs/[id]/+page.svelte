@@ -28,7 +28,9 @@
 	import TickRefused from '#lib/ui/viewer/TickRefused.svelte';
 	import ProgressBar from '#lib/ui/viewer/ProgressBar.svelte';
 	import Shortcuts from '#lib/ui/viewer/Shortcuts.svelte';
-	import { shortcutOf } from '#lib/ui/viewer/keys.ts';
+	import { isFindKey, shortcutOf } from '#lib/ui/viewer/keys.ts';
+	import SearchBar from '#lib/ui/viewer/SearchBar.svelte';
+	import type { CurrentMatch } from '#lib/ui/viewer/search.svelte.ts';
 	import {
 		done,
 		NEXT_BATCH,
@@ -468,9 +470,190 @@
 		if (at !== undefined) await goToPart(at, true);
 	}
 
+	// ── Searching the diff ──────────────────────────────────────────────────────
+
+	const SEARCH_INPUT = 'search-input';
+	/** What had focus when the search was opened, to go back to when it closes. */
+	let searchOpenedFrom: HTMLElement | null = null;
+	/** Where the reader was before the search first moved them, to put them back. */
+	let beforeSearch:
+		| {
+				readonly anchor: string;
+				readonly top: number;
+				readonly y: number;
+				readonly byFile: boolean;
+		  }
+		| undefined;
+	/** Moving to a match is under way: the search says it is busy. */
+	let movingToMatch = $state(false);
+
+	function nextFrame(): Promise<void> {
+		return new Promise((resolve) => {
+			requestAnimationFrame(() => {
+				resolve();
+			});
+		});
+	}
+
+	/** Where the reader is: the part at the top of the screen and how far down it is. */
+	function readerPlace(): { readonly anchor: string; readonly top: number; readonly y: number } {
+		const parts = [...document.querySelectorAll<HTMLElement>('article.part')];
+		const anchor = parts.find((p) => p.getBoundingClientRect().bottom > 0);
+		return {
+			anchor: anchor?.id ?? '',
+			top: anchor?.getBoundingClientRect().top ?? 0,
+			y: window.scrollY
+		};
+	}
+
+	async function openSearch(): Promise<void> {
+		if (viewer === undefined) return;
+		if (!viewer.search.open) {
+			const active = document.activeElement;
+			searchOpenedFrom = active instanceof HTMLElement && active !== document.body ? active : null;
+			viewer.search.open = true;
+		}
+		await tick();
+		const input = document.getElementById(SEARCH_INPUT);
+		if (input instanceof HTMLInputElement) {
+			input.focus();
+			input.select();
+		}
+	}
+
+	/** Puts the reader back where they were before the search moved them, in the view they were in. */
+	async function putReaderBack(): Promise<void> {
+		const place = beforeSearch;
+		beforeSearch = undefined;
+		if (place === undefined) return;
+		if (place.byFile !== byFile) {
+			byFile = place.byFile;
+			remember();
+		}
+		await tick();
+		const anchor = place.anchor === '' ? null : document.getElementById(place.anchor);
+		if (anchor === null) window.scrollTo(0, place.y);
+		else window.scrollBy(0, anchor.getBoundingClientRect().top - place.top);
+	}
+
+	async function closeSearch(): Promise<void> {
+		if (viewer === undefined) return;
+		viewer.search.close();
+		await putReaderBack();
+		const back = searchOpenedFrom;
+		searchOpenedFrom = null;
+		(back?.isConnected === true ? back : document.getElementById(PAGE_HEADING))?.focus({
+			preventScroll: true
+		});
+	}
+
+	async function searchTyped(text: string): Promise<void> {
+		if (viewer === undefined) return;
+		if (text !== '') {
+			viewer.search.typed(text);
+			return;
+		}
+		viewer.search.text = '';
+		await viewer.search.search();
+		await putReaderBack();
+	}
+
+	/** Scrolls the current match to the middle of the screen, once it is drawn, and until it stays there. */
+	async function showMatch(match: CurrentMatch): Promise<void> {
+		let still = 0;
+		for (let turn = 0; turn < 20 && still < 2; turn += 1) {
+			await tick();
+			await nextFrame();
+			const element =
+				match.place.kind === 'path'
+					? document.getElementById(`part-${String(match.at)}-name`)
+					: document.querySelector(`#part-${String(match.at)} [data-current-match]`);
+			if (element === null) continue;
+			const box = element.getBoundingClientRect();
+			const offset = box.top + box.height / 2 - window.innerHeight / 2;
+			if (Math.abs(offset) < 1) still += 1;
+			else {
+				still = 0;
+				element.scrollIntoView({ block: 'center' });
+			}
+		}
+	}
+
+	/** Moves under way and asked for, one after another, so a quick Enter is never lost. */
+	let searchMoves: Promise<void> = Promise.resolve();
+	let movesAsked = 0;
+
+	function stepSearch(forward: boolean): Promise<void> {
+		movesAsked += 1;
+		movingToMatch = true;
+		searchMoves = searchMoves.then(async () => {
+			try {
+				await moveToMatch(forward);
+			} finally {
+				movesAsked -= 1;
+				if (movesAsked === 0) movingToMatch = false;
+			}
+		});
+		return searchMoves;
+	}
+
+	async function moveToMatch(forward: boolean): Promise<void> {
+		if (viewer === undefined) return;
+		const search = viewer.search;
+		// Enter pressed before the search that typing started: search now.
+		const found = search.found;
+		if (search.text !== '' && (found.kind !== 'found' || found.text !== search.text)) {
+			await search.search();
+		}
+		if (search.found.kind !== 'found') return;
+		if (search.totals.matches === 0) {
+			viewer.announcement = 'No matches.';
+			return;
+		}
+		beforeSearch ??= { ...readerPlace(), byFile };
+		const moved = await search.step(forward);
+		if (moved === undefined) return;
+		if (byFile) {
+			byFile = false;
+			remember();
+		}
+		await showMatch(moved);
+	}
+
+	function setSearchOption(
+		option: 'match-case' | 'changed-only' | 'skip-closed',
+		on: boolean
+	): void {
+		if (viewer === undefined) return;
+		const search = viewer.search;
+		const change: SettingChange =
+			option === 'match-case'
+				? { name: 'search-match-case', value: on }
+				: option === 'changed-only'
+					? { name: 'search-changed-only', value: on }
+					: { name: 'search-skip-closed', value: on };
+		settings = withSetting(settings, change);
+		search.matchCase = settings.searchMatchCase;
+		search.changedOnly = settings.searchChangedOnly;
+		search.skipClosed = settings.searchSkipClosed;
+		if (search.text !== '') void search.search();
+		void pageClient()
+			.changeSetting(change)
+			.then((saved) => {
+				if (!saved.ok) {
+					viewer.announcement = `The option could not be remembered for next time: ${describeApiError(saved.error)}`;
+				}
+			});
+	}
+
 	function onKey(event: KeyboardEvent): void {
 		if (viewer === undefined || helpOpen) return;
 		const target = event.target instanceof HTMLElement ? event.target : null;
+		if (isFindKey(event, target?.id === SEARCH_INPUT)) {
+			event.preventDefault();
+			void openSearch();
+			return;
+		}
 		const action = shortcutOf({
 			key: event.key,
 			ctrlKey: event.ctrlKey,
@@ -527,6 +710,9 @@
 				return;
 			case 'side-by-side':
 				setLayout(settings.layout === 'side-by-side' ? 'unified' : 'side-by-side');
+				return;
+			case 'search':
+				void openSearch();
 				return;
 			case 'help':
 				helpOpen = true;
@@ -719,6 +905,11 @@
 					<kbd aria-hidden="true">n</kbd>
 				</button>
 			{/if}
+			<div class="finders">
+				<button type="button" onclick={openSearch}>
+					Search <kbd aria-hidden="true">/</kbd>
+				</button>
+			</div>
 			<nav aria-label="Groups">
 				<ol class="groups">
 					{#each viewer.groups as group (group.id)}
@@ -813,6 +1004,16 @@
 		</aside>
 
 		<div class="content" role="presentation" onfocusin={onFocusIn}>
+			{#if viewer.search.open}
+				<SearchBar
+					search={viewer.search}
+					busy={movingToMatch}
+					ontext={searchTyped}
+					onstep={stepSearch}
+					onclose={closeSearch}
+					onoption={setSearchOption}
+				/>
+			{/if}
 			<!-- A new version is a new viewer: its parts are drawn afresh, never reused. -->
 			{#key viewer}
 				<!-- Each view is made once and then only hidden, so going back and forth
@@ -1028,6 +1229,19 @@
 		padding: 0 0.3rem;
 		font-weight: 400;
 		opacity: 0.8;
+	}
+
+	.finders {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+	}
+
+	.finders button {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 	}
 
 	.groups {

@@ -37,7 +37,11 @@
 		{#each SHORTCUTS as shortcut (shortcut.action)}
 			<div>
 				<dt>
-					{#each shortcut.keys as key, i (key)}{#if i > 0}<span class="or"> or </span>{/if}<kbd>
+					{#each [...shortcut.keys, ...(shortcut.chords ?? [])] as key, i (key)}{#if i > 0}<span
+								class="or"
+							>
+								or
+							</span>{/if}<kbd>
 							{key}
 						</kbd>{/each}
 				</dt>
@@ -94,7 +98,7 @@
 
 	dl > div {
 		display: grid;
-		grid-template-columns: 6rem 1fr;
+		grid-template-columns: 8.5rem 1fr;
 		gap: 0.75rem;
 		align-items: baseline;
 	}

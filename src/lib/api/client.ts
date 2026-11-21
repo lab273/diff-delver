@@ -25,6 +25,9 @@ import {
 	MarkedSchema,
 	PartLinesSchema,
 	ColoursSchema,
+	DiffSearchSchema,
+	type DiffSearchQuery,
+	type DiffSearchView,
 	SettingsSchema,
 	type SettingsView,
 	type SettingChangeRequest,
@@ -241,6 +244,18 @@ export class ApiClient {
 			path: part.path
 		});
 		return this.#call('GET', `/api/diffs/${id}/part?${query.toString()}`, PartLinesSchema);
+	}
+
+	/** Searches the version the page shows, part by part. */
+	searchDiff(id: ReportId, search: DiffSearchQuery): Promise<Result<DiffSearchView, ApiError>> {
+		const query = new URLSearchParams({
+			version: String(search.version),
+			view: search.view,
+			text: search.text,
+			matchCase: String(search.matchCase),
+			changedOnly: String(search.changedOnly)
+		});
+		return this.#call('GET', `/api/diffs/${id}/search?${query.toString()}`, DiffSearchSchema);
 	}
 
 	/** How the person likes diffs shown. */

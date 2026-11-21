@@ -217,14 +217,22 @@ describe('the person’s settings', () => {
 			expect(value(await client.readSettings())).toEqual({
 				colours: true,
 				layout: 'unified',
-				hideWhiteSpace: false
+				hideWhiteSpace: false,
+				searchMatchCase: false,
+				searchChangedOnly: false,
+				searchSkipClosed: false
 			});
 			value(await client.changeSetting({ name: 'colours', value: false }));
 			value(await client.changeSetting({ name: 'hide-white-space', value: true }));
+			value(await client.changeSetting({ name: 'search-match-case', value: true }));
+			value(await client.changeSetting({ name: 'search-skip-closed', value: true }));
 			expect(value(await client.changeSetting({ name: 'layout', value: 'side-by-side' }))).toEqual({
 				colours: false,
 				layout: 'side-by-side',
-				hideWhiteSpace: true
+				hideWhiteSpace: true,
+				searchMatchCase: true,
+				searchChangedOnly: false,
+				searchSkipClosed: true
 			});
 		} finally {
 			await first.stop();
@@ -234,7 +242,10 @@ describe('the person’s settings', () => {
 			expect(value(await clientOf(second).readSettings())).toEqual({
 				colours: false,
 				layout: 'side-by-side',
-				hideWhiteSpace: true
+				hideWhiteSpace: true,
+				searchMatchCase: true,
+				searchChangedOnly: false,
+				searchSkipClosed: true
 			});
 		} finally {
 			await second.stop();

@@ -1,10 +1,11 @@
 import { test } from '../support/journey.ts';
 
 // J16 Reading and finding: code to read, coloured by language, with its marks
-// over the colours, and plain when asked; side by side; and with changes to
-// white space hidden.
+// over the colours, and plain when asked; side by side; with changes to white
+// space hidden; then searching the whole diff, from match to match, with its
+// options, into a file that was closed, and back to where the reader was.
 test.describe('J16 Reading and finding', () => {
-	test('the reviewer reads code coloured, side by side and without white-space changes', async ({
+	test('the reviewer reads code coloured, side by side and without white-space changes, and searches it', async ({
 		journey
 	}) => {
 		// Code is coloured by language, each file as a whole: a line deep inside a
@@ -111,5 +112,60 @@ test.describe('J16 Reading and finding', () => {
 			'In a YAML file, white space can change what a line means, so they are worth a look.'
 		);
 		await journey.step('White space that matters, hidden');
+
+		// Searching the diff: every file, not only those drawn. Typing counts and
+		// marks the matches and moves nothing.
+		await journey.press('s');
+		await journey.press('w');
+		await journey.press('/');
+		const searchBox = journey.byRole('searchbox', { name: 'Search the diff' });
+		await journey.expectFocused(searchBox);
+		await journey.type('total');
+		const search = journey.byRole('search', { name: 'Search the diff' });
+		const found = journey.within(search).byRole('status');
+		await journey.expectText(found, '13 matches in 2 files. Press Enter to go to the first.');
+		await journey.step('A search across the diff');
+
+		// Enter goes from match to match, Shift+Enter back; focus stays in the box.
+		await journey.press('Enter');
+		await journey.expectText(found, '1 of 13 matches in 2 files');
+		await journey.press('Enter');
+		await journey.expectText(found, '2 of 13 matches in 2 files');
+		await journey.expectFocused(searchBox);
+		await journey.step('Moving between matches');
+		await journey.press('Shift+Enter');
+		await journey.expectText(found, '1 of 13 matches in 2 files');
+
+		// Its options are switches, remembered: with Match case, "Total" no longer matches.
+		const matchCase = journey.within(search).byRole('button', { name: 'Match case' });
+		await journey.activate(matchCase);
+		await journey.expectState(matchCase, { pressed: true });
+		await journey.expectText(found, '11 matches in 2 files');
+		await journey.step('Searching with Match case');
+		await journey.activate(matchCase);
+		await journey.expectState(matchCase, { pressed: false });
+
+		// A match in a file that is closed, as a reviewed one is, opens it. The
+		// search key, pressed again, selects what is in the box, to type over it.
+		await journey.press('/');
+		await journey.expectFocused(searchBox);
+		await journey.type('Math.round');
+		await journey.expectText(found, '1 match in 1 file. Press Enter to go to the first.');
+		await journey.press('Enter');
+		await journey.expectText(found, '1 of 1 match in 1 file');
+		const totalToggle = journey.byRole('button', { name: 'tools/total.ts', exact: true });
+		await journey.expectState(totalToggle, { expanded: true });
+		await journey.expectInView(journey.within(total).byText('Math.round', { exact: false }));
+		await journey.step('A match in a closed file');
+
+		// Escape closes the search and puts the page back as it was: the file closed
+		// again, and focus where it was.
+		await journey.press('Escape');
+		await journey.expectHidden(search);
+		await journey.expectState(totalToggle, { expanded: false });
+		await journey.expectFocused(
+			journey.byRole('button', { name: 'tools/workflow.yml', exact: true })
+		);
+		await journey.step('The search closed');
 	});
 });

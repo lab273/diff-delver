@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SHORTCUTS, shortcutOf, type KeyPress } from './keys.ts';
+import { isFindKey, SHORTCUTS, shortcutOf, type KeyPress } from './keys.ts';
 
 function press(
 	key: string,
@@ -19,6 +19,7 @@ describe('the diff page’s shortcuts', () => {
 		expect(shortcutOf(press('s'))).toBe('side-by-side');
 		expect(shortcutOf(press('w'))).toBe('white-space');
 		expect(shortcutOf(press('?'))).toBe('help');
+		expect(shortcutOf(press('/'))).toBe('search');
 		expect(shortcutOf(press('x'))).toBeUndefined();
 		// On a checkbox a letter types nothing, so the shortcut works there too.
 		expect(shortcutOf(press('r', { tagName: 'INPUT', type: 'checkbox' }))).toBe('toggle-reviewed');
@@ -38,5 +39,15 @@ describe('the diff page’s shortcuts', () => {
 	it('gives every key one action', () => {
 		const keys = SHORTCUTS.flatMap((s) => s.keys);
 		expect(new Set(keys).size).toBe(keys.length);
+	});
+
+	it('opens the diff’s search for the browser’s find key, and leaves it to the browser in the search box', () => {
+		expect(isFindKey(press('f', undefined, { ctrlKey: true }), false)).toBe(true);
+		expect(isFindKey(press('f', undefined, { metaKey: true }), false)).toBe(true);
+		expect(isFindKey(press('F', undefined, { ctrlKey: true }), false)).toBe(true);
+		expect(isFindKey(press('f', undefined, { ctrlKey: true }), true)).toBe(false);
+		expect(isFindKey(press('f'), false)).toBe(false);
+		expect(isFindKey(press('f', undefined, { ctrlKey: true, altKey: true }), false)).toBe(false);
+		expect(isFindKey(press('g', undefined, { ctrlKey: true }), false)).toBe(false);
 	});
 });

@@ -24,6 +24,18 @@ const row = z.discriminatedUnion('name', [
 	z.object({
 		name: z.literal('hide-white-space'),
 		value: z.enum(['on', 'off']).transform((v) => v === 'on')
+	}),
+	z.object({
+		name: z.literal('search-match-case'),
+		value: z.enum(['on', 'off']).transform((v) => v === 'on')
+	}),
+	z.object({
+		name: z.literal('search-changed-only'),
+		value: z.enum(['on', 'off']).transform((v) => v === 'on')
+	}),
+	z.object({
+		name: z.literal('search-skip-closed'),
+		value: z.enum(['on', 'off']).transform((v) => v === 'on')
 	})
 ]);
 
@@ -39,6 +51,9 @@ function stored(change: SettingChange): string {
 	switch (change.name) {
 		case 'colours':
 		case 'hide-white-space':
+		case 'search-match-case':
+		case 'search-changed-only':
+		case 'search-skip-closed':
 			return change.value ? 'on' : 'off';
 		case 'layout':
 			return change.value;

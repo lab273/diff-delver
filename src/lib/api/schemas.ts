@@ -35,6 +35,8 @@ import { parseSectionTitle } from '#lib/core/section-title.tiny.ts';
 import type { GitSourceText } from '#lib/core/sources/git-source-text.tiny.ts';
 import { formatGitSourceSpec, parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import { parseTimestamp } from '#lib/core/timestamp.tiny.ts';
+import { parseSearchText } from '#lib/core/search/search-text.tiny.ts';
+import { parseMatchCount } from '#lib/core/search/match-count.tiny.ts';
 import { parseUnitCount } from '#lib/core/unit-count.tiny.ts';
 
 /** A value made by a tiny type's parse function. */
@@ -445,12 +447,45 @@ export const LinesSchema = z.object({
 });
 export type LinesView = z.output<typeof LinesSchema>;
 
+/** Text a person searches for, as typed (`search-text.tiny.ts`). */
+const searchText = parsed(z.string(), parseSearchText);
+const matchCount = parsed(z.number(), parseMatchCount);
+/** A yes-or-no option written in an address: `true` or `false`. */
+const flagInQuery = z.enum(['true', 'false']).transform((v) => v === 'true');
+
+/**
+ * GET /api/diffs/:id/search?version=N&view=V&text=T&matchCase=B&changedOnly=B:
+ * a search of the version the page shows, part by part (DESIGN 8.3).
+ */
+export const DiffSearchQuerySchema = z.object({
+	version: inQuery(parseRevisionNumber),
+	view: ViewSchema,
+	text: searchText,
+	matchCase: flagInQuery,
+	changedOnly: flagInQuery
+});
+export type DiffSearchQuery = z.output<typeof DiffSearchQuerySchema>;
+
+/**
+ * What a search of the diff found: each part with any match, in reading order,
+ * with how many it has in its path and its hunks' lines
+ * (`core/search/diff-search.ts`). One entry per part, never one per match: the
+ * page finds where each is in the part's lines when it has them.
+ */
+export const DiffSearchSchema = z.object({
+	parts: z.array(z.object({ group: GroupKeySchema, path: escapedPath, matches: matchCount }))
+});
+export type DiffSearchView = z.output<typeof DiffSearchSchema>;
+
 /** GET and POST /api/settings: how the person likes diffs shown (`core/settings.ts`). */
 const LayoutSchema = z.enum(['unified', 'side-by-side']);
 export const SettingsSchema = z.object({
 	colours: z.boolean(),
 	layout: LayoutSchema,
-	hideWhiteSpace: z.boolean()
+	hideWhiteSpace: z.boolean(),
+	searchMatchCase: z.boolean(),
+	searchChangedOnly: z.boolean(),
+	searchSkipClosed: z.boolean()
 });
 export type SettingsView = z.output<typeof SettingsSchema>;
 
@@ -458,7 +493,10 @@ export type SettingsView = z.output<typeof SettingsSchema>;
 export const SettingChangeSchema = z.discriminatedUnion('name', [
 	z.object({ name: z.literal('colours'), value: z.boolean() }),
 	z.object({ name: z.literal('layout'), value: LayoutSchema }),
-	z.object({ name: z.literal('hide-white-space'), value: z.boolean() })
+	z.object({ name: z.literal('hide-white-space'), value: z.boolean() }),
+	z.object({ name: z.literal('search-match-case'), value: z.boolean() }),
+	z.object({ name: z.literal('search-changed-only'), value: z.boolean() }),
+	z.object({ name: z.literal('search-skip-closed'), value: z.boolean() })
 ]);
 export type SettingChangeRequest = z.output<typeof SettingChangeSchema>;
 

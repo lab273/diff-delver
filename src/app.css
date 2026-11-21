@@ -40,6 +40,10 @@
 	--color-primary-button-hover: #1c8139;
 	--color-on-primary-button: #ffffff;
 	--color-selected-button: #ddf4ff;
+	/* A search's matches; the one the person is on is outlined too, so colour is not all that tells it. */
+	--color-match: #fff1a8;
+	--color-match-current: #ffe58a;
+	--color-match-current-border: #9a6700;
 	/*
 	 * Only the fonts bundled with the app (src/routes/+layout.svelte imports them),
 	 * so text looks the same on every machine and the journey screenshots are
@@ -85,6 +89,9 @@
 		--color-primary-button-hover: #29903b;
 		--color-on-primary-button: #ffffff;
 		--color-selected-button: #388bfd26;
+		--color-match: #bb800926;
+		--color-match-current: #bb800940;
+		--color-match-current-border: #e3b341;
 	}
 }
 
@@ -154,6 +161,18 @@ button.danger {
 	background: var(--color-danger-button);
 	border-color: var(--color-danger-button);
 	color: var(--color-on-danger-button);
+}
+
+/* A search's matches, on code and on paths (`search/marks.ts`). */
+mark.match {
+	background: var(--color-match);
+	color: inherit;
+	border-radius: 2px;
+}
+
+mark.match.current {
+	background: var(--color-match-current);
+	outline: 2px solid var(--color-match-current-border);
 }
 
 /* Text for screen readers only, such as a count's unit beside its number. */

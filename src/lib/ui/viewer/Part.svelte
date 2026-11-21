@@ -54,6 +54,8 @@
 	const groupName = $derived(viewer.groupOfPart(at)?.name ?? '');
 	/** Its path as a person is shown it, in what is read out. */
 	const shown = $derived(shownPath(part.path));
+	/** A search's matches in it, on its path and its lines. */
+	const marks = $derived(viewer.search.marksIn(at));
 
 	// Its lines are fetched once it is open and near the screen, however it came to
 	// be open: by the person, by moving to it, or by unticking it.
@@ -150,7 +152,9 @@
 				}}
 			>
 				<span class="chevron" aria-hidden="true"></span>
-				<span class="path" id="part-{at}-name"><PathText path={part.path} /></span>
+				<span class="path" id="part-{at}-name">
+					<PathText path={part.path} marks={marks?.path ?? []} />
+				</span>
 			</button>
 		</h3>
 		<span class="change">{part.change}</span>
@@ -327,6 +331,7 @@
 						ongo={(group: GroupKeyView) => {
 							ongo(part.path, group);
 						}}
+						{marks}
 					/>
 				{/if}
 			{:else if state.lines.kind === 'failed'}

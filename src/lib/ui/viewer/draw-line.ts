@@ -6,13 +6,19 @@
  * language when its colours are known, each kind of code a class of its own
  * (`code-keyword`, `code-string`, ...) that the page's styles colour.
  *
+ * Matches of a search are marked on it, the one the person is on apart from
+ * the others (`search/marks.ts`).
+ *
  * The line is built with `textContent` rather than a template, so no white
  * space of the template's own can slip into code drawn with its white space kept.
+ * It is drawn again only when what it shows changed, so marking a search's
+ * matches costs a comparison on every line that has none.
  */
 import type { Action } from 'svelte/action';
 import type { ColourRun } from '#lib/core/highlight/colour-run.ts';
 import type { LineText } from '#lib/core/line-text.tiny.ts';
-import { linePieces, type LinePiece } from '#lib/core/viewer/line-pieces.ts';
+import { LINE_PIECE_SHAPE, linePieces, type LinePiece } from '#lib/core/viewer/line-pieces.ts';
+import { markedRuns, withMarks, type Mark, type MarkKind } from '#lib/core/search/marks.ts';
 
 export interface DrawnLine {
 	readonly text: LineText;
@@ -20,6 +26,8 @@ export interface DrawnLine {
 	readonly changed: boolean;
 	/** Its colours, in order; none for a line drawn plain. */
 	readonly runs?: readonly ColourRun[] | undefined;
+	/** A search's matches on it, in order. */
+	readonly marks?: readonly Mark[] | undefined;
 }
 
 function span(className: string, text: string, title?: string): HTMLSpanElement {
@@ -45,9 +53,45 @@ function nodeOf(piece: LinePiece): Node {
 	}
 }
 
+/** Pieces' nodes, inside one mark when they are part of a match. */
+export function markedNodes(nodes: readonly Node[], mark: MarkKind): readonly Node[] {
+	if (mark === undefined) return nodes;
+	const element = document.createElement('mark');
+	element.className = mark === 'current' ? 'match current' : 'match';
+	element.append(...nodes);
+	return [element];
+}
+
+function sameMarks(a: readonly Mark[] | undefined, b: readonly Mark[] | undefined): boolean {
+	if (a === b) return true;
+	if (a === undefined || b === undefined || a.length !== b.length) return false;
+	return a.every((m, i) => {
+		const other = b[i];
+		return (
+			other !== undefined &&
+			m.start === other.start &&
+			m.length === other.length &&
+			m.current === other.current
+		);
+	});
+}
+
 export const drawLine: Action<HTMLElement, DrawnLine> = (node, line) => {
+	let shown: DrawnLine | undefined;
 	const draw = (drawn: DrawnLine): void => {
-		node.replaceChildren(...linePieces(drawn.text, drawn.changed, drawn.runs).map(nodeOf));
+		if (
+			shown !== undefined &&
+			shown.text === drawn.text &&
+			shown.changed === drawn.changed &&
+			shown.runs === drawn.runs &&
+			sameMarks(shown.marks, drawn.marks)
+		) {
+			return;
+		}
+		shown = drawn;
+		const pieces = linePieces(drawn.text, drawn.changed, drawn.runs);
+		const runs = markedRuns(withMarks(pieces, drawn.marks ?? [], LINE_PIECE_SHAPE));
+		node.replaceChildren(...runs.flatMap((run) => markedNodes(run.pieces.map(nodeOf), run.mark)));
 	};
 	draw(line);
 	return { update: draw };

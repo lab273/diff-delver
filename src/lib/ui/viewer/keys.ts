@@ -18,11 +18,14 @@ export type KeyAction =
 	| 'only-unreviewed'
 	| 'side-by-side'
 	| 'white-space'
+	| 'search'
 	| 'help';
 
 /** Each shortcut, as the help lists it. */
 export const SHORTCUTS: readonly {
 	readonly keys: readonly string[];
+	/** Keys held with Control or Command that do the same, as the list shows them. */
+	readonly chords?: readonly string[];
 	readonly does: string;
 	readonly action: KeyAction;
 }[] = [
@@ -50,6 +53,12 @@ export const SHORTCUTS: readonly {
 		keys: ['w'],
 		does: 'Hide changes that only change white space, or show them',
 		action: 'white-space'
+	},
+	{
+		keys: ['/'],
+		chords: ['Ctrl+F'],
+		does: 'Search the diff: Enter and Shift+Enter go from match to match, Escape closes it. In the search box, Ctrl+F (Command+F on a Mac) is the browser’s own find',
+		action: 'search'
 	},
 	{ keys: ['?'], does: 'Show these shortcuts', action: 'help' }
 ];
@@ -88,6 +97,20 @@ export function inField(target: KeyPress['target']): boolean {
 		default:
 			return false;
 	}
+}
+
+/**
+ * Whether a press is the browser's "find in page" (Control+F, or Command+F on
+ * a Mac), which opens the diff's search: it finds text in every file of the
+ * diff, not only those drawn. Pressed again in the search box it is left to
+ * the browser, so its own find is one more press away.
+ */
+export function isFindKey(
+	press: Pick<KeyPress, 'key' | 'ctrlKey' | 'altKey' | 'metaKey'>,
+	inSearchBox: boolean
+): boolean {
+	if (inSearchBox || press.altKey || !(press.ctrlKey || press.metaKey)) return false;
+	return press.key === 'f' || press.key === 'F';
 }
 
 /** The shortcut a key press asks for, or undefined when it is not one here. */

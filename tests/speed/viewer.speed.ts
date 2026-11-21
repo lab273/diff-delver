@@ -65,6 +65,34 @@ function timeKey(page: Page, key: string, ready: Ready): Promise<number> {
 }
 
 /**
+ * Presses Enter in the search box, as the person moving to the next match
+ * does, and gives the milliseconds until a frame shows the match it moved to
+ * marked on the screen and the count saying which it is, another than before.
+ */
+function timeNextMatch(page: Page): Promise<number> {
+	return page.evaluate(
+		() =>
+			new Promise<number>((resolve) => {
+				const status = (): string => document.getElementById('search-status')?.textContent ?? '';
+				const before = status();
+				const started = performance.now();
+				(document.activeElement ?? document.body).dispatchEvent(
+					new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+				);
+				const look = (): void => {
+					const now = status().trim();
+					const box = document.querySelector('mark.match.current')?.getBoundingClientRect();
+					const shown = box !== undefined && box.top >= 0 && box.bottom <= window.innerHeight;
+					if (now !== before.trim() && /^[0-9,]+ of /.test(now) && shown) {
+						resolve(performance.now() - started);
+					} else requestAnimationFrame(look);
+				};
+				requestAnimationFrame(look);
+			})
+	);
+}
+
+/**
  * Clicks the element at `selector` in the page and gives the milliseconds
  * until a frame shows each selector's element starting with its text.
  */
@@ -121,6 +149,15 @@ test('one change of 80,000 rows is shown and ticked quickly', async ({ page }, t
 		await expect(page.getByRole('complementary', { name: 'Your review' })).toContainText(
 			'Everything reviewed: 80,000 changes'
 		);
+		// A match deep in it, now put away as reviewed: found, and reached with one key.
+		await page.keyboard.press('/');
+		await page.keyboard.type('new line 39999');
+		await expect(page.locator('#search-status')).toHaveText(
+			'1 match in 1 file. Press Enter to go to the first.'
+		);
+		const reached = await timeNextMatch(page);
+		record(testInfo, 'time to reach a match deep in a change of 80,000 rows', reached, 1_500);
+		await expect(page.locator('mark.match.current')).toHaveText('new line 39999');
 	} finally {
 		await world.close();
 	}
@@ -237,6 +274,33 @@ test('a diff of 2,000 files and 200,000 changed lines opens and moves at once', 
 		]);
 		record(testInfo, 'time to show every file, 2,000 files', switched, 500);
 		await expect(page.getByRole('heading', { name: /^Every file/ })).toBeFocused();
+
+		// Searching every file: from the last key typed to the count of matches shown.
+		await page.keyboard.press('/');
+		await expect(page.locator('#search-input')).toBeFocused();
+		await page.keyboard.type('new line 3');
+		const searching = performance.now();
+		await page.keyboard.type('7');
+		await page.waitForFunction(
+			() =>
+				(document.getElementById('search-status')?.textContent ?? '').startsWith(
+					'2,000 matches in 2,000 files'
+				),
+			undefined,
+			{ polling: 'raf' }
+		);
+		record(
+			testInfo,
+			'time from typing to search results, 2,000 files',
+			performance.now() - searching,
+			1_000
+		);
+		// From match to match, each in a file of its own whose lines may not be fetched yet.
+		let slowestMatch = 0;
+		for (let n = 1; n <= 5; n += 1) {
+			slowestMatch = Math.max(slowestMatch, await timeNextMatch(page));
+		}
+		record(testInfo, 'time to move to the next match, 2,000 files', slowestMatch, 300);
 	} finally {
 		await world.close();
 	}
