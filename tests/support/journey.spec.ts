@@ -53,6 +53,10 @@ async function serve(page: Page, html: string): Promise<string> {
 			await route.fulfill({ body: html, contentType: 'text/html' });
 		}
 	});
+	// The app's API, refusing everything, for the checks on refusals.
+	await page.route('**/api/**', async (route) => {
+		await route.fulfill({ status: 409, json: { error: { kind: 'Refused', message: 'No.' } } });
+	});
 	return `${HELPER}/page`;
 }
 
@@ -373,6 +377,39 @@ test.describe('a step on a long page', () => {
 		);
 		const journey = await planted(pageWith(`<h1>Long</h1>${lines.join('')}`));
 		await journey.step('Long page');
+	});
+});
+
+test.describe("the journey helper lets through only the API's refusals a step expects", () => {
+	const REFUSED = pageWith(`<h1>Refused</h1>
+<button type="button" onclick="fetch('/api/diffs/r_1/reviewed').catch(() => undefined)">Tick</button>`);
+	const expected = { route: '/api/diffs/[id]/reviewed', status: 409 };
+
+	test('passes a refusal the step declares', async ({ planted }) => {
+		const journey = await planted(REFUSED);
+		await journey.activate(journey.byRole('button', { name: 'Tick' }));
+		await journey.step('Refused as expected', { refusals: [expected] });
+	});
+
+	test('fails a refusal the step does not declare, or one of another status', async ({
+		planted
+	}) => {
+		const journey = await planted(REFUSED);
+		await journey.activate(journey.byRole('button', { name: 'Tick' }));
+		await expect(journey.step('Refused unexpectedly')).rejects.toThrow(
+			'refused /api/diffs/r_1/reviewed with 409, which the step did not expect'
+		);
+		await journey.activate(journey.byRole('button', { name: 'Tick' }));
+		await expect(
+			journey.step('Refused otherwise', { refusals: [{ ...expected, status: 404 }] })
+		).rejects.toThrow('which the step did not expect');
+	});
+
+	test('fails a step that expected a refusal that never came', async ({ planted }) => {
+		const journey = await planted(REFUSED);
+		await expect(journey.step('Not refused', { refusals: [expected] })).rejects.toThrow(
+			"expected the app's API to refuse /api/diffs/[id]/reviewed with 409, and it did not"
+		);
 	});
 });
 

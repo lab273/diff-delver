@@ -153,6 +153,10 @@ test.describe('J8 The diff changes mid-review', () => {
 		expect(later.output).toContain(
 			'Uncommitted changes in shop, updated to your files as they are now (version 3).'
 		);
+		// Back on the page, it says so; ticking there anyway changes nothing.
+		await journey.returnToPage();
+		const newer = journey.byRole('region', { name: 'This diff has a newer version' });
+		await journey.expectText(newer, 'It was updated to version 3 while this page was open');
 		await journey.activate(discountTick, 'Space');
 		const discount = journey.byRole('article', { name: 'src/discount.ts' });
 		await journey.expectText(
@@ -160,9 +164,12 @@ test.describe('J8 The diff changes mid-review', () => {
 			'Nothing was marked. This diff was updated to version 3 after you last looked at it'
 		);
 		await journey.expectState(discountTick, { checked: false });
-		const newer = journey.byRole('region', { name: 'This diff has a newer version' });
-		await journey.expectText(newer, 'It was updated to version 3 while this page was open');
-		await journey.step('A tick from a page that is behind');
+		// The top of the page, where it says the diff has moved on. (The discount is
+		// near the end of the page, where how far the page scrolls can vary by a line.)
+		await journey.press('Home');
+		// The page is refused, as it should be, and says so in place.
+		const refusedTick = { route: '/api/diffs/[id]/reviewed', status: 409 };
+		await journey.step('A tick from a page that is behind', { refusals: [refusedTick] });
 		// A tick of the whole group says so too, under the group's heading, and its box
 		// shows again that some of it is reviewed.
 		const notSorted = journey.byRole('region', { name: 'Not sorted yet' });
@@ -175,7 +182,7 @@ test.describe('J8 The diff changes mid-review', () => {
 		);
 		await journey.expectState(groupTick, { checked: 'mixed' });
 		await journey.expectFocused(groupTick);
-		await journey.step('A group tick from a page that is behind');
+		await journey.step('A group tick from a page that is behind', { refusals: [refusedTick] });
 
 		// Where the tick was refused, the way to the new version is at hand.
 		await journey.activate(

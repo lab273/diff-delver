@@ -21,7 +21,8 @@
  *   covered by them, italic and bold text each in a bundled face of its own (the
  *   app never fakes one), and drawn only once they have loaded;
  * - no error in the browser console and no request to anywhere but the app,
- *   checked again when the journey finishes.
+ *   checked again when the journey finishes; a refusal from the app's API only
+ *   where the step declares it (`StepExpectations`).
  *
  * A journey gets no Playwright page, context or locator: only the `Journey`
  * below. It finds things as a person does, by role, visible text or label,
@@ -193,8 +194,12 @@ export interface Journey extends Finder {
 	command(args: readonly string[], where?: JourneyRepository): Promise<CommandRun>;
 	/** Opens a page of the app by its path, as a person does from a link: `/`, `/reports/1`. */
 	open(path: string): Promise<void>;
-	/** Checks the screen as it is now, as the next numbered step (see above). */
-	step(name: string): Promise<void>;
+	/**
+	 * Checks the screen as it is now, as the next numbered step (see above), and
+	 * that the app's API refused nothing since the last step but what `expected`
+	 * says it would.
+	 */
+	step(name: string, expected?: StepExpectations): Promise<void>;
 	/**
 	 * Presses a key or a combination: `Tab`, `Shift+Tab`, `ArrowDown`, `Control+Enter`,
 	 * `PageDown` and `End` to scroll a long page.
@@ -588,23 +593,81 @@ async function checkScreenshot(
 }
 
 /**
- * The browser's own note that the app's API refused a request (4xx), such as a
- * tick sent for a version the diff has moved on from. The app expects such an
- * answer and says it in place, so it is not an error of the page; anything
- * else in the console, a 5xx from the API included, still is.
+ * A refusal from the app's API that a step expects, such as a tick sent for a
+ * version the diff has moved on from: the route as the app names it, with
+ * `[id]` for any one part of the path (`/api/diffs/[id]/reviewed`), and the
+ * status.
  */
-function isExpectedRefusal(message: ConsoleMessage): boolean {
+export interface ExpectedRefusal {
+	readonly route: string;
+	readonly status: number;
+}
+
+/** What a step expects besides a screen that passes its checks. */
+export interface StepExpectations {
+	/**
+	 * The refusals from the app's API since the last step, each of which must
+	 * have come at least once. The page says them in place, so they are not
+	 * errors of the page; any other refusal, and any other console error, is.
+	 */
+	readonly refusals?: readonly ExpectedRefusal[];
+}
+
+/** A refusal from the app's API the browser noted in its console: path and status. */
+interface Refusal {
+	readonly path: string;
+	readonly status: number;
+}
+
+/** The browser's own note that the app's API refused a request (4xx), or undefined for anything else. */
+function refusalOf(message: ConsoleMessage): Refusal | undefined {
+	const status = /^Failed to load resource: the server responded with a status of (4\d\d)\b/.exec(
+		message.text()
+	)?.[1];
+	if (status === undefined) return undefined;
 	let path: string;
 	try {
 		path = new URL(message.location().url).pathname;
 	} catch {
-		return false;
+		return undefined;
 	}
-	return (
-		/^Failed to load resource: the server responded with a status of 4\d\d\b/.test(
-			message.text()
-		) && path.startsWith('/api/')
-	);
+	return path.startsWith('/api/') ? { path, status: Number(status) } : undefined;
+}
+
+function routeMatches(route: string, path: string): boolean {
+	const pattern = route
+		.split(/\[[^\]/]+\]/)
+		.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+		.join('[^/]+');
+	return new RegExp(`^${pattern}$`).test(path);
+}
+
+/**
+ * The problems with the refusals since the last step, against those it
+ * expected: one it did not expect, or one it expected that never came.
+ */
+function refusalProblems(
+	seen: readonly Refusal[],
+	expected: readonly ExpectedRefusal[]
+): readonly string[] {
+	const problems: string[] = [];
+	for (const refusal of seen) {
+		if (!expected.some((e) => e.status === refusal.status && routeMatches(e.route, refusal.path))) {
+			problems.push(
+				`The app's API refused ${refusal.path} with ${String(refusal.status)}, which the step ` +
+					'did not expect. If the page does this on purpose and says so, declare it: ' +
+					`journey.step(name, { refusals: [{ route, status: ${String(refusal.status)} }] }).`
+			);
+		}
+	}
+	for (const e of expected) {
+		if (!seen.some((r) => r.status === e.status && routeMatches(e.route, r.path))) {
+			problems.push(
+				`The step expected the app's API to refuse ${e.route} with ${String(e.status)}, and it did not.`
+			);
+		}
+	}
+	return problems;
 }
 
 /** How a journey's steps treat their screenshots. */
@@ -638,6 +701,8 @@ export async function startJourney(
 ): Promise<RunningJourney> {
 	const journeyName = journeySlug(testInfo.file);
 	const browserErrors: string[] = [];
+	/** The API's refusals since the last step, for the step to check against what it expects. */
+	const refusals: Refusal[] = [];
 	let steps = 0;
 
 	await page.clock.setFixedTime(JOURNEY_TIME);
@@ -645,7 +710,12 @@ export async function startJourney(
 	// The app may copy to the clipboard, as a person lets it, and the journey read it back.
 	await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
 	page.on('console', (message) => {
-		if (message.type() !== 'error' || isExpectedRefusal(message)) return;
+		if (message.type() !== 'error') return;
+		const refusal = refusalOf(message);
+		if (refusal !== undefined) {
+			refusals.push(refusal);
+			return;
+		}
 		browserErrors.push(`console error: ${message.text()}`);
 	});
 	page.on('pageerror', (error) => {
@@ -735,7 +805,7 @@ export async function startJourney(
 			}
 			return world.command(args, directory);
 		},
-		async step(name) {
+		async step(name, expected = {}) {
 			const slug = stepSlug(name);
 			if (!slug.ok) {
 				throw new Error(
@@ -771,6 +841,7 @@ export async function startJourney(
 					problems.push(`(${themes.join(' and ')}) ${problem}`);
 				}
 				problems.push(...browserErrors.splice(0));
+				problems.push(...refusalProblems(refusals.splice(0), expected.refusals ?? []));
 				if (problems.length > 0) throw new Error(problems.join('\n\n'));
 			});
 		},
@@ -940,7 +1011,7 @@ export async function startJourney(
 		async finish() {
 			// What the page did after the last step counts as much as what it did before.
 			await settle(page);
-			const late = browserErrors.splice(0);
+			const late = [...browserErrors.splice(0), ...refusalProblems(refusals.splice(0), [])];
 			if (late.length > 0) {
 				throw new Error(
 					`After the last step: ${late.join('; ')}. The page must log no errors and fetch ` +
