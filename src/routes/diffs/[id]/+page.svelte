@@ -381,7 +381,8 @@
 		await tick();
 		const toggle = document.getElementById(`part-${String(at)}-toggle`);
 		toggle?.focus({ preventScroll: true });
-		document.getElementById(`part-${String(at)}`)?.scrollIntoView({ block: 'start' });
+		const part = document.getElementById(`part-${String(at)}`);
+		if (part !== null) scrollToTop(part);
 	}
 
 	async function nextUnread(): Promise<void> {
@@ -521,8 +522,24 @@
 	 */
 	function goToGroupHeading(anchor: string): void {
 		const heading = document.getElementById(`${anchor}-heading`);
-		heading?.scrollIntoView({ block: 'start' });
-		heading?.focus({ preventScroll: true });
+		if (heading === null) return;
+		scrollToTop(heading);
+		heading.focus({ preventScroll: true });
+	}
+
+	/**
+	 * Scrolls an element to the top of the screen, as far as the page goes, and
+	 * below the search when it is open: the search stays at the top of the
+	 * screen, so whatever its height it would otherwise be drawn over the element.
+	 */
+	function scrollToTop(element: HTMLElement): void {
+		element.scrollIntoView({ block: 'start' });
+		const search = document.querySelector('[role="search"]');
+		if (search === null) return;
+		const margin = parseFloat(getComputedStyle(element).scrollMarginTop) || 0;
+		const under =
+			search.getBoundingClientRect().bottom + margin - element.getBoundingClientRect().top;
+		if (under > 0) window.scrollBy(0, -under);
 	}
 
 	/** Where the reader is: the part at the top of the screen and how far down it is. */

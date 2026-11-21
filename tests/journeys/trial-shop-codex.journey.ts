@@ -24,5 +24,14 @@ test.describe('Trial shop sorted by Codex', () => {
 		await journey.activate(journey.within(groups).byRole('link', { name: 'Ignored', exact: true }));
 		await journey.expectInView(journey.byRole('heading', { level: 2, name: 'Ignored' }));
 		await journey.step('What was ignored');
+
+		// With the search open, which stays at the top of the screen, a group's
+		// heading comes to rest below it, not under it.
+		await journey.press('/');
+		await journey.expectFocused(journey.byRole('searchbox', { name: 'Search the diff' }));
+		await journey.activate(journey.within(groups).byRole('link', { name: split, exact: true }));
+		await journey.expectFocused(journey.byRole('heading', { level: 2, name: split }));
+		await journey.expectUncovered(journey.byRole('heading', { level: 2, name: split }));
+		await journey.step('A heading below the search');
 	});
 });

@@ -181,6 +181,37 @@ export interface ControlState {
 }
 
 /**
+ * What keeps an element from being seen whole: "not wholly on the screen",
+ * "under <div> "Search the diff"" for what is drawn over it, or "uncovered".
+ * Its corners, a pixel in, and its middle are checked.
+ */
+export function whatCovers(locator: Locator): Promise<string> {
+	return locator.evaluate((element) => {
+		const box = element.getBoundingClientRect();
+		if (
+			box.top < -1 ||
+			box.left < -1 ||
+			box.bottom > innerHeight + 1 ||
+			box.right > innerWidth + 1
+		) {
+			return 'not wholly on the screen';
+		}
+		const xs = [box.left + 1, box.left + box.width / 2, box.right - 1];
+		const ys = [box.top + 1, box.top + box.height / 2, box.bottom - 1];
+		for (const x of xs) {
+			for (const y of ys) {
+				const hit = document.elementFromPoint(x, y);
+				if (hit !== null && hit !== element && !element.contains(hit)) {
+					const label = hit.getAttribute('aria-label') ?? hit.textContent;
+					return `under <${hit.tagName.toLowerCase()}> "${label.trim().slice(0, 40)}"`;
+				}
+			}
+		}
+		return 'uncovered';
+	});
+}
+
+/**
  * Everything a journey can do. The `expect…` methods wait: each retries until
  * what it expects holds, so a journey waits for the app without sleeping, and
  * fails only once the hang timeout passes (scripts/test-time-limits.ts).
@@ -247,6 +278,11 @@ export interface Journey extends Finder {
 	expectHidden(target: Target): Promise<void>;
 	/** Waits until the target is scrolled into the part of the page on the screen. */
 	expectInView(target: Target): Promise<void>;
+	/**
+	 * Waits until the whole of the target is on the screen with nothing drawn
+	 * over any of it, such as a bar that stays at the top: as a person sees it.
+	 */
+	expectUncovered(target: Target): Promise<void>;
 	/** Waits until the target shows this text, as part of its text or matching the pattern. */
 	expectText(target: Target, text: string | RegExp): Promise<void>;
 	/** Waits until the target has focus. */
@@ -954,6 +990,14 @@ export async function startJourney(
 				locatorOf(target),
 				`${target.description} should be scrolled into view`
 			).toBeInViewport();
+		},
+		async expectUncovered(target) {
+			const locator = locatorOf(target);
+			await expect
+				.poll(() => whatCovers(locator), {
+					message: `${target.description} should be wholly on the screen, with nothing over it`
+				})
+				.toBe('uncovered');
 		},
 		async expectText(target, text) {
 			await expect(

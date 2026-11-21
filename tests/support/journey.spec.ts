@@ -10,7 +10,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, test as base, type Page } from '@playwright/test';
-import { startJourney, type Journey } from './journey.ts';
+import { startJourney, whatCovers, type Journey } from './journey.ts';
 import { makeJourneyWorld } from './journey-world.ts';
 
 const FONTS = join(import.meta.dirname, '..', '..', 'node_modules', '@fontsource');
@@ -566,6 +566,28 @@ ${['a.ts', 'b.ts', 'c.ts']
 		await journey.press('End');
 		await journey.expectInView(journey.byText('Line 200', { exact: true }));
 		await journey.step('Bottom');
+	});
+
+	test('tells a heading under a bar that stays at the top from one below it', async ({
+		planted,
+		page
+	}) => {
+		const lines = Array.from({ length: 100 }, (_, i) => `<p>Line ${String(i + 1)}</p>`);
+		const journey = await planted(
+			pageWith(`<h1>Bar</h1>
+<div role="search" aria-label="Find" style="position: sticky; top: 0; height: 80px; background: white">Find</div>
+${lines.join('')}<h2 id="under" tabindex="-1">Under</h2><h2 id="below" tabindex="-1">Below</h2>${lines.join('')}
+<button type="button" onclick="document.getElementById('under').scrollIntoView({ block: 'start' })">To under</button>
+<button type="button" onclick="document.getElementById('below').scrollIntoView({ block: 'center' })">To below</button>`)
+		);
+		await journey.activate(journey.byRole('button', { name: 'To under' }));
+		await journey.expectInView(journey.byRole('heading', { name: 'Under' }));
+		expect(await whatCovers(page.getByRole('heading', { name: 'Under' }))).toBe(
+			'under <div> "Find"'
+		);
+		await journey.activate(journey.byRole('button', { name: 'To below' }));
+		await journey.expectUncovered(journey.byRole('heading', { name: 'Below' }));
+		await journey.step('Below the bar');
 	});
 
 	test('reads where a link goes and where the browser is', async ({ planted }) => {
