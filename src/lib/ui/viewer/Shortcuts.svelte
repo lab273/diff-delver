@@ -19,6 +19,11 @@
 <dialog
 	bind:this={dialog}
 	aria-labelledby="shortcuts-heading"
+	oncancel={() => {
+		// Escape: put away at once, not when the close event comes a moment later, so
+		// a key pressed straight after works on the page.
+		open = false;
+	}}
 	onclose={() => {
 		open = false;
 	}}

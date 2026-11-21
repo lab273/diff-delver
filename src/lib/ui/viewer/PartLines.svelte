@@ -12,7 +12,8 @@
 	import type { BlockState, OpenLine, Viewer } from './viewer.svelte.ts';
 	import { hiddenCount, nextStep } from './viewer.svelte.ts';
 	import { drawLine } from './draw-line.ts';
-	import { EXPANSION_STEP } from '#lib/core/viewer/expansion.ts';
+	import { tick } from 'svelte';
+	import { EXPANSION_STEP, type Direction } from '#lib/core/viewer/expansion.ts';
 	import { countOf } from '#lib/core/viewer/words.ts';
 
 	let {
@@ -64,6 +65,22 @@
 
 	function isFresh(line: ShownLineView): boolean {
 		return line.kind !== 'context' && line.home.kind === 'here' && line.home.fresh;
+	}
+
+	/**
+	 * Opens hidden lines. The button stays usable while they come, so focus never
+	 * drops out of it (a press while they come does nothing more); when the lines
+	 * are open and the button has gone, focus goes to what opens the rest of the
+	 * same lines, or, when none are left, to the file's name.
+	 */
+	async function open(b: number, direction: Direction): Promise<void> {
+		await viewer.openLines(at, b, direction);
+		await tick();
+		if (document.activeElement !== null && document.activeElement !== document.body) return;
+		const rest = document.getElementById(`part-${String(at)}-block-${String(b)}`);
+		const next =
+			rest?.querySelector('button') ?? document.getElementById(`part-${String(at)}-toggle`);
+		next?.focus();
 	}
 
 	function isElsewhere(line: ShownLineView): boolean {
@@ -163,19 +180,14 @@
 					{@const down = nextStep(block, 'down')}
 					{@const up = nextStep(block, 'up')}
 					{@const heading = blocks[b + 1]?.kind === 'hunk' ? blocks[b + 1] : undefined}
-					<tr class="hidden">
+					<tr class="hidden" id="part-{at}-block-{b}">
 						<td colspan={columns}>
 							<div class="hidden-row">
 								<span class="hidden-count">
 									{countOf(left, 'unchanged line', 'unchanged lines')}
 								</span>
 								{#if !isTop && down !== undefined && left > EXPANSION_STEP}
-									<button
-										type="button"
-										class="open"
-										disabled={block.busy}
-										onclick={() => viewer.openLines(at, b, 'down')}
-									>
+									<button type="button" class="open" onclick={() => open(b, 'down')}>
 										<span aria-hidden="true">↓</span>
 										{EXPANSION_STEP} more<span class="visually-hidden">
 											unchanged lines: {down.first} to {down.last}
@@ -183,12 +195,7 @@
 									</button>
 								{/if}
 								{#if !isEnd && up !== undefined && left > EXPANSION_STEP}
-									<button
-										type="button"
-										class="open"
-										disabled={block.busy}
-										onclick={() => viewer.openLines(at, b, 'up')}
-									>
+									<button type="button" class="open" onclick={() => open(b, 'up')}>
 										<span aria-hidden="true">↑</span>
 										{EXPANSION_STEP} more<span class="visually-hidden">
 											unchanged lines: {up.first} to {up.last}
@@ -198,13 +205,12 @@
 								<button
 									type="button"
 									class="open"
-									disabled={block.busy}
 									aria-label="Show all {countOf(left, 'unchanged line', 'unchanged lines')}{isTop
 										? ' above'
 										: isEnd
 											? ' below'
 											: ''}"
-									onclick={() => viewer.openLines(at, b, 'all')}
+									onclick={() => open(b, 'all')}
 								>
 									Show all
 								</button>

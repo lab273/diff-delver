@@ -127,7 +127,8 @@ button:hover {
 	background: var(--color-button-hover);
 }
 
-button:disabled {
+button:disabled,
+button[aria-disabled='true'] {
 	cursor: default;
 	opacity: 0.6;
 }

@@ -125,10 +125,15 @@ test.describe('J8 The diff changes mid-review', () => {
 		await journey.activate(journey.within(nothing).byRole('button', { name: 'Close this diff' }));
 		const closed = journey.byRole('region', { name: 'This diff is closed' });
 		await journey.expectText(closed, 'You closed this diff. You can still read it.');
+		// The button went with its notice: focus is on the notice that took its place.
+		await journey.expectFocused(journey.byRole('heading', { name: 'This diff is closed' }));
 		await journey.step('The diff is closed');
 
 		await journey.activate(journey.within(closed).byRole('button', { name: 'Reopen this diff' }));
 		await journey.expectHidden(closed);
 		await journey.expectVisible(nothing);
+		await journey.expectFocused(
+			journey.byRole('heading', { name: 'Nothing is left to review here' })
+		);
 	});
 });

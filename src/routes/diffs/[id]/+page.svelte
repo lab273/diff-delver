@@ -43,6 +43,7 @@
 	/** Once a minute while the page is in view, besides whenever the person comes back to it. */
 	const LOOK_AGAIN_EVERY = 60_000;
 	const UPDATED_HEADING = 'updated-heading';
+	const PAGE_HEADING = 'page-heading';
 
 	const checks = new ChangeChecks();
 
@@ -89,12 +90,31 @@
 		};
 	});
 
+	/** The notices whose buttons act on the whole diff, by their headings' ids, in the order the page shows them. */
+	const NOTICE_HEADINGS = [
+		'newer-heading',
+		'closed-heading',
+		'changed-heading',
+		'nothing-left-heading'
+	];
+
+	/**
+	 * Does what a notice's button asks. The buttons stay usable while it runs, so
+	 * focus stays on them, and a press meanwhile does nothing. When the button has
+	 * gone with its notice, focus goes to the notice that took its place, or to
+	 * the page's heading, never to nowhere.
+	 */
 	async function act(action: () => Promise<{ ok: boolean; message?: string }>): Promise<void> {
+		if (busy) return;
 		busy = true;
 		problem = '';
 		const done = await action();
 		busy = false;
 		if (!done.ok) problem = done.message ?? '';
+		await tick();
+		if (document.activeElement !== null && document.activeElement !== document.body) return;
+		const notice = NOTICE_HEADINGS.map((id) => document.getElementById(id)).find((h) => h !== null);
+		(notice ?? document.getElementById(PAGE_HEADING))?.focus();
 	}
 
 	/** Shows the version the page now has and moves focus to what the update did. */
@@ -427,7 +447,7 @@
 	<div class="viewer">
 		<div class="top">
 			<div class="heading">
-				<h1>{summary.title}</h1>
+				<h1 id={PAGE_HEADING} tabindex="-1">{summary.title}</h1>
 				<span class="state {summary.state.kind}">
 					{summary.state.kind === 'open' ? 'Open' : 'Closed'}
 				</span>
@@ -442,27 +462,29 @@
 			</p>
 
 			{#if check.kind === 'updated'}
-				<Notice heading="This diff has a newer version">
+				<Notice heading="This diff has a newer version" headingId="newer-heading">
 					<p>
 						It was updated to version {check.version} while this page was open, so what you see here,
 						version
 						{summary.version}, is out of date.
 					</p>
 					{#snippet actions()}
-						<button type="button" disabled={busy} onclick={showNewer}>Show the new version</button>
+						<button type="button" aria-disabled={busy} onclick={showNewer}>
+							Show the new version
+						</button>
 					{/snippet}
 				</Notice>
 			{:else if summary.state.kind === 'closed'}
-				<Notice heading="This diff is closed">
+				<Notice heading="This diff is closed" headingId="closed-heading">
 					<p>{summary.state.reason} You can still read it.</p>
 					{#snippet actions()}
-						<button type="button" disabled={busy} onclick={() => setOpen(true)}>
+						<button type="button" aria-disabled={busy} onclick={() => setOpen(true)}>
 							Reopen this diff
 						</button>
 					{/snippet}
 				</Notice>
 			{:else if check.kind === 'changed'}
-				<Notice heading="Your files have changed">
+				<Notice heading="Your files have changed" headingId="changed-heading">
 					<p>
 						What you see here is how they were before.
 						{check.files === 0
@@ -470,20 +492,24 @@
 							: `Update to see the ${fileCount(check.files)} that changed as they are now. Lines you marked as reviewed stay marked, unless they or the lines close to them changed.`}
 					</p>
 					{#snippet actions()}
-						<button type="button" disabled={busy} onclick={update}>Update</button>
+						<button type="button" aria-disabled={busy} onclick={update}>Update</button>
 					{/snippet}
 				</Notice>
 			{:else if check.kind === 'nothing-left'}
 				{@const next = check.next}
-				<Notice heading="Nothing is left to review here">
+				<Notice heading="Nothing is left to review here" headingId="nothing-left-heading">
 					<p>{check.reason}</p>
 					{#snippet actions()}
 						{#if next !== null}
-							<button type="button" disabled={busy} onclick={() => openNext(next, page.directory)}>
+							<button
+								type="button"
+								aria-disabled={busy}
+								onclick={() => openNext(next, page.directory)}
+							>
 								{next.offer}
 							</button>
 						{/if}
-						<button type="button" disabled={busy} onclick={() => setOpen(false)}>
+						<button type="button" aria-disabled={busy} onclick={() => setOpen(false)}>
 							Close this diff
 						</button>
 					{/snippet}

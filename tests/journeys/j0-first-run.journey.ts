@@ -116,9 +116,27 @@ test.describe('J0 First run', () => {
 		await journey.expectVisible(
 			journey.within(checkout).byText('1 unchanged line', { exact: true })
 		);
+		// The button has gone with the lines it opened: focus is on what opens the rest.
+		await journey.expectFocused(
+			journey.within(checkout).byRole('button', { name: 'Show all 1 unchanged line below' })
+		);
 		await journey.step('Twenty more unchanged lines');
 
-		await journey.press('r');
+		// Ticked with its box this time: focus stays on the box, and Space unticks and ticks again.
+		const checkoutTick = journey.within(checkout).byRole('checkbox', {
+			name: 'Reviewed: src/checkout.ts'
+		});
+		await journey.activate(checkoutTick, 'Space');
+		await journey.expectState(checkoutTick, { checked: true });
+		await journey.expectFocused(checkoutTick);
+		await journey.expectText(review, '9 of 14 changes reviewed');
+		await journey.press('Space');
+		await journey.expectState(checkoutTick, { checked: false });
+		await journey.expectText(review, '6 of 14 changes reviewed');
+		await journey.press('Space');
+		await journey.expectState(checkoutTick, { checked: true });
+		await journey.expectFocused(checkoutTick);
+		await journey.expectText(review, '9 of 14 changes reviewed');
 		await journey.press('n');
 		const discount = journey.byRole('article', { name: 'src/discount.ts' });
 		await journey.expectFocused(

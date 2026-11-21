@@ -31,7 +31,9 @@
 		}
 	});
 
+	/** The buttons stay usable while a source opens, so focus stays on them; a press meanwhile does nothing. */
 	async function choose(candidate: Pick<Candidate, 'source'>): Promise<void> {
+		if (opening) return;
 		opening = true;
 		problem = '';
 		const opened = await pageClient().open({ directory: data.directory, source: candidate.source });
@@ -78,7 +80,7 @@
 		<p>
 			<button
 				type="button"
-				disabled={opening}
+				aria-disabled={opening}
 				onclick={() => {
 					void choose({ source });
 				}}
@@ -110,7 +112,7 @@
 				<li>
 					<button
 						type="button"
-						disabled={opening}
+						aria-disabled={opening}
 						onclick={() => {
 							void choose(candidate);
 						}}

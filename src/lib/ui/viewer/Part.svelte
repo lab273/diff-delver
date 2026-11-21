@@ -139,9 +139,15 @@
 					type="checkbox"
 					aria-label="Reviewed: {part.path}{part.of > 1 ? ` in ${groupName}` : ''}"
 					checked={reviewed}
-					disabled={state.busy}
+					aria-describedby={state.busy ? `part-${String(at)}-saving` : undefined}
 					onchange={async (event) => {
 						const box = event.currentTarget;
+						// Never disabled while the tick is saved, so focus stays on it; a press
+						// meanwhile is ignored.
+						if (state.busy) {
+							box.checked = !box.checked;
+							return;
+						}
 						viewer.current = at;
 						await ontick(at, box.checked);
 						// A tick that was refused leaves the box as the diff has it.
@@ -150,6 +156,7 @@
 				/>
 				Reviewed
 			</label>
+			{#if state.busy}<span class="visually-hidden" id="part-{at}-saving">Saving</span>{/if}
 		{/if}
 	</header>
 	{#if state.problem !== ''}
@@ -241,6 +248,8 @@
 					onclick={() => {
 						state.lines = { kind: 'waiting' };
 						void viewer.load(at);
+						// The button goes while the lines come; focus stays in the part, on its name.
+						document.getElementById(`part-${String(at)}-toggle`)?.focus();
 					}}
 				>
 					Try again
