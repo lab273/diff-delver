@@ -8,6 +8,7 @@
 <script lang="ts">
 	import type { GroupKeyView, ShownLineView } from '#lib/api/schemas.ts';
 	import type { EscapedPath } from '#lib/core/path-bytes.ts';
+	import type { PartIndex } from '#lib/core/part-index.tiny.ts';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import type { BlockState, OpenLine, Viewer } from './viewer.svelte.ts';
 	import { hiddenCount, nextStep } from './viewer.svelte.ts';
@@ -25,7 +26,7 @@
 		ongo
 	}: {
 		viewer: Viewer;
-		at: number;
+		at: PartIndex;
 		blocks: BlockState[];
 		path: EscapedPath;
 		/** The version before this one, for "new since version 1"; null for a first version. */

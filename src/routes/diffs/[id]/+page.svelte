@@ -21,13 +21,20 @@
 	import { pageClient } from '#lib/ui/client.ts';
 	import type { FileView, GroupKeyView, TallyView } from '#lib/api/schemas.ts';
 	import { countOf, describeChanges, describeTally, formatCount } from '#lib/core/viewer/words.ts';
-	import { nextPart, previousPart } from '#lib/core/viewer/reading-order.ts';
+	import { nextShown, previousShown } from '#lib/core/viewer/reading-order.ts';
+	import { parsePartIndex, type PartIndex } from '#lib/core/part-index.tiny.ts';
 	import FileList from '#lib/ui/viewer/FileList.svelte';
 	import Part from '#lib/ui/viewer/Part.svelte';
 	import ProgressBar from '#lib/ui/viewer/ProgressBar.svelte';
 	import Shortcuts from '#lib/ui/viewer/Shortcuts.svelte';
 	import { shortcutOf } from '#lib/ui/viewer/keys.ts';
-	import { done, NEXT_BATCH, Viewer, type GroupInfo } from '#lib/ui/viewer/viewer.svelte.ts';
+	import {
+		done,
+		NEXT_BATCH,
+		Viewer,
+		type GroupInfo,
+		type TickTarget
+	} from '#lib/ui/viewer/viewer.svelte.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -244,7 +251,7 @@
 	}
 
 	/** Moves to a part: shown, opened if asked, focused and at the top of the screen. */
-	async function goToPart(at: number, open: boolean): Promise<void> {
+	async function goToPart(at: PartIndex, open: boolean): Promise<void> {
 		if (viewer === undefined) return;
 		const state = viewer.parts[at];
 		if (state === undefined) return;
@@ -263,11 +270,6 @@
 		document.getElementById(`part-${String(at)}`)?.scrollIntoView({ block: 'start' });
 	}
 
-	function shownIndexes(): number[] {
-		if (viewer === undefined) return [];
-		return viewer.parts.map((p) => p.index).filter((i) => viewer.shows(i));
-	}
-
 	async function nextUnread(): Promise<void> {
 		if (viewer === undefined) return;
 		const at = viewer.nextUnread();
@@ -280,13 +282,10 @@
 		await goToPart(at, true);
 	}
 
+	/** The next or previous part shown, from where the person is, even a part the filter has just hidden. */
 	async function step(forward: boolean): Promise<void> {
 		if (viewer === undefined) return;
-		const shown = shownIndexes();
-		const from = viewer.current === undefined ? undefined : shown.indexOf(viewer.current);
-		const known = from === undefined || from < 0 ? undefined : from;
-		const next = forward ? nextPart(shown.length, known) : previousPart(shown.length, known);
-		const at = next === undefined ? undefined : shown[next];
+		const at = forward ? viewer.nextShown() : viewer.previousShown();
 		if (at === undefined) {
 			viewer.announcement = forward ? 'This is the last file.' : 'This is the first file.';
 			return;
@@ -295,12 +294,20 @@
 	}
 
 	/** The part the person is on, for a key: the one they moved to, or the first shown. */
-	function currentPart(): number | undefined {
+	function currentPart(): PartIndex | undefined {
 		if (viewer === undefined) return undefined;
-		return viewer.current ?? shownIndexes()[0];
+		return viewer.current ?? nextShown(viewer.shown);
 	}
 
-	async function afterTick(outcome: Awaited<ReturnType<Viewer['tick']>>): Promise<void> {
+	/** Whether nothing on the page has focus, as when what had it has gone. */
+	function focusLost(): boolean {
+		return document.activeElement === null || document.activeElement === document.body;
+	}
+
+	async function afterTick(
+		target: TickTarget,
+		outcome: Awaited<ReturnType<Viewer['tick']>>
+	): Promise<void> {
 		if (viewer === undefined) return;
 		switch (outcome.kind) {
 			case 'refused':
@@ -314,28 +321,40 @@
 				}
 				// Finishing a group moves on to the next one that still waits.
 				const finished = outcome.groupFinished;
-				if (finished === undefined) return;
-				const next = viewer.groups.find(
-					(g) => g.first > finished.first && g.key.kind !== 'ignored' && !done(viewer.groupTally(g))
-				);
-				if (next !== undefined) document.getElementById(`${next.anchor}-heading`)?.focus();
+				if (finished !== undefined) {
+					const next = viewer.groups.find(
+						(g) =>
+							g.first > finished.first && g.key.kind !== 'ignored' && !done(viewer.groupTally(g))
+					);
+					if (next !== undefined) document.getElementById(`${next.anchor}-heading`)?.focus();
+				}
+				if (byFile || !focusLost()) return;
+				// What had focus went from the page with "Only what I have not reviewed": on
+				// to the part shown after where it was, or before it when it was the last.
+				const place = target.kind === 'part' ? target.at : viewer.current;
+				const shown = viewer.shown;
+				const next = nextShown(shown, place) ?? previousShown(shown, place);
+				if (next !== undefined) await goToPart(next, false);
+				else document.getElementById(EVERYTHING_REVIEWED)?.focus();
 			}
 		}
 	}
 
-	async function tickPart(at: number, reviewed: boolean): Promise<void> {
+	async function tickTarget(target: TickTarget, reviewed: boolean): Promise<void> {
 		if (viewer === undefined) return;
-		await afterTick(await viewer.tick({ kind: 'part', at }, reviewed));
+		await afterTick(target, await viewer.tick(target, reviewed));
+	}
+
+	async function tickPart(at: PartIndex, reviewed: boolean): Promise<void> {
+		await tickTarget({ kind: 'part', at }, reviewed);
 	}
 
 	async function tickGroup(group: GroupInfo, reviewed: boolean): Promise<void> {
-		if (viewer === undefined) return;
-		await afterTick(await viewer.tick({ kind: 'group', group }, reviewed));
+		await tickTarget({ kind: 'group', group }, reviewed);
 	}
 
 	async function tickFile(file: FileView, reviewed: boolean): Promise<void> {
-		if (viewer === undefined) return;
-		await afterTick(await viewer.tick({ kind: 'file', path: file.path }, reviewed));
+		await tickTarget({ kind: 'file', path: file.path }, reviewed);
 	}
 
 	async function goTo(path: EscapedPath, group: GroupKeyView): Promise<void> {
@@ -407,8 +426,9 @@
 	function onFocusIn(event: FocusEvent): void {
 		if (viewer === undefined || !(event.target instanceof Element)) return;
 		const part = event.target.closest('article.part');
-		const index = part === null ? NaN : Number(part.id.replace(/^part-/, ''));
-		if (Number.isInteger(index)) viewer.current = index;
+		if (part === null) return;
+		const index = parsePartIndex(Number(part.id.replace(/^part-/, '')));
+		if (index.ok) viewer.current = index.value;
 	}
 
 	/** How far a group has got, after its name: "all reviewed", "2 of 5 changes reviewed". */

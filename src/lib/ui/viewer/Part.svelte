@@ -8,6 +8,7 @@
 	import type { GroupKeyView, PartLines as PartLinesView } from '#lib/api/schemas.ts';
 	import { describeByteSize, countOf, describeTally, formatCount } from '#lib/core/viewer/words.ts';
 	import type { EscapedPath } from '#lib/core/path-bytes.ts';
+	import type { PartIndex } from '#lib/core/part-index.tiny.ts';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import PartLines from './PartLines.svelte';
@@ -24,7 +25,7 @@
 		viewer: Viewer;
 		state: PartState;
 		previousVersion: RevisionNumber | null;
-		ontick: (at: number, reviewed: boolean) => Promise<void>;
+		ontick: (at: PartIndex, reviewed: boolean) => Promise<void>;
 		ongo: (path: EscapedPath, group: GroupKeyView) => void;
 		/** Shows the diff's newer version, when a tick was refused for being behind it. */
 		onshownewer: () => void;

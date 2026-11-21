@@ -36,7 +36,13 @@ import {
 	type Opened
 } from '#lib/core/viewer/expansion.ts';
 import type { LineSpan } from '#lib/core/viewer/part-lines.ts';
-import { nextWaiting } from '#lib/core/viewer/reading-order.ts';
+import {
+	nextShown,
+	nextWaiting,
+	previousShown,
+	shownParts
+} from '#lib/core/viewer/reading-order.ts';
+import { partIndexOf, type PartIndex } from '#lib/core/part-index.tiny.ts';
 import { describeChanges, formatCount } from '#lib/core/viewer/words.ts';
 import { pageClient } from '#lib/ui/client.ts';
 import { SvelteMap } from 'svelte/reactivity';
@@ -84,7 +90,7 @@ export type LinesState =
 
 export interface PartState {
 	/** Its place in reading order, which its element's id uses. */
-	readonly index: number;
+	readonly index: PartIndex;
 	/** The same for the same part of the same file in any answer: group and path. */
 	readonly key: string;
 	part: PartView;
@@ -108,7 +114,7 @@ export interface GroupInfo {
 	/** As the page names it: a section's title, "Ignored", "Not sorted yet". */
 	readonly name: string;
 	/** Its parts' places in reading order: `first` to `first + count - 1`. */
-	readonly first: number;
+	readonly first: PartIndex;
 	readonly count: number;
 }
 
@@ -161,7 +167,7 @@ export function groupName(key: GroupKeyView, title: string | null): string {
 
 /** What the reviewer ticks, as the API names it. */
 export type TickTarget =
-	| { readonly kind: 'part'; readonly at: number }
+	| { readonly kind: 'part'; readonly at: PartIndex }
 	| { readonly kind: 'file'; readonly path: FileView['path'] }
 	| { readonly kind: 'group'; readonly group: GroupInfo };
 
@@ -185,7 +191,7 @@ export class Viewer {
 	/** "Only what I have not reviewed". */
 	onlyWaiting: boolean;
 	/** The part the person is on: the last moved to, or the one holding focus. */
-	current = $state<number>();
+	current = $state<PartIndex>();
 	/**
 	 * How many parts, in reading order, are drawn. A large diff is drawn a
 	 * batch at a time after its first screen, so the first file is readable at
@@ -196,7 +202,7 @@ export class Viewer {
 	announcement = $state('');
 
 	/** Where each part is; fixed for the viewer's life, so not reactive. */
-	readonly #byKey: ReadonlyMap<string, number>;
+	readonly #byKey: ReadonlyMap<string, PartIndex>;
 	readonly #groupOf: number[] = [];
 
 	constructor(page: DiffPage, onlyWaiting: boolean) {
@@ -207,19 +213,19 @@ export class Viewer {
 		this.view = page.view;
 		const groups: GroupInfo[] = [];
 		const parts: PartState[] = [];
-		const byKey = new SvelteMap<string, number>();
+		const byKey = new SvelteMap<string, PartIndex>();
 		for (const group of page.groups) {
 			const info: GroupInfo = {
 				key: group.key,
 				id: groupKeyId(group.key),
 				anchor: `group-${String(groups.length)}`,
 				name: groupName(group.key, group.title),
-				first: parts.length,
+				first: partIndexOf(parts.length),
 				count: group.parts.length
 			};
 			groups.push(info);
 			for (const part of group.parts) {
-				const index = parts.length;
+				const index = partIndexOf(parts.length);
 				const key = keyOf(part.group, part.path);
 				byKey.set(key, index);
 				this.#groupOf.push(groups.length - 1);
@@ -243,7 +249,7 @@ export class Viewer {
 	}
 
 	/** The group a part is in. */
-	groupOfPart(at: number): GroupInfo | undefined {
+	groupOfPart(at: PartIndex): GroupInfo | undefined {
 		const group = this.#groupOf[at];
 		return group === undefined ? undefined : this.groups[group];
 	}
@@ -255,7 +261,7 @@ export class Viewer {
 	}
 
 	/** Where a file's part in a group is in reading order. */
-	partOf(group: GroupKeyView, path: EscapedPath): number | undefined {
+	partOf(group: GroupKeyView, path: EscapedPath): PartIndex | undefined {
 		return this.#byKey.get(keyOf(group, path));
 	}
 
@@ -277,24 +283,43 @@ export class Viewer {
 	}
 
 	/** Whether the page shows a part, with the filter as it is. */
-	shows(at: number): boolean {
+	shows(at: PartIndex): boolean {
 		const part = this.parts[at];
 		return part !== undefined && (!this.onlyWaiting || waits(part.part));
 	}
 
 	/** Whether a part is drawn yet (see `rendered`). */
-	drawn(at: number): boolean {
+	drawn(at: PartIndex): boolean {
 		return at < this.rendered;
 	}
 
 	/** Draws every part up to `at`, so it can be moved to. */
-	drawUpTo(at: number): void {
+	drawUpTo(at: PartIndex): void {
 		if (at >= this.rendered) this.rendered = at + 1;
 	}
 
 	/** The next part that waits after the one the person is on, or the first. */
-	nextUnread(): number | undefined {
+	nextUnread(): PartIndex | undefined {
 		return nextWaiting(this.waiting, this.current);
+	}
+
+	/** Which parts the page shows, with the filter as it is. */
+	get shown(): readonly boolean[] {
+		return shownParts(this.waiting, this.onlyWaiting);
+	}
+
+	/**
+	 * The part shown after the one the person is on (or the first), stopping at
+	 * the end; from a part the filter has just hidden, the one shown after where
+	 * it was.
+	 */
+	nextShown(): PartIndex | undefined {
+		return nextShown(this.shown, this.current);
+	}
+
+	/** The part shown before the one the person is on (or the last), stopping at the top. */
+	previousShown(): PartIndex | undefined {
+		return previousShown(this.shown, this.current);
 	}
 
 	/** Whether a part is drawn large, behind its control. */
@@ -303,7 +328,7 @@ export class Viewer {
 	}
 
 	/** Fetches a part's lines, once, unless they are on their way. */
-	async load(at: number): Promise<void> {
+	async load(at: PartIndex): Promise<void> {
 		const state = this.parts[at];
 		if (state === undefined) return;
 		if (state.lines.kind === 'loading' || state.lines.kind === 'loaded') return;
@@ -339,7 +364,7 @@ export class Viewer {
 	}
 
 	/** Opens hidden lines of a part's block: a step down, a step up, or all of them. */
-	async openLines(at: number, block: number, direction: Direction): Promise<void> {
+	async openLines(at: PartIndex, block: number, direction: Direction): Promise<void> {
 		const state = this.parts[at];
 		if (state?.lines.kind !== 'loaded') return;
 		const hidden = state.lines.blocks[block];
@@ -372,21 +397,21 @@ export class Viewer {
 	}
 
 	/** Whether every unchanged line of a part is open: the whole file is shown. */
-	wholeShown(at: number): boolean {
+	wholeShown(at: PartIndex): boolean {
 		const state = this.parts[at];
 		if (state?.lines.kind !== 'loaded') return false;
 		return state.lines.blocks.every((b) => b.kind !== 'hidden' || hiddenCount(b) === 0);
 	}
 
 	/** Whether a part has hidden lines at all. */
-	hasHidden(at: number): boolean {
+	hasHidden(at: PartIndex): boolean {
 		const state = this.parts[at];
 		if (state?.lines.kind !== 'loaded') return false;
 		return state.lines.blocks.some((b) => b.kind === 'hidden');
 	}
 
 	/** Shows the whole file of a part, every hidden line opened; or, when it is shown, only its changes again. */
-	async wholeFile(at: number): Promise<void> {
+	async wholeFile(at: PartIndex): Promise<void> {
 		const state = this.parts[at];
 		if (state === undefined) return;
 		state.open = true;

@@ -9,6 +9,7 @@
 	import { describeTally } from '#lib/core/viewer/words.ts';
 	import type { EscapedPath } from '#lib/core/path-bytes.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
+	import { tick } from 'svelte';
 	import { done, type Viewer } from './viewer.svelte.ts';
 
 	let {
@@ -20,6 +21,19 @@
 		ontick: (file: FileView, reviewed: boolean) => Promise<void>;
 		ongo: (path: EscapedPath, group: GroupKeyView) => void;
 	} = $props();
+
+	/**
+	 * When a tick takes the file from the list ("Only what I have not reviewed"),
+	 * focus goes to the file that took its place (its tick, or the way to it when
+	 * it has none), or the one before when it was the last, or the list's heading.
+	 */
+	function moveOnFrom(place: number): void {
+		if (document.activeElement !== null && document.activeElement !== document.body) return;
+		const rows = document.querySelectorAll('.by-file .files > li');
+		const row = rows[place] ?? rows[place - 1];
+		const next = row?.querySelector<HTMLElement>('input[type=checkbox], a');
+		(next ?? document.getElementById('by-file-heading'))?.focus();
+	}
 
 	const shown = $derived(
 		viewer.files.filter((f) => !viewer.onlyWaiting || (f.tally.units > 0 && !done(f.tally)))
@@ -37,7 +51,7 @@
 		<p class="explain">Every file is reviewed.</p>
 	{:else}
 		<ul class="files">
-			{#each shown as file (file.path)}
+			{#each shown as file, i (file.path)}
 				<li>
 					<span class="path">{file.path}</span>
 					<span class="change">{file.change}</span>
@@ -71,6 +85,8 @@
 									box.checked = done(
 										viewer.files.find((f) => f.path === file.path)?.tally ?? file.tally
 									);
+									await tick();
+									moveOnFrom(i);
 								}}
 							/>
 							Reviewed
