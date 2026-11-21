@@ -36,11 +36,6 @@ In a git repository with changes, run:
 npx https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz
 ```
 
-> **No release has been made yet**, so that address finds nothing for now. Until the
-> first release, use `npx github:lab273/diff-delver` in its place. The first time, it
-> builds diff delver on your machine: about a minute, and about 400 MB of build tools
-> downloaded into npx's cache.
-
 npx asks whether to install diff delver. The release download is about 3 MB.
 After installation, your diff opens in the browser. It shows your uncommitted
 changes. If you have none, it shows your branch compared with the main branch,
@@ -78,13 +73,6 @@ agent once. For Claude Code:
 ```
 claude mcp add diff-delver -- npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz mcp
 ```
-
-> **Until the first release** that command adds a server that cannot start. Use this
-> one instead:
->
-> ```
-> claude mcp add diff-delver -- npx --yes github:lab273/diff-delver mcp
-> ```
 
 For another agent, add an MCP server that runs the same command: everything after
 the `--`.
@@ -133,11 +121,11 @@ with there.
 | `diff-delver open main...feature-x` | One branch compared with another |
 | `diff-delver choose` | A page to choose from your branches and commits |
 
-On the page `diff-delver choose` opens, pick a branch, then tick the commits to
-review: tick two to review them and every commit between, or review the whole branch
-at once. Each commit shows its size and when it was made. The page also says when
-your copy last fetched, and can ask the remote whether it has new commits; it never
-fetches them for you.
+The chooser landed after v0.0.1. To try it, run `npx github:lab273/diff-delver choose`
+in your repository. Pick a branch, then tick two commits to review them and every
+commit between, or review the whole branch at once. Each commit shows its size and
+when it was made. You can see when your copy last fetched and check whether the
+remote has new commits.
 
 Other commands and options:
 
@@ -155,7 +143,8 @@ diff delver keeps your diffs and ticks in one folder of its own,
 ### What works today
 
 - Opening uncommitted changes, staged changes, a commit, or two branches compared,
-  from a local git repository, or choosing commits or a branch from a page.
+  from a local git repository. Builds from `main` also let you choose commits or a
+  branch from a page.
 - Reading a diff: code coloured by language, one column or side by side, white-space
   changes hidden, unchanged lines opened, search.
 - Ticking files and sections as reviewed, with progress, across restarts.

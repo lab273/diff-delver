@@ -559,7 +559,16 @@ export const JOURNEY_REPOSITORIES = {
 			await repo.git('checkout', '--quiet', '--detach', 'main');
 			await repo.write('README.md', lines('# Shop', '', 'Open every day but Monday.'));
 			await repo.commit('Say when the shop is open');
-			await repo.git('push', '--quiet', server, 'HEAD:main');
+			// Advance the server directly. Some git versions update origin/main
+			// when a push names the remote's address instead of its name.
+			await repo.git(
+				`--git-dir=${server}`,
+				'fetch',
+				'--quiet',
+				'--no-write-fetch-head',
+				join(repo.dir, '.git'),
+				'HEAD:refs/heads/main'
+			);
 			// And main here gets a commit that is not pushed.
 			await repo.git('checkout', '--quiet', 'main');
 			await repo.write('src/receipt.ts', lines("export const THANKS = 'Thank you!';"));

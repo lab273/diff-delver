@@ -20,7 +20,9 @@ test.describe('J0 First run', () => {
 		expect(await journey.title()).toBe('diff delver');
 		expect(await journey.tabOrder()).toEqual(['link "diff delver"', 'button "Copy the command"']);
 		await journey.activate(journey.byRole('button', { name: 'Copy the command' }));
-		expect(await journey.readClipboard()).toBe('npx github:lab273/diff-delver');
+		expect(await journey.readClipboard()).toBe(
+			'npx https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz'
+		);
 		await journey.expectVisible(
 			journey.byText('Copied. Paste it into a terminal, in your repository.')
 		);
