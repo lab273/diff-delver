@@ -10,6 +10,7 @@ import {
 	cookieValue,
 	describeRefusal,
 	gateRequest,
+	isMcpTarget,
 	tokenCookieName,
 	type GateRequest,
 	type GateSettings,
@@ -215,6 +216,40 @@ describe('the request gate', () => {
 			kind: 'refuse',
 			refusal: 'wrong-token'
 		});
+	});
+
+	it('serves MCP only to a program that sends the token itself, never on the cookie', () => {
+		const bearer = `Bearer ${token}`;
+		const mcp = (overrides: Partial<GateRequest>) =>
+			gateRequest(request({ method: 'POST', target: '/mcp', ...overrides }), settings);
+		expect(mcp({ authorization: bearer })).toEqual({ kind: 'serve' });
+		expect(mcp({ method: 'GET', authorization: bearer })).toEqual({ kind: 'serve' });
+		expect(mcp({ target: '/mcp?x=1', authorization: bearer })).toEqual({ kind: 'serve' });
+		// The cookie alone, even from the daemon's own pages, is not enough.
+		expect(mcp({ cookie, origin: `http://${host}` })).toEqual({
+			kind: 'refuse',
+			refusal: 'no-token'
+		});
+		expect(mcp({ method: 'GET', cookie })).toEqual({ kind: 'refuse', refusal: 'no-token' });
+		expect(mcp({})).toEqual({ kind: 'refuse', refusal: 'no-token' });
+		expect(mcp({ authorization: `Bearer ${other}` })).toEqual({
+			kind: 'refuse',
+			refusal: 'wrong-token'
+		});
+		expect(mcp({ authorization: bearer, origin: 'http://evil.example' })).toEqual({
+			kind: 'refuse',
+			refusal: 'wrong-origin'
+		});
+		expect(mcp({ authorization: bearer, host: 'evil.example:43210' })).toEqual({
+			kind: 'refuse',
+			refusal: 'wrong-host'
+		});
+		// Only the path itself is MCP.
+		expect(isMcpTarget('/mcp')).toBe(true);
+		expect(isMcpTarget('/mcp?a')).toBe(true);
+		expect(isMcpTarget('/mcp/')).toBe(false);
+		expect(isMcpTarget('/mcpx')).toBe(false);
+		expect(isMcpTarget('/api/mcp')).toBe(false);
 	});
 
 	it('says what to do for every refusal, without internal words', () => {

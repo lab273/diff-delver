@@ -13,3 +13,6 @@ bun.lockb
 
 # The issue tracker's own files
 /.beads/
+
+# Written by pnpm mcp:surface, compared byte for byte by its test
+/src/lib/server/mcp/fixtures/

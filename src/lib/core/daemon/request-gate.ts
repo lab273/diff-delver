@@ -23,6 +23,13 @@
  * from its history. The redirect only ever goes to a path of this daemon
  * (`localPath`), whatever the request said.
  *
+ * MCP (`/mcp`, DESIGN 3) is for programs only: the stdio shim and clients that
+ * speak HTTP MCP. It is served only with the token in `Authorization`, never
+ * on the cookie alone, so no page the person's browser visits can reach it,
+ * even one the browser would send the cookie with; and like any change asked
+ * with the token, a request that comes from a page (`Origin`) must come from
+ * the daemon's own.
+ *
  * Accepted: browsers send a host's cookies to every port of that host, so
  * another server on 127.0.0.1 that the person's browser visits would receive
  * this daemon's cookie. For a tool one person runs on their own machine, that
@@ -72,6 +79,14 @@ export type GateDecision =
 	 */
 	| { readonly kind: 'enter'; readonly location: string; readonly setCookie: string | undefined }
 	| { readonly kind: 'refuse'; readonly refusal: Refusal };
+
+/** The path MCP is served at. */
+export const MCP_PATH = '/mcp';
+
+/** Whether a request's target is the MCP endpoint, with or without a query. */
+export function isMcpTarget(target: string): boolean {
+	return (target.split('?', 1)[0] ?? '') === MCP_PATH;
+}
 
 /** The query parameter the command puts the entry code in. */
 export const ENTRY_PARAMETER = 'entry';
@@ -178,6 +193,8 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 		return { kind: 'serve' };
 	}
 
+	// MCP is served only to programs that bring the token themselves.
+	if (isMcpTarget(request.target)) return { kind: 'refuse', refusal: 'no-token' };
 	if (cookie === undefined) return { kind: 'refuse', refusal: 'no-token' };
 	if (!isToken(settings.token, cookie)) return { kind: 'refuse', refusal: 'wrong-token' };
 	if (!reading && request.origin !== `http://${host}`) {
@@ -230,14 +247,14 @@ export function describeRefusal(refusal: Refusal): {
 			return {
 				title: reviewerMessage('This link is out of date'),
 				message: reviewerMessage(
-					'This link is from an earlier run of diff delver, which has stopped since. Run diff-delver in a terminal, in your repository, to open it again with a new link.'
+					'This link is from an earlier run of diff delver, which has stopped since. Run diff-delver in a terminal, in your repository, to open it again with a new link, or, if a coding agent gave you the link, ask it for a new one.'
 				)
 			};
 		case 'entry-used':
 			return {
 				title: reviewerMessage('This link is out of date'),
 				message: reviewerMessage(
-					'Each link diff delver gives you opens it once, within two minutes, and this one has been used already or has run out. Run diff-delver in a terminal, in your repository, to open it again with a new link.'
+					'Each link diff delver gives you opens it once, within two minutes, and this one has been used already or has run out. Run diff-delver in a terminal, in your repository, to open it again with a new link, or, if a coding agent gave you the link, ask it for a new one.'
 				)
 			};
 	}

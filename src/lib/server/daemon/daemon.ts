@@ -51,6 +51,7 @@ import { randomEntryCode } from '../system.ts';
 import type { AppHandler } from './app-handler.ts';
 import { registerDaemon, unregisterDaemon } from './context.ts';
 import { daemonServer } from './http-server.ts';
+import { mcpHandler } from '../mcp/mcp-server.ts';
 import { probeLock } from './probe.ts';
 import {
 	lockText,
@@ -70,6 +71,12 @@ export interface DaemonOptions {
 	readonly app: AppHandler;
 	/** How git runs in reviewed repositories; tests give their own reviewer config. */
 	readonly repository?: RepositoryOptions;
+	/**
+	 * Opens an address in the person's browser, for an agent's `create_report`
+	 * through a shim that asks for it; whether it could. The command gives the
+	 * system's opener; tests give none, so no browser ever opens.
+	 */
+	readonly openBrowser?: (address: string) => Promise<boolean>;
 	/** Called once the daemon has stopped, however it was asked to. */
 	readonly onStopped?: () => void;
 	/**
@@ -247,12 +254,24 @@ export async function startDaemon(
 		codes.issue(code);
 		return code;
 	};
-	const server = daemonServer(options.app, () => gate.settings);
+	// Set once the port is known, before anything is served.
+	const origin = { value: '' };
+	const server = daemonServer(
+		options.app,
+		() => gate.settings,
+		mcpHandler({
+			service,
+			version: options.version,
+			entryAddress: (page) => entryAddress(origin.value, page, entryCode()),
+			open: options.openBrowser ?? (() => Promise.resolve(false))
+		})
+	);
 	const port = await listen(server);
 	if (!port.ok) {
 		service.close();
 		return port;
 	}
+	origin.value = `http://127.0.0.1:${String(port.value)}`;
 	const pid = parseProcessId(process.pid);
 	if (!pid.ok) throw new Error('This process has no id.');
 	const lock: Lock = {

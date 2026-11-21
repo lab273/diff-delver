@@ -20,6 +20,8 @@ export type Command =
 	| { readonly kind: 'serve' }
 	/** Stops the daemon of the data folder. */
 	| { readonly kind: 'stop' }
+	/** The stdio MCP shim coding agents launch (DESIGN 3). */
+	| { readonly kind: 'mcp' }
 	| { readonly kind: 'help' }
 	| { readonly kind: 'version' };
 
@@ -45,7 +47,7 @@ export type CommandLineError =
 			readonly message: ReviewerMessage;
 	  };
 
-const COMMANDS = ['open', 'serve', 'stop', 'help', 'version'] as const;
+const COMMANDS = ['open', 'serve', 'stop', 'mcp', 'help', 'version'] as const;
 
 /** Reads the arguments after the program's name. */
 export function parseCommandLine(args: readonly string[]): Result<Invocation, CommandLineError> {
@@ -111,6 +113,7 @@ export function parseCommandLine(args: readonly string[]): Result<Invocation, Co
 		}
 		case 'serve':
 		case 'stop':
+		case 'mcp':
 		case 'help':
 		case 'version': {
 			if (rest[0] !== undefined) return err({ kind: 'ExtraArgument', argument: rest[0] });
@@ -158,6 +161,12 @@ Usage:
                               branches to compare, such as main...feature-x.
   diff-delver serve           Run diff delver in this terminal until Ctrl+C.
   diff-delver stop            Stop diff delver if it is running.
+  diff-delver mcp             For coding agents: an MCP server on standard input
+                              and output, which lets an agent sort the diff into
+                              sections for you. Add it to your agent's MCP
+                              servers with this command. It starts diff delver
+                              if need be, and opens in your browser each report
+                              the agent makes, unless given --no-open.
 
 Options:
   --no-open                   Print the address instead of opening a browser.

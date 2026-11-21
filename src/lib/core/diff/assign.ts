@@ -422,6 +422,23 @@ function withDiffContext(diff: Diff, rejection: AssignRejection): AssignRejectio
 }
 
 /**
+ * The changed file a `file` value names, read as `assign` reads it: its path,
+ * its escaped form, or that quoted as a JSON string; refused as `UnknownFile`
+ * with the paths the agent may have meant.
+ */
+export function findDiffFile(diff: Diff, text: string): Result<DiffFile, AssignRejection> {
+	const target = parseTarget({ file: text });
+	if (!target.ok) return err(withDiffContext(diff, target.error));
+	if (target.value.kind !== 'file') return err({ kind: 'UnknownFile', file: text, similar: [] });
+	return findFile(diff, target.value.path);
+}
+
+/** The paths of a tree a `file` value may name, as `assign` reads it, most likely first. */
+export function pathsNamedBy(text: string): readonly RepoPath[] {
+	return pathsMeant(text);
+}
+
+/**
  * The changed units a file and a `lines` value name, as `assign` reads them,
  * for what else an agent points at with them, such as a section's
  * cross-references (DESIGN 4.3): only changed lines and the file-level unit,

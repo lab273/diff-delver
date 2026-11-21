@@ -42,6 +42,15 @@ describe('the command line', () => {
 		});
 	});
 
+	it('reads mcp, the shim agents start, with its options', () => {
+		expect(parseCommandLine(['mcp', '--no-open', '--data-directory', '/data'])).toEqual({
+			ok: true,
+			value: { command: { kind: 'mcp' }, noOpen: true, dataDirectory: '/data' }
+		});
+		expect(parseCommandLine(['mcp', 'extra']).ok).toBe(false);
+		expect(HELP_TEXT).toMatch(/diff-delver mcp {13}For coding agents: an MCP server/);
+	});
+
 	it('shows help and the version before anything else', () => {
 		expect(parseCommandLine(['open', 'HEAD', '--help'])).toMatchObject({
 			ok: true,

@@ -30,6 +30,7 @@ import { machineDataDirectory } from '../store/index.ts';
 import { randomIds, systemClock } from '../system.ts';
 import { codeVersion } from '../version.ts';
 import { describeNewerDaemon, describeReplacedDaemon } from '#lib/core/cli/replaced-daemon.ts';
+import { runShim } from './mcp-shim.ts';
 import { openBrowser } from './open-browser.ts';
 import {
 	describerFor,
@@ -80,7 +81,8 @@ async function serve(dataDirectory: AbsolutePath, background: boolean): Promise<
 		clock: systemClock,
 		ids: randomIds,
 		version: codeVersion(),
-		app
+		app,
+		openBrowser
 	});
 	if (!started.ok) {
 		// Started in the background by a command that raced another: the daemon that
@@ -164,6 +166,7 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 			return 0;
 		case 'serve':
 		case 'stop':
+		case 'mcp':
 		case 'start':
 		case 'open':
 			break;
@@ -176,6 +179,23 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 	switch (command.kind) {
 		case 'serve':
 			return serve(dataDirectory.value, process.send !== undefined);
+		case 'mcp': {
+			const directory = parseAbsolutePath(resolve(cwd));
+			if (!directory.ok) {
+				terminal.printError(
+					'diff delver cannot tell which folder it was started in. Start it from inside your repository.'
+				);
+				return 1;
+			}
+			return runShim({
+				dataDirectory: dataDirectory.value,
+				directory: directory.value,
+				noOpen: invocation.noOpen,
+				version: codeVersion(),
+				entry,
+				printError: terminal.printError
+			});
+		}
 		case 'stop': {
 			const stopped = await stopDaemon(dataDirectory.value);
 			switch (stopped.kind) {

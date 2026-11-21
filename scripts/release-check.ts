@@ -15,17 +15,21 @@
  *   2. `--version`, which must print the release given, if one is;
  *   3. in a new git repository with a change, `--no-open` with a temporary data
  *      folder, and asks the address it prints for the page, which must answer;
- *   4. `stop`, which must stop the daemon it started.
+ *   4. `mcp --no-open`, the shim coding agents start, in the same repository:
+ *      the MCP handshake and `tools/list` on its standard input, whose answer
+ *      on standard output must list the tools, so the bundled MCP SDK works;
+ *   5. `stop`, which must stop the daemon it started.
  *
  * npm's registry is pointed at the same local server, which answers nothing but
  * the tarball, so a package that needed anything from a registry fails here,
  * and the check works offline. It says how long the first run took and how much
  * it downloaded.
  */
-import { execFile, type ExecException } from 'node:child_process';
+import { execFile, spawn, type ExecException } from 'node:child_process';
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
+import { z } from 'zod';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { parseAbsolutePath, type AbsolutePath } from '../src/lib/core/absolute-path.tiny.ts';
 import { parseByteSize, type ByteSize } from '../src/lib/core/byte-size.tiny.ts';
@@ -256,6 +260,76 @@ async function pageAnswers(address: string): Promise<Result<undefined, string>> 
 	}
 }
 
+/**
+ * The names of the tools `diff-delver mcp` lists: the MCP handshake and
+ * `tools/list` on its standard input, one message per line, and its answers
+ * read from standard output until it lists them or the step's time is up.
+ */
+function mcpToolNames(
+	program: string,
+	args: readonly string[],
+	cwd: string,
+	env: NodeJS.ProcessEnv
+): Promise<Result<readonly string[], string>> {
+	const messages = [
+		{
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'initialize',
+			params: {
+				protocolVersion: '2025-06-18',
+				capabilities: {},
+				clientInfo: { name: 'release-check', version: '1' }
+			}
+		},
+		{ jsonrpc: '2.0', method: 'notifications/initialized' },
+		{ jsonrpc: '2.0', id: 2, method: 'tools/list' }
+	];
+	return new Promise((done) => {
+		const child = spawn(program, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
+		let stdout = '';
+		let stderr = '';
+		const timer = setTimeout(() => {
+			child.kill();
+			done(
+				err(
+					`it gave no list of tools within ${String(STEP_TIMEOUT_MS / 1000)} seconds. ${stderr.trim()}`
+				)
+			);
+		}, STEP_TIMEOUT_MS);
+		const finish = (result: Result<readonly string[], string>): void => {
+			clearTimeout(timer);
+			child.stdin.end();
+			done(result);
+		};
+		child.stderr.on('data', (chunk: Buffer) => {
+			stderr += chunk.toString('utf8');
+		});
+		child.stdout.on('data', (chunk: Buffer) => {
+			stdout += chunk.toString('utf8');
+			for (const line of stdout.split('\n')) {
+				let answer: unknown;
+				try {
+					answer = JSON.parse(line);
+				} catch {
+					continue;
+				}
+				const listed = ToolList.safeParse(answer);
+				if (listed.success) finish(ok(listed.data.result.tools.map((t) => t.name)));
+			}
+		});
+		child.once('error', (error) => {
+			finish(err(error.message));
+		});
+		child.stdin.write(messages.map((m) => `${JSON.stringify(m)}\n`).join(''));
+	});
+}
+
+const ToolList = z.object({
+	id: z.literal(2),
+	result: z.object({ tools: z.array(z.object({ name: z.string() })) })
+});
+
 export async function checkPackage(options: {
 	readonly tarball: AbsolutePath;
 	readonly version: ReleaseVersion | undefined;
@@ -381,6 +455,20 @@ export async function checkPackage(options: {
 		const answered = await pageAnswers(address);
 		if (!answered.ok) return err({ kind: 'PageDidNotAnswer', detail: answered.error });
 
+		const tools = await mcpToolNames(
+			join(path.value, 'npx'),
+			['--yes', served.latest, 'mcp', '--no-open', '--data-directory', data],
+			repository,
+			newcomer
+		);
+		if (!tools.ok || !tools.value.includes('create_report')) {
+			return err({
+				kind: 'StepFailed',
+				step: 'its MCP server, diff-delver mcp, listed its tools',
+				detail: tools.ok ? `it listed ${tools.value.join(', ') || 'none'}` : tools.error
+			});
+		}
+
 		const stopped = await npx(['stop', '--data-directory', data], repository);
 		running = !stopped.ok;
 		if (!stopped.ok || !stopped.value.stdout.includes('diff delver has stopped.')) {
@@ -457,7 +545,7 @@ async function main(args: readonly string[]): Promise<number> {
 	}
 	const report = checked.value;
 	process.stdout.write(
-		`The packed package works: npx installed diff delver ${report.version} from a local address in ${String(report.firstRun)} ms with an empty cache, opened a diff whose page answered, and stopped. The first run downloaded ${String(Math.round(report.downloaded / 1024))} KiB; the next, which opened the diff, took ${String(report.laterRun)} ms. The package holds ${String(report.entries)} entries.\n`
+		`The packed package works: npx installed diff delver ${report.version} from a local address in ${String(report.firstRun)} ms with an empty cache, opened a diff whose page answered, listed the tools of its MCP server, and stopped. The first run downloaded ${String(Math.round(report.downloaded / 1024))} KiB; the next, which opened the diff, took ${String(report.laterRun)} ms. The package holds ${String(report.entries)} entries.\n`
 	);
 	return 0;
 }

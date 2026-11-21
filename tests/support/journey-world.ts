@@ -571,6 +571,7 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 					};
 				}
 				case 'stop':
+				case 'mcp':
 				case 'help':
 				case 'version':
 					throw new Error(`diff-delver ${command.kind} opens no page; journeys do not run it.`);

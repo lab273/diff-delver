@@ -17,11 +17,8 @@ import { millisecondsOf } from '#lib/core/milliseconds.tiny.ts';
 import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 import { parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
-import {
-	defineFixture,
-	tempDirectory,
-	useFixture
-} from '../../../../tests/support/fixture-repos.ts';
+import { tempDirectory, useFixture } from '../../../../tests/support/fixture-repos.ts';
+import { FILES, largeChange } from '../../../../tests/support/large-change.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
 import { recordTime, type MeasuredTask } from '../../../../tests/support/measured-time.ts';
 import { at } from '../../../../tests/support/report-rows.ts';
@@ -33,34 +30,6 @@ import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 
 /** The first version of a diff, which changes are made on until it is updated. */
 const FIRST = value(parseRevisionNumber(1));
-
-const FILES = 2_000;
-
-/**
- * 2,000 files of 100 lines, tagged `base`; the next commit rewrites the first 50
- * lines of each. Branch `next` adds a line at the top of every file on top of
- * that, for an update; HEAD stays at the commit before it.
- */
-const largeChange = defineFixture('large-change', async (repo) => {
-	const lines = (prefix: string, from: number, to: number): string =>
-		Array.from({ length: to - from + 1 }, (_, i) => `${prefix} line ${String(from + i)}\n`).join(
-			''
-		);
-	const name = (i: number): string =>
-		`src/module-${String(Math.floor(i / 100)).padStart(2, '0')}/file-${String(i).padStart(4, '0')}.ts`;
-	for (let i = 0; i < FILES; i += 1) await repo.write(name(i), lines('old', 1, 100));
-	await repo.commit('base', 'base');
-	for (let i = 0; i < FILES; i += 1) {
-		await repo.write(name(i), lines('new', 1, 50) + lines('old', 51, 100));
-	}
-	await repo.commit('head');
-	for (let i = 0; i < FILES; i += 1) {
-		await repo.write(name(i), `top\n${lines('new', 1, 50)}${lines('old', 51, 100)}`);
-	}
-	await repo.commit('next');
-	await repo.git('branch', 'next');
-	await repo.git('reset', '--quiet', '--soft', 'HEAD~1');
-});
 
 async function measure<T>(
 	task: MeasuredTask,

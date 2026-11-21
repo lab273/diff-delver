@@ -9,6 +9,7 @@ import type { ApiErrorBody } from '#lib/api/schemas.ts';
 import {
 	describeRefusal,
 	gateRequest,
+	isMcpTarget,
 	refusalStatus,
 	type GateSettings,
 	type Refusal
@@ -68,7 +69,7 @@ function header(req: IncomingMessage, name: string): string | undefined {
 
 function refuse(req: IncomingMessage, res: ServerResponse, refusal: Refusal): void {
 	const status = refusalStatus(refusal);
-	const api = (req.url ?? '').startsWith('/api/');
+	const api = (req.url ?? '').startsWith('/api/') || isMcpTarget(req.url ?? '');
 	if (api) {
 		const { message } = describeRefusal(refusal);
 		const body: ApiErrorBody = { error: { kind: 'Refused', message } };
@@ -85,7 +86,14 @@ function refuse(req: IncomingMessage, res: ServerResponse, refusal: Refusal): vo
 	res.end(refusalPage(refusal));
 }
 
-export function daemonServer(app: AppHandler, settings: () => GateSettings | undefined): Server {
+/** What answers requests to `/mcp` that the gate let in. */
+export type McpHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+
+export function daemonServer(
+	app: AppHandler,
+	settings: () => GateSettings | undefined,
+	mcp?: McpHandler
+): Server {
 	return createServer((req, res) => {
 		for (const [name, value] of Object.entries(ALWAYS)) res.setHeader(name, value);
 		const gate = settings();
@@ -107,6 +115,24 @@ export function daemonServer(app: AppHandler, settings: () => GateSettings | und
 		);
 		switch (decision.kind) {
 			case 'serve':
+				if (mcp !== undefined && isMcpTarget(req.url ?? '/')) {
+					mcp(req, res).catch((error: unknown) => {
+						console.error(
+							`diff delver could not answer an MCP request: ${error instanceof Error ? error.message : String(error)}`
+						);
+						if (!res.headersSent) {
+							res.writeHead(500, { 'content-type': 'application/json' });
+							res.end(
+								JSON.stringify({
+									jsonrpc: '2.0',
+									error: { code: -32603, message: 'diff delver failed to answer; try again.' },
+									id: null
+								})
+							);
+						}
+					});
+					return;
+				}
 				app(req, res, () => {
 					res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
 					res.end('Not found\n');

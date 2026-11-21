@@ -39,6 +39,8 @@ export interface TestDaemonOptions {
 	readonly repeat?: (check: () => Promise<void>) => () => void;
 	/** The daemon's clock; by default one fixed at a time in 2026. */
 	readonly clock?: SettableClock;
+	/** What the daemon opens a browser with, for an agent's new report; by default it never does. */
+	readonly openBrowser?: (address: string) => Promise<boolean>;
 }
 
 /** Starts a daemon, or says why it could not; one that starts is stopped when the test finishes. */
@@ -57,7 +59,8 @@ export async function tryStartDaemon(
 		version: options.version ?? version('test'),
 		app: await app,
 		repository: { gitEnv: who.gitEnv },
-		...(options.repeat === undefined ? {} : { repeat: options.repeat })
+		...(options.repeat === undefined ? {} : { repeat: options.repeat }),
+		...(options.openBrowser === undefined ? {} : { openBrowser: options.openBrowser })
 	});
 	if (started.ok) {
 		const daemon = started.value;
