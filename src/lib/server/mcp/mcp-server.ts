@@ -59,6 +59,19 @@ export interface McpOptions {
 	readonly open: (address: string) => Promise<boolean>;
 }
 
+/** Who the server says it is at `initialize`, but for its version, which is the build's. */
+export const SERVER_IDENTITY: { readonly name: string; readonly title: string } = {
+	name: 'diff-delver',
+	title: 'diff delver'
+};
+
+/**
+ * What the server says it can do at `initialize`: tools. The SDK's server
+ * declares `listChanged` for any server with tools, so it is said here as it
+ * is sent; diff delver's tools never change while it runs.
+ */
+export const SERVER_CAPABILITIES = { tools: { listChanged: true } };
+
 /** The tools as `tools/list` gives them: each one's input schema is its Zod schema as JSON schema. */
 export function listedTools(): readonly ListedTool[] {
 	return TOOLS.map((t) => ({
@@ -119,8 +132,8 @@ function directoryOf(req: IncomingMessage): AbsolutePath | undefined {
  */
 function serverFor(context: ToolContext, version: CodeVersion): McpServer {
 	const mcp = new McpServer(
-		{ name: 'diff-delver', title: 'diff delver', version },
-		{ capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS }
+		{ ...SERVER_IDENTITY, version },
+		{ capabilities: SERVER_CAPABILITIES, instructions: SERVER_INSTRUCTIONS }
 	);
 	const server = mcp.server;
 	server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [...listedTools()] }));

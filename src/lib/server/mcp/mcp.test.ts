@@ -166,7 +166,14 @@ describe('the agent interface, through the stdio shim', () => {
 		const listed = await session.client.listTools();
 		const committed: unknown = JSON.parse(await readFile(AGENT_SURFACE_FILE, 'utf8'));
 		expect(
-			{ instructions: session.client.getInstructions(), tools: listed.tools },
+			{
+				server: Object.fromEntries(
+					Object.entries(session.client.getServerVersion() ?? {}).filter(([k]) => k !== 'version')
+				),
+				capabilities: session.client.getServerCapabilities(),
+				instructions: session.client.getInstructions(),
+				tools: listed.tools
+			},
 			'The tools changed: run pnpm mcp:surface, read the change in src/lib/server/mcp/fixtures/agent-surface.json, and commit it with the change.'
 		).toEqual(committed);
 	});
