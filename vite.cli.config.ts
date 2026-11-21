@@ -6,14 +6,18 @@
  * dlx` put it. The app it serves stays in `build/handler.js`, loaded when a
  * daemon starts, and is left out of this bundle (`#build/handler.js`).
  *
- * The version it reports is the package version and a hash of everything the
- * build is made from, so two builds of the same code have the same version and
- * a command can tell whether a running daemon is its own.
+ * The version it reports is a release and a hash of everything the build is
+ * made from, so two builds of the same code have the same version and a command
+ * can tell whether a running daemon is its own. The release workflow gives the
+ * release in `DIFF_DELVER_RELEASE_VERSION` (README, "Releasing"), which is how
+ * it is stamped in without anything being committed; any other build, such as a
+ * clone's, reports the package version marked `-dev`, which is no release.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { defineConfig } from 'vite';
+import { parseReleaseVersion } from './src/lib/core/release-version.tiny.ts';
 
 const root = import.meta.dirname;
 
@@ -48,9 +52,21 @@ const packageVersion =
 		? packageJson.version
 		: '0.0.0';
 
+function releaseVersion(): string {
+	const given = process.env['DIFF_DELVER_RELEASE_VERSION'];
+	if (given === undefined || given === '') return `${packageVersion}-dev`;
+	const parsed = parseReleaseVersion(given);
+	if (!parsed.ok) {
+		throw new Error(
+			`DIFF_DELVER_RELEASE_VERSION is "${given}", which is not a release version. Give three whole numbers, such as 0.2.0, or leave it unset for a build that is no release.`
+		);
+	}
+	return parsed.value;
+}
+
 export default defineConfig({
 	define: {
-		__DIFF_DELVER_VERSION__: JSON.stringify(`${packageVersion}+${codeHash()}`)
+		__DIFF_DELVER_VERSION__: JSON.stringify(`${releaseVersion()}+${codeHash()}`)
 	},
 	build: {
 		ssr: 'src/lib/server/cli/run.ts',

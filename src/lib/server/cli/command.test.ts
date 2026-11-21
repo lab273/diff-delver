@@ -301,7 +301,7 @@ describe('the diff-delver command', () => {
 		const help = await run(['--help'], repo.dir, who);
 		expect(help).toEqual({ code: 0, stdout: `${HELP_TEXT}\n`, stderr: '' });
 		const shown = await run(['--version'], repo.dir, who);
-		expect(shown.stdout).toMatch(/^diff-delver 0\.0\.1\+[0-9a-f]{12}\n$/);
+		expect(shown.stdout).toMatch(/^diff-delver 0\.0\.1-dev\+[0-9a-f]{12}\n$/);
 		const wrong = await run(['frobnicate'], repo.dir, who);
 		expect(wrong.code).toBe(2);
 		expect(wrong.stderr).toMatch(/^diff delver has no command "frobnicate"/);
