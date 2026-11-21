@@ -17,9 +17,9 @@ your review progress on your machine.
   code changes, your ticks stay on the lines that did not.
 - **It stays on your machine.** diff delver never writes to the repository you review.
 
-> **Status: early build.** Reviewing a diff by hand works, and an agent can sort one
-> into sections. Comments, and copying a finished review to the clipboard, are not
-> built yet. It has been built and tested on Linux only. See
+> **Status: early build.** You can review a diff, save private draft comments, and
+> have an agent sort changes into sections. Submitting or copying a finished review
+> is still planned. It has been built and tested on Linux only. See
 > [What works today](#what-works-today).
 
 The pictures on this page are taken by the project's own tests, so they show the
