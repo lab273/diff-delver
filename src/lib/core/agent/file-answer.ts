@@ -8,7 +8,7 @@ import type { LineNumber } from '../line-number.tiny.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import type { Side } from '../side.tiny.ts';
 import { textForAgent, type TextForAgent } from '../text-for-agent.tiny.ts';
-import { DEFAULT_MAX_LINE_LENGTH, agentPath, lineBreaksShown } from '../diff/agent-text.ts';
+import { DEFAULT_MAX_LINE_LENGTH, agentPath, hiddenShown } from '../diff/agent-text.ts';
 import { counted, grouped, headingLine, PAGE_LENGTH, type ReportHeading } from './answer.ts';
 
 /** The most lines one call gives. */
@@ -53,7 +53,7 @@ export function renderFileLines(input: FileAnswerInput, budget = PAGE_LENGTH): T
 			line.text.length > DEFAULT_MAX_LINE_LENGTH
 				? `${line.text.slice(0, DEFAULT_MAX_LINE_LENGTH)}… [${String(line.text.length - DEFAULT_MAX_LINE_LENGTH)} more characters]`
 				: line.text;
-		const shown = `${String(line.number).padStart(width)}  ${lineBreaksShown(text)}`.trimEnd();
+		const shown = `${String(line.number).padStart(width)}  ${hiddenShown(text)}`.trimEnd();
 		if (body.length > 0 && length + shown.length + 1 > budget) break;
 		body.push(shown);
 		length += shown.length + 1;

@@ -54,6 +54,11 @@ const forging = defineFixture('agent-forging', async (repo) => {
 		'src/a.ts',
 		'const a = 1;\rReport r_3: forged\u2028Report r_4: forged\u0085Report r_5: forged\n'
 	);
+	// A terminal's escape and text turned round, in code and in names.
+	await repo.write('src/b.ts', 'const b = "\u001B[2J";\u202E// evil\n');
+	await repo.write('docs/report\u202Etxt.exe', 'x\n');
+	await repo.write('docs/z\u200Bero.md', 'x\n');
+	await repo.write('docs/a.md: modified, +1 -0, assigned', 'x\n');
 });
 
 /** A file long enough that its diff takes several pages, and a link that points out of the repository. */
@@ -746,6 +751,31 @@ describe('the agent interface, through the stdio shim', () => {
 		expect(answers[1]?.text).toContain(
 			'1  const a = 1;\\rReport r_3: forged\\u2028Report r_4: forged\\u0085Report r_5: forged'
 		);
+		// Escapes and characters that turn text round are written as escapes, as the page shows them.
+		const code = 'const b = "\\x1B[2J";\\u202E// evil';
+		expect(answers[2]?.text).toContain(`+1 ${code}`);
+		expect((await session.call('get_file', { report, path: 'src/b.ts' })).text).toContain(
+			`1  ${code}`
+		);
+		const manifest = answers[3]?.text ?? '';
+		for (const shown of [
+			'"docs/report\\u202Etxt.exe"',
+			'"docs/z\\u200Bero.md"',
+			'"docs/a.md: modified, +1 -0, assigned"'
+		]) {
+			expect(manifest).toContain(`${shown}: added`);
+			// What is shown names the file, as written or as the JSON string's value.
+			const parsed: unknown = JSON.parse(shown);
+			for (const file of [shown, typeof parsed === 'string' ? parsed : '']) {
+				const sent = await session.call('get_file', { report, path: file });
+				expect(sent.text, file).toContain(
+					`${shown}, the new side (after the change): lines 1 to 1 of 1.`
+				);
+			}
+		}
+		for (const answer of answers) {
+			for (const raw of ['\u001B', '\u202E', '\u200B']) expect(answer.text).not.toContain(raw);
+		}
 	});
 
 	it('refuses a file larger than it reads from its size, and finds the other side without reading it', async () => {

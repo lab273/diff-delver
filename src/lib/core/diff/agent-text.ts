@@ -27,14 +27,16 @@
  * ```
  *
  * A path is shown in its escaped form (`path-bytes.ts`): bytes that are not UTF-8
- * as `\xHH`. A path whose shown form holds a quote, a backslash, a control
- * character, a line or paragraph separator or surrounding spaces is written as a
- * JSON string, so the agent can copy it exactly; `assign` accepts what that string
- * holds. So `caf\xE9.txt`, with a byte E9 that is not UTF-8, is written
+ * as `\xHH`. A path whose shown form holds a quote, a backslash, a character
+ * that cannot be seen or turns text round (`hidden-characters.ts`), `: ` or
+ * surrounding spaces is written as a JSON string, with each such character as a
+ * `\uHHHH` escape, so the agent can copy it exactly; `assign` accepts what that
+ * string holds. So `caf\xE9.txt`, with a byte E9 that is not UTF-8, is written
  * `"caf\\xE9.txt"`, and the agent sends `"file": "caf\\xE9.txt"`.
  */
 import { characterCount, type CharacterCount } from '../character-count.tiny.ts';
 import { fileModeKind, type FileMode, type FileModeKind } from '../file-mode.tiny.ts';
+import { escapeCharacter, isHiddenCharacter } from '../hidden-characters.ts';
 import { jsonQuoted } from '../json-quoted.ts';
 import { escapedRepoPath } from '../path-bytes.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
@@ -66,9 +68,12 @@ export function agentPath(path: RepoPath): TextForAgent {
  */
 export function agentPathPieces(path: RepoPath): { quoted: boolean; pieces: readonly string[] } {
 	const shown: string = escapedRepoPath(path);
-	// Quotes, backslashes, control characters (newline, tab, ...) and line or
-	// paragraph separators would make it ambiguous or break the line.
-	const quoted = /["\\\p{Cc}\p{Zl}\p{Zp}]/u.test(shown) || shown.trim() !== shown;
+	// Quotes, backslashes and characters that cannot be seen or turn text round
+	// (newline, tab, U+2028, U+202E, U+200B, ...) would make it ambiguous or
+	// break the line, and ": " could pass for the end of the path in a line
+	// such as the manifest's; inside the quotes each hidden character is an escape.
+	const quoted =
+		/["\\]|: /.test(shown) || Array.from(shown).some(isHiddenCharacter) || shown.trim() !== shown;
 	// Every backslash of an escaped form starts `\\` or `\xHH`; a plain one has none.
 	const pieces = shown.match(/\\\\|\\x[0-9A-F]{2}|[\s\S]/gu) ?? [];
 	return { quoted, pieces: quoted ? pieces.map((p) => jsonQuoted(p).slice(1, -1)) : pieces };
@@ -126,40 +131,39 @@ function span(sign: '-' | '+', s: HunkSpan): string {
 }
 
 function hunkHeader(hunk: Hunk): string {
-	const heading = hunk.heading === '' ? '' : ` ${lineBreaksShown(hunk.heading)}`;
+	const heading = hunk.heading === '' ? '' : ` ${hiddenShown(hunk.heading)}`;
 	return `@@ ${hunk.id} ${span('-', hunk.old)} ${span('+', hunk.new)} @@${heading}`;
 }
 
 /**
- * The text of a line, with a trailing carriage return made visible and long
- * lines cut, and with every other character a reader could take for the end
- * of a line written as an escape (`lineBreaksShown`), so a line of code can
- * never start a line of the answer.
+ * The text of a line, with long lines cut and every character that cannot be
+ * seen written as an escape (`hiddenShown`), a trailing carriage return among
+ * them.
  */
 function shown(text: string, max: number): string {
 	const crlf = text.endsWith('\r');
 	const body = crlf ? text.slice(0, -1) : text;
 	const cut =
 		body.length > max ? `${body.slice(0, max)}… [${body.length - max} more characters]` : body;
-	return lineBreaksShown(crlf ? `${cut}\r` : cut);
+	return hiddenShown(crlf ? `${cut}\r` : cut);
 }
 
-const LINE_BREAKS: Readonly<Record<string, string>> = {
-	'\v': '\\v',
-	'\f': '\\f',
-	'\r': '\\r',
-	'\u0085': '\\u0085',
-	'\u2028': '\\u2028',
-	'\u2029': '\\u2029'
-};
-
 /**
- * A line of a file with each character Unicode counts as ending a line, but
- * for the newline git splits lines at, written as an escape: `\r` as the two
- * characters backslash and r, as a carriage return at the end of a line is.
+ * A line of a file as the agent reads it: each character that cannot be seen
+ * or that turns text round, but for a tab, written as an escape by the rule
+ * the page uses (`hidden-characters.ts`): `\r` for a carriage return, `\x1B`
+ * for an escape, `\u2028` for a line separator, `\u202E` for a control that
+ * reverses text. So a line of code can never start a line of the answer, move
+ * a terminal's cursor or read differently from what it holds, and the agent
+ * and the person see the same thing.
  */
-export function lineBreaksShown(text: string): string {
-	return text.replace(/[\v\f\r\u0085\u2028\u2029]/g, (c) => LINE_BREAKS[c] ?? c);
+export function hiddenShown(text: string): string {
+	let out = '';
+	for (const character of text) {
+		out +=
+			character !== '\t' && isHiddenCharacter(character) ? escapeCharacter(character) : character;
+	}
+	return out;
 }
 
 const MODE_NAMES: Readonly<Record<FileModeKind, string>> = {

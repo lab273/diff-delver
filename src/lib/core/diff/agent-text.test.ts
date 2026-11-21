@@ -2,8 +2,8 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { arbitraryDiff } from '../../../../tests/support/synthetic-diff.ts';
 import awkward from './fixtures/awkward-changes.diff-tree?raw';
-import { agentPath, renderAgentDiff, renderAgentFile } from './agent-text.ts';
-import { assign, type AssignRequest } from './assign.ts';
+import { agentPath, hiddenShown, renderAgentDiff, renderAgentFile } from './agent-text.ts';
+import { assign, pathsNamedBy, type AssignRequest } from './assign.ts';
 import { parseDiffTreeOutput } from './diff-tree-output.ts';
 import { makeDiff, type Diff, type DiffFile } from './diff.ts';
 import { initialState } from './state.ts';
@@ -86,6 +86,13 @@ describe('renderAgentFile', () => {
 		expect(renderAgentFile(file('crlf.txt'))).toContain('-2 two\\r\n+2 TWO\\r');
 	});
 
+	it('writes characters that cannot be seen or turn text round as the page does, but for a tab', () => {
+		expect(hiddenShown('\x1B[2Jclear\tthen\u202Eevil\u200B\r')).toBe(
+			'\\x1B[2Jclear\tthen\\u202Eevil\\u200B\\r'
+		);
+		expect(hiddenShown('a\u2028b\u0085c\vd\fe')).toBe('a\\u2028b\\u0085c\\x0Bd\\x0Ce');
+	});
+
 	it('cuts very long lines', () => {
 		const text = renderAgentFile(file('long-line.txt'), { maxLineLength: characterCount(10) });
 		expect(text).toContain('-1 xxxxxxxxxx… [19990 more characters]');
@@ -100,6 +107,24 @@ describe('renderAgentFile', () => {
 		);
 		expect(agentPath(repoPath('caf\uDCE9.txt'))).toBe('"caf\\\\xE9.txt"');
 		expect(agentPath(repoPath('a\u2028b.txt'))).toBe('"a\\u2028b.txt"');
+		// Characters that cannot be seen or turn text round, and ": ", are quoted too, as escapes.
+		const odd: readonly (readonly [string, string])[] = [
+			['report\u202Etxt.exe', '"report\\u202Etxt.exe"'],
+			['a\u200Bb.txt', '"a\\u200Bb.txt"'],
+			['bom\uFEFF.txt', '"bom\\uFEFF.txt"'],
+			['next\u0085line', '"next\\u0085line"'],
+			['del\u007F', '"del\\u007F"'],
+			['src/a.ts: modified, +1 -0', '"src/a.ts: modified, +1 -0"']
+		];
+		for (const [text, shown] of odd) {
+			const path = repoPath(text);
+			expect(agentPath(path)).toBe(shown);
+			// What is shown names the file, as a JSON string's value or as it is written.
+			const parsed: unknown = JSON.parse(shown);
+			expect(pathsNamedBy(shown)).toContain(path);
+			expect(typeof parsed === 'string' ? pathsNamedBy(parsed) : []).toContain(path);
+		}
+		expect(agentPath(repoPath('a:b.txt'))).toBe('a:b.txt');
 		expect(renderAgentFile(file('odd names/ünïcödé "quoted".txt')).split('\n')[1]).toBe(
 			'renamed from odd names/with space.txt (100% similar), no changed lines: assign the whole file'
 		);
