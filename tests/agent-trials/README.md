@@ -45,6 +45,41 @@ loaded our MCP server only, our plugin's skill, and its own built-in skills and
 plugins (`@builtin`); none of the person's. Codex showed its own bundled system
 skills and ours, our MCP server only, and no AGENTS.md.
 
+## What the agent may do
+
+What the harness gives each CLI is in `agent-cli.ts`, and `agent-cli.test.ts` holds
+it to the exact arguments and settings below. The tests check what is passed, not
+what a session then does; that was checked by hand where it could be without
+starting one, as said.
+
+**Claude Code** has the tools Read, Grep and Glob (and Skill with the skill), and
+our MCP server's: no shell, so it runs no command at all. It runs in `dontAsk` mode
+with nobody to ask (`--permission-prompts none`), so anything no rule allows is
+refused. The rules allow `Read(//<copy>/**)`, the trial's copy of the repository,
+and deny `Read(//<the trial's home>/**)`, which holds the link to the login, and
+`Read(//<the login's own folder>/**)`, besides Bash, Edit, Write, NotebookEdit,
+WebFetch and WebSearch. Claude Code applies Read rules to Grep and Glob as well.
+What the rules do not cover: Claude Code itself, not the agent, reads its own
+configuration in the trial's home, and the plugin the harness gives it.
+
+**Codex** runs its commands in its sandbox with a permission profile of the
+trial's own (`default_permissions = "trial"`): the copy of the repository, the
+folder Codex is installed in (its sandbox runs Codex again), the skills in Codex's
+home (the agent reads ours with `cat`) and the system's own folders (Codex's
+`:minimal`: `/etc`, `/usr` and the like) may be read, and nothing may be written; `approval_policy = "never"` refuses a command that needs more
+rather than asking. Its image tool, which reads a file outside the sandbox, is off.
+What the profile does not cover: the system's folders are readable, so a command
+can read `/etc/passwd`; MCP servers run outside the sandbox (ours is the only
+one); and Codex itself reads its home, with the link to the login. Checked by hand
+with Codex 0.170.0 and `codex sandbox -P trial`, which runs one command under the
+profile and starts no session: a file in the copy and the skill could be read; a
+file beside the copy and the login in Codex's home could not; writing in the copy
+and in the skills failed.
+
+The recordings committed so far were made before these rules: Claude Code could
+then run `git status`, `git diff`, `git log` and `git show` and `ls`, and read any
+file; Codex's sandbox was its plain read-only one, which reads the whole disk.
+
 ## What the agents did
 
 **Well.** Every run reached full coverage with no refused call: the tools,

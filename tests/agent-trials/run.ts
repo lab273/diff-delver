@@ -12,30 +12,53 @@
  * - a copy of the fixture repository in a fresh temporary folder outside this
  *   repository, so none of this project's instructions reach it;
  * - a home folder of its own (`HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, the
- *   XDG folders), holding only a link to the CLI's login, removed afterwards,
- *   and the skill when the trial gives it: none of the person's MCP servers,
- *   plugins, skills, memory, instructions or settings;
+ *   XDG folders), holding only a link to the CLI's login and the skill when
+ *   the trial gives it: none of the person's MCP servers, plugins, skills,
+ *   memory, instructions or settings;
  * - our MCP server only, as `diff-delver mcp --no-open` with a data folder of
  *   the trial's own, behind the recording proxy (`proxy.ts`), reaching a daemon
  *   in this process with the journeys' fixed clock and sequential ids;
- * - read-only tools: Claude Code may read files, search and run read-only git
- *   commands, and anything else is denied without asking; Codex runs its
- *   commands in its read-only sandbox. Neither is ever given a flag that skips
- *   permissions or the sandbox.
+ * - tools that read the trial's copy of the repository and write nothing, as
+ *   `agent-cli.ts` sets them out: Claude Code has Read, Grep and Glob, no shell,
+ *   and may read only the repository; Codex runs its commands in a sandbox
+ *   that may read the repository and the system's own folders and write
+ *   nothing. Neither is ever given a flag that skips permissions or the sandbox.
+ *
+ * Whatever way the run ends (finished, failed, at the time limit, interrupted
+ * with Ctrl-C or SIGTERM, a CLI that is not installed, any error), the CLI and
+ * everything it started are stopped, the daemon stops, the link to the login
+ * is taken out (a login the CLI refreshed meanwhile put back, and said so), and
+ * the temporary folder is removed. An interrupted run records nothing.
  *
  * The run is bounded by `--time-limit` (ten minutes by default) and, for Claude
  * Code, a turn limit; hitting one is a result, recorded as such.
+ *
+ * To test the harness itself with stand-ins: `--cli <executable>` runs another
+ * program in the CLI's place, `--login-from <folder>` takes the login from
+ * another folder than the CLI's own, and `--out <folder>` writes the recording
+ * and the transcript there instead of `recordings/` and `transcripts/`.
  */
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { accessSync, constants, existsSync, readFileSync, rmSync } from 'node:fs';
+import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir, userInfo } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { z } from 'zod';
 import { BUILT_COMMAND, ensureBuild } from '../support/build.ts';
+import {
+	checkLoginFresh,
+	claudeArguments,
+	codexArguments,
+	codexConfig,
+	installationOf,
+	killEveryGroup,
+	linkLogin,
+	releaseLogin,
+	runBounded,
+	type LinkedLogin
+} from './agent-cli.ts';
 import { listDirectory } from '../support/directory-listing.ts';
 import { absolutePath, GitRepo } from '../support/git-repo.ts';
 import type { McpSession } from '../support/mcp-client.ts';
@@ -81,6 +104,12 @@ interface Options {
 	readonly fixture: TrialFixtureName;
 	readonly skill: boolean;
 	readonly timeLimitSeconds: number;
+	/** The program to run as the agent's CLI, when not `claude` or `codex` found on the PATH. */
+	readonly cli: string | undefined;
+	/** The folder holding the CLI's login, when not the CLI's own. */
+	readonly loginFrom: string | undefined;
+	/** Where the recording and the transcript go, when not `recordings/` and `transcripts/`. */
+	readonly out: string | undefined;
 }
 
 function parseOptions(argv: readonly string[]): Options {
@@ -88,6 +117,9 @@ function parseOptions(argv: readonly string[]): Options {
 	let fixture: TrialFixtureName = 'shop';
 	let skill = true;
 	let timeLimitSeconds = DEFAULT_TIME_LIMIT_SECONDS;
+	let cli: string | undefined;
+	let loginFrom: string | undefined;
+	let out: string | undefined;
 	for (let i = 0; i < argv.length; i += 1) {
 		const arg = argv[i];
 		const next = argv[i + 1];
@@ -107,6 +139,16 @@ function parseOptions(argv: readonly string[]): Options {
 			skill = false;
 		} else if (arg === '--time-limit' && next !== undefined) {
 			timeLimitSeconds = Number(next);
+			if (!(timeLimitSeconds > 0)) throw new Error('--time-limit is a number of seconds.');
+			i += 1;
+		} else if (arg === '--cli' && next !== undefined) {
+			cli = next;
+			i += 1;
+		} else if (arg === '--login-from' && next !== undefined) {
+			loginFrom = next;
+			i += 1;
+		} else if (arg === '--out' && next !== undefined) {
+			out = next;
 			i += 1;
 		} else {
 			throw new Error(
@@ -114,32 +156,58 @@ function parseOptions(argv: readonly string[]): Options {
 			);
 		}
 	}
-	return { agent, fixture, skill, timeLimitSeconds };
+	return { agent, fixture, skill, timeLimitSeconds, cli, loginFrom, out };
 }
 
 function sha256(path: string): string {
 	return `sha256:${createHash('sha256').update(readFileSync(path)).digest('hex')}`;
 }
 
-/** Runs a program, with no shell, and gives what it printed. */
-function capture(
+/** How long a short command, such as asking a CLI its version, may take. */
+const SHORT_COMMAND_MS = 120_000;
+
+/** Runs a short command, with no shell, and gives what it printed. */
+async function capture(
 	command: string,
 	args: readonly string[],
 	options: { readonly cwd?: string; readonly env?: NodeJS.ProcessEnv } = {}
-): Promise<{ readonly stdout: string; readonly stderr: string; readonly code: number | null }> {
-	return new Promise((resolve) => {
-		const child = spawn(command, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
-		let stdout = '';
-		let stderr = '';
-		child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')));
-		child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
-		child.on('close', (code) => {
-			resolve({ stdout, stderr, code });
-		});
-		child.on('error', () => {
-			resolve({ stdout, stderr, code: null });
-		});
+): Promise<{
+	readonly stdout: string;
+	readonly stderr: string;
+	readonly code: number | null;
+	readonly error: string | null;
+}> {
+	return runBounded(command, args, {
+		...options,
+		limitMs: SHORT_COMMAND_MS,
+		stop: stopping.signal
 	});
+}
+
+/** Asks the CLI its version, which also proves it can be run at all. */
+async function versionOf(cli: string, env: NodeJS.ProcessEnv): Promise<string> {
+	const asked = await capture(cli, ['--version'], { env });
+	if (asked.error !== null) {
+		throw new Error(
+			`Could not run ${cli} (${asked.error}). Install the CLI and log in to it, then run the trial again.`
+		);
+	}
+	return asked.stdout.trim();
+}
+
+/** Where a program named without a folder is found on the PATH, as spawn would find it. */
+function onPath(command: string, path: string): string {
+	if (command.includes('/')) return command;
+	for (const folder of path.split(delimiter)) {
+		const candidate = join(folder, command);
+		try {
+			accessSync(candidate, constants.X_OK);
+			return candidate;
+		} catch {
+			// Not here.
+		}
+	}
+	return command;
 }
 
 interface AgentRun {
@@ -158,6 +226,8 @@ interface AgentRun {
 
 interface Trial {
 	readonly options: Options;
+	/** The program run as the agent's CLI. */
+	readonly cli: string;
 	readonly root: string;
 	readonly repository: string;
 	readonly data: string;
@@ -165,40 +235,6 @@ interface Trial {
 	readonly log: string;
 	/** The MCP server the agent starts: the proxy in front of the real shim. */
 	readonly server: { readonly command: string; readonly args: readonly string[] };
-}
-
-/** Runs a child to its end or the time limit, collecting its standard output. */
-function runBounded(
-	command: string,
-	args: readonly string[],
-	options: { readonly cwd: string; readonly env: NodeJS.ProcessEnv; readonly limitMs: number }
-): Promise<{
-	readonly stdout: string;
-	readonly stderr: string;
-	readonly timedOut: boolean;
-	readonly code: number | null;
-}> {
-	return new Promise((resolve) => {
-		const child = spawn(command, args, {
-			cwd: options.cwd,
-			env: options.env,
-			stdio: ['ignore', 'pipe', 'pipe']
-		});
-		let stdout = '';
-		let stderr = '';
-		let timedOut = false;
-		child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')));
-		child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
-		const timer = setTimeout(() => {
-			timedOut = true;
-			child.kill('SIGTERM');
-			setTimeout(() => child.kill('SIGKILL'), 10_000).unref();
-		}, options.limitMs);
-		child.on('close', (code) => {
-			clearTimeout(timer);
-			resolve({ stdout, stderr, timedOut, code });
-		});
-	});
 }
 
 /** The environment an agent CLI runs with: nothing of the person's but `PATH`. */
@@ -224,29 +260,18 @@ function agentEnvironment(
 	};
 }
 
-/**
- * Links the CLI's login into the trial's home, never copying it, after
- * checking it is not about to expire (a refresh during the run could leave the
- * person's own copy out of date). Returns the link, to check and remove after.
- */
-async function linkLogin(real: string, link: string): Promise<string> {
-	if (!existsSync(real)) {
-		throw new Error(`No login at ${real}: log in to the CLI first, then run the trial again.`);
-	}
-	await mkdir(join(link, '..'), { recursive: true });
-	await symlink(real, link);
-	return link;
+/** Links the login in, kept where every way out of the harness takes it out again. */
+function linkForTrial(real: string, link: string): LinkedLogin {
+	const login = linkLogin(real, link);
+	cleanUp.logins.push(login);
+	return login;
 }
 
-/** Says whether the login link is still a link: a CLI that rewrote its login in place replaced it. */
-function loginStillLinked(link: string): string | null {
-	try {
-		return lstatSync(link).isSymbolicLink()
-			? null
-			: `The CLI rewrote its login file in the trial's home instead of through the link (${link}); your own login may need you to log in again.`;
-	} catch {
-		return null;
-	}
+/** Takes the login out now that the CLI has stopped, saying at once anything the person must know. */
+function unlinkForTrial(login: LinkedLogin): void {
+	const index = cleanUp.logins.indexOf(login);
+	if (index >= 0) cleanUp.logins.splice(index, 1);
+	for (const note of releaseLogin(login, new Date())) console.error(note);
 }
 
 // --- Claude Code -------------------------------------------------------------------
@@ -295,18 +320,11 @@ const NamedTool = z
 async function runClaude(trial: Trial): Promise<AgentRun> {
 	const home = trial.home;
 	const configDirectory = join(home, '.claude');
-	const realConfig = process.env['CLAUDE_CONFIG_DIR'] ?? join(homedir(), '.claude');
-	const credentials = join(realConfig, '.credentials.json');
-	const expiresAt = z
-		.object({ claudeAiOauth: z.object({ expiresAt: z.number() }).loose() })
-		.loose()
-		.safeParse(JSON.parse(await readFile(credentials, 'utf8').catch(() => '{}')));
-	if (expiresAt.success && expiresAt.data.claudeAiOauth.expiresAt - Date.now() < 20 * 60_000) {
-		throw new Error(
-			'Your Claude Code login is due to be refreshed within 20 minutes. Use claude once so it refreshes, then run the trial again.'
-		);
-	}
-	const login = await linkLogin(credentials, join(configDirectory, '.credentials.json'));
+	const loginFolder =
+		trial.options.loginFrom ?? process.env['CLAUDE_CONFIG_DIR'] ?? join(homedir(), '.claude');
+	const credentials = join(loginFolder, '.credentials.json');
+	checkLoginFresh('claude', credentials, Date.now());
+	const login = linkForTrial(credentials, join(configDirectory, '.credentials.json'));
 	const mcpConfig = join(trial.root, 'mcp.json');
 	await writeFile(
 		mcpConfig,
@@ -314,11 +332,11 @@ async function runClaude(trial: Trial): Promise<AgentRun> {
 			mcpServers: { 'diff-delver': { command: trial.server.command, args: trial.server.args } }
 		})
 	);
-	const pluginArgs: string[] = [];
+	let plugin: string | undefined;
 	if (trial.options.skill) {
 		// The plugin as published, without its MCP configuration: the MCP server
 		// comes from --mcp-config, behind the proxy.
-		const plugin = join(trial.root, 'plugin');
+		plugin = join(trial.root, 'plugin');
 		await mkdir(join(plugin, '.claude-plugin'), { recursive: true });
 		await mkdir(join(plugin, 'skills', 'diff-delver'), { recursive: true });
 		await copyFile(
@@ -326,63 +344,34 @@ async function runClaude(trial: Trial): Promise<AgentRun> {
 			join(plugin, '.claude-plugin', 'plugin.json')
 		);
 		await copyFile(SKILL, join(plugin, 'skills', 'diff-delver', 'SKILL.md'));
-		pluginArgs.push('--plugin-dir', plugin);
 	}
 	const env = agentEnvironment(trial, {
 		CLAUDE_CONFIG_DIR: configDirectory,
 		DISABLE_AUTOUPDATER: '1',
 		CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
 	});
-	const version = (await capture('claude', ['--version'], { env })).stdout.trim();
-	const readOnly = [
-		'Read',
-		'Grep',
-		'Glob',
-		'Bash(git status:*)',
-		'Bash(git diff:*)',
-		'Bash(git log:*)',
-		'Bash(git show:*)',
-		'Bash(ls:*)',
-		'mcp__diff-delver'
-	];
+	const version = await versionOf(trial.cli, env);
 	const started = Date.now();
 	const run = await runBounded(
-		'claude',
-		[
-			'-p',
-			TRIAL_PROMPT,
-			'--model',
-			MODELS.claude,
-			'--output-format',
-			'stream-json',
-			'--verbose',
-			'--no-session-persistence',
-			'--strict-mcp-config',
-			'--mcp-config',
+		trial.cli,
+		claudeArguments({
+			prompt: TRIAL_PROMPT,
+			model: MODELS.claude,
+			turnLimit: CLAUDE_TURN_LIMIT,
+			repository: trial.repository,
+			home,
+			loginFolder,
 			mcpConfig,
-			'--permission-mode',
-			'dontAsk',
-			'--permission-prompts',
-			'none',
-			'--tools',
-			trial.options.skill ? 'Bash,Read,Grep,Glob,Skill' : 'Bash,Read,Grep,Glob',
-			'--allowedTools',
-			...readOnly,
-			...(trial.options.skill ? ['Skill'] : []),
-			'--disallowedTools',
-			'Edit',
-			'Write',
-			'NotebookEdit',
-			'WebFetch',
-			'WebSearch',
-			'--max-turns',
-			String(CLAUDE_TURN_LIMIT),
-			...pluginArgs
-		],
-		{ cwd: trial.repository, env, limitMs: trial.options.timeLimitSeconds * 1000 }
+			plugin
+		}),
+		{
+			cwd: trial.repository,
+			env,
+			limitMs: trial.options.timeLimitSeconds * 1000,
+			stop: stopping.signal
+		}
 	);
-	const relinked = loginStillLinked(login);
-	await rm(login, { force: true });
+	unlinkForTrial(login);
 
 	const events = run.stdout
 		.split('\n')
@@ -422,8 +411,8 @@ async function runClaude(trial: Trial): Promise<AgentRun> {
 			: turnLimited
 				? `Stopped after ${String(CLAUDE_TURN_LIMIT)} turns.`
 				: failed
-					? `claude ended with ${String(run.code)}: ${(result?.result ?? run.stderr).slice(0, 500)}`
-					: relinked,
+					? `claude ended with ${String(run.code)}: ${(result?.result ?? run.error ?? run.stderr).slice(0, 500)}`
+					: null,
 		cliVersion: version,
 		model: models.join(', ') || (init?.model ?? MODELS.claude),
 		session: {
@@ -475,67 +464,33 @@ const CodexEvent = z
 	})
 	.loose();
 
-/** Codex features that would reach beyond the trial, switched off. */
-const CODEX_FEATURES_OFF = [
-	'apps',
-	'browser_use',
-	'browser_use_external',
-	'computer_use',
-	'in_app_browser',
-	'image_generation',
-	'plugins',
-	'remote_plugin',
-	'plugin_sharing',
-	'goals',
-	'hooks',
-	'tool_suggest',
-	'skill_mcp_dependency_install'
-];
-
-const toml = (value: string): string => JSON.stringify(value);
-
 async function runCodex(trial: Trial): Promise<AgentRun> {
 	const codexHome = join(trial.home, '.codex');
-	const realHome = process.env['CODEX_HOME'] ?? join(homedir(), '.codex');
-	const login = await linkLogin(join(realHome, 'auth.json'), join(codexHome, 'auth.json'));
+	const loginFolder =
+		trial.options.loginFrom ?? process.env['CODEX_HOME'] ?? join(homedir(), '.codex');
+	const credentials = join(loginFolder, 'auth.json');
+	checkLoginFresh('codex', credentials, Date.now());
+	const login = linkForTrial(credentials, join(codexHome, 'auth.json'));
 	if (trial.options.skill) {
 		await mkdir(join(codexHome, 'skills', 'diff-delver'), { recursive: true });
 		await copyFile(SKILL, join(codexHome, 'skills', 'diff-delver', 'SKILL.md'));
 	}
+	const env = agentEnvironment(trial, { CODEX_HOME: codexHome });
+	const version = await versionOf(trial.cli, env);
 	await writeFile(
 		join(codexHome, 'config.toml'),
-		[
-			`model = ${toml(MODELS.codex)}`,
-			'approval_policy = "never"',
-			'sandbox_mode = "read-only"',
-			'',
-			'[features]',
-			...CODEX_FEATURES_OFF.map((f) => `${f} = false`),
-			'',
-			// No sub-agents: one agent, whose every call the proxy sees.
-			'[agents]',
-			'enabled = false',
-			'',
-			// Trusted so that our MCP server runs as configured; the agent's own
-			// commands still run in the read-only sandbox.
-			`[projects.${toml(trial.repository)}]`,
-			'trust_level = "trusted"',
-			'',
-			'[mcp_servers.diff-delver]',
-			`command = ${toml(trial.server.command)}`,
-			`args = [${trial.server.args.map(toml).join(', ')}]`,
-			'startup_timeout_sec = 60',
-			'tool_timeout_sec = 300',
-			'default_tools_approval_mode = "approve"',
-			''
-		].join('\n')
+		codexConfig({
+			model: MODELS.codex,
+			repository: trial.repository,
+			installation: installationOf(onPath(trial.cli, env['PATH'] ?? '')),
+			skills: join(codexHome, 'skills'),
+			server: trial.server
+		})
 	);
-	const env = agentEnvironment(trial, { CODEX_HOME: codexHome });
-	const version = (await capture('codex', ['--version'], { env })).stdout.trim();
-	const servers = await capture('codex', ['mcp', 'list', '--json'], { env });
+	const servers = await capture(trial.cli, ['mcp', 'list', '--json'], { env });
 	// What the model will be shown, rendered by codex itself without calling the
 	// model: the evidence of which skills and instructions the session has.
-	const shown = await capture('codex', ['debug', 'prompt-input', 'start'], {
+	const shown = await capture(trial.cli, ['debug', 'prompt-input', 'start'], {
 		cwd: trial.repository,
 		env
 	});
@@ -551,27 +506,21 @@ async function runCodex(trial: Trial): Promise<AgentRun> {
 	const lastMessage = join(trial.root, 'last-message.txt');
 	const started = Date.now();
 	const run = await runBounded(
-		'codex',
-		[
-			'exec',
-			'--json',
-			'--strict-config',
-			'--ephemeral',
-			'--ignore-rules',
-			'-s',
-			'read-only',
-			'-m',
-			MODELS.codex,
-			'-C',
-			trial.repository,
-			'-o',
-			lastMessage,
-			TRIAL_PROMPT
-		],
-		{ cwd: trial.repository, env, limitMs: trial.options.timeLimitSeconds * 1000 }
+		trial.cli,
+		codexArguments({
+			prompt: TRIAL_PROMPT,
+			model: MODELS.codex,
+			repository: trial.repository,
+			lastMessage
+		}),
+		{
+			cwd: trial.repository,
+			env,
+			limitMs: trial.options.timeLimitSeconds * 1000,
+			stop: stopping.signal
+		}
 	);
-	const relinked = loginStillLinked(login);
-	await rm(login, { force: true });
+	unlinkForTrial(login);
 	const events = run.stdout
 		.split('\n')
 		.filter((line) => line.trim().startsWith('{'))
@@ -592,8 +541,8 @@ async function runCodex(trial: Trial): Promise<AgentRun> {
 		outcomeDetail: run.timedOut
 			? `Stopped after ${String(trial.options.timeLimitSeconds)} seconds.`
 			: failed
-				? `codex ended with ${String(run.code)}: ${run.stderr.slice(-500)}`
-				: relinked,
+				? `codex ended with ${String(run.code)}: ${(run.error ?? run.stderr).slice(-500)}`
+				: null,
 		cliVersion: version,
 		model: MODELS.codex,
 		session: {
@@ -648,6 +597,8 @@ async function runScripted(trial: Trial): Promise<AgentRun> {
 		},
 		close: () => client.close()
 	};
+	const closeOnStop = (): void => void client.close();
+	stopping.signal.addEventListener('abort', closeOnStop, { once: true });
 	let outcome: Recording['outcome'] = 'finished';
 	let detail: string | null = null;
 	try {
@@ -675,6 +626,7 @@ async function runScripted(trial: Trial): Promise<AgentRun> {
 		outcome = 'failed';
 		detail = error instanceof Error ? error.message : String(error);
 	} finally {
+		stopping.signal.removeEventListener('abort', closeOnStop);
 		await session.close();
 	}
 	return {
@@ -717,10 +669,60 @@ async function codeLinesOf(repository: string): Promise<ReadonlySet<string>> {
 	return lines;
 }
 
+/** What every way out of the harness must undo, kept where a signal or the exit can reach it. */
+const cleanUp: { logins: LinkedLogin[]; root: string | undefined } = {
+	logins: [],
+	root: undefined
+};
+
+/**
+ * Undoes everything at once, synchronously, so it can run as the process
+ * exits: stops every program the harness started and what they started, takes
+ * the login out, and removes the temporary folder. Doing it twice does nothing.
+ */
+function cleanUpNow(): void {
+	killEveryGroup();
+	for (const login of cleanUp.logins.splice(0)) {
+		for (const note of releaseLogin(login, new Date())) console.error(note);
+	}
+	if (cleanUp.root !== undefined) {
+		rmSync(cleanUp.root, { recursive: true, force: true });
+		cleanUp.root = undefined;
+	}
+}
+
+/** Aborted when the person asks the harness to stop: every program it runs is then stopped. */
+const stopping = new AbortController();
+
+/** A trial stopped by the person: it records nothing. */
+class TrialStopped extends Error {}
+
+function stopIfAsked(): void {
+	if (stopping.signal.aborted) {
+		throw new TrialStopped(`Stopped (${String(stopping.signal.reason)}): nothing was recorded.`);
+	}
+}
+
+const EXIT_CODES: Readonly<Record<string, number>> = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 };
+
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+	process.on(signal, () => {
+		if (stopping.signal.aborted) {
+			// Asked twice: stop now.
+			cleanUpNow();
+			process.exit(EXIT_CODES[signal] ?? 1);
+		}
+		console.error(`${signal}: stopping the trial and cleaning up.`);
+		stopping.abort(signal);
+	});
+}
+process.on('exit', cleanUpNow);
+
 async function main(): Promise<void> {
 	const options = parseOptions(process.argv.slice(2));
 	ensureBuild();
 	const root = await mkdtemp(join(tmpdir(), 'diff-delver-trial-'));
+	cleanUp.root = root;
 	const repository = join(root, 'work', options.fixture);
 	const data = join(root, 'data');
 	const home = join(root, 'home');
@@ -738,6 +740,7 @@ async function main(): Promise<void> {
 	};
 	const trial: Trial = {
 		options,
+		cli: options.cli ?? options.agent,
 		root,
 		repository,
 		data,
@@ -765,6 +768,7 @@ async function main(): Promise<void> {
 	try {
 		await TRIAL_FIXTURES[options.fixture].build(await GitRepo.init(absolutePath(repository)));
 		const codeLines = await codeLinesOf(repository);
+		stopIfAsked();
 		const daemon = await startTrialDaemon(absolutePath(data), { gitEnv });
 		const before = await listDirectory(repository);
 		const started = Date.now();
@@ -782,8 +786,11 @@ async function main(): Promise<void> {
 					break;
 			}
 		} finally {
+			// The CLI has stopped; take the login out before anything else can fail.
+			for (const login of cleanUp.logins.splice(0)) unlinkForTrial(login);
 			await daemon.stop();
 		}
+		stopIfAsked();
 		const wallSeconds = Math.round((Date.now() - started) / 1000);
 		const after = await listDirectory(repository);
 		const changed = [
@@ -841,15 +848,17 @@ async function main(): Promise<void> {
 			user: userInfo().username
 		});
 		const recording = RecordingSchema.parse(normaliseDeep(raw, normalise));
-		await mkdir(RECORDINGS_DIRECTORY, { recursive: true });
+		const recordings = options.out ?? RECORDINGS_DIRECTORY;
+		const transcripts = options.out ?? TRANSCRIPTS;
+		await mkdir(recordings, { recursive: true });
 		const name = recordingName(options.fixture, options.agent, options.skill);
-		const path = join(RECORDINGS_DIRECTORY, name);
+		const path = join(recordings, name);
 		await writeFile(path, `${JSON.stringify(recording, null, '\t')}\n`);
 		// In the form pnpm verify's format check wants, so it can be committed as written.
 		await capture(join(ROOT, 'node_modules', '.bin', 'prettier'), ['--write', path]);
-		await mkdir(TRANSCRIPTS, { recursive: true });
+		await mkdir(transcripts, { recursive: true });
 		const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-		const transcript = join(TRANSCRIPTS, `${name.replace(/\.json$/, '')}.${stamp}.txt`);
+		const transcript = join(transcripts, `${name.replace(/\.json$/, '')}.${stamp}.txt`);
 		await writeFile(transcript, normalise(run.transcript));
 		const s = recording.summary;
 		console.log(
@@ -864,8 +873,15 @@ async function main(): Promise<void> {
 			].join('\n')
 		);
 	} finally {
-		await rm(root, { recursive: true, force: true });
+		cleanUpNow();
 	}
 }
 
-await main();
+try {
+	await main();
+} catch (error) {
+	cleanUpNow();
+	console.error(error instanceof Error ? error.message : String(error));
+	process.exitCode =
+		error instanceof TrialStopped ? (EXIT_CODES[String(stopping.signal.reason)] ?? 1) : 1;
+}
