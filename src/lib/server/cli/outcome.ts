@@ -33,6 +33,11 @@ export function startPage(directory: AbsolutePath, asked?: GitSourceSpec): strin
 	return `/start?${query.toString()}`;
 }
 
+/** The page that chooses commits or a branch to review in a folder. */
+export function choosePage(directory: AbsolutePath): string {
+	return `/choose?${new URLSearchParams({ directory }).toString()}`;
+}
+
 /** A source as the API sends it, which it formatted from a valid one. */
 function parsedSource(text: string): GitSourceSpec | undefined {
 	const spec = parseGitSourceSpec(text);
@@ -157,4 +162,23 @@ export async function openOutcome(
 		};
 	}
 	return described(opened.value, directory, source);
+}
+
+/** `diff-delver choose`: the page that chooses commits or a branch, once the folder is known to be a repository. */
+export async function chooseOutcome(
+	client: ApiClient,
+	directory: AbsolutePath,
+	describe: DescribeApiError = describeApiError
+): Promise<CommandOutcome> {
+	const found = await client.history({ directory, find: '' });
+	if (!found.ok) {
+		return { lines: [describe(found.error)], page: choosePage(directory), exitCode: 1 };
+	}
+	return {
+		lines: [
+			`Choose commits, or a whole branch, to review in ${found.value.repository}, in your browser.`
+		],
+		page: choosePage(directory),
+		exitCode: 0
+	};
 }

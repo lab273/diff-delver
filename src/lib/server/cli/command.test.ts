@@ -177,6 +177,15 @@ describe('the diff-delver command', () => {
 		expect(mistyped.stderr).toContain('mian');
 		expect(addressIn(mistyped.stdout).pathname).toBe('/start');
 		expect(addressIn(mistyped.stdout).searchParams.get('asked')).toBe('mian...HEAD');
+
+		// The page that chooses commits or a branch, for this repository.
+		const choose = await run(['choose', '--no-open', '--data-directory', data], repo.dir, who);
+		expect(choose.code).toBe(0);
+		expect(choose.stdout).toMatch(
+			/^Choose commits, or a whole branch, to review in [^,]+, in your browser\.\n/
+		);
+		expect(addressIn(choose.stdout).pathname).toBe('/choose');
+		expect(addressIn(choose.stdout).searchParams.get('directory')).toBe(repo.dir);
 	});
 
 	it('says plainly when the folder is not a repository, and opens the page that says so', async () => {
@@ -187,6 +196,10 @@ describe('the diff-delver command', () => {
 		expect(result.stderr).toContain(`${folder} is not a git repository.`);
 		expect(result.stderr).not.toMatch(/\n\s+at /);
 		expect(addressIn(result.stdout).pathname).toBe('/start');
+		const choose = await run(['choose', '--no-open', '--data-directory', data], folder, who);
+		expect(choose.code).toBe(1);
+		expect(choose.stderr).toContain(`${folder} is not a git repository.`);
+		expect(addressIn(choose.stdout).pathname).toBe('/choose');
 	});
 
 	it('takes its data folder from the environment when no option names one', async () => {

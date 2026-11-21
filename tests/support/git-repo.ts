@@ -34,22 +34,33 @@ export function absolutePath(path: string): AbsolutePath {
 
 export interface RepoOptions {
 	readonly objectFormat?: 'sha1' | 'sha256';
+	/**
+	 * When commits are made, in seconds since 1970: the first at `first`, each
+	 * later one `step` after the one before. By default a minute apart in
+	 * November 2023; a journey that shows how long ago commits were made sets
+	 * them near its clock.
+	 */
+	readonly dates?: { readonly first: number; readonly step: number };
 }
+
+const DEFAULT_DATES = { first: 1_700_000_000, step: 60 } as const;
 
 export class GitRepo {
 	readonly dir: AbsolutePath;
 	/** Submodule entries, re-applied to the index on every commit. */
 	readonly #gitlinks = new Map<string, CommitId>();
+	readonly #dates: { readonly first: number; readonly step: number };
 	#commits = 0;
 
-	private constructor(dir: AbsolutePath) {
+	private constructor(dir: AbsolutePath, dates: RepoOptions['dates'] = DEFAULT_DATES) {
 		this.dir = dir;
+		this.#dates = dates;
 	}
 
 	/** Creates an empty repository with `main` as its branch, in a directory that need not exist. */
 	static async init(dir: AbsolutePath, options: RepoOptions = {}): Promise<GitRepo> {
 		await mkdir(dir, { recursive: true });
-		const repo = new GitRepo(dir);
+		const repo = new GitRepo(dir, options.dates);
 		await repo.git(
 			'init',
 			'--quiet',
@@ -75,7 +86,7 @@ export class GitRepo {
 
 	/** Runs git in the repository and returns stdout. Throws if git fails. */
 	async git(...args: readonly string[]): Promise<string> {
-		const date = `${String(1_700_000_000 + this.#commits * 60)} +0000`;
+		const date = `${String(this.#dates.first + this.#commits * this.#dates.step)} +0000`;
 		const result = await runGit({
 			cwd: this.dir,
 			args,

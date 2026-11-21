@@ -25,6 +25,14 @@ describe('the command line', () => {
 				noOpen: true
 			}
 		});
+		expect(parseCommandLine(['choose', '--no-open'])).toMatchObject({
+			ok: true,
+			value: { command: { kind: 'choose' }, noOpen: true }
+		});
+		expect(parseCommandLine(['choose', 'main'])).toMatchObject({
+			ok: false,
+			error: { kind: 'ExtraArgument', argument: 'main' }
+		});
 		expect(parseCommandLine(['open', 'HEAD'])).toMatchObject({
 			ok: true,
 			value: { command: { kind: 'open', source: { kind: 'commit', revision: 'HEAD' } } }

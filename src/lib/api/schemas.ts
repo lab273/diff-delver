@@ -12,6 +12,13 @@ import { z } from 'zod';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { parseCodeVersion } from '#lib/core/code-version.tiny.ts';
+import { parseCommitId } from '#lib/core/commit-id.tiny.ts';
+import { parseAuthorName } from '#lib/core/history/author-name.tiny.ts';
+import { parseBranchCount } from '#lib/core/history/branch-count.tiny.ts';
+import { parseBranchRef } from '#lib/core/history/branch-ref.tiny.ts';
+import { parseCommitCount } from '#lib/core/history/commit-count.tiny.ts';
+import { parseRemoteName } from '#lib/core/history/remote-name.tiny.ts';
+import { parseSubjectLine } from '#lib/core/history/subject-line.tiny.ts';
 import { parseFileCount } from '#lib/core/file-count.tiny.ts';
 import { parseFileMode } from '#lib/core/file-mode.tiny.ts';
 import { parseEntryCode } from '#lib/core/entry-code.tiny.ts';
@@ -663,6 +670,120 @@ export type EntryCodeResponse = z.output<typeof EntryCodeSchema>;
 /** POST /api/daemon/stop. */
 export const StoppingSchema = z.object({ stopping: z.literal(true) });
 export type Stopping = z.output<typeof StoppingSchema>;
+
+// ── Choosing commits or a branch ─────────────────────────────────────────────
+
+const commitId = parsed(z.string(), parseCommitId);
+const branchRef = parsed(z.string(), parseBranchRef);
+const remoteName = parsed(z.string(), parseRemoteName);
+const commitCount = parsed(z.number(), parseCommitCount);
+
+/** GET /api/history?directory=…&find=…: a repository's branches, and when it last fetched. */
+export const HistoryQuerySchema = z.object({
+	directory: absolutePath,
+	/** Only branches whose name holds this, in any case. */
+	find: z.string().default('')
+});
+export type HistoryQuery = z.output<typeof HistoryQuerySchema>;
+
+export const HistorySchema = z.object({
+	/** The daemon's time, for "2 days ago". */
+	now: timestamp,
+	repository: message,
+	/** The branch the others are compared with; null when none can be told. */
+	main: branchRef.nullable(),
+	/** The branches to show: the checked-out one first, then the most recently changed. */
+	branches: z.array(
+		z.object({
+			ref: branchRef,
+			committedAt: timestamp,
+			current: z.boolean(),
+			main: z.boolean(),
+			/** Commits the main branch lacks; null with no main branch. */
+			ahead: commitCount.nullable()
+		})
+	),
+	/** How many branches match, shown or not. */
+	matching: parsed(z.number(), parseBranchCount),
+	remotes: z.array(remoteName),
+	lastFetch: z.discriminatedUnion('kind', [
+		z.object({ kind: z.literal('no-remote') }),
+		z.object({ kind: z.literal('never'), remotes: z.array(remoteName) }),
+		z.object({ kind: z.literal('fetched'), at: timestamp, remotes: z.array(remoteName) })
+	]),
+	/** A shallow clone: the oldest commits shown may have no history before them. */
+	shallow: z.boolean()
+});
+export type HistoryView = z.output<typeof HistorySchema>;
+export type BranchView = HistoryView['branches'][number];
+
+/** GET /api/history/commits?directory=…&branch=…&from=…: a page of a branch's commits. */
+export const CommitsQuerySchema = z.object({
+	directory: absolutePath,
+	branch: branchRef,
+	/** Where the page starts: the `next` of the page before; the branch's newest commit when absent. */
+	from: commitId.optional()
+});
+export type CommitsQuery = z.output<typeof CommitsQuerySchema>;
+
+const CommitSizeSchema = z.object({ files: fileCount, added: lineCount, removed: lineCount });
+
+export const CommitsSchema = z.object({
+	commits: z.array(
+		z.object({
+			commit: commitId,
+			parent: z.discriminatedUnion('kind', [
+				z.object({ kind: z.literal('commit'), commit: commitId }),
+				z.object({ kind: z.literal('none') }),
+				z.object({ kind: z.literal('not-downloaded') })
+			]),
+			merge: z.boolean(),
+			subject: parsed(z.string(), parseSubjectLine),
+			author: parsed(z.string(), parseAuthorName),
+			committedAt: timestamp,
+			/** Against its first parent; null when it could not be measured without downloading. */
+			size: CommitSizeSchema.nullable(),
+			/** Whether the main branch has it too. */
+			onMain: z.boolean()
+		})
+	),
+	/** Where the next page starts; null after the last. */
+	next: commitId.nullable()
+});
+export type CommitsView = z.output<typeof CommitsSchema>;
+export type CommitView = CommitsView['commits'][number];
+
+/** GET /api/history/size?directory=…&from=…&to=…: the size of a run of commits, `from` absent for nothing before. */
+export const RunSizeQuerySchema = z.object({
+	directory: absolutePath,
+	from: commitId.optional(),
+	to: commitId
+});
+export type RunSizeQuery = z.output<typeof RunSizeQuerySchema>;
+
+export const RunSizeSchema = z.object({ size: CommitSizeSchema.nullable() });
+export type RunSizeView = z.output<typeof RunSizeSchema>;
+
+/** POST /api/history/check: asks the repository's remotes what they have. Only when the person asks. */
+export const RemoteCheckRequestSchema = z.object({ directory: absolutePath });
+export type RemoteCheckRequest = z.input<typeof RemoteCheckRequestSchema>;
+
+export const RemoteCheckSchema = z.object({
+	remotes: z.array(
+		z.discriminatedUnion('kind', [
+			z.object({
+				kind: z.literal('compared'),
+				remote: remoteName,
+				/** Branches, by their name on the remote, with commits this copy has not fetched. */
+				changed: z.array(z.string()),
+				/** Branches on the remote this copy has never fetched. */
+				added: z.array(z.string())
+			}),
+			z.object({ kind: z.literal('failed'), remote: remoteName, problem: message })
+		])
+	)
+});
+export type RemoteCheckView = z.output<typeof RemoteCheckSchema>;
 
 /** What every refused request answers with: what happened and what to do next. */
 export const ApiErrorBodySchema = z.object({

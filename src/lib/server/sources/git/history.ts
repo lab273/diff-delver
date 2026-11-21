@@ -23,6 +23,7 @@ import {
 	parseBranchRef,
 	type BranchRef
 } from '#lib/core/history/branch-ref.tiny.ts';
+import { branchCountOf, type BranchCount } from '#lib/core/history/branch-count.tiny.ts';
 import { commitCountOf, type CommitCount } from '#lib/core/history/commit-count.tiny.ts';
 import type { CommitParent } from '#lib/core/history/commit-selection.ts';
 import type { LastFetch } from '#lib/core/history/history-words.ts';
@@ -60,7 +61,7 @@ export interface Branches {
 	/** The branches to show, the checked-out one first, then the most recently changed. */
 	readonly shown: readonly BranchSummary[];
 	/** How many branches match what was asked for, shown or not. */
-	readonly matching: number;
+	readonly matching: BranchCount;
 	/** Every remote-tracking branch with the commit it is at, to compare with a remote. */
 	readonly tracked: readonly TrackedBranch[];
 	readonly remotes: readonly RemoteName[];
@@ -199,7 +200,7 @@ export async function listBranches(
 	return ok({
 		main: main.value,
 		shown: matching.slice(0, BRANCHES_SHOWN),
-		matching: matching.length,
+		matching: branchCountOf(matching.length),
 		tracked,
 		remotes: remotes.value
 	});

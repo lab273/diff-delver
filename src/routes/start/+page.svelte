@@ -16,6 +16,9 @@
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	/** The page that chooses commits or a branch in this folder. */
+	const chooseQuery = $derived(new URLSearchParams({ directory: data.directory }).toString());
 	let opening = $state(false);
 	let problem = $state('');
 
@@ -130,6 +133,10 @@
 			<p>{problem}</p>
 		</Notice>
 	{/if}
+	<p class="choose">
+		<a href={resolve(`/choose?${chooseQuery}`)}>Choose commits or a branch</a> to review something
+		else in {repository}.
+	</p>
 	<p><a href={resolve('/')}>See the diffs you have opened before</a></p>
 {/if}
 

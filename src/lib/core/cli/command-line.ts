@@ -16,6 +16,8 @@ export type Command =
 	| { readonly kind: 'start' }
 	/** One source, as `parseGitSourceSpec` reads it. */
 	| { readonly kind: 'open'; readonly source: GitSourceSpec }
+	/** The page that chooses commits or a whole branch of this folder's repository to review. */
+	| { readonly kind: 'choose' }
 	/** The daemon, in the foreground, until it is stopped. */
 	| { readonly kind: 'serve' }
 	/** Stops the daemon of the data folder. */
@@ -47,7 +49,7 @@ export type CommandLineError =
 			readonly message: ReviewerMessage;
 	  };
 
-const COMMANDS = ['open', 'serve', 'stop', 'mcp', 'help', 'version'] as const;
+const COMMANDS = ['open', 'choose', 'serve', 'stop', 'mcp', 'help', 'version'] as const;
 
 /** Reads the arguments after the program's name. */
 export function parseCommandLine(args: readonly string[]): Result<Invocation, CommandLineError> {
@@ -111,6 +113,7 @@ export function parseCommandLine(args: readonly string[]): Result<Invocation, Co
 			}
 			return done({ kind: 'open', source: spec.value });
 		}
+		case 'choose':
 		case 'serve':
 		case 'stop':
 		case 'mcp':
@@ -159,6 +162,9 @@ Usage:
   diff-delver open <source>   Open one source: working-tree (uncommitted changes),
                               staged, a commit such as HEAD or abc1234, or two
                               branches to compare, such as main...feature-x.
+  diff-delver choose          Choose commits, or a whole branch, to review: shows
+                              this repository's branches and commits, with their
+                              sizes and when they were made, in your browser.
   diff-delver serve           Run diff delver in this terminal until Ctrl+C.
   diff-delver stop            Stop diff delver if it is running.
   diff-delver mcp             For coding agents: an MCP server on standard input

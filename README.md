@@ -123,6 +123,13 @@ with there.
 | `diff-delver open staged` | Only what you have staged |
 | `diff-delver open HEAD` | One commit; a commit id such as `abc1234` works too |
 | `diff-delver open main...feature-x` | One branch compared with another |
+| `diff-delver choose` | A page to choose from your branches and commits |
+
+On the page `diff-delver choose` opens, pick a branch, then tick the commits to
+review: tick two to review them and every commit between, or review the whole branch
+at once. Each commit shows its size and when it was made. The page also says when
+your copy last fetched, and can ask the remote whether it has new commits; it never
+fetches them for you.
 
 Other commands and options:
 
@@ -140,7 +147,7 @@ diff delver keeps your diffs and ticks in one folder of its own,
 ### What works today
 
 - Opening uncommitted changes, staged changes, a commit, or two branches compared,
-  from a local git repository.
+  from a local git repository, or choosing commits or a branch from a page.
 - Reading a diff: code coloured by language, one column or side by side, white-space
   changes hidden, unchanged lines opened, search.
 - Ticking files and sections as reviewed, with progress, across restarts.

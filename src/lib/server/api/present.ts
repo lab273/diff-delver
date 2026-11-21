@@ -6,6 +6,10 @@
 import type {
 	ApiErrorBody,
 	Candidate,
+	CommitsView,
+	HistoryView,
+	RemoteCheckView,
+	RunSizeView,
 	ChangeCheckResponse,
 	DiffPage,
 	DiffSummary,
@@ -70,7 +74,15 @@ import type {
 	StartOutcome,
 	UpdateOutcome
 } from '../reports/index.ts';
-import type { SourceCandidate, SuggestedSource } from '../sources/git/index.ts';
+import type {
+	CommitPage,
+	CommitSize,
+	RemoteOutcome,
+	SourceCandidate,
+	SuggestedSource
+} from '../sources/git/index.ts';
+import type { RepositoryBranches } from '../reports/index.ts';
+import { describeRemoteCheckError } from '#lib/core/history/remote-check.ts';
 
 export function summaryView(summary: ReportSummary): DiffSummary {
 	return {
@@ -209,6 +221,69 @@ export function suggestView(
 				}
 			};
 	}
+}
+
+/** The chooser's view of a repository: its branches and when it last fetched. */
+export function historyView(found: RepositoryBranches, now: Timestamp): HistoryView {
+	const { branches } = found;
+	return {
+		now,
+		repository: found.repository,
+		main: branches.main ?? null,
+		branches: branches.shown.map((b) => ({
+			ref: b.ref,
+			committedAt: b.committedAt,
+			current: b.current,
+			main: b.main,
+			ahead: b.ahead ?? null
+		})),
+		matching: branches.matching,
+		remotes: [...branches.remotes],
+		lastFetch:
+			found.lastFetch.kind === 'no-remote'
+				? { kind: 'no-remote' }
+				: { ...found.lastFetch, remotes: [...found.lastFetch.remotes] },
+		shallow: found.shallow
+	};
+}
+
+export function commitsView(page: CommitPage): CommitsView {
+	return {
+		commits: page.commits.map((c) => ({
+			commit: c.commit,
+			parent: c.parent,
+			merge: c.merge,
+			subject: c.subject,
+			author: c.author,
+			committedAt: c.committedAt,
+			size: c.size ?? null,
+			onMain: c.onMain
+		})),
+		next: page.next ?? null
+	};
+}
+
+export function runSizeView(size: CommitSize | undefined): RunSizeView {
+	return { size: size ?? null };
+}
+
+export function remoteCheckView(outcomes: readonly RemoteOutcome[]): RemoteCheckView {
+	return {
+		remotes: outcomes.map((outcome) =>
+			outcome.kind === 'compared'
+				? {
+						kind: 'compared',
+						remote: outcome.comparison.remote,
+						changed: [...outcome.comparison.changed],
+						added: [...outcome.comparison.added]
+					}
+				: {
+						kind: 'failed',
+						remote: outcome.error.remote,
+						problem: describeRemoteCheckError(outcome.error)
+					}
+		)
+	};
 }
 
 /** How a part's file holds its content. */

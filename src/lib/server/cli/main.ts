@@ -33,6 +33,7 @@ import { describeNewerDaemon, describeReplacedDaemon } from '#lib/core/cli/repla
 import { runShim } from './mcp-shim.ts';
 import { openBrowser } from './open-browser.ts';
 import {
+	chooseOutcome,
 	describerFor,
 	openOutcome,
 	startOutcome,
@@ -169,6 +170,7 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 		case 'mcp':
 		case 'start':
 		case 'open':
+		case 'choose':
 			break;
 	}
 	const dataDirectory = dataDirectoryOf(invocation, cwd);
@@ -219,7 +221,8 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 			break;
 		}
 		case 'start':
-		case 'open': {
+		case 'open':
+		case 'choose': {
 			const directory = parseAbsolutePath(resolve(cwd));
 			if (!directory.ok) {
 				terminal.printError(
@@ -248,7 +251,9 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 			const outcome =
 				command.kind === 'start'
 					? await startOutcome(client, directory.value, describe)
-					: await openOutcome(client, directory.value, command.source, describe);
+					: command.kind === 'choose'
+						? await chooseOutcome(client, directory.value, describe)
+						: await openOutcome(client, directory.value, command.source, describe);
 			return show(client, connection.origin, outcome, invocation.noOpen, describe);
 		}
 	}

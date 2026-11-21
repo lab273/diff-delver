@@ -16,6 +16,18 @@ import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-messag
 import {
 	ApiErrorBodySchema,
 	ChangeCheckSchema,
+	CommitsSchema,
+	HistorySchema,
+	RemoteCheckSchema,
+	RunSizeSchema,
+	type CommitsQuery,
+	type CommitsView,
+	type HistoryQuery,
+	type HistoryView,
+	type RemoteCheckRequest,
+	type RemoteCheckView,
+	type RunSizeQuery,
+	type RunSizeView,
 	DaemonInfoSchema,
 	DeletedSchema,
 	EntryCodeSchema,
@@ -220,6 +232,32 @@ export class ApiClient {
 		const query = new URLSearchParams({ directory });
 		if (asked !== undefined) query.set('asked', asked);
 		return this.#call('GET', `/api/suggest?${query.toString()}`, SuggestResponseSchema);
+	}
+
+	/** A repository's branches, and when it last fetched; with `find`, the branches whose name holds it. */
+	history(query: HistoryQuery): Promise<Result<HistoryView, ApiError>> {
+		const params = new URLSearchParams({ directory: query.directory });
+		if (query.find !== '') params.set('find', query.find);
+		return this.#call('GET', `/api/history?${params.toString()}`, HistorySchema);
+	}
+
+	/** A page of a branch's commits, from `from` (a page's `next`) or its newest. */
+	commits(query: CommitsQuery): Promise<Result<CommitsView, ApiError>> {
+		const params = new URLSearchParams({ directory: query.directory, branch: query.branch });
+		if (query.from !== undefined) params.set('from', query.from);
+		return this.#call('GET', `/api/history/commits?${params.toString()}`, CommitsSchema);
+	}
+
+	/** The size of the diff a run of commits makes. */
+	runSize(query: RunSizeQuery): Promise<Result<RunSizeView, ApiError>> {
+		const params = new URLSearchParams({ directory: query.directory, to: query.to });
+		if (query.from !== undefined) params.set('from', query.from);
+		return this.#call('GET', `/api/history/size?${params.toString()}`, RunSizeSchema);
+	}
+
+	/** Asks the repository's remotes what they have. A network call: only when the person asks. */
+	checkRemotes(request: RemoteCheckRequest): Promise<Result<RemoteCheckView, ApiError>> {
+		return this.#call('POST', '/api/history/check', RemoteCheckSchema, request);
 	}
 
 	/** A diff's page: of its newest version, or of `version`, the one a page shows. */

@@ -34,6 +34,7 @@ export type {
 	PartContent,
 	SideColours,
 	ReportServiceOptions,
+	RepositoryBranches,
 	ReportSummary,
 	StartOutcome,
 	StoredSnapshot,

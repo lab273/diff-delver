@@ -27,7 +27,7 @@ import { settableClock } from '../../src/lib/core/clock.ts';
 import { parseCodeVersion } from '../../src/lib/core/code-version.tiny.ts';
 import { sequentialIds } from '../../src/lib/core/ids.ts';
 import { parseTimestamp } from '../../src/lib/core/timestamp.tiny.ts';
-import { openOutcome, startOutcome } from '../../src/lib/server/cli/outcome.ts';
+import { chooseOutcome, openOutcome, startOutcome } from '../../src/lib/server/cli/outcome.ts';
 import { loadAppHandler, type AppHandler } from '../../src/lib/server/daemon/app-handler.ts';
 import {
 	describeDaemonStartError,
@@ -464,6 +464,109 @@ export const JOURNEY_REPOSITORIES = {
 	'trial-shop': defineFixture('shop', buildShop),
 	'trial-ledger': defineFixture('ledger', buildLedger),
 
+	/**
+	 * A history to choose from (J17), made in the week before the journey's
+	 * clock: main with a merge, `discounts` three commits ahead of it and checked
+	 * out, an old local branch, a branch only on the remote, and a remote
+	 * (a bare repository inside the clone's .git folder, so it is copied with
+	 * it) whose main has a commit this copy has not fetched. The fetch is
+	 * recorded only in the remote branches' reflogs, at a fixed time.
+	 */
+	history: defineFixture(
+		'shop',
+		async (repo) => {
+			const server = '.git/server.git';
+			await repo.git('init', '--quiet', '--bare', '--initial-branch=main', server);
+			await repo.write('README.md', lines('# Shop', '', 'A small shop.'));
+			await repo.write(
+				'src/cart.ts',
+				lines('export function total(items: number[]): number {', '\treturn items.length;', '}')
+			);
+			await repo.commit('Start the shop');
+			await repo.write('src/prices.ts', lines('export const PRICES = { tea: 3, cake: 4 };'));
+			await repo.write(
+				'src/cart.ts',
+				lines(
+					"import { PRICES } from './prices.ts';",
+					'',
+					'export function total(items: (keyof typeof PRICES)[]): number {',
+					'\treturn items.reduce((sum, item) => sum + PRICES[item], 0);',
+					'}'
+				)
+			);
+			await repo.commit('Add prices');
+			await repo.git('checkout', '--quiet', '-b', 'loyalty-card');
+			await repo.write('src/loyalty.ts', lines('export const STAMPS_FOR_A_FREE_TEA = 9;'));
+			await repo.commit('Try a loyalty card');
+			await repo.git('checkout', '--quiet', '-b', 'tidy-styles', 'main');
+			await repo.write('styles/site.css', lines('body {', '\tfont-family: sans-serif;', '}'));
+			await repo.commit('Tidy the styles');
+			await repo.git('checkout', '--quiet', 'main');
+			await repo.git('merge', '--quiet', '--no-ff', '-m', 'Merge the tidier styles', 'tidy-styles');
+			await repo.git('branch', '--quiet', '-D', 'tidy-styles');
+			await repo.write(
+				'src/basket.ts',
+				lines(
+					"import { total } from './cart.ts';",
+					'',
+					'export function basketLine(items: Parameters<typeof total>[0]): string {',
+					'\treturn `Total: ${total(items)}`;',
+					'}'
+				)
+			);
+			await repo.commit('Show the total in the basket');
+			await repo.git('checkout', '--quiet', '-b', 'discounts');
+			await repo.write('src/discount.ts', lines('export const RATES = { SPRING: 0.1 };'));
+			await repo.commit('Add a discount rate');
+			await repo.write(
+				'src/cart.ts',
+				lines(
+					"import { RATES } from './discount.ts';",
+					"import { PRICES } from './prices.ts';",
+					'',
+					'export function total(items: (keyof typeof PRICES)[], code?: keyof typeof RATES): number {',
+					'\tconst sum = items.reduce((sum, item) => sum + PRICES[item], 0);',
+					'\treturn code === undefined ? sum : sum * (1 - RATES[code]);',
+					'}'
+				)
+			);
+			await repo.commit('Apply discounts at checkout');
+			await repo.write(
+				'src/basket.ts',
+				lines(
+					"import { total } from './cart.ts';",
+					'',
+					'export function basketLine(items: Parameters<typeof total>[0], code?: string): string {',
+					"\tconst saved = code === undefined ? '' : ` with ${code}`;",
+					'\treturn `Total: ${total(items)}${saved}`;',
+					'}'
+				)
+			);
+			await repo.commit('Say which code was used');
+			await repo.git('checkout', '--quiet', 'main');
+			await repo.write('README.md', lines('# Shop', '', 'A small shop that sells tea and cake.'));
+			await repo.commit('Describe the shop');
+			await repo.git('checkout', '--quiet', '-b', 'new-menu');
+			await repo.write('src/menu.ts', lines("export const MENU = ['tea', 'cake'];"));
+			await repo.commit('Add a menu');
+			// Sent to the server by its address, so that only the fetch makes the remote branches.
+			await repo.git('push', '--quiet', server, 'main', 'discounts', 'new-menu');
+			await repo.git('remote', 'add', 'origin', server);
+			await repo.git('fetch', '--quiet', 'origin');
+			await repo.git('remote', 'set-head', 'origin', 'main');
+			// Then someone else adds to main on the server.
+			await repo.git('checkout', '--quiet', '--detach', 'main');
+			await repo.write('README.md', lines('# Shop', '', 'Open every day but Monday.'));
+			await repo.commit('Say when the shop is open');
+			await repo.git('push', '--quiet', server, 'HEAD:main');
+			await repo.git('checkout', '--quiet', 'discounts');
+			await repo.git('branch', '--quiet', '-D', 'new-menu');
+			// Its time is the machine's; the reflogs hold the fetch's fixed one.
+			await repo.remove('.git/FETCH_HEAD');
+		},
+		{ dates: { first: Math.floor(JOURNEY_TIME.getTime() / 1000) - 7 * 86_400, step: 12 * 3_600 } }
+	),
+
 	/** On main, with nothing uncommitted and no other branch: nothing new to review. */
 	'nothing-new': defineFixture('nothing-new', async (repo) => {
 		await repo.write('src/app.ts', lines('export const name = "app";'));
@@ -603,11 +706,14 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 					};
 				}
 				case 'start':
-				case 'open': {
+				case 'open':
+				case 'choose': {
 					const outcome =
 						command.kind === 'start'
 							? await startOutcome(client, where)
-							: await openOutcome(client, where, command.source);
+							: command.kind === 'choose'
+								? await chooseOutcome(client, where)
+								: await openOutcome(client, where, command.source);
 					const address = entryAddress(daemon.origin, outcome.page, daemon.entryCode());
 					return {
 						output: [...outcome.lines, `Open this in your browser: ${address}`].join('\n'),

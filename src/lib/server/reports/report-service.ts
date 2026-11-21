@@ -29,6 +29,9 @@
  */
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { Clock } from '#lib/core/clock.ts';
+import type { CommitId } from '#lib/core/commit-id.tiny.ts';
+import type { BranchRef } from '#lib/core/history/branch-ref.tiny.ts';
+import type { LastFetch } from '#lib/core/history/history-words.ts';
 import { assign, type AssignOutcome, type AssignRequest } from '#lib/core/diff/assign.ts';
 import { autoIgnore, type AutoIgnored } from '#lib/core/diff/auto-ignore.ts';
 import type { ByteSize } from '#lib/core/byte-size.tiny.ts';
@@ -160,7 +163,16 @@ import {
 	sightingsIn
 } from '../db/tables/unreferenced-snapshots.ts';
 import {
+	checkRemote,
 	commitsSince,
+	lastFetch,
+	listBranches,
+	listCommits,
+	rangeSize,
+	type Branches,
+	type CommitPage,
+	type CommitSize,
+	type RemoteOutcome,
 	locateRepository,
 	snapshotGitSource,
 	sourceHasChanges,
@@ -526,6 +538,16 @@ function heldKey(store: StoreId, snapshot: SnapshotId): string {
 	return `${store}/${snapshot}`;
 }
 
+/** A repository as the chooser shows it. */
+export interface RepositoryBranches {
+	/** Its folder's name. */
+	readonly repository: ReviewerMessage;
+	readonly branches: Branches;
+	readonly lastFetch: LastFetch;
+	/** A shallow clone: some history was not downloaded. */
+	readonly shallow: boolean;
+}
+
 function worktreeOf(repo: LocalRepository): AbsolutePath {
 	return repo.workTree ?? repo.gitDir;
 }
@@ -802,6 +824,66 @@ export class ReportService {
 		const usable = await checkStoreUsable(this.#dataDirectory, repo.value.storeId);
 		if (!usable.ok) return usable;
 		return ok(changes.value ? 'changes' : 'nothing');
+	}
+
+	/**
+	 * What the page that chooses commits or a branch shows of the repository at
+	 * `directory`: its branches (with `find`, those whose name holds it), and
+	 * when it last fetched. Only reads the repository.
+	 */
+	async branches(
+		directory: AbsolutePath,
+		find: string
+	): Promise<Result<RepositoryBranches, ReportError>> {
+		const repo = await locateRepository(directory, this.#repository);
+		if (!repo.ok) return repo;
+		const branches = await listBranches(repo.value, find);
+		if (!branches.ok) return branches;
+		return ok({
+			repository: repositoryLabel(worktreeOf(repo.value)),
+			branches: branches.value,
+			lastFetch: await lastFetch(repo.value, branches.value.remotes, branches.value.main),
+			shallow: repo.value.shallow
+		});
+	}
+
+	/** A page of a branch's commits, from `from` (a previous page's `next`) or its newest. */
+	async commits(
+		directory: AbsolutePath,
+		branch: BranchRef,
+		from: CommitId | undefined
+	): Promise<Result<CommitPage, ReportError>> {
+		const repo = await locateRepository(directory, this.#repository);
+		if (!repo.ok) return repo;
+		const branches = await listBranches(repo.value, '');
+		if (!branches.ok) return branches;
+		return listCommits(repo.value, branch, from, branches.value.main);
+	}
+
+	/** The size of the diff a run of commits makes: `from` (undefined for nothing before) to `to`. */
+	async runSize(
+		directory: AbsolutePath,
+		from: CommitId | undefined,
+		to: CommitId
+	): Promise<Result<CommitSize | undefined, ReportError>> {
+		const repo = await locateRepository(directory, this.#repository);
+		return repo.ok ? rangeSize(repo.value, from, to) : repo;
+	}
+
+	/**
+	 * Asks each of the repository's remotes what its branches are at, at once,
+	 * and compares them with what this copy last fetched. The only network call
+	 * for a local repository, made only when a person asks; writes nothing.
+	 */
+	async checkRemotes(
+		directory: AbsolutePath
+	): Promise<Result<readonly RemoteOutcome[], ReportError>> {
+		const repo = await locateRepository(directory, this.#repository);
+		if (!repo.ok) return repo;
+		const branches = await listBranches(repo.value, '');
+		if (!branches.ok) return branches;
+		const { remotes, tracked } = branches.value;
+		return ok(await Promise.all(remotes.map((remote) => checkRemote(repo.value, remote, tracked))));
 	}
 
 	/**
