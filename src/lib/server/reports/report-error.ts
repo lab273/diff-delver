@@ -137,6 +137,8 @@ export type ReportError =
 	| RepositoryReplaced
 	| RevisionChangedWhileSaving
 	| VersionOutOfDate
+	| { readonly kind: 'SortingChanged' }
+	| { readonly kind: 'AssignmentsChanged' }
 	| VersionNotFound
 	| SnapshotGone
 	| SectionsRefused
@@ -174,6 +176,14 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'RevisionChangedWhileSaving':
 			return reviewerMessage(
 				'The Delve was updated while your change was being saved, so it was not saved: it was made on a version of the Delve that is no longer current. Reload the page to see the new version, then make the change again.'
+			);
+		case 'SortingChanged':
+			return reviewerMessage(
+				'The agent’s sorting changed. Check the refreshed section before marking it again.'
+			);
+		case 'AssignmentsChanged':
+			return reviewerMessage(
+				'The sections may have changed. Wait for the page to refresh them, then try again.'
 			);
 		case 'VersionOutOfDate':
 			return reviewerMessage(

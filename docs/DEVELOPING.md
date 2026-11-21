@@ -410,6 +410,23 @@ Each type of test has a time limit, as guidance:
 
 ## Agent trials
 
+The viewer takes the agent's overview and section summaries from the frame of
+the version on screen. `src/lib/ui/viewer/agent-markdown.ts` renders Markdown
+with raw HTML escaped and link and image destinations discarded, so agent prose
+cannot make browser requests. The shop trial opens the report before sorting
+and checks that the same page shows the agent's writing when it arrives.
+
+The viewer checks a stamp for the pinned revision before fetching a frame.
+Settings and writes to other Delves on the same connection leave the stamp alone.
+An external SQLite write invalidates it conservatively. Slice and group ticks
+compare the frame's sorting stamp inside the write transaction. Part reads and
+search use a separate assignment stamp, checked in the same read transaction as
+the rows they use. Editing a summary keeps loaded parts. Regrouping loads them
+again, keeping the viewport and keyboard focus by their respective places.
+If the reader was inside an open large part, the viewport waits for its
+replacement's chunk placeholders. Reader input or another handover cancels
+that restoration.
+
 The agent trials (`tests/agent-trials/`) put real coding agents, Claude Code and
 Codex, in front of our MCP server and the skill, on fixture repositories, and record
 what they do. A trial is the test of the agent interface that no scripted test can be:

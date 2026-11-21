@@ -37,6 +37,7 @@ import {
 	EntryCodeSchema,
 	DiffListSchema,
 	DiffPageSchema,
+	DiffRefreshSchema,
 	LinesSchema,
 	MarkedSchema,
 	PartLinesSchema,
@@ -278,10 +279,22 @@ export class ApiClient {
 		return this.#call('GET', `/api/diffs/${id}${text === '' ? '' : `?${text}`}`, DiffPageSchema);
 	}
 
+	/** Reads the pinned frame only if it changed since the one on screen. */
+	refreshDiff(
+		id: ReportId,
+		view: ViewName,
+		version: RevisionNumber,
+		frame: string
+	): Promise<Result<DiffPage | null, ApiError>> {
+		const query = new URLSearchParams({ view, version: String(version), since: frame });
+		return this.#call('GET', `/api/diffs/${id}?${query.toString()}`, DiffRefreshSchema);
+	}
+
 	/** One part's lines, of the version the page shows. */
 	readPart(id: ReportId, part: PartQuery): Promise<Result<PartLines, ApiError>> {
 		const query = new URLSearchParams({
 			version: String(part.version),
+			assignments: part.assignments,
 			view: part.view,
 			group: groupKeyId(part.group),
 			path: part.path
@@ -293,6 +306,7 @@ export class ApiClient {
 	searchDiff(id: ReportId, search: DiffSearchQuery): Promise<Result<DiffSearchView, ApiError>> {
 		const query = new URLSearchParams({
 			version: String(search.version),
+			assignments: search.assignments,
 			view: search.view,
 			text: search.text,
 			matchCase: String(search.matchCase),

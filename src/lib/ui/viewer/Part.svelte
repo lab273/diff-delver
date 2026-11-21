@@ -30,6 +30,7 @@
 		viewer,
 		state,
 		previousVersion,
+		sortingProblem,
 		ontick,
 		ongo,
 		onshownewer,
@@ -39,6 +40,7 @@
 		viewer: Viewer;
 		state: PartState;
 		previousVersion: RevisionNumber | null;
+		sortingProblem?: string | undefined;
 		ontick: (at: PartIndex, reviewed: boolean) => Promise<void>;
 		ongo: (path: EscapedPath, group: GroupKeyView) => void;
 		/** Shows the diff's newer version, when a tick was refused for being behind it. */
@@ -134,7 +136,7 @@
 	class:ignored
 	id="part-{at}"
 	aria-labelledby="part-{at}-name"
-	style:content-visibility={state.near ? 'visible' : 'auto'}
+	style:content-visibility={state.near || state.measuring ? 'visible' : 'auto'}
 	style:contain-intrinsic-size="auto {state.open && !large
 		? Math.min(part.rows, 2000) * 20 + 60
 		: 48}px"
@@ -237,9 +239,9 @@
 			{#if state.busy}<span class="visually-hidden" id="part-{at}-saving">Saving</span>{/if}
 		{/if}
 	</header>
-	{#if state.problem !== ''}
+	{#if sortingProblem !== undefined || state.problem !== ''}
 		<div class="refused">
-			<TickRefused message={state.problem} behind={state.behind} {onshownewer} />
+			<TickRefused message={sortingProblem ?? state.problem} behind={state.behind} {onshownewer} />
 		</div>
 	{/if}
 	<div class="body" id="part-{at}-body" hidden={!state.open}>

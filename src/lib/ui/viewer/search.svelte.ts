@@ -466,6 +466,7 @@ export class DiffSearch {
 		const viewer = this.#viewer;
 		const answer = await viewer.client.searchDiff(viewer.id, {
 			version: viewer.version,
+			assignments: viewer.assignments,
 			view: viewer.view,
 			text: text.value,
 			matchCase: options.matchCase,
@@ -473,6 +474,7 @@ export class DiffSearch {
 		});
 		if (asked !== this.#asked) return;
 		if (!answer.ok) {
+			viewer.noteReadRefusal(answer.error);
 			this.found = {
 				kind: 'failed',
 				message: `Could not search: ${describeApiError(answer.error)}`

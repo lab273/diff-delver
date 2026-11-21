@@ -321,9 +321,17 @@ const FileSchema = z.object({
 export type FileView = z.output<typeof FileSchema>;
 
 /** GET /api/diffs/:id: a diff's page, without the code, which comes a part at a time. */
+const frameStamp = z.string().min(1).max(256);
 export const DiffPageSchema = z.object({
 	now: timestamp,
 	summary: DiffSummarySchema,
+	overview: parsed(z.string(), parseAgentMarkdown).nullable(),
+	/** Identifies the frame of this version and view for a conditional read. */
+	frame: frameStamp,
+	/** The sorting the reviewer saw when deciding to tick a slice or group. */
+	sorting: frameStamp,
+	/** The assignment generation used by part reads and search. */
+	assignments: frameStamp,
 	/** The folder the diff was opened in, to open what its changes became. Never shown. */
 	directory: absolutePath,
 	/** What the diff was opened from, to open it again. Never shown. */
@@ -337,6 +345,7 @@ export const DiffPageSchema = z.object({
 			key: GroupKeySchema,
 			/** A section's title, as the agent wrote it; null for the other groups. */
 			title: parsed(z.string(), parseSectionTitle).nullable(),
+			summary: parsed(z.string(), parseAgentMarkdown).nullable(),
 			parts: z.array(PartSchema)
 		})
 	),
@@ -348,6 +357,8 @@ export const DiffPageSchema = z.object({
 	update: UpdateViewSchema.extend({ at: timestamp }).nullable()
 });
 export type DiffPage = z.output<typeof DiffPageSchema>;
+/** A conditional read returns null when the frame is current. */
+export const DiffRefreshSchema = DiffPageSchema.nullable();
 export type DiffPageGroup = DiffPage['groups'][number];
 
 /** A number written in an address, such as `?version=2`. */
@@ -366,15 +377,22 @@ function inQuery<T>(parse: (value: number) => Result<T, unknown>): z.ZodType<T> 
  * which version: the newest, or the one a page shows, to bring its ticks up to
  * date with what another page marked.
  */
-export const PageQuerySchema = z.object({
-	view: ViewSchema.default('sections'),
-	version: inQuery(parseRevisionNumber).optional()
-});
+export const PageQuerySchema = z
+	.object({
+		view: ViewSchema.default('sections'),
+		version: inQuery(parseRevisionNumber).optional(),
+		since: frameStamp.optional()
+	})
+	.refine(
+		(query) => query.since === undefined || query.version !== undefined,
+		'Refreshing requires the version shown'
+	);
 export type PageQuery = z.input<typeof PageQuerySchema>;
 
 /** GET /api/diffs/:id/part: which part, of the version the page shows. */
 export const PartQuerySchema = z.object({
 	version: inQuery(parseRevisionNumber),
+	assignments: frameStamp,
 	view: ViewSchema,
 	/** The group as `groupKeyId` writes it: `uncategorised`, `section:auth`. */
 	group: parsed(z.string(), parseGroupText),
@@ -476,6 +494,7 @@ const flagInQuery = z.enum(['true', 'false']).transform((v) => v === 'true');
  */
 export const DiffSearchQuerySchema = z.object({
 	version: inQuery(parseRevisionNumber),
+	assignments: frameStamp,
 	view: ViewSchema,
 	text: searchText,
 	matchCase: flagInQuery,
@@ -594,9 +613,14 @@ export type UpdateResponse = z.output<typeof UpdateResponseSchema>;
 export const MarkReviewedRequestSchema = z.object({
 	version,
 	target: z.discriminatedUnion('kind', [
-		z.object({ kind: z.literal('slice'), group: GroupKeySchema, path: escapedPath }),
+		z.object({
+			kind: z.literal('slice'),
+			group: GroupKeySchema,
+			path: escapedPath,
+			sorting: frameStamp
+		}),
 		z.object({ kind: z.literal('file'), path: escapedPath }),
-		z.object({ kind: z.literal('group'), group: GroupKeySchema })
+		z.object({ kind: z.literal('group'), group: GroupKeySchema, sorting: frameStamp })
 	]),
 	reviewed: z.boolean(),
 	view: ViewSchema
@@ -610,6 +634,7 @@ export type MarkReviewedRequest = z.input<typeof MarkReviewedRequestSchema>;
  */
 export const MarkedSchema = z.object({
 	summary: DiffSummarySchema,
+	sorting: frameStamp,
 	parts: z.array(PartSchema),
 	files: z.array(FileSchema),
 	/**

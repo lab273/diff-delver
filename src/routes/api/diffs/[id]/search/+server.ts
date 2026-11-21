@@ -14,11 +14,18 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	if (!id.ok) return id.error;
 	const query = readQuery(url, DiffSearchQuerySchema);
 	if (!query.ok) return query.error;
-	const { version, view, text, matchCase, changedOnly } = query.value;
-	const found = await locals.daemon.service.searchDiff(id.value, version, view, text, {
-		matchCase,
-		changedOnly
-	});
+	const { version, view, text, matchCase, changedOnly, assignments } = query.value;
+	const found = await locals.daemon.service.searchDiff(
+		id.value,
+		version,
+		view,
+		text,
+		{
+			matchCase,
+			changedOnly
+		},
+		assignments
+	);
 	if (!found.ok) return serviceFailure(found.error);
 	const body: DiffSearchView = {
 		parts: found.value.map((p) => ({

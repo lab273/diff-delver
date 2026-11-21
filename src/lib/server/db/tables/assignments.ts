@@ -120,7 +120,8 @@ export function assignmentRowsFor(
 	const rows: AssignmentRow[] = [];
 	for (const raw of q.all(
 		'SELECT path, side, first_line, last_line, bucket, section_id, ignored_by, ignored_detail, role FROM assignments WHERE revision_id = ?' +
-			(path === undefined ? '' : ' AND path = ?'),
+			(path === undefined ? '' : ' AND path = ?') +
+			' ORDER BY path, side, first_line',
 		revision,
 		...(path === undefined ? [] : [repoPathBytes(path)])
 	)) {

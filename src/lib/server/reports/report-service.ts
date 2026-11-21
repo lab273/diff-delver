@@ -154,6 +154,7 @@ import {
 	currentRevisions,
 	insertRevision,
 	revisionsOf,
+	revisionAt,
 	setRevisionProgress,
 	snapshotInUse,
 	snapshotsInUse,
@@ -162,6 +163,7 @@ import {
 import { sectionsOf } from '../db/tables/sections.ts';
 import { writesElsewhere } from '../db/data-version.ts';
 import { SortingWrites } from './sorting-writes.ts';
+import { FrameVersions } from './frame-versions.ts';
 import { checkedRevision, isToCheck, revisionsToCheck } from '../db/tables/revisions-to-check.ts';
 import {
 	forgetSnapshot,
@@ -357,6 +359,9 @@ export interface LoadedReport {
 	readonly references: SectionReferences;
 	/** What the change does, as the agent wrote it; undefined until it has. */
 	readonly overview: AgentMarkdown | undefined;
+	readonly frame: string;
+	readonly sorting: string;
+	readonly assignments: string;
 	readonly state: AssignmentState;
 	readonly reviewed: ReviewedMarks;
 	/**
@@ -511,6 +516,17 @@ interface Stored {
 	readonly marked: readonly ReviewedRow[];
 }
 
+interface StoredFrame extends Stored {
+	readonly fresh: readonly UnitRow[];
+	readonly unmarked: readonly UnitRow[];
+	readonly summary: UpdateSummary | undefined;
+	readonly referenceRows: ReadonlyMap<SectionId, readonly UnitRow[]>;
+	readonly overview: AgentMarkdown | undefined;
+	readonly shown: Current;
+	readonly sorting: string;
+	readonly assignments: string;
+}
+
 /** A new snapshot of a report's source and what carrying over to it needs, read from the store. */
 interface Prepared {
 	readonly taken: GitSnapshot;
@@ -600,8 +616,7 @@ function asOf(
 	return andThen(current(q, id), (found): Result<Current, ReportError> => {
 		const latest = found.revision.number;
 		if (version === undefined || version === latest) return ok(found);
-		return andThen(revisionsOf(q, id), (revisions) => {
-			const revision = revisions.find((r) => r.number === version);
+		return andThen(revisionAt(q, id, version), (revision) => {
 			return revision === undefined
 				? err({ kind: 'VersionNotFound', report: id, seen: version, current: latest })
 				: ok({ report: found.report, revision });
@@ -741,6 +756,7 @@ export class ReportService {
 	 * them, counted: the count is part of a search index's key.
 	 */
 	readonly #sorting = new SortingWrites();
+	readonly #frameVersions = new FrameVersions();
 
 	private constructor(db: Database, options: ReportServiceOptions) {
 		this.#db = db;
@@ -937,19 +953,13 @@ export class ReportService {
 		const content = await this.#contentOf(report, shown.value.revision);
 		if (!content.ok) return content;
 		const { snapshot, diff, revision } = content.value;
-		const found = this.#db.read(
-			(
-				q
-			): Result<
-				Stored & {
-					fresh: readonly UnitRow[];
-					unmarked: readonly UnitRow[];
-					summary: UpdateSummary | undefined;
-					referenceRows: ReadonlyMap<SectionId, readonly UnitRow[]>;
-					overview: AgentMarkdown | undefined;
-				},
-				ReportError
-			> =>
+		const found = this.#db.read((q): Result<StoredFrame, ReportError> => {
+			// Sample before reading the rows, so a concurrent commit cannot give
+			// older rows a newer stamp. Both stamps are conservative on a race.
+			const elsewhere = writesElsewhere(q);
+			const sorting = this.#sortingOf(revision.id, elsewhere);
+			const assignments = this.#assignmentsOf(revision.id, elsewhere);
+			return andThen(asOf(q, id, revision.number), (shownNow) =>
 				andThen(sectionsOf(q, revision.id), (sections) =>
 					andThen(assignmentRowsFor(q, revision.id), (rows) =>
 						andThen(reviewedRowsFor(q, revision.id), (marked) =>
@@ -966,7 +976,10 @@ export class ReportService {
 													unmarked,
 													summary,
 													referenceRows,
-													overview
+													overview,
+													sorting,
+													assignments,
+													shown: shownNow
 												})
 											)
 										)
@@ -976,7 +989,8 @@ export class ReportService {
 						)
 					)
 				)
-		);
+			);
+		});
 		if (!found.ok) return found;
 		const { sections, rows, marked, summary } = found.value;
 		const state = assignmentStateFromRows(diff, rows);
@@ -990,14 +1004,17 @@ export class ReportService {
 		const references = referencesFromRows(diff, found.value.referenceRows);
 		if (!references.ok) return references;
 		return ok({
-			summary: summaryOf(report, revision),
-			report,
-			revision,
+			summary: summaryOf(found.value.shown.report, found.value.shown.revision),
+			report: found.value.shown.report,
+			revision: found.value.shown.revision,
 			snapshot,
 			diff: diff,
 			sections,
 			references: references.value,
 			overview: found.value.overview,
+			frame: this.#frameVersions.frame(found.value.shown.report, revision.id, found.value.sorting),
+			sorting: found.value.sorting,
+			assignments: found.value.assignments,
 			state: state.value,
 			reviewed: reviewed.value,
 			progress: reviewProgress(
@@ -1015,6 +1032,34 @@ export class ReportService {
 			fresh: fresh.value,
 			unmarked: unmarked.value
 		});
+	}
+
+	/** Compares stamps without reading the snapshot, assignments, parts or marks. */
+	frameUnchanged(
+		id: ReportId,
+		version: RevisionNumber,
+		frame: string
+	): Result<boolean, ReportError> {
+		return this.#db.read((q) => {
+			const elsewhere = writesElsewhere(q);
+			return map(
+				asOf(q, id, version),
+				({ report, revision }) =>
+					this.#frameVersions.frame(
+						report,
+						revision.id,
+						this.#sortingOf(revision.id, elsewhere)
+					) === frame
+			);
+		});
+	}
+
+	#sortingOf(revision: RevisionId, elsewhere: number | undefined): string {
+		return this.#frameVersions.stamp(revision, this.#sorting.countOf(revision), elsewhere);
+	}
+
+	#assignmentsOf(revision: RevisionId, elsewhere: number | undefined): string {
+		return this.#frameVersions.stamp(revision, this.#sorting.assignmentsOf(revision), elsewhere);
 	}
 
 	/**
@@ -1109,6 +1154,7 @@ export class ReportService {
 			andThen(currentAsSeen(q, id, seen), ({ revision }): Result<AgentMarkdown, ReportError> => {
 				storeOverview(q, revision.id, markdown);
 				touchReport(q, id, this.#clock.now());
+				this.#frameVersions.edited(revision.id);
 				return ok(markdown);
 			})
 		);
@@ -1155,10 +1201,16 @@ export class ReportService {
 		seen: RevisionNumber,
 		target: ReviewTarget,
 		reviewed: boolean,
-		view: ViewKind = 'sections'
+		view: ViewKind = 'sections',
+		sorting?: string
 	): Promise<Result<MarkOutcome, ReportError>> {
-		return this.#changeState(id, seen, (q, revision, diff, state, marks) =>
-			andThen(markReviewed(diff, state, marks, target, reviewed, view), (marked) =>
+		return this.#changeState(id, seen, (q, revision, diff, state, marks) => {
+			// BEGIN IMMEDIATE protects this comparison and the mark from other
+			// writers. File ticks always cover the whole file at this revision.
+			if (target.kind !== 'file' && sorting !== this.#sortingOf(revision.id, writesElsewhere(q))) {
+				return err({ kind: 'SortingChanged' });
+			}
+			return andThen(markReviewed(diff, state, marks, target, reviewed, view), (marked) =>
 				andThen(sectionsOf(q, revision.id), (sections) => {
 					replaceReviewedRows(
 						q,
@@ -1190,8 +1242,8 @@ export class ReportService {
 						marks: marked.marks
 					});
 				})
-			)
-		);
+			);
+		});
 	}
 
 	/**
@@ -1207,7 +1259,8 @@ export class ReportService {
 		version: RevisionNumber,
 		view: ViewKind,
 		group: GroupKey,
-		path: RepoPath
+		path: RepoPath,
+		assignments?: string
 	): Promise<Result<PartContent, ReportError>> {
 		const shown = this.#db.read((q) => asOf(q, id, version));
 		if (!shown.ok) return shown;
@@ -1218,10 +1271,20 @@ export class ReportService {
 		if (file === undefined) return err({ kind: 'FileNotInDiff', path });
 		const one: Diff = { files: [file], byPath: new Map([[path, file]]), unitCount: file.unitCount };
 		const rows = this.#db.read(
-			(q): Result<{ assigned: readonly AssignmentRow[]; fresh: readonly UnitRow[] }, ReportError> =>
-				andThen(assignmentRowsFor(q, revision.id, path), (assigned) =>
+			(
+				q
+			): Result<{ assigned: readonly AssignmentRow[]; fresh: readonly UnitRow[] }, ReportError> => {
+				// Reading data_version pins the same SQLite snapshot as these rows.
+				if (
+					assignments !== undefined &&
+					assignments !== this.#assignmentsOf(revision.id, writesElsewhere(q))
+				) {
+					return err({ kind: 'AssignmentsChanged' });
+				}
+				return andThen(assignmentRowsFor(q, revision.id, path), (assigned) =>
 					andThen(newUnitRowsFor(q, revision.id, path), (fresh) => ok({ assigned, fresh }))
-				)
+				);
+			}
 		);
 		if (!rows.ok) return rows;
 		const state = assignmentStateFromRows(one, rows.value.assigned);
@@ -1280,38 +1343,44 @@ export class ReportService {
 		version: RevisionNumber,
 		view: ViewKind,
 		query: SearchText,
-		options: DiffSearchOptions
+		options: DiffSearchOptions,
+		assignments?: string
 	): Promise<Result<readonly PartMatches[], ReportError>> {
 		const shown = this.#db.read((q) => asOf(q, id, version));
 		if (!shown.ok) return shown;
 		const content = await this.#contentOf(shown.value.report, shown.value.revision);
 		if (!content.ok) return content;
 		const { diff, revision } = content.value;
-		// The index is kept while nothing it was made from can have changed: its
-		// sorting, as written here, and the database, as written by any other copy.
-		const elsewhere = this.#db.read((q) => ok(writesElsewhere(q)));
-		if (!elsewhere.ok) return elsewhere;
-		const key =
-			elsewhere.value === undefined
-				? undefined
-				: `${revision.id}\u0000${view}\u0000${String(this.#sorting.countOf(revision.id))}\u0000${String(elsewhere.value)}`;
-		let found = key === undefined ? undefined : this.#searchIndexes.get(key);
-		if (found === undefined) {
-			const stored = this.#db.read(
-				(
-					q
-				): Result<{ sections: readonly Section[]; rows: readonly AssignmentRow[] }, ReportError> =>
-					andThen(sectionsOf(q, revision.id), (sections) =>
-						andThen(assignmentRowsFor(q, revision.id), (rows) => ok({ sections, rows }))
-					)
-			);
-			if (!stored.ok) return stored;
-			const sections = stored.value.sections.map((s) => s.id);
-			const state = assignmentStateFromRows(diff, stored.value.rows);
+		const indexed = this.#db.read((q): Result<SearchIndex, ReportError> => {
+			const elsewhere = writesElsewhere(q);
+			if (
+				assignments !== undefined &&
+				assignments !== this.#assignmentsOf(revision.id, elsewhere)
+			) {
+				return err({ kind: 'AssignmentsChanged' });
+			}
+			// The stamp, the cached index and its inputs belong to the same snapshot.
+			const key = `${this.#sortingOf(revision.id, elsewhere)}\u0000${view}`;
+			const cached = this.#searchIndexes.get(key);
+			if (cached !== undefined) {
+				this.#keepSearchIndex(key, cached);
+				return ok(cached);
+			}
+			const sections = sectionsOf(q, revision.id);
+			if (!sections.ok) return sections;
+			const rows = assignmentRowsFor(q, revision.id);
+			if (!rows.ok) return rows;
+			const state = assignmentStateFromRows(diff, rows.value);
 			if (!state.ok) return state;
-			const frame = frameOf(diff, state.value, NO_PART_MARKS, view, sections);
+			const frame = frameOf(
+				diff,
+				state.value,
+				NO_PART_MARKS,
+				view,
+				sections.value.map((s) => s.id)
+			);
 			const parts = frame.groups.flatMap((g) => g.parts);
-			found = {
+			const found = {
 				parts: parts.map((p) => ({ group: p.group, path: p.file.file.path })),
 				index: new DiffSearchIndex(
 					parts.map((p) => ({
@@ -1322,8 +1391,11 @@ export class ReportService {
 					}))
 				)
 			};
-		}
-		if (key !== undefined) this.#keepSearchIndex(key, found);
+			this.#keepSearchIndex(key, found);
+			return ok(found);
+		});
+		if (!indexed.ok) return indexed;
+		const found = indexed.value;
 		const counts = found.index.counts(query, options);
 		const matches: PartMatches[] = [];
 		for (const [i, part] of found.parts.entries()) {
@@ -2226,6 +2298,7 @@ export class ReportService {
 							unitProgressOf(reviewProgress(diff, changed.state, changed.marks, 'sections'))
 						);
 						touchReport(q, id, this.#clock.now());
+						this.#frameVersions.edited(revision.id);
 						return ok(changed.result);
 					})
 				);

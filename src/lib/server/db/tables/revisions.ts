@@ -8,7 +8,7 @@ import type { Revision, UnitProgress } from '#lib/core/reports/report.ts';
 import { map, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { parseRevisionId, type RevisionId } from '#lib/core/revision-id.tiny.ts';
-import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import { parseRevisionNumber, type RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { parseSnapshotId, type SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import { parseSourceIdentity } from '#lib/core/source-identity.tiny.ts';
 import { parseStoreId, type StoreId } from '#lib/core/store-id.tiny.ts';
@@ -118,6 +118,20 @@ export function currentRevision(
 	const raw = q.get(
 		`SELECT ${COLUMNS} FROM revisions WHERE report_id = ? ORDER BY number DESC LIMIT 1`,
 		report
+	);
+	return raw === undefined ? ok(undefined) : toRevision(raw);
+}
+
+/** One pinned revision without reading the report's history. */
+export function revisionAt(
+	q: Queries,
+	report: ReportId,
+	number: RevisionNumber
+): Result<Revision | undefined, StoredRowInvalid> {
+	const raw = q.get(
+		`SELECT ${COLUMNS} FROM revisions WHERE report_id = ? AND number = ?`,
+		report,
+		number
 	);
 	return raw === undefined ? ok(undefined) : toRevision(raw);
 }

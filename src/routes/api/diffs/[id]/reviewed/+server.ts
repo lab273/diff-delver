@@ -33,7 +33,8 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 			break;
 	}
 	const service = locals.daemon.service;
-	const marked = await service.markReviewed(id.value, version, resolved, reviewed, view);
+	const sorting = target.kind === 'file' ? undefined : target.sorting;
+	const marked = await service.markReviewed(id.value, version, resolved, reviewed, view, sorting);
 	if (!marked.ok) return serviceFailure(marked.error);
 	const loaded = await service.load(id.value, version);
 	if (!loaded.ok) return serviceFailure(loaded.error);

@@ -15,10 +15,16 @@ import { replaceSections } from '../db/tables/sections.ts';
 
 export class SortingWrites {
 	readonly #writes = new Map<RevisionId, number>();
+	readonly #assignments = new Map<RevisionId, number>();
 
 	/** How many times this revision's sorting has been written here. */
 	countOf(revision: RevisionId): number {
 		return this.#writes.get(revision) ?? 0;
+	}
+
+	/** Assignment writes alone. Section prose and ordering do not change part lines. */
+	assignmentsOf(revision: RevisionId): number {
+		return this.#assignments.get(revision) ?? 0;
 	}
 
 	/** Replaces a revision's sections (see `replaceSections`), counted. */
@@ -34,7 +40,9 @@ export class SortingWrites {
 		files: ReadonlySet<RepoPath> | 'all',
 		rows: readonly AssignmentRow[]
 	): void {
+		if (files !== 'all' && files.size === 0) return;
 		this.#count(revision);
+		this.#assignments.set(revision, this.assignmentsOf(revision) + 1);
 		replaceAssignmentRows(q, revision, files, rows);
 	}
 

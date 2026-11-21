@@ -13,9 +13,17 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	if (!id.ok) return id.error;
 	const query = readQuery(url, PageQuerySchema);
 	if (!query.ok) return query.error;
-	const loaded = await locals.daemon.service.load(id.value, query.value.version);
+	const { service, clock } = locals.daemon;
+	const { version, view, since } = query.value;
+	const prefix = `${view}:`;
+	if (version !== undefined && since?.startsWith(prefix)) {
+		const unchanged = service.frameUnchanged(id.value, version, since.slice(prefix.length));
+		if (!unchanged.ok) return serviceFailure(unchanged.error);
+		if (unchanged.value) return Response.json(null);
+	}
+	const loaded = await service.load(id.value, version);
 	if (!loaded.ok) return serviceFailure(loaded.error);
-	const body: DiffPage = pageView(loaded.value, locals.daemon.clock.now(), query.value.view);
+	const body: DiffPage = pageView(loaded.value, clock.now(), view);
 	return Response.json(body);
 };
 

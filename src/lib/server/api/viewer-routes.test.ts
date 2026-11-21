@@ -3,15 +3,20 @@
  * page's frame, one part's lines, unchanged lines to open, and marking reviewed
  * on the version shown, refused once the diff was updated.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { tokenCookieName } from '#lib/core/daemon/request-gate.ts';
 import { ApiClient, describeApiError } from '#lib/api/client.ts';
-import type { AddDraftComment, PartQuery } from '#lib/api/schemas.ts';
+import type { AddDraftComment, DiffPage, PartQuery } from '#lib/api/schemas.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseRevisionNumber, type RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
+import { sequentialIds } from '#lib/core/ids.ts';
+import { settableClock } from '#lib/core/clock.ts';
+import { parseTimestamp } from '#lib/core/timestamp.tiny.ts';
+import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 import { parseSearchText } from '#lib/core/search/search-text.tiny.ts';
+import { ReportService } from '#lib/server/reports/index.ts';
 import {
 	browserClient,
 	browserCookie,
@@ -19,8 +24,13 @@ import {
 	rawRequest,
 	testDaemon
 } from '../../../../tests/support/daemons.ts';
-import { defineFixture, useFixture } from '../../../../tests/support/fixture-repos.ts';
+import {
+	defineFixture,
+	tempDirectory,
+	useFixture
+} from '../../../../tests/support/fixture-repos.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
+import { mcpOverHttp } from '../../../../tests/support/mcp-client.ts';
 
 const numbered = (from: number, to: number): string =>
 	Array.from({ length: to - from + 1 }, (_, i) => `line ${String(from + i)}\n`).join('');
@@ -59,6 +69,8 @@ describe('the viewer’s routes', () => {
 
 		const page = value(await client.loadDiff(id));
 		expect(page.view).toBe('sections');
+		expect(page.overview).toBeNull();
+		expect(page.groups.every((group) => group.summary === null)).toBe(true);
 		expect(
 			page.groups.map((g) => [g.key.kind, g.parts.map((p) => [p.path, p.change, p.tally.units])])
 		).toEqual([
@@ -83,6 +95,7 @@ describe('the viewer’s routes', () => {
 
 		const part = (p: string): PartQuery => ({
 			version: revision(1),
+			assignments: page.assignments,
 			view: 'sections',
 			group: { kind: 'uncategorised' },
 			path: path(p)
@@ -158,9 +171,11 @@ describe('the viewer’s routes', () => {
 			const started = value(await client.start({ directory: repo.dir }));
 			if (started.kind !== 'opened') throw new Error(started.kind);
 			const id = started.diff.id;
+			const { assignments } = value(await client.loadDiff(id));
 			const search = (text: string, matchCase = false) =>
 				client.searchDiff(id, {
 					version: revision(1),
+					assignments,
 					view: 'sections',
 					text: value(parseSearchText(text)),
 					matchCase,
@@ -177,12 +192,12 @@ describe('the viewer’s routes', () => {
 			]);
 			const auth = { authorization: `Bearer ${daemon.token}` };
 			const empty = await rawRequest(daemon.port, {
-				path: `/api/diffs/${id}/search?version=1&view=sections&text=&matchCase=false&changedOnly=false`,
+				path: `/api/diffs/${id}/search?version=1&assignments=${assignments}&view=sections&text=&matchCase=false&changedOnly=false`,
 				headers: auth
 			});
 			expect(empty.status).toBe(400);
 			const later = await rawRequest(daemon.port, {
-				path: `/api/diffs/${id}/search?version=2&view=sections&text=x&matchCase=false&changedOnly=false`,
+				path: `/api/diffs/${id}/search?version=2&assignments=${assignments}&view=sections&text=x&matchCase=false&changedOnly=false`,
 				headers: auth
 			});
 			// A version the diff never had.
@@ -207,6 +222,7 @@ describe('the viewer’s routes', () => {
 		const client = new ApiClient({ fetch: givingUp, base: daemon.origin, token: daemon.token });
 		const query: PartQuery = {
 			version: revision(1),
+			assignments: value(await clientOf(daemon).loadDiff(started.diff.id)).assignments,
 			view: 'sections',
 			group: { kind: 'uncategorised' },
 			path: path('src/new.ts')
@@ -231,13 +247,20 @@ describe('the viewer’s routes', () => {
 		const started = value(await client.start({ directory: repo.dir }));
 		if (started.kind !== 'opened') throw new Error(started.kind);
 		const id = started.diff.id;
-		const long = (version: number, reviewed: boolean) =>
-			client.markReviewed(id, {
+		const long = async (version: number, reviewed: boolean) => {
+			const { sorting } = value(await client.loadDiff(id, 'sections', revision(version)));
+			return client.markReviewed(id, {
 				version: revision(version),
-				target: { kind: 'slice', group: { kind: 'uncategorised' }, path: path('src/long.ts') },
+				target: {
+					kind: 'slice',
+					group: { kind: 'uncategorised' },
+					path: path('src/long.ts'),
+					sorting
+				},
 				reviewed,
 				view: 'sections'
 			});
+		};
 		value(await long(1, true));
 		// A line next to "line ten" changes: its mark is taken off, and the page says why.
 		await repo.write(
@@ -263,11 +286,17 @@ describe('the viewer’s routes', () => {
 		const started = value(await client.start({ directory: repo.dir }));
 		if (started.kind !== 'opened') throw new Error(started.kind);
 		const id = started.diff.id;
+		const { sorting } = value(await client.loadDiff(id));
 
 		const marked = value(
 			await client.markReviewed(id, {
 				version: revision(1),
-				target: { kind: 'slice', group: { kind: 'uncategorised' }, path: path('src/long.ts') },
+				target: {
+					kind: 'slice',
+					group: { kind: 'uncategorised' },
+					path: path('src/long.ts'),
+					sorting
+				},
 				reviewed: true,
 				view: 'sections'
 			})
@@ -290,7 +319,7 @@ describe('the viewer’s routes', () => {
 		const group = value(
 			await client.markReviewed(id, {
 				version: revision(1),
-				target: { kind: 'group', group: { kind: 'uncategorised' } },
+				target: { kind: 'group', group: { kind: 'uncategorised' }, sorting },
 				reviewed: true,
 				view: 'sections'
 			})
@@ -313,9 +342,17 @@ describe('the viewer’s routes', () => {
 		expect(unticked.summary.progressText).toBe('4 of 5 changes reviewed');
 
 		// The files change and the diff is updated: a tick sent for version 1 changes nothing.
+		const agent = await mcpOverHttp({ origin: daemon.origin, token: daemon.mcpToken });
+		onTestFinished(() => agent.close());
+		const writeOverview = async (version: number, markdown: string): Promise<void> => {
+			const answer = await agent.call('set_overview', { report: id, version, markdown });
+			expect(answer.refused, answer.text).toBe(false);
+		};
+		await writeOverview(1, 'First overview');
 		await repo.write('src/new.ts', 'export const n = 2;\n');
 		const updated = value(await client.updateDiff(id));
 		expect(updated.kind).toBe('updated');
+		await writeOverview(2, 'Revised overview');
 		const late = await client.markReviewed(id, {
 			version: revision(1),
 			target: { kind: 'file', path: path('logo.png') },
@@ -325,13 +362,16 @@ describe('the viewer’s routes', () => {
 		expect(late).toMatchObject({ ok: false, error: { status: 409, reason: 'VersionOutOfDate' } });
 		if (!late.ok) expect(describeApiError(late.error)).toMatch(/updated to version 2/);
 		// The page left on version 1 can still read it, and fetch its ticks again.
-		const first = value(await client.loadDiff(id, 'sections', revision(1)));
+		const first = value(await client.refreshDiff(id, 'sections', revision(1), frame.frame));
+		if (first === null) throw new Error('The first version’s overview changed.');
 		expect(first.summary.version).toBe(1);
+		expect(first.overview).toBe('First overview');
 		expect(first.files.find((f) => f.path === 'logo.png')?.tally.reviewed).toBe(0);
 		expect(value(await client.loadDiff(id)).summary.version).toBe(2);
 		const old = value(
 			await client.readPart(id, {
 				version: revision(1),
+				assignments: first.assignments,
 				view: 'sections',
 				group: { kind: 'uncategorised' },
 				path: path('src/new.ts')
@@ -342,8 +382,199 @@ describe('the viewer’s routes', () => {
 			'export const n = 1;'
 		]);
 		const now = value(await client.loadDiff(id));
+		expect(now.overview).toBe('Revised overview');
 		const fresh = now.groups.flatMap((g) => g.parts).find((p) => p.path === 'src/new.ts');
 		expect(fresh?.tally).toEqual({ units: 1, reviewed: 0, fresh: 1, unmarked: 0 });
+	});
+
+	it('refuses stale slice and group ticks, including after another connection writes or the daemon restarts', async () => {
+		const repo = await useFixture(viewed);
+		const dataDirectory = await tempDirectory();
+		const daemon = await testDaemon({ dataDirectory });
+		const client = clientOf(daemon);
+		const started = value(await client.start({ directory: repo.dir }));
+		if (started.kind !== 'opened') throw new Error(started.kind);
+		const id = started.diff.id;
+		const version = revision(1);
+		const agent = await mcpOverHttp({ origin: daemon.origin, token: daemon.mcpToken });
+		onTestFinished(() => agent.close());
+		const section = value(parseSectionId('first'));
+		const group = { kind: 'section', section } as const;
+		const write = async (tool: string, args: Readonly<Record<string, unknown>>) => {
+			const answer = await agent.call(tool, { ...args, report: id, version });
+			expect(answer.refused, answer.text).toBe(false);
+		};
+		await write('upsert_sections', { sections: [{ id: section, title: 'First' }] });
+		await write('assign', { items: [{ file: 'src/long.ts', lines: '+10', section }] });
+		const elsewhere = value(
+			await ReportService.open({
+				dataDirectory,
+				ids: sequentialIds(),
+				clock: settableClock(value(parseTimestamp(0)))
+			})
+		);
+		onTestFinished(() => {
+			elsewhere.close();
+		});
+		const first = value(await client.loadDiff(id));
+		expect(value(await client.refreshDiff(id, 'sections', version, first.frame))).toBeNull();
+
+		const expectStale = async (caller: ApiClient, frame: DiffPage): Promise<void> => {
+			const { sorting, assignments } = frame;
+			for (const target of [
+				{ kind: 'slice', group, path: path('src/long.ts'), sorting },
+				{ kind: 'group', group, sorting }
+			] as const) {
+				expect(
+					await caller.markReviewed(id, { version, target, reviewed: true, view: 'sections' })
+				).toMatchObject({ ok: false, error: { status: 409, reason: 'SortingChanged' } });
+			}
+			expect(
+				await caller.readPart(id, {
+					version,
+					assignments,
+					view: 'sections',
+					group,
+					path: path('src/long.ts')
+				})
+			).toMatchObject({ ok: false, error: { status: 409, reason: 'AssignmentsChanged' } });
+			expect(value(await caller.refreshDiff(id, 'sections', version, frame.frame))).not.toBeNull();
+			expect(value(await caller.loadDiff(id)).summary.progress.reviewed).toBe(0);
+		};
+		await write('assign', { items: [{ file: 'src/long.ts', lines: '-10', section }] });
+		await expectStale(client, first);
+		const second = value(await client.loadDiff(id));
+		const assigned = value(
+			await elsewhere.assign(id, version, [{ file: 'src/long.ts', lines: '-50', section }])
+		);
+		expect(assigned.rejected).toEqual([]);
+		await expectStale(client, second);
+		const third = value(await client.loadDiff(id));
+		await agent.close();
+		await daemon.stop();
+		const restarted = clientOf(await testDaemon({ dataDirectory }));
+		await expectStale(restarted, third);
+
+		const current = value(await restarted.loadDiff(id));
+		const marked = value(
+			await restarted.markReviewed(id, {
+				version,
+				target: { kind: 'file', path: path('src/long.ts') },
+				reviewed: true,
+				view: 'sections'
+			})
+		);
+		expect(marked.summary.progress.reviewed).toBe(3);
+		const refreshed = value(await restarted.refreshDiff(id, 'sections', version, current.frame));
+		expect(refreshed?.sorting).toBe(current.sorting);
+		expect(refreshed?.summary.progress.reviewed).toBe(3);
+	});
+
+	it('binds lazy part reads and searches to the frame even when assignments go back to their original places', async () => {
+		const repo = await useFixture(viewed);
+		await repo.write(
+			'src/long.ts',
+			numbered(1, 9) + 'line ten\n' + numbered(11, 49) + 'line fifty\n' + numbered(51, 60)
+		);
+		const daemon = await testDaemon();
+		const client = clientOf(daemon);
+		const started = value(await client.start({ directory: repo.dir }));
+		if (started.kind !== 'opened') throw new Error(started.kind);
+		const id = started.diff.id;
+		const version = revision(1);
+		const agent = await mcpOverHttp({ origin: daemon.origin, token: daemon.mcpToken });
+		onTestFinished(() => agent.close());
+		const section = value(parseSectionId('first'));
+		const group = { kind: 'section', section } as const;
+		const file = 'src/long.ts';
+		const write = async (tool: string, args: Readonly<Record<string, unknown>>) => {
+			const answer = await agent.call(tool, { ...args, report: id, version });
+			expect(answer.refused, answer.text).toBe(false);
+		};
+		await write('upsert_sections', {
+			sections: [
+				{ id: section, title: 'First' },
+				{ id: 'second', title: 'Second' }
+			]
+		});
+		const arrange = async (first: string, second: string) =>
+			write('assign', {
+				items: [
+					{ file, lines: first, section },
+					{ file, lines: second, section: 'second' }
+				]
+			});
+		const lazy = (assignments: string) =>
+			client.readPart(id, { version, assignments, view: 'sections', group, path: path(file) });
+		const search = (assignments: string) =>
+			client.searchDiff(id, {
+				version,
+				assignments,
+				view: 'sections',
+				text: value(parseSearchText('line 10')),
+				matchCase: true,
+				changedOnly: true
+			});
+		const visible = async (assignments: string) =>
+			value(await lazy(assignments)).blocks.flatMap((block) =>
+				block.kind === 'hunk'
+					? block.lines
+							.filter((line) => line.kind === 'deleted' && line.home.kind === 'here')
+							.map((line) => line.text)
+					: []
+			);
+		const stale = { ok: false, error: { status: 409, reason: 'AssignmentsChanged' } };
+
+		await arrange('+10,-10', '+50,-50');
+		const first = value(await client.loadDiff(id));
+		expect(await visible(first.assignments)).toEqual(['line 10']);
+		expect(value(await search(first.assignments)).parts.map((part) => part.group)).toEqual([group]);
+
+		await arrange('+50,-50', '+10,-10');
+		expect(await lazy(first.assignments)).toMatchObject(stale);
+		expect(await search(first.assignments)).toMatchObject(stale);
+		const intermediate = value(await client.loadDiff(id));
+		expect(intermediate.groups).toEqual(first.groups);
+		expect(await visible(intermediate.assignments)).toEqual(['line 50']);
+		expect(value(await search(intermediate.assignments)).parts.map((part) => part.group)).toEqual([
+			{ kind: 'section', section: 'second' }
+		]);
+
+		await arrange('+10,-10', '+50,-50');
+		const restored = value(await client.loadDiff(id));
+		expect(restored.groups).toEqual(first.groups);
+		expect(await lazy(first.assignments)).toMatchObject(stale);
+		expect(await lazy(intermediate.assignments)).toMatchObject(stale);
+		expect(await search(intermediate.assignments)).toMatchObject(stale);
+		expect(await visible(restored.assignments)).toEqual(['line 10']);
+		expect(value(await search(restored.assignments)).parts.map((part) => part.group)).toEqual([
+			group
+		]);
+	});
+
+	it('keeps a pinned frame unchanged through settings and writes to another Delve', async () => {
+		const repo = await useFixture(viewed);
+		const another = await useFixture(viewed);
+		const client = clientOf(await testDaemon());
+		const first = value(await client.start({ directory: repo.dir }));
+		if (first.kind !== 'opened') throw new Error(first.kind);
+		const id = first.diff.id;
+		const frame = value(await client.loadDiff(id));
+		const version = frame.summary.version;
+
+		value(await client.changeSetting({ name: 'colours', value: false }));
+		const second = value(await client.start({ directory: another.dir }));
+		if (second.kind !== 'opened') throw new Error(second.kind);
+		expect(second.diff.id).not.toBe(id);
+		value(
+			await client.markReviewed(second.diff.id, {
+				version: second.diff.version,
+				view: 'sections',
+				target: { kind: 'file', path: path('src/long.ts') },
+				reviewed: true
+			})
+		);
+		expect(value(await client.refreshDiff(id, 'sections', version, frame.frame))).toBeNull();
 	});
 });
 

@@ -264,7 +264,8 @@ describe('the report service against the pure model', () => {
 									FIRST,
 									call.target,
 									call.reviewed,
-									call.view
+									call.view,
+									value(await service.load(id)).sorting
 								);
 								if (expected.ok) {
 									expect(value(outcome).units).toBe(expected.value.units);
@@ -402,7 +403,8 @@ describe('the report service against the pure model', () => {
 									page.revision.number,
 									call.target,
 									call.reviewed,
-									call.view
+									call.view,
+									value(await service.load(id, page.revision.number)).sorting
 								);
 								if (expected.ok) model.marks = expected.value.marks;
 								else expect(outcome.ok ? undefined : outcome.error.kind).toBe(expected.error.kind);

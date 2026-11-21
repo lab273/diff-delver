@@ -699,7 +699,7 @@
 {/snippet}
 
 {#if canComment}
-	<div class="comment-action">
+	<div class="comment-action" data-selecting-comment={picking ? '' : undefined}>
 		{#if picking}
 			<button type="button" onclick={compose}>Write comment</button>
 			<button type="button" onclick={stopPicking}>Cancel selection</button>

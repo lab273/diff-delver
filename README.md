@@ -162,11 +162,11 @@ diff delver keeps your Delves and ticks in one folder of its own,
 - Updating a Delve when the code changes, keeping sections and ticks.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex
   have both done it in the project's [recorded trials](tests/agent-trials/README.md).
+- The agent's overview and section summaries appear while the Delve is open.
 
 Not built yet:
 
-- The agent's summaries, overview and cross-references between sections are stored
-  but not shown on the page yet.
+- The agent’s cross-references between sections.
 - Submitting a review and copying it to the clipboard.
 - Pull requests as a source, and visual diffs.
 - A setup command and an installable Claude Code plugin. For now you add the MCP

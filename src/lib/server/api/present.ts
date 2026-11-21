@@ -329,7 +329,7 @@ export function marksOf(loaded: LoadedReport): PartMarks {
 
 export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): DiffPage {
 	const update = loaded.update;
-	const titles = new Map<string, SectionTitle>(loaded.sections.map((s) => [s.id, s.title]));
+	const sections = new Map(loaded.sections.map((section) => [section.id, section]));
 	const frame = frameOf(
 		loaded.diff,
 		loaded.state,
@@ -340,18 +340,24 @@ export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): 
 	return {
 		now,
 		summary: summaryView(loaded.summary),
+		overview: loaded.overview ?? null,
+		frame: `${view}:${loaded.frame}`,
+		sorting: loaded.sorting,
+		assignments: loaded.assignments,
 		directory: loaded.report.repositoryPath,
 		source: formatGitSourceSpec(loaded.report.source.spec),
 		leftOut: [...loaded.leftOut],
 		view,
-		groups: frame.groups.map((group) => ({
-			key: group.key,
-			title:
-				group.key.kind === 'section' || group.key.kind === 'tests'
-					? (titles.get(group.key.section) ?? sectionTitleOf(group.key.section))
-					: null,
-			parts: group.parts.map(partView)
-		})),
+		groups: frame.groups.map(({ key, parts }) => {
+			const sectionId = key.kind === 'section' || key.kind === 'tests' ? key.section : undefined;
+			const section = sectionId === undefined ? undefined : sections.get(sectionId);
+			return {
+				key,
+				title: sectionId === undefined ? null : (section?.title ?? sectionTitleOf(sectionId)),
+				summary: section?.summary ?? null,
+				parts: parts.map(partView)
+			};
+		}),
 		files: frame.files.map(fileView),
 		sorted: loaded.sections.length > 0,
 		update:
@@ -398,6 +404,7 @@ export function markedView(
 	}
 	return {
 		summary: summaryView(loaded.summary),
+		sorting: loaded.sorting,
 		parts,
 		files,
 		groups: [...progress.groups.values()].map((g) => ({
@@ -521,6 +528,8 @@ export function statusOf(error: ReportError): number {
 		case 'AnotherReportOpen':
 		case 'RevisionChangedWhileSaving':
 		case 'VersionOutOfDate':
+		case 'SortingChanged':
+		case 'AssignmentsChanged':
 		case 'VersionNotFound':
 		case 'DatabaseBusy':
 			return 409;

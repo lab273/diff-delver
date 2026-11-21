@@ -189,6 +189,8 @@ export interface PartState {
 	readonly index: PartIndex;
 	/** The same for the same part of the same file in any answer: group and path. */
 	readonly key: string;
+	/** The view measures this part while restoring the reader's place. */
+	measuring: boolean;
 	part: PartView;
 	open: boolean;
 	/** Whether it is on the screen or near it, so its lines are wanted when open. */
@@ -217,6 +219,7 @@ export interface GroupInfo {
 	readonly anchor: string;
 	/** As the page names it: a section's title, "Ignored", "Not sorted yet". */
 	readonly name: string;
+	readonly summary: DiffPage['overview'];
 	/** Its parts' places in reading order: `first` to `first + count - 1`. */
 	readonly first: PartIndex;
 	readonly count: number;
@@ -320,14 +323,23 @@ export type TickOutcome =
 			readonly kind: 'marked';
 			readonly groupFinished: GroupInfo | undefined;
 			readonly allDone: boolean;
+			readonly refresh: boolean;
 	  }
-	| { readonly kind: 'refused'; readonly outOfDate: boolean };
+	| { readonly kind: 'refused'; readonly outOfDate: boolean }
+	| { readonly kind: 'sorting-changed'; readonly message: string };
 
 export class Viewer {
 	readonly id: ReportId;
 	readonly version: RevisionNumber;
 	readonly view: ViewName;
-	readonly groups: readonly GroupInfo[];
+	#frame: string;
+	#sorting: string;
+	readonly assignments: DiffPage['assignments'];
+	/** A lazy request found that this frame's assignments are no longer current. */
+	assignmentsChanged = $state(false);
+	readonly sorted: boolean;
+	groups: readonly GroupInfo[];
+	overview = $state<DiffPage['overview']>(null);
 	summary: DiffSummary;
 	parts: PartState[];
 	files: FileView[];
@@ -382,7 +394,9 @@ export class Viewer {
 		settings: ViewSettings,
 		client: ApiClient = pageClient(),
 		/** The search of the version shown before, which this one takes over. */
-		search?: CarriedSearch
+		search?: CarriedSearch,
+		/** The same version before the agent changed its sorting. */
+		previous?: Viewer
 	) {
 		this.client = client;
 		this.summary = $state.raw(page.summary);
@@ -392,6 +406,11 @@ export class Viewer {
 		this.id = page.summary.id;
 		this.version = page.summary.version;
 		this.view = page.view;
+		this.#frame = page.frame;
+		this.#sorting = page.sorting;
+		this.assignments = page.assignments;
+		this.sorted = page.sorted;
+		this.overview = page.overview;
 		const groups: GroupInfo[] = [];
 		const parts: PartState[] = [];
 		const byKey = new SvelteMap<string, PartIndex>();
@@ -399,8 +418,9 @@ export class Viewer {
 			const info: GroupInfo = {
 				key: group.key,
 				id: groupKeyId(group.key),
-				anchor: `group-${String(groups.length)}`,
+				anchor: `group-${groupKeyId(group.key)}`,
 				name: groupName(group.key, group.title),
+				summary: group.summary,
 				first: partIndexOf(parts.length),
 				count: group.parts.length
 			};
@@ -408,15 +428,17 @@ export class Viewer {
 			for (const part of group.parts) {
 				const index = partIndexOf(parts.length);
 				const key = keyOf(part.group, part.path);
+				const before = previous === undefined ? undefined : previous.#partWithKey(key);
 				byKey.set(key, index);
 				this.#groupOf.push(groups.length - 1);
 				parts.push({
 					index,
 					key,
+					measuring: false,
 					part,
-					open: part.group.kind !== 'ignored' && !done(part.tally),
-					near: false,
-					showLarge: false,
+					open: before?.open ?? (part.group.kind !== 'ignored' && !done(part.tally)),
+					near: before?.near ?? false,
+					showLarge: before?.showLarge ?? false,
 					lines: { kind: 'waiting' },
 					busy: false,
 					problem: '',
@@ -427,9 +449,14 @@ export class Viewer {
 				});
 			}
 		}
-		this.groups = groups;
+		this.groups = $state.raw(groups);
 		this.#byKey = byKey;
 		this.parts = $state(parts);
+		if (previous?.current !== undefined) {
+			const before = previous.parts[previous.current];
+			this.current = before === undefined ? undefined : this.nearestPart(before);
+			if (this.current !== undefined) this.drawUpTo(this.current);
+		}
 		this.files = $state([...page.files]);
 		const fileAt = new SvelteMap<EscapedPath, number>();
 		for (const [at, file] of page.files.entries()) fileAt.set(file.path, at);
@@ -443,6 +470,27 @@ export class Viewer {
 			},
 			search
 		);
+	}
+
+	#partWithKey(key: string): PartState | undefined {
+		const index = this.#byKey.get(key);
+		return index === undefined ? undefined : this.parts[index];
+	}
+
+	/** Same slice, then the same file, then the closest displayed slice. */
+	nearestPart(before: PartState): PartIndex | undefined {
+		const same = this.#byKey.get(before.key);
+		if (same !== undefined && this.shows(same)) return same;
+		const file = this.parts.find(
+			(part) => part.part.path === before.part.path && this.shows(part.index)
+		);
+		if (file !== undefined) return file.index;
+		const near = Math.min(before.index, this.parts.length - 1);
+		if (near < 0) return undefined;
+		const index = partIndexOf(near);
+		return this.shows(index)
+			? index
+			: (nextShown(this.shown, index) ?? previousShown(this.shown, index));
 	}
 
 	/** The group a part is in. */
@@ -555,6 +603,7 @@ export class Viewer {
 		try {
 			read = await this.client.readPart(this.id, {
 				version: this.version,
+				assignments: this.assignments,
 				view: this.view,
 				group: state.part.group,
 				path: state.part.path
@@ -563,6 +612,7 @@ export class Viewer {
 			release();
 		}
 		if (!read.ok) {
+			this.noteReadRefusal(read.error);
 			state.lines = { kind: 'failed', message: describeApiError(read.error) };
 			return;
 		}
@@ -580,6 +630,12 @@ export class Viewer {
 				}
 			})
 		};
+	}
+
+	noteReadRefusal(error: ApiError): void {
+		if (error.kind === 'refused' && error.reason === 'AssignmentsChanged') {
+			this.assignmentsChanged = true;
+		}
 	}
 
 	/**
@@ -747,16 +803,20 @@ export class Viewer {
 				target.kind === 'part'
 					? {
 							kind: 'slice',
+							sorting: this.#sorting,
 							group: this.parts[target.at]?.part.group ?? { kind: 'uncategorised' },
 							path: this.parts[target.at]?.part.path ?? ''
 						}
 					: target.kind === 'file'
 						? { kind: 'file', path: target.path }
-						: { kind: 'group', group: target.group.key }
+						: { kind: 'group', group: target.group.key, sorting: this.#sorting }
 		});
 		for (const part of busy) part.busy = false;
 		this.#ticks += 1;
 		if (!sent.ok) return this.#refused(sent.error, busy, target);
+		if (sent.value.sorting !== this.#sorting) {
+			return { kind: 'marked', groupFinished: undefined, allDone: false, refresh: true };
+		}
 		this.summary = sent.value.summary;
 		for (const part of sent.value.parts) {
 			const at = this.#byKey.get(keyOf(part.group, part.path));
@@ -773,7 +833,7 @@ export class Viewer {
 		this.#putFiles(sent.value.files);
 		// What is stored differs from what the page holds: another page on the same
 		// diff ticked or unticked something. Its ticks and progress are fetched again.
-		if (!this.#agrees(sent.value.groups)) await this.refreshTicks();
+		const refresh = !this.#agrees(sent.value.groups);
 		const overall = this.overall;
 		const allDone = overall.units > 0 && overall.reviewed === overall.units;
 		const finished =
@@ -782,32 +842,55 @@ export class Viewer {
 		return {
 			kind: 'marked',
 			groupFinished: target.kind === 'group' && reviewed ? target.group : finished,
-			allDone
+			allDone,
+			refresh
 		};
 	}
 
 	/**
-	 * Brings the ticks and progress the page shows up to date with what is
-	 * stored for the version it shows, as when another page on the same diff
-	 * marked something: each part's tally and each file's, nothing else. What is
-	 * open, the lines fetched, the filter and where the reader is stay as they
-	 * are, so nothing moves under them. An answer that comes after a tick made
-	 * meanwhile is dropped, since the tick's own answer is newer.
+	 * Checks the version the page shows. A tick made while the request was
+	 * in flight takes precedence over its answer.
 	 */
-	async refreshTicks(): Promise<void> {
+	async readRefresh(force: boolean): Promise<DiffPage | undefined> {
 		if (this.parts.some((p) => p.busy)) return;
 		const ticks = this.#ticks;
-		const loaded = await this.client.loadDiff(this.id, this.view, this.version);
+		const loaded = force
+			? await this.client.loadDiff(this.id, this.view, this.version)
+			: await this.client.refreshDiff(this.id, this.view, this.version, this.#frame);
 		if (!loaded.ok || ticks !== this.#ticks || this.parts.some((p) => p.busy)) return;
-		this.summary = loaded.value.summary;
-		for (const group of loaded.value.groups) {
+		return loaded.value ?? undefined;
+	}
+
+	sameLayout(frame: DiffPage): boolean {
+		return (
+			this.assignments === frame.assignments &&
+			this.groups.length === frame.groups.length &&
+			frame.groups.every((group, index) => groupKeyId(group.key) === this.groups[index]?.id)
+		);
+	}
+
+	/** Replaces only metadata and marks, keeping the mounted parts and loaded lines. */
+	applyFrame(frame: DiffPage): void {
+		this.#frame = frame.frame;
+		this.#sorting = frame.sorting;
+		this.overview = frame.overview;
+		this.summary = frame.summary;
+		for (const group of frame.groups) {
 			for (const part of group.parts) {
 				const at = this.#byKey.get(keyOf(part.group, part.path));
 				const state = at === undefined ? undefined : this.parts[at];
 				if (state !== undefined && !sameTally(state.part.tally, part.tally)) state.part = part;
 			}
 		}
-		this.#putFiles(loaded.value.files);
+		this.groups = this.groups.map((info, index) => {
+			const group = frame.groups[index];
+			if (group === undefined) return info;
+			const name = groupName(group.key, group.title);
+			return name === info.name && group.summary === info.summary
+				? info
+				: { ...info, name, summary: group.summary };
+		});
+		this.#putFiles(frame.files);
 	}
 
 	/** Puts files the daemon sent in place of the page's own. */
@@ -847,6 +930,9 @@ export class Viewer {
 
 	#refused(error: ApiError, parts: readonly PartState[], target: TickTarget): TickOutcome {
 		const message = `Nothing was marked. ${describeApiError(error)}`;
+		if (error.kind === 'refused' && error.reason === 'SortingChanged') {
+			return { kind: 'sorting-changed', message };
+		}
 		const first = parts[0];
 		const outOfDate = error.kind === 'refused' && error.reason === 'VersionOutOfDate';
 		// Said where the tick was made, as an alert, in either view.

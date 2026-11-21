@@ -12,7 +12,7 @@
 	import { tick, untrack } from 'svelte';
 	import { page as shownPage } from '$app/state';
 	import { describeApiError } from '#lib/api/client.ts';
-	import type { ChangeCheckResponse, NextSourceOffer } from '#lib/api/schemas.ts';
+	import type { ChangeCheckResponse, DiffPage, NextSourceOffer } from '#lib/api/schemas.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import type { EscapedPath } from '#lib/core/path-bytes.ts';
 	import { previousRevisionNumber } from '#lib/core/revision-number.tiny.ts';
@@ -31,6 +31,7 @@
 	import { CommentDraft } from '#lib/ui/viewer/draft-comment.svelte.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import DraftComments from '#lib/ui/viewer/DraftComments.svelte';
+	import AgentMarkdown from '#lib/ui/viewer/AgentMarkdown.svelte';
 	import Part from '#lib/ui/viewer/Part.svelte';
 	import TickRefused from '#lib/ui/viewer/TickRefused.svelte';
 	import ProgressBar from '#lib/ui/viewer/ProgressBar.svelte';
@@ -46,6 +47,7 @@
 		showTally,
 		Viewer,
 		type GroupInfo,
+		type PartState,
 		type TickTarget
 	} from '#lib/ui/viewer/viewer.svelte.ts';
 	import { withSetting, type Layout, type SettingChange } from '#lib/core/settings.ts';
@@ -66,6 +68,7 @@
 
 	/** Once a minute while the page is in view, besides whenever the person comes back to it. */
 	const LOOK_AGAIN_EVERY = 60_000;
+	const REFRESH_REVIEW_EVERY = 5_000;
 	const UPDATED_HEADING = 'updated-heading';
 	const PAGE_HEADING = 'page-heading';
 
@@ -98,23 +101,26 @@
 		void checkForChanges();
 	});
 
-	// Nothing changes under the person reading: the page only says that something
-	// did, when they come back to it or now and then, and changes on their word.
-	// Ticks are the exception: what another page on the same diff marked is shown
-	// at the same moments, in place, without moving the reader.
+	// Changes to the source are offered to the reader. Agent writing, sorting
+	// and ticks from another page appear on the version the reader already sees.
 	$effect(() => {
+		const refresh = (): void => {
+			if (document.visibilityState === 'visible' && !busy) void refreshReview();
+		};
 		const again = (): void => {
 			if (document.visibilityState !== 'visible' || busy) return;
 			void checkForChanges(true);
-			void viewer?.refreshTicks();
+			refresh();
 		};
 		window.addEventListener('focus', again);
 		document.addEventListener('visibilitychange', again);
-		const timer = setInterval(again, LOOK_AGAIN_EVERY);
+		const checkTimer = setInterval(again, LOOK_AGAIN_EVERY);
+		const reviewTimer = setInterval(refresh, REFRESH_REVIEW_EVERY);
 		return () => {
 			window.removeEventListener('focus', again);
 			document.removeEventListener('visibilitychange', again);
-			clearInterval(timer);
+			clearInterval(checkTimer);
+			clearInterval(reviewTimer);
 		};
 	});
 
@@ -238,18 +244,173 @@
 	let settings = $state(untrack(() => data.settings));
 	/** The viewer made last, whose search a newer version's takes over. */
 	let lastViewer: Viewer | undefined;
+	let refreshed = $state.raw<{ initial: DiffPage; frame: DiffPage }>();
+	let staleTick = $state.raw<{
+		id: DiffPage['summary']['id'];
+		version: DiffPage['summary']['version'];
+		message: string;
+		part: PartState | undefined;
+		group: GroupKeyView | undefined;
+	}>();
+	let reviewRefresh: Promise<void> | undefined;
+	let waitingForCommentSelection = $state.raw<Viewer>();
+	let viewportRestore: { viewer: Viewer; stop: () => void } | undefined;
 	const viewer = $derived.by(() => {
 		if (!data.loaded.ok) return undefined;
-		const made = new Viewer(
-			data.loaded.value,
-			untrack(() => onlyWaiting),
-			untrack(() => settings),
-			pageClient(),
-			untrack(() => lastViewer?.search.handOver())
+		const initial = data.loaded.value;
+		const frame = refreshed?.initial === initial ? refreshed.frame : initial;
+		const made = untrack(
+			() =>
+				new Viewer(
+					frame,
+					onlyWaiting,
+					settings,
+					pageClient(),
+					lastViewer?.search.handOver(),
+					frame === initial ? undefined : lastViewer
+				)
 		);
 		lastViewer = made;
 		return made;
 	});
+
+	async function refreshReview(force = false): Promise<void> {
+		if (reviewRefresh !== undefined && !force) return;
+		if (reviewRefresh !== undefined) await reviewRefresh;
+		reviewRefresh ??= readReview(force).finally(() => (reviewRefresh = undefined));
+		await reviewRefresh;
+	}
+
+	$effect(() => {
+		if (viewer?.assignmentsChanged) void refreshReview(true);
+	});
+
+	$effect(() => {
+		const shown = viewer;
+		return () => {
+			if (viewportRestore?.viewer === shown) viewportRestore?.stop();
+		};
+	});
+
+	async function readReview(force: boolean): Promise<void> {
+		const shown = viewer;
+		if (shown === undefined || !data.loaded.ok) return;
+		const initial = data.loaded.value;
+		const frame = await shown.readRefresh(force);
+		if (frame === undefined || viewer !== shown) return;
+		if (shown.sameLayout(frame)) {
+			waitingForCommentSelection = undefined;
+			await keepingPlace(() => {
+				shown.applyFrame(frame);
+			});
+			return;
+		}
+		// A same-version regroup can replace the gutter while the reviewer is
+		// choosing lines. The old snapshot still accepts a comment on that range.
+		if (document.querySelector('[data-selecting-comment]:not([hidden] *)') !== null) {
+			waitingForCommentSelection = shown;
+			return;
+		}
+		waitingForCommentSelection = undefined;
+
+		const active = document.activeElement;
+		const focused = partAtElement(shown, active);
+		const heading = active?.closest('section.group')?.querySelector('h2')?.id;
+		const atTop = window.scrollY === 0;
+		const anchor = atTop ? undefined : viewportPart(shown);
+		const before = partAtElement(shown, anchor);
+		const top = anchor?.getBoundingClientRect().top;
+		refreshed = { initial, frame };
+		const next = viewer;
+		const anchorAt = before === undefined ? undefined : next.nearestPart(before);
+		const focusAt = focused === undefined ? anchorAt : next.nearestPart(focused);
+		const destination = anchorAt === undefined ? undefined : next.parts[anchorAt];
+		let waitingForHeight = false;
+		if (before !== undefined && destination?.part.path === before.part.path) {
+			destination.open = before.open;
+			destination.showLarge = before.showLarge;
+			if (top !== undefined && top < 0 && before.showLarge && destination.open) {
+				waitingForHeight = true;
+				void restoreLargePart(next, destination, top);
+			}
+		}
+		if (anchorAt !== undefined) next.drawUpTo(anchorAt);
+		if (focusAt !== undefined) next.drawUpTo(focusAt);
+		await tick();
+		if (viewer !== next) return;
+		const anchorNow = anchorAt === undefined ? null : document.getElementById(`part-${anchorAt}`);
+		if (atTop) {
+			window.scrollTo(0, 0);
+		} else if (anchorNow !== null && top !== undefined && !waitingForHeight) {
+			// A neighbouring file gives focus somewhere to go when the old one is
+			// gone. Its contents cannot stand in for the old viewport offset.
+			if (destination?.part.path === before?.part.path) {
+				window.scrollBy(0, anchorNow.getBoundingClientRect().top - top);
+			}
+		}
+		if (focusLost() && (focused !== undefined || heading !== undefined)) {
+			const headingNow = heading === undefined ? null : document.getElementById(heading);
+			const target =
+				(focused === undefined ? headingNow : null) ??
+				(focusAt === undefined ? null : document.getElementById(`part-${focusAt}-toggle`)) ??
+				document.getElementById(PAGE_HEADING);
+			target?.focus({ preventScroll: true });
+		}
+	}
+
+	/**
+	 * A loading placeholder cannot hold a deep scroll offset. Wait for the
+	 * replacement table and its chunk placeholders, laying out only this part.
+	 * User input and further handovers cancel the restoration without cancelling
+	 * the part's ordinary load.
+	 */
+	async function restoreLargePart(shown: Viewer, part: PartState, top: number): Promise<void> {
+		viewportRestore?.stop();
+		part.measuring = true;
+		const attempt = { stopped: false };
+		const stop = (): void => {
+			attempt.stopped = true;
+			part.measuring = false;
+			stopListening();
+			if (viewportRestore?.stop === stop) viewportRestore = undefined;
+		};
+		const stopListening = whenReaderMoves(window, stop);
+		viewportRestore = { viewer: shown, stop };
+		try {
+			await shown.load(part.index);
+			await tick();
+			if (attempt.stopped || viewer !== shown || part.lines.kind !== 'loaded' || !part.open) return;
+			const destination = document.getElementById(`part-${part.index}`);
+			if (destination === null || !shown.shows(part.index)) return;
+			const box = destination.getBoundingClientRect();
+			if (box.height === 0) return;
+			// If the relocated part is shorter, keep its end in reach.
+			const offset = Math.max(top, Math.min(0, window.innerHeight - box.height));
+			window.scrollBy(0, box.top - offset);
+		} finally {
+			stop();
+		}
+	}
+
+	function onScreen(element: HTMLElement): boolean {
+		const box = element.getBoundingClientRect();
+		return box.bottom > 0 && box.top < window.innerHeight;
+	}
+
+	function viewportPart(shown: Viewer | undefined): HTMLElement | undefined {
+		const current = shown?.current;
+		const reading =
+			current === undefined ? null : document.getElementById(`part-${String(current)}`);
+		if (reading !== null && onScreen(reading)) return reading;
+		return [...document.querySelectorAll<HTMLElement>('article.part')].find(onScreen);
+	}
+
+	function partAtElement(shown: Viewer, element: Element | null | undefined) {
+		const part = element?.closest('article.part');
+		if (part === null || part === undefined) return undefined;
+		const index = parsePartIndex(Number(part.id.replace(/^part-/, '')));
+		return index.ok ? shown.parts[index.value] : undefined;
+	}
 
 	/** Whether the window is wide enough for two sides; a narrower one shows one column, nothing lost. */
 	let wide = $state(true);
@@ -275,22 +436,15 @@
 	 * where it was, however much taller or shorter its lines are drawn now.
 	 */
 	async function keepingPlace(change: () => void): Promise<void> {
-		const parts = [...document.querySelectorAll<HTMLElement>('article.part')];
-		const current =
-			viewer?.current === undefined
-				? null
-				: document.getElementById(`part-${String(viewer.current)}`);
-		const onScreen = (element: HTMLElement): boolean => {
-			const box = element.getBoundingClientRect();
-			return box.bottom > 0 && box.top < window.innerHeight;
-		};
-		const anchor =
-			current !== null && onScreen(current)
-				? current
-				: parts.find((p) => p.getBoundingClientRect().bottom > 0);
+		const atTop = window.scrollY === 0;
+		const anchor = atTop ? undefined : viewportPart(viewer);
 		const before = anchor?.getBoundingClientRect().top;
 		change();
 		await tick();
+		if (atTop) {
+			window.scrollTo(0, 0);
+			return;
+		}
 		if (anchor === undefined || before === undefined || !anchor.isConnected) return;
 		window.scrollBy(0, anchor.getBoundingClientRect().top - before);
 	}
@@ -432,11 +586,24 @@
 	): Promise<void> {
 		if (viewer === undefined) return;
 		switch (outcome.kind) {
+			case 'sorting-changed':
+				staleTick = {
+					id: viewer.id,
+					version: viewer.version,
+					message: outcome.message,
+					part: target.kind === 'part' ? viewer.parts[target.at] : undefined,
+					group: target.kind === 'group' ? target.group.key : undefined
+				};
+				await refreshReview(true);
+				return;
 			case 'refused':
 				if (outcome.outOfDate) await checkForChanges();
 				return;
 			case 'marked': {
+				const beforeRefresh = viewer;
+				if (outcome.refresh) await refreshReview(true);
 				await tick();
+				if (viewer !== beforeRefresh) return;
 				if (outcome.allDone) {
 					document.getElementById(EVERYTHING_REVIEWED)?.focus();
 					return;
@@ -463,8 +630,11 @@
 	}
 
 	async function tickTarget(target: TickTarget, reviewed: boolean): Promise<void> {
-		if (viewer === undefined) return;
-		await afterTick(target, await viewer.tick(target, reviewed));
+		const shown = viewer;
+		if (shown === undefined) return;
+		staleTick = undefined;
+		const outcome = await shown.tick(target, reviewed);
+		if (viewer === shown) await afterTick(target, outcome);
 	}
 
 	async function tickPart(at: PartIndex, reviewed: boolean): Promise<void> {
@@ -798,8 +968,9 @@
 					return;
 				}
 				void (async () => {
+					const shown = viewer;
 					await goToPart(at, false);
-					await tickPart(at, !done(state.part.tally));
+					if (viewer === shown) await tickPart(at, !done(state.part.tally));
 				})();
 				return;
 			case 'toggle-open':
@@ -832,10 +1003,8 @@
 	/** Which part has focus, so keys act on the part the person is in. */
 	function onFocusIn(event: FocusEvent): void {
 		if (viewer === undefined || !(event.target instanceof Element)) return;
-		const part = event.target.closest('article.part');
-		if (part === null) return;
-		const index = parsePartIndex(Number(part.id.replace(/^part-/, '')));
-		if (index.ok) viewer.current = index.value;
+		const part = partAtElement(viewer, event.target);
+		if (part !== undefined) viewer.current = part.index;
 	}
 
 	/** How far a group has got, after its name: "all reviewed", "2 of 5 changes reviewed". */
@@ -883,6 +1052,10 @@
 	{@const allDone = overall.units > 0 && overall.reviewed === overall.units}
 	{@const previousVersion = previousRevisionNumber(summary.version)}
 	{@const ignoredUnits = summary.progress.ignored}
+	{@const stale =
+		staleTick?.id === viewer.id && staleTick.version === viewer.version ? staleTick : undefined}
+	{@const staleAt = stale?.part === undefined ? undefined : viewer.nearestPart(stale.part)}
+	{@const staleGroup = stale?.group === undefined ? undefined : viewer.groupWithKey(stale.group)}
 	<div class="viewer">
 		<div class="top">
 			<div class="heading">
@@ -1031,6 +1204,12 @@
 					Search <kbd aria-hidden="true">/</kbd>
 				</button>
 			</div>
+			{#if viewer.overview !== null}
+				<details class="agent-overview" open>
+					<summary>Agent overview</summary>
+					<AgentMarkdown markdown={viewer.overview} />
+				</details>
+			{/if}
 			<nav aria-label="Groups">
 				<ol class="groups">
 					{#each viewer.groups as group (group.id)}
@@ -1125,6 +1304,9 @@
 		</aside>
 
 		<div class="content" role="presentation" onfocusin={onFocusIn}>
+			{#if stale !== undefined && (byFile || (staleAt === undefined && staleGroup === undefined))}
+				<TickRefused message={stale.message} behind={false} onshownewer={showNewer} />
+			{/if}
 			{#if viewer.search.open}
 				<SearchBar
 					search={viewer.search}
@@ -1134,6 +1316,9 @@
 					onclose={closeSearch}
 					onoption={setSearchOption}
 				/>
+			{/if}
+			{#if waitingForCommentSelection === viewer}
+				<p role="status">Finish choosing lines to see the updated sections.</p>
 			{/if}
 			{#if data.canReview}
 				{#key summary.id}
@@ -1172,15 +1357,16 @@
 				</Notice>
 			{/if}
 
-			<!-- A new version is a new viewer: its parts are drawn afresh, never reused. -->
-			{#key viewer}
-				<!-- Each view is made once and then only hidden, so going back and forth
-				     between them draws nothing again. -->
+			<!-- Keep the by-file list mounted through regrouping of the same version. -->
+			{#key page}
 				{#if fileListMade}
 					<div hidden={!byFile}>
 						<FileList {viewer} ontick={tickFile} ongo={goTo} onshownewer={showNewer} />
 					</div>
 				{/if}
+			{/key}
+			<!-- New versions and regrouped parts are drawn afresh. -->
+			{#key viewer}
 				<div hidden={byFile}>
 					{#if !anyShown}
 						<p class="empty">
@@ -1212,14 +1398,16 @@
 												onchange={async (event) => {
 													const box = event.currentTarget;
 													await tickGroup(group, box.checked);
-													showTally(box, viewer.groupTally(group));
+													if (box.isConnected) showTally(box, viewer.groupTally(group));
 												}}
 											/>
 											All reviewed
 										</label>
 									{/if}
 								</div>
-								{#if viewer.refused?.kind === 'group' && viewer.refused.key === group.id}
+								{#if stale !== undefined && staleGroup?.id === group.id}
+									<TickRefused message={stale.message} behind={false} onshownewer={showNewer} />
+								{:else if viewer.refused?.kind === 'group' && viewer.refused.key === group.id}
 									{@const refused = viewer.refused}
 									<TickRefused
 										message={refused.message}
@@ -1227,9 +1415,11 @@
 										onshownewer={showNewer}
 									/>
 								{/if}
-								{#if group.key.kind === 'uncategorised'}
+								{#if group.summary !== null}
+									<AgentMarkdown markdown={group.summary} label="Agent summary" />
+								{:else if group.key.kind === 'uncategorised'}
 									<p class="explain">
-										{page.sorted
+										{viewer.sorted
 											? 'The agent did not place these, so they are listed here.'
 											: 'No agent has sorted this diff into sections, so every file is listed here.'}
 									</p>
@@ -1245,6 +1435,7 @@
 										{previousVersion}
 										canComment={data.canReview && summary.state.kind === 'open'}
 										{draft}
+										sortingProblem={staleAt === state.index ? stale?.message : undefined}
 										ontick={tickPart}
 										ongo={goTo}
 										onshownewer={showNewer}
@@ -1402,6 +1593,17 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+	}
+
+	.agent-overview {
+		border-block-start: 1px solid var(--color-border);
+		margin-block-start: 1rem;
+		padding-block-start: 0.65rem;
+	}
+
+	.agent-overview summary {
+		cursor: pointer;
+		font-weight: 700;
 	}
 
 	.groups {

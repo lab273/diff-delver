@@ -107,6 +107,7 @@ describe('the report service at full scale', () => {
 		expect(assigned.uncategorised).toBe(100_000 - 22);
 
 		const first = value(parseSectionId('first'));
+		const { sorting } = value(await later.load(id));
 		const ticked = await measure(task, 'one tick', 250, async () =>
 			value(
 				await later.markReviewed(
@@ -117,7 +118,9 @@ describe('the report service at full scale', () => {
 						group: { kind: 'section', section: first },
 						path: value(parseRepoPath('src/module-00/file-0000.ts'))
 					},
-					true
+					true,
+					'sections',
+					sorting
 				)
 			)
 		);

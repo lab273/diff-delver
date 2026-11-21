@@ -32,6 +32,7 @@ test.describe('J8 The diff changes mid-review', () => {
 		// Running the command again opens the same diff in another tab, where the
 		// discount is ticked: everything is reviewed there.
 		const discountTick = journey.byRole('checkbox', { name: 'Reviewed: src/discount.ts' });
+		await journey.expectState(discountTick, { checked: false });
 		const again = await journey.command([], shop);
 		await journey.inAnotherTab(again.address, async (tab) => {
 			const tabReview = tab.byRole('complementary', { name: 'Your review' });
@@ -42,8 +43,7 @@ test.describe('J8 The diff changes mid-review', () => {
 			await tab.expectVisible(tab.byRole('heading', { name: 'Everything is reviewed' }));
 			await tab.step('Everything reviewed in another tab');
 		});
-		// The first tab is behind. A tick there shows what is stored, the other tab's tick too.
-		await journey.expectState(discountTick, { checked: false });
+		// A tick here keeps the other tab's tick, whether it arrived already or comes with the refresh.
 		await journey.tabTo(checkoutTick);
 		await journey.press('Space');
 		await journey.expectState(checkoutTick, { checked: false });

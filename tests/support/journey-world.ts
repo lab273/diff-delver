@@ -638,7 +638,12 @@ export interface JourneyWorld {
 	 * the agent sent it. Fails if the tools now accept or refuse one of them
 	 * otherwise. Gives the address of the page of the report the agent sorted.
 	 */
-	agentTrial(recording: string, directory: string): Promise<string>;
+	agentTrial(
+		recording: string,
+		directory: string,
+		afterCreate?: (address: string) => Promise<void>
+	): Promise<string>;
+	agentCall(tool: string, args: Readonly<Record<string, unknown>>): Promise<void>;
 	/**
 	 * What `diff-delver <args>` prints, and the address it opens, run in `directory`
 	 * (or the journey's own empty folder) against this journey's daemon.
@@ -683,8 +688,12 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 			});
 			return copy;
 		},
-		async agentTrial(name, directory) {
+		async agentTrial(name, directory, afterCreate) {
 			const recording = await committedRecording(name);
+			const report = recording.finalState.at(-1)?.id;
+			if (report === undefined) throw new Error(`${name} made no report.`);
+			const address = (): string =>
+				entryAddress(daemon.origin, `/diffs/${report}`, daemon.entryCode());
 			const session = await mcpOverHttp({
 				origin: daemon.origin,
 				token: daemon.mcpToken,
@@ -693,7 +702,22 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 			const data = join(dir, 'data');
 			const paths = { repository: directory, data, trial: dir };
 			try {
-				const { changed } = await replay(recording, session, paths, normaliser(paths));
+				const { changed } = await replay(
+					recording,
+					{
+						...session,
+						async call(tool, args) {
+							const answer = await session.call(tool, args);
+							if (tool === 'create_report' && !answer.refused && afterCreate !== undefined) {
+								await afterCreate(address());
+								afterCreate = undefined;
+							}
+							return answer;
+						}
+					},
+					paths,
+					normaliser(paths)
+				);
 				if (changed.length > 0) {
 					throw new Error(
 						`The tools no longer take ${name}'s calls as recorded:\n${changed.join('\n')}`
@@ -702,9 +726,16 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 			} finally {
 				await session.close();
 			}
-			const report = recording.finalState.at(-1)?.id;
-			if (report === undefined) throw new Error(`${name} made no report.`);
-			return entryAddress(daemon.origin, `/diffs/${report}`, daemon.entryCode());
+			return address();
+		},
+		async agentCall(tool, args) {
+			const session = await mcpOverHttp({ origin: daemon.origin, token: daemon.mcpToken });
+			try {
+				const answer = await session.call(tool, args);
+				if (answer.refused) throw new Error(`${tool} was refused: ${answer.text}`);
+			} finally {
+				await session.close();
+			}
 		},
 		async command(args, directory) {
 			const parsed = parseCommandLine(args);

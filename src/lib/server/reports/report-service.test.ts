@@ -268,12 +268,15 @@ describe('the report service', () => {
 		expect(outcome.uncategorised).toBe(0);
 
 		const app = value(parseSectionId('app'));
+		const { sorting } = value(await service.load(id));
 		const ticked = value(
 			await service.markReviewed(
 				id,
 				FIRST,
 				{ kind: 'slice', group: { kind: 'section', section: app }, path: path('src/app.ts') },
-				true
+				true,
+				'sections',
+				sorting
 			)
 		);
 		expect(ticked.units).toBe(3);

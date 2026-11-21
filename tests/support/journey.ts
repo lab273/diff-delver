@@ -234,9 +234,18 @@ export interface Journey extends Finder {
 	 * name, such as `shop.claude.json`), done again in `where` against this
 	 * journey's daemon: the agent's MCP calls, in order, as it sent them. Gives
 	 * the address the agent gave the person, for `open`. Fails if the tools now
-	 * accept or refuse one of the calls otherwise.
+	 * accept or refuse one of the calls otherwise. To open the report before
+	 * sorting, pass a callback that receives its address as soon as it exists.
 	 */
-	agentTrial(recording: string, where: JourneyRepository): Promise<string>;
+	agentTrial(
+		recording: string,
+		where: JourneyRepository,
+		afterCreate?: (address: string) => Promise<void>
+	): Promise<string>;
+	/** Makes an agent's MCP call on an existing report and requires it to succeed. */
+	agentCall(tool: string, args: Readonly<Record<string, unknown>>): Promise<void>;
+	/** Delays the next lazy part request for a file until the journey lets it through. */
+	holdPartRead(path: string): Promise<{ requested: Promise<void>; release: () => void }>;
 	/** Opens a page of the app by its path, as a person does from a link: `/`, `/reports/1`. */
 	open(path: string): Promise<void>;
 	/**
@@ -278,6 +287,8 @@ export interface Journey extends Finder {
 	expectHidden(target: Target): Promise<void>;
 	/** Waits until the target is scrolled into the part of the page on the screen. */
 	expectInView(target: Target): Promise<void>;
+	/** Where a visible control is relative to the top of the screen, in pixels. */
+	verticalPosition(target: Target): Promise<number>;
 	/**
 	 * Waits until the whole of the target is on the screen with nothing drawn
 	 * over any of it, such as a bar that stays at the top: as a person sees it.
@@ -870,13 +881,36 @@ export async function startJourney(
 			REPOSITORY_PATHS.set(repo, await world.repository(name));
 			return repo;
 		},
-		async agentTrial(recording, where) {
+		async agentTrial(recording, where, afterCreate) {
 			if (world === undefined) throw new Error('This journey has no daemon to replay a trial on.');
 			const directory = REPOSITORY_PATHS.get(where);
 			if (directory === undefined) {
 				throw new Error(`${where.description} was not made by journey.repository.`);
 			}
-			return world.agentTrial(recording, directory);
+			return world.agentTrial(recording, directory, afterCreate);
+		},
+		async agentCall(tool, args) {
+			if (world === undefined) throw new Error('This journey has no daemon for MCP.');
+			await world.agentCall(tool, args);
+		},
+		async holdPartRead(path) {
+			const requested = Promise.withResolvers<undefined>();
+			const released = Promise.withResolvers<undefined>();
+			await page.route(
+				(url) => url.pathname.endsWith('/part') && url.searchParams.get('path') === path,
+				async (route) => {
+					requested.resolve(undefined);
+					await released.promise;
+					await route.continue();
+				},
+				{ times: 1 }
+			);
+			return {
+				requested: requested.promise,
+				release: () => {
+					released.resolve(undefined);
+				}
+			};
 		},
 		async command(args, where) {
 			if (world === undefined)
@@ -990,6 +1024,11 @@ export async function startJourney(
 				locatorOf(target),
 				`${target.description} should be scrolled into view`
 			).toBeInViewport();
+		},
+		async verticalPosition(target) {
+			const box = await locatorOf(target).boundingBox();
+			if (box === null) throw new Error(`${target.description} has no place on the screen.`);
+			return box.y;
 		},
 		async expectUncovered(target) {
 			const locator = locatorOf(target);
