@@ -27,8 +27,8 @@ What this commits us to:
 
 1. **One step to start.** One command in a repository opens the browser on the
    current changes, with no arguments and no configuration. The package is not
-   published to npm, so that command runs diff delver straight from its GitHub
-   repository or from a local clone. With an agent, the
+   published to npm, so that command runs the newest release from GitHub, a small
+   download with nothing to build; a local clone works too. With an agent, the
    user asks in their own words and gets a link back as the first thing.
 2. **Nothing to learn twice.** Where GitHub's diff view already has a convention
    (colours, the `+` button on a line, the tick on a file), we use it.
@@ -72,7 +72,7 @@ Three rules shape the data model and the agent interface:
 |---|---|
 | Deployment | Local-first. One daemon on the reviewer's machine, no accounts. |
 | Stack | SvelteKit (Svelte 5, TypeScript, `adapter-node`), as one package. |
-| Distribution | Not published to npm. It is run from the GitHub repository or a local clone. |
+| Distribution | Not published to npm. It is run from a built package attached to a GitHub release, or from a local clone. A release is made only by a workflow a person starts by hand, which runs every test before it packages anything. |
 | Sources in v1 | Local git, Jujutsu (jj), GitHub pull requests. |
 | Agent access | An MCP server plus an Agent Skill. Works with subscription models because the agent calls in; the server never calls an LLM. |
 | Agent loop | Live queue: reviewer requests wait for an attached agent. If none is attached, the request can be copied to the clipboard. |
