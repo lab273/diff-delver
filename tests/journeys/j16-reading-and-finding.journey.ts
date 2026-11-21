@@ -145,6 +145,23 @@ test.describe('J16 Reading and finding', () => {
 		await journey.activate(matchCase);
 		await journey.expectState(matchCase, { pressed: false });
 
+		// Changed lines only: unchanged lines are not read, only added and removed
+		// ones, and paths. Skip closed files: tools/total.ts, reviewed and so
+		// closed, is passed over.
+		const changedOnly = journey.within(search).byRole('button', { name: 'Changed lines only' });
+		await journey.activate(changedOnly);
+		await journey.expectState(changedOnly, { pressed: true });
+		await journey.expectText(found, '6 matches in 2 files');
+		const skipClosed = journey.within(search).byRole('button', { name: 'Skip closed files' });
+		await journey.activate(skipClosed);
+		await journey.expectState(skipClosed, { pressed: true });
+		await journey.expectText(found, '3 matches in 1 file');
+		await journey.step('Searching changed lines of open files');
+		await journey.activate(changedOnly);
+		await journey.activate(skipClosed);
+		await journey.expectState(skipClosed, { pressed: false });
+		await journey.expectText(found, '13 matches in 2 files');
+
 		// A match in a file that is closed, as a reviewed one is, opens it. The
 		// search key, pressed again, selects what is in the box, to type over it.
 		await journey.press('/');
