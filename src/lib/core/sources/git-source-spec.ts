@@ -11,6 +11,7 @@
  *   request from `to` into `from` shows.
  */
 import type { FileCount } from '../file-count.tiny.ts';
+import { jsonQuoted } from '../json-quoted.ts';
 import { gitSourceText, type GitSourceText } from './git-source-text.tiny.ts';
 import { err, ok, type Result } from '../result.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
@@ -156,7 +157,7 @@ export function describeInvalidSourceSpec(error: InvalidSourceSpec): ReviewerMes
 	const help =
 		'Give a commit (such as HEAD or abc1234), two branches to compare (such as main...feature-x), "staged" or "working-tree".';
 	if (error.revision === undefined) return reviewerMessage(`Nothing was given to open. ${help}`);
-	const shown = JSON.stringify(error.text.trim());
+	const shown = jsonQuoted(error.text.trim());
 	switch (error.revision.reason) {
 		case 'empty':
 			return reviewerMessage(`${shown} is missing a revision on one side. ${help}`);

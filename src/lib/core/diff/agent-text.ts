@@ -35,6 +35,7 @@
  */
 import { characterCount, type CharacterCount } from '../character-count.tiny.ts';
 import { fileModeKind, type FileMode, type FileModeKind } from '../file-mode.tiny.ts';
+import { jsonQuoted } from '../json-quoted.ts';
 import { escapedRepoPath } from '../path-bytes.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import { joinTextForAgent, textForAgent, type TextForAgent } from '../text-for-agent.tiny.ts';
@@ -62,9 +63,7 @@ export function agentPath(path: RepoPath): TextForAgent {
 
 /** JSON.stringify, with U+2028 and U+2029 escaped too, so the string stays on one line. */
 function jsonString(text: string): string {
-	return JSON.stringify(text)
-		.replace(/\u2028/g, '\\u2028')
-		.replace(/\u2029/g, '\\u2029');
+	return jsonQuoted(text);
 }
 
 /** One file's diff as labelled text. */
@@ -119,17 +118,40 @@ function span(sign: '-' | '+', s: HunkSpan): string {
 }
 
 function hunkHeader(hunk: Hunk): string {
-	const heading = hunk.heading === '' ? '' : ` ${hunk.heading}`;
+	const heading = hunk.heading === '' ? '' : ` ${lineBreaksShown(hunk.heading)}`;
 	return `@@ ${hunk.id} ${span('-', hunk.old)} ${span('+', hunk.new)} @@${heading}`;
 }
 
-/** The text of a line, with a trailing carriage return made visible and long lines cut. */
+/**
+ * The text of a line, with a trailing carriage return made visible and long
+ * lines cut, and with every other character a reader could take for the end
+ * of a line written as an escape (`lineBreaksShown`), so a line of code can
+ * never start a line of the answer.
+ */
 function shown(text: string, max: number): string {
 	const crlf = text.endsWith('\r');
 	const body = crlf ? text.slice(0, -1) : text;
 	const cut =
 		body.length > max ? `${body.slice(0, max)}… [${body.length - max} more characters]` : body;
-	return crlf ? `${cut}\\r` : cut;
+	return lineBreaksShown(crlf ? `${cut}\r` : cut);
+}
+
+const LINE_BREAKS: Readonly<Record<string, string>> = {
+	'\v': '\\v',
+	'\f': '\\f',
+	'\r': '\\r',
+	'\u0085': '\\u0085',
+	'\u2028': '\\u2028',
+	'\u2029': '\\u2029'
+};
+
+/**
+ * A line of a file with each character Unicode counts as ending a line, but
+ * for the newline git splits lines at, written as an escape: `\r` as the two
+ * characters backslash and r, as a carriage return at the end of a line is.
+ */
+export function lineBreaksShown(text: string): string {
+	return text.replace(/[\v\f\r\u0085\u2028\u2029]/g, (c) => LINE_BREAKS[c] ?? c);
 }
 
 const MODE_NAMES: Readonly<Record<FileModeKind, string>> = {

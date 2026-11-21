@@ -4,6 +4,8 @@
  * at about 25,000 tokens; it starts by naming the report and the version it is
  * of; and numbers and lists are written the same way everywhere.
  */
+import { visibleText } from '../hidden-characters.ts';
+import { jsonQuoted } from '../json-quoted.ts';
 import type { ReportId } from '../report-id.tiny.ts';
 import type { ReviewerMessage } from '../reviewer-message.tiny.ts';
 import type { RevisionNumber } from '../revision-number.tiny.ts';
@@ -25,9 +27,13 @@ export interface ReportHeading {
 	readonly version: RevisionNumber;
 }
 
-/** The first line of every answer about a report. */
+/**
+ * The first line of every answer about a report. Its title can hold a branch
+ * name and its repository is a folder's name, so each is written with what
+ * cannot be seen, line separators among them, as escapes: it stays one line.
+ */
 export function headingLine(heading: ReportHeading): string {
-	return `Report ${heading.id}: ${heading.title} in ${heading.repository}, version ${String(heading.version)}.`;
+	return `Report ${heading.id}: ${visibleText(heading.title)} in ${visibleText(heading.repository)}, version ${String(heading.version)}.`;
 }
 
 /** `1,234`: digits grouped in threes, the same on every machine. */
@@ -88,10 +94,7 @@ export function quotedAgentText(text: string, max: number = MAX_ECHOED): string 
 
 /** Text escaped as inside a JSON string, with U+2028 and U+2029 escaped too, so it stays on one line. */
 function jsonEscaped(text: string): string {
-	return JSON.stringify(text)
-		.slice(1, -1)
-		.replace(/\u2028/g, '\\u2028')
-		.replace(/\u2029/g, '\\u2029');
+	return jsonQuoted(text).slice(1, -1);
 }
 
 /** At most this many sentences of a list, such as the files left out of a snapshot, are written out. */

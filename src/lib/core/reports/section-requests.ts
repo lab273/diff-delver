@@ -23,6 +23,7 @@
  */
 import { parseAgentMarkdown, type InvalidAgentMarkdown } from '../agent-markdown.tiny.ts';
 import { itemIndexAt, type ItemIndex } from '../item-index.tiny.ts';
+import { jsonQuoted } from '../json-quoted.ts';
 import { err, ok, type Result } from '../result.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import { describeRejection, resolveUnits, type AssignRejection } from '../diff/assign.ts';
@@ -132,7 +133,7 @@ export function describeSectionProblem(problem: SectionProblem): ReviewerMessage
 	switch (problem.kind) {
 		case 'InvalidSectionId':
 			return reviewerMessage(
-				`Item ${String(problem.index)}: "${problem.id}" is not a section id (${problem.reason}). Use a short slug of lowercase letters and digits, such as session-expiry.`
+				`Item ${String(problem.index)}: "${echo(problem.id)}" is not a section id (${problem.reason}). Use a short slug of lowercase letters and digits, such as session-expiry.`
 			);
 		case 'InvalidTitle':
 			return reviewerMessage(
@@ -181,7 +182,7 @@ export function describeSectionProblem(problem: SectionProblem): ReviewerMessage
 				...(problem.missing.length > 0 ? [`it leaves out ${problem.missing.join(', ')}`] : []),
 				...(problem.unexpected.length > 0
 					? [
-							`${problem.unexpected.join(', ')} ${problem.unexpected.length === 1 ? 'is' : 'are'} not a section or appear twice`
+							`${problem.unexpected.map((u) => `"${echo(u)}"`).join(', ')} ${problem.unexpected.length === 1 ? 'is' : 'are'} not a section or appear twice`
 						]
 					: [])
 			];
@@ -262,7 +263,7 @@ const MAX_ECHOED = 80;
 
 function echo(text: string): string {
 	const chars = Array.from(text);
-	return JSON.stringify(
+	return jsonQuoted(
 		chars.length <= MAX_ECHOED ? text : `${chars.slice(0, MAX_ECHOED).join('')}…`
 	).slice(1, -1);
 }

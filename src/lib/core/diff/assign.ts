@@ -30,6 +30,7 @@ import {
 	parseAgentMarkdown,
 	type AgentMarkdown
 } from '../agent-markdown.tiny.ts';
+import { jsonQuoted } from '../json-quoted.ts';
 import { compileGlob, parseGlobPattern, type GlobPattern } from '../glob-pattern.tiny.ts';
 import { describeGlobProblem, type GlobProblem } from '../glob.ts';
 import { parseHunkId, type HunkId } from '../hunk-id.tiny.ts';
@@ -819,7 +820,7 @@ function echoed(text: string): string {
 
 /** The agent's text as a JSON string, cut to `MAX_ECHOED` characters. */
 function quoted(text: string): string {
-	return JSON.stringify(echoed(text));
+	return jsonQuoted(echoed(text));
 }
 
 const INVALID_ITEM_MESSAGES: Readonly<Record<InvalidItemProblem, string>> = {
@@ -929,7 +930,7 @@ function rejectionText(rejection: AssignRejection): string {
 		case 'MalformedGlob':
 			return `The glob ${quoted(rejection.glob)} is not valid: ${describeGlobProblem(rejection.problem)}. Nothing was assigned for this item.`;
 		case 'GlobMatchesNothing':
-			return `The glob "${rejection.glob}" matches no changed file. A pattern with a "/" is matched from the root; one without matches file names at any depth.`;
+			return `The glob ${quoted(rejection.glob)} matches no changed file. A pattern with a "/" is matched from the root; one without matches file names at any depth.`;
 		case 'InvalidSectionId':
 			return rejection.reason === 'reserved'
 				? `${quoted(rejection.section)} is not a section id. To ignore lines, use "section": "ignored" with a "reason".`

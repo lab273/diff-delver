@@ -55,6 +55,9 @@ import { compileGlob, parseGlobPattern } from '#lib/core/glob-pattern.tiny.ts';
 import { parseLineNumber, type LineNumber } from '#lib/core/line-number.tiny.ts';
 import { unitSetSize } from '#lib/core/diff/unit-set.ts';
 import { parseReportId, type ReportId } from '#lib/core/report-id.tiny.ts';
+import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
+import { visibleText } from '#lib/core/hidden-characters.ts';
+import { jsonQuoted } from '#lib/core/json-quoted.ts';
 import { MAX_REFERENCES, MAX_SECTIONS } from '#lib/core/reports/section-requests.ts';
 import { describeDiffSize } from '#lib/core/reports/describe-report.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
@@ -298,9 +301,9 @@ const createReport = tool({
 				case 'choose':
 					return err(
 						[
-							`Several diffs could be reviewed in ${outcome.repository}, so none was opened. Call create_report again with one of these as "source":`,
+							`Several diffs could be reviewed in ${visibleText(outcome.repository)}, so none was opened. Call create_report again with one of these as "source":`,
 							...outcome.candidates.map(
-								(c) => `- "${formatGitSourceSpec(c.spec)}": ${c.description}`
+								(c) => `- ${sourceText(c.spec)}: ${visibleText(c.description)}`
 							),
 							'Ask the person which they mean if their request does not say.'
 						].join('\n')
@@ -308,12 +311,12 @@ const createReport = tool({
 				case 'nothing':
 					return err(
 						[
-							`Nothing to review: ${outcome.reason}`,
+							`Nothing to review: ${visibleText(outcome.reason)}`,
 							...(outcome.candidates.length > 0
 								? [
 										'These could be opened instead, as "source":',
 										...outcome.candidates.map(
-											(c) => `- "${formatGitSourceSpec(c.spec)}": ${c.description}`
+											(c) => `- ${sourceText(c.spec)}: ${visibleText(c.description)}`
 										)
 									]
 								: [])
@@ -322,8 +325,8 @@ const createReport = tool({
 				case 'failed':
 					return err(
 						[
-							`"${formatGitSourceSpec(outcome.tried.spec)}" (${outcome.tried.description}) could not be opened: ${describeForAgent(outcome.problem)}`,
-							...outcome.others.map((c) => `- "${formatGitSourceSpec(c.spec)}": ${c.description}`)
+							`${sourceText(outcome.tried.spec)} (${visibleText(outcome.tried.description)}) could not be opened: ${describeForAgent(outcome.problem)}`,
+							...outcome.others.map((c) => `- ${sourceText(c.spec)}: ${visibleText(c.description)}`)
 						].join('\n')
 					);
 			}
@@ -395,12 +398,12 @@ async function opened(outcome: OpenOutcome, context: ToolContext): Promise<Resul
 		case 'nothing-to-review':
 			return err(
 				[
-					`Nothing to review in ${outcome.source}: ${outcome.reason}`,
+					`Nothing to review in ${visibleText(outcome.source)}: ${visibleText(outcome.reason)}`,
 					...sentencesListed('Left out: ', outcome.leftOut),
 					...(outcome.next === undefined
 						? []
 						: [
-								`Its changes most likely went into ${formatGitSourceSpec(outcome.next.spec)}: call create_report with "source": "${formatGitSourceSpec(outcome.next.spec)}" to review them there.`
+								`Its changes most likely went into ${visibleText(formatGitSourceSpec(outcome.next.spec))}: call create_report with "source": ${sourceText(outcome.next.spec)} to review them there.`
 							])
 				].join('\n')
 			);
@@ -451,6 +454,11 @@ async function opened(outcome: OpenOutcome, context: ToolContext): Promise<Resul
 	);
 	out.push(`Next: call get_manifest with "report": "${report.id}".`);
 	return ok(out.join('\n'));
+}
+
+/** A source as the agent gives it back in "source": a JSON string. */
+function sourceText(spec: Parameters<typeof formatGitSourceSpec>[0]): string {
+	return jsonQuoted(formatGitSourceSpec(spec));
 }
 
 /** The files a rule or a pattern ignored, with why: "package-lock.json (Lockfile)". */
@@ -799,23 +807,43 @@ function linesWanted(
 /** At most this many entries of a folder are listed. */
 const MAX_FOLDER_ENTRIES = 300;
 
-async function folderListing(page: LoadedReport, side: Side, folder: RepoPath): Promise<string> {
+/**
+ * A folder of one side, its entries one to a line after "- ", each written as
+ * every path is (`agentPath`): escaped, and as a JSON string when it holds
+ * anything odd, so no name can add a line to the answer.
+ */
+async function folderListing(
+	page: LoadedReport,
+	side: Side,
+	folder: RepoPath | undefined
+): Promise<string> {
 	const listed = await listSnapshotPaths(page.snapshot, side);
 	const out = [headingLine(headingOf(page))];
 	if (!listed.ok) return [...out, describeReportError(listed.error)].join('\n');
-	const prefix = `${folder}/`;
-	const entries = new Set<string>();
+	const prefix = folder === undefined ? '' : `${folder}/`;
+	const entries = new Map<string, string>();
 	for (const entry of listed.value) {
 		if (!entry.path.startsWith(prefix)) continue;
 		const rest = entry.path.slice(prefix.length);
 		const slash = rest.indexOf('/');
-		entries.add(slash === -1 ? rest : `${rest.slice(0, slash)}/`);
+		const name = slash === -1 ? rest : rest.slice(0, slash);
+		const path = parseRepoPath(`${prefix}${name}`);
+		if (!path.ok || entries.has(name)) continue;
+		const shown = agentPath(path.value);
+		entries.set(name, `- ${shown}${slash === -1 ? '' : ' (a folder)'}`);
 	}
-	const names = [...entries];
+	const lines: string[] = [];
+	let length = 0;
+	for (const line of entries.values()) {
+		if (lines.length >= MAX_FOLDER_ENTRIES || length + line.length + 1 > PAGE_LENGTH) break;
+		lines.push(line);
+		length += line.length + 1;
+	}
+	const where = folder === undefined ? "The repository's root" : agentPath(folder);
 	out.push(
-		`${agentPath(folder)} is a folder on ${sideInWords(side)}, with ${counted(names.length, 'entry', 'entries')}${names.length > MAX_FOLDER_ENTRIES ? `; the first ${String(MAX_FOLDER_ENTRIES)} are` : ''}:`,
-		...names.slice(0, MAX_FOLDER_ENTRIES),
-		'Read a file in it with get_file and its whole path.'
+		`${where} is a folder on ${sideInWords(side)}, with ${counted(entries.size, 'entry', 'entries')}${lines.length < entries.size ? `; the first ${String(lines.length)} are` : ''}, each with its whole path:`,
+		...lines,
+		"Read a file with get_file and its path as written here; give a folder's path to list it."
 	);
 	return out.join('\n');
 }

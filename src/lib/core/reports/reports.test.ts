@@ -80,7 +80,7 @@ describe('section requests', () => {
 		]);
 		const text = refused.error.map(describeSectionProblem).join('\n');
 		expect(text).toMatch(/new is a new section, so it needs a title/);
-		expect(text).toMatch(/it leaves out ui and auth, nope are not a section or appear twice/);
+		expect(text).toMatch(/it leaves out ui and "auth", "nope" are not a section or appear twice/);
 	});
 });
 
