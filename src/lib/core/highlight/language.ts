@@ -7,7 +7,9 @@
  * that mean it, then its grammar to `GRAMMARS` in
  * `src/lib/server/highlight/highlighter.ts`, which lists one for each.
  */
+import type { EscapedPath } from '../escaped-path.tiny.ts';
 import type { LineText } from '../line-text.tiny.ts';
+import type { RepoPath } from '../repo-path.tiny.ts';
 
 export const LANGUAGES = [
 	'c',
@@ -152,10 +154,14 @@ function interpreterOf(line: LineText): string | undefined {
 
 /**
  * The language of a file named `path` (a path inside the repository, as git
- * gives it), given its first line when it is known; undefined when it is none
+ * gives it or in the escaped form the page holds, which keep the same name and
+ * extension), given its first line when it is known; undefined when it is none
  * of `LANGUAGES`.
  */
-export function languageOf(path: string, firstLine?: LineText): Language | undefined {
+export function languageOf(
+	path: RepoPath | EscapedPath,
+	firstLine?: LineText
+): Language | undefined {
 	const name = (path.split('/').at(-1) ?? '').toLowerCase();
 	const byName = BY_NAME.get(name);
 	if (byName !== undefined) return byName;
@@ -172,7 +178,7 @@ export function languageOf(path: string, firstLine?: LineText): Language | undef
  * language, or it has no extension, so its first line may. The page asks for
  * no colours for any other file.
  */
-export function couldBeColoured(path: string): boolean {
+export function couldBeColoured(path: RepoPath | EscapedPath): boolean {
 	if (languageOf(path) !== undefined) return true;
 	const name = path.split('/').at(-1) ?? '';
 	return name.lastIndexOf('.') <= 0;

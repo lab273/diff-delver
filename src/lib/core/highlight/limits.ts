@@ -4,6 +4,8 @@
  * working them out would hold up everything else. The same for every file,
  * so a file is coloured, or not, the same way every time.
  */
+import type { ByteSize } from '../byte-size.tiny.ts';
+import type { LineCount } from '../line-count.tiny.ts';
 import type { Language } from './language.ts';
 
 /** A file of more than this many bytes is shown plain. */
@@ -43,7 +45,10 @@ export function longestLineToColour(language: Language): number {
 }
 
 /** Why a file whose language is known is shown plain, or undefined when it can be coloured. */
-export function tooMuchToColour(bytes: number, lines: number): 'large' | 'minified' | undefined {
+export function tooMuchToColour(
+	bytes: ByteSize,
+	lines: LineCount
+): 'large' | 'minified' | undefined {
 	if (bytes > MOST_BYTES_TO_COLOUR || lines > MOST_LINES_TO_COLOUR) return 'large';
 	if (lines > 0 && bytes / lines > LONGEST_AVERAGE_LINE) return 'minified';
 	return undefined;

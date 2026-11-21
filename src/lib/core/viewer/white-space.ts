@@ -24,16 +24,17 @@
  * - A change to a file itself (a rename, a mode) is never hidden: it is no
  *   line.
  */
+import type { LineText } from '../line-text.tiny.ts';
 
-/** The text with every white-space character of the rule taken out. */
-export function withoutWhiteSpace(text: string): string {
+/** The text with every white-space character of the rule taken out, to compare lines by. */
+export function withoutWhiteSpace(text: LineText): string {
 	return text.replace(/[ \t\r\f\v]/g, '');
 }
 
 /** What the rule needs to know of a line. */
 export interface LineForWhiteSpace {
 	readonly kind: 'context' | 'deleted' | 'added';
-	readonly text: string;
+	readonly text: LineText;
 	/** Which group the change belongs to, as text; two lines match only within one. */
 	readonly group: string;
 }

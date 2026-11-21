@@ -17,6 +17,7 @@ import { characterCount } from '#lib/core/character-count.tiny.ts';
 import { TOKEN_KINDS, type ColourRun, type TokenKind } from '#lib/core/highlight/colour-run.ts';
 import type { Language } from '#lib/core/highlight/language.ts';
 import { tooMuchToColour } from '#lib/core/highlight/limits.ts';
+import { lineCountOf } from '#lib/core/line-count.tiny.ts';
 import type { LineNumber } from '#lib/core/line-number.tiny.ts';
 import type { LineText } from '#lib/core/line-text.tiny.ts';
 import { colourLines } from './highlighter.ts';
@@ -142,7 +143,7 @@ export class ColourCache {
 		lines: readonly LineText[]
 	): Promise<FileColours> {
 		if (language === undefined) return Promise.resolve({ kind: 'plain', reason: 'language' });
-		const tooMuch = tooMuchToColour(size, lines.length);
+		const tooMuch = tooMuchToColour(size, lineCountOf(lines.length));
 		if (tooMuch !== undefined) return Promise.resolve({ kind: 'plain', reason: tooMuch });
 		const key = `${blob}\u0000${language}`;
 		const found = this.#kept.get(key);
