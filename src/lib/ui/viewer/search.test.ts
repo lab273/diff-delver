@@ -316,4 +316,25 @@ describe('searching within the diff on its page', () => {
 		search.close();
 		expect(hunks()).toEqual([true, true]);
 	});
+	it('says where the match is, on which side, and why text cannot be searched for', async () => {
+		const { viewer, search } = await opened();
+		await searchFor(viewer, 'n10 = 10');
+		await steps(viewer, [true]);
+		expect(search.describeCurrent()).toBe(
+			'1 of 1 match in 1 file, in a.ts, removed line 10, as it was numbered before the change.'
+		);
+		await searchFor(viewer, 'findme10');
+		await steps(viewer, [true]);
+		expect(search.describeCurrent()).toBe('1 of 1 match in 1 file, in a.ts, line 10.');
+		await searchFor(viewer, 'a.t');
+		await steps(viewer, [true]);
+		expect(search.describeCurrent()).toBe('1 of 1 match in 1 file, in the name of a.ts.');
+
+		await searchFor(viewer, 'find\u0000me');
+		expect(search.summary).toBe(
+			'That holds a NUL character, which no line of text holds: leave it out.'
+		);
+		await searchFor(viewer, 'find\nme');
+		expect(search.summary).toBe('Search for text on one line.');
+	});
 });

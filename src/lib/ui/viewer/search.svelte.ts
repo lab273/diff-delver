@@ -18,7 +18,11 @@ import { partIndexOf, type PartIndex } from '#lib/core/part-index.tiny.ts';
 import type { DiffSearchOptions } from '#lib/core/search/diff-search.ts';
 import { searchedQuery } from '#lib/core/search/find-text.ts';
 import type { Mark } from '#lib/core/search/marks.ts';
-import { parseSearchText, type SearchText } from '#lib/core/search/search-text.tiny.ts';
+import {
+	parseSearchText,
+	type InvalidSearchTextReason,
+	type SearchText
+} from '#lib/core/search/search-text.tiny.ts';
 import { shownPath } from '#lib/core/shown-path.tiny.ts';
 import { countOf, formatCount } from '#lib/core/viewer/words.ts';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
@@ -57,6 +61,30 @@ export type Found =
 export interface CurrentMatch {
 	readonly at: PartIndex;
 	readonly place: MatchPlace;
+}
+
+/** Why what is in the box cannot be searched for, and what to do instead. */
+function whyNotSearched(reason: InvalidSearchTextReason): string {
+	switch (reason) {
+		case 'empty':
+			return 'Type something to search for.';
+		case 'too-long':
+			return 'That is too long to search for: search for part of it.';
+		case 'several-lines':
+			return 'Search for text on one line.';
+		case 'nul-byte':
+			return 'That holds a NUL character, which no line of text holds: leave it out.';
+	}
+}
+
+/** Where a match is, in words: the part's name, or a line, saying when it is a removed line. */
+function placeInWords(path: string, place: MatchPlace): string {
+	if (place.kind === 'path') return `in the name of ${path}`;
+	const line = place.line;
+	if ('kind' in line && line.kind === 'deleted') {
+		return `in ${path}, removed line ${String(line.old)}, as it was numbered before the change`;
+	}
+	return `in ${path}, line ${String(line.new)}`;
 }
 
 /** Whether two places are the same match: on the same line, or the name, at the same offset. */
@@ -282,13 +310,7 @@ export class DiffSearch {
 		}
 		const text = parseSearchText(this.text);
 		if (!text.ok) {
-			this.found = {
-				kind: 'failed',
-				message:
-					text.error.reason === 'too-long'
-						? 'That is too long to search for: search for part of it.'
-						: 'Search for text on one line.'
-			};
+			this.found = { kind: 'failed', message: whyNotSearched(text.error.reason) };
 			return;
 		}
 		const options = this.options;
@@ -417,12 +439,7 @@ export class DiffSearch {
 		if (current === undefined || state === undefined || this.ordinal === undefined) {
 			return this.summary;
 		}
-		const path = shownPath(state.part.path);
-		const where =
-			current.place.kind === 'path'
-				? `in the name of ${path}`
-				: `in ${path}, line ${String('new' in current.place.line ? current.place.line.new : current.place.line.old)}`;
-		return `${this.summary}, ${where}.`;
+		return `${this.summary}, ${placeInWords(shownPath(state.part.path), current.place)}.`;
 	}
 
 	/** Puts back what moving to matches opened and showed. */
