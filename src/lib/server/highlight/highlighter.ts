@@ -9,7 +9,19 @@
  * open it are not shown. The work is done a slice of lines at a time, with the
  * grammar's state carried from one slice to the next (which gives exactly the
  * colours of one pass), and the daemon answers other requests between slices.
- * A language's grammar is loaded the first time a file in it is coloured.
+ *
+ * Colours never depend on time or on what was coloured before (README,
+ * "Journeys are deterministic"): Shiki's limit on how long a line may take is
+ * switched off, since a line cut short would keep its wrong colours for good,
+ * and what bounds the work instead are the limits on a file's size and a
+ * line's length (`limits.ts`), which give the same answer every time. Every
+ * bundled grammar is registered when the highlighter is made, so a language
+ * embedded in another (a fenced block in Markdown, a style in Vue) is coloured
+ * whether or not a file in it was seen first; registering is cheap, and each
+ * grammar's patterns are still compiled only when first used. The regular
+ * expressions are made for one fixed version of JavaScript, not whatever the
+ * runtime offers, and a grammar the engine cannot run fails the same way each
+ * time, so its file is plain every time.
  *
  * Colours come from Shiki's CSS-variables theme, whose colour names are the
  * kinds of code it found; those are mapped to the page's few kinds
@@ -127,24 +139,26 @@ const SLICE_MS = 10;
 const FIRST_SLICE_LINES = 16;
 const MOST_SLICE_LINES = 2_000;
 
-let shared: HighlighterCore | undefined;
-const loaded = new Set<Language>();
+let shared: Promise<HighlighterCore> | undefined;
 
 /**
- * The highlighter, made on first use with no grammar; each language's grammar
- * is loaded when a file in it is first coloured, so the daemon only ever
- * prepares the grammars of the files it is shown.
+ * The highlighter, made on first use with every bundled grammar, one
+ * language per turn, so the daemon answers other requests while it is made.
  */
-function highlighterFor(language: Language): HighlighterCore {
-	shared ??= createHighlighterCoreSync({
-		themes: [createCssVariablesTheme({ name: THEME, variablePrefix: PREFIX, fontStyle: false })],
-		langs: [],
-		engine: createJavaScriptRegexEngine()
-	});
-	if (!loaded.has(language)) {
-		shared.loadLanguageSync(...GRAMMARS[language]);
-		loaded.add(language);
-	}
+function highlighter(): Promise<HighlighterCore> {
+	shared ??= (async () => {
+		const made = createHighlighterCoreSync({
+			themes: [createCssVariablesTheme({ name: THEME, variablePrefix: PREFIX, fontStyle: false })],
+			langs: [],
+			// Not `auto`, so the patterns are the same whatever the runtime supports.
+			engine: createJavaScriptRegexEngine({ target: 'ES2025', forgiving: false })
+		});
+		for (const grammars of Object.values(GRAMMARS)) {
+			await nextTurn();
+			made.loadLanguageSync(...grammars);
+		}
+		return made;
+	})();
 	return shared;
 }
 
@@ -185,7 +199,7 @@ export async function colourLines(
 	lines: readonly LineText[],
 	language: Language
 ): Promise<readonly (readonly ColourRun[])[]> {
-	const shiki = highlighterFor(language);
+	const shiki = await highlighter();
 	// Each list ends with the language itself, after the grammars it embeds.
 	const grammar = GRAMMARS[language].at(-1)?.name ?? language;
 	const coloured: (readonly ColourRun[])[] = [];
@@ -201,6 +215,8 @@ export async function colourLines(
 			lang: grammar,
 			theme: THEME,
 			tokenizeMaxLineLength: LONGEST_LINE_TO_COLOUR,
+			// No limit on time: a line is coloured whole however long it takes.
+			tokenizeTimeLimit: 0,
 			...(state === undefined ? {} : { grammarState: state })
 		});
 		state = shiki.getLastGrammarState(tokens);
