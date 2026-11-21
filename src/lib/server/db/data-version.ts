@@ -5,8 +5,8 @@
  * leave it as it is. The only code that reads it.
  */
 import { z } from 'zod';
-import { integer } from '../columns.ts';
-import type { Queries } from '../database.ts';
+import { integer } from './columns.ts';
+import type { Queries } from './database.ts';
 
 const row = z.object({ data_version: integer });
 

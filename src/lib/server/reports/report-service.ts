@@ -151,7 +151,7 @@ import {
 	snapshotsOfReport
 } from '../db/tables/revisions.ts';
 import { replaceSections, sectionsOf } from '../db/tables/sections.ts';
-import { writesElsewhere } from '../db/tables/data-version.ts';
+import { writesElsewhere } from '../db/data-version.ts';
 import { checkedRevision, isToCheck, revisionsToCheck } from '../db/tables/revisions-to-check.ts';
 import {
 	forgetSnapshot,
