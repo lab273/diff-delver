@@ -34,7 +34,12 @@ import type { Clock } from '#lib/core/clock.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { parseDaemonToken, type DaemonToken } from '#lib/core/daemon-token.tiny.ts';
 import { entryCodes } from '#lib/core/daemon/entry-codes.ts';
-import { ENTRY_PARAMETER, type GateSettings } from '#lib/core/daemon/request-gate.ts';
+import {
+	cookieValue,
+	ENTRY_PARAMETER,
+	tokenCookieName,
+	type GateSettings
+} from '#lib/core/daemon/request-gate.ts';
 import type { EntryCode } from '#lib/core/entry-code.tiny.ts';
 import type { IdSource } from '#lib/core/ids.ts';
 import { parsePortNumber, type PortNumber } from '#lib/core/port-number.tiny.ts';
@@ -332,7 +337,9 @@ export async function startDaemon(
 		return stopping;
 	};
 
+	const browserToken = newToken();
 	registerDaemon(lock.port, {
+		isBrowserSession: (header) => cookieValue(header, tokenCookieName(lock.port)) === browserToken,
 		service,
 		clock: options.clock,
 		version: options.version,
@@ -361,6 +368,7 @@ export async function startDaemon(
 	gate.settings = {
 		port: lock.port,
 		token: lock.token,
+		browserToken,
 		redeemEntryCode: (given) => codes.redeem(given)
 	};
 	return ok({ ...connectionOf(lock), lock, entryCode, cleaned, stop, stopped });

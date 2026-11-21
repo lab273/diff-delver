@@ -13,6 +13,7 @@
 	import type { PartIndex } from '#lib/core/part-index.tiny.ts';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
+	import type { CommentDraft } from './draft-comment.svelte.ts';
 	import PartLines from './PartLines.svelte';
 	import { whereWhiteSpaceMatters } from '#lib/core/highlight/language.ts';
 	import TickRefused from './TickRefused.svelte';
@@ -32,7 +33,7 @@
 		ontick,
 		ongo,
 		onshownewer,
-		oncommentsaved,
+		draft,
 		canComment
 	}: {
 		viewer: Viewer;
@@ -42,7 +43,7 @@
 		ongo: (path: EscapedPath, group: GroupKeyView) => void;
 		/** Shows the diff's newer version, when a tick was refused for being behind it. */
 		onshownewer: () => void;
-		oncommentsaved: () => void;
+		draft: CommentDraft;
 		canComment: boolean;
 	} = $props();
 
@@ -339,7 +340,7 @@
 						<p class="about plain">{plainText(state.plain)}</p>
 					{/if}
 					<PartLines
-						{oncommentsaved}
+						{draft}
 						{canComment}
 						{viewer}
 						{at}

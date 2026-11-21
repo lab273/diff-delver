@@ -456,7 +456,9 @@ resolves it or replies, and that action is part of the current review.
 Drafts are private. No MCP tool returns an unsubmitted review, so an agent never
 acts on half-written comments. For now, saved comments stay at their original
 file, side and line range when a Delve is updated. The draft lists them with
-the version they were written on.
+the version they were written on. If the Delve changes before a comment is
+saved, its text and original range stay in the open page until the reviewer
+chooses new lines or discards the comment.
 
 ### 6.4 History
 

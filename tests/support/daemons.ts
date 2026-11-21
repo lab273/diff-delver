@@ -80,6 +80,29 @@ export function clientOf(daemon: Pick<RunningDaemon, 'origin' | 'token'>): ApiCl
 	return new ApiClient({ fetch, base: daemon.origin, token: daemon.token });
 }
 
+/** Redeem a single-use entry code and keep the cookie the real browser would send. */
+export async function browserCookie(daemon: RunningDaemon): Promise<string> {
+	const response = await rawRequest(daemon.port, { path: `/?entry=${daemon.entryCode()}` });
+	const header = response.headers['set-cookie']?.[0];
+	const cookie = header?.split(';', 1)[0];
+	if (response.status !== 303 || cookie === undefined)
+		throw new Error('The browser was not let in');
+	return cookie;
+}
+
+export async function browserClient(daemon: RunningDaemon): Promise<ApiClient> {
+	const cookie = await browserCookie(daemon);
+	return new ApiClient({
+		base: daemon.origin,
+		fetch: (input, init) => {
+			const headers = new Headers(init?.headers);
+			headers.set('cookie', cookie);
+			if (init?.method !== 'GET') headers.set('origin', daemon.origin);
+			return fetch(input, { ...init, headers });
+		}
+	});
+}
+
 export interface RawResponse {
 	readonly status: number;
 	readonly headers: Readonly<Record<string, string | readonly string[] | undefined>>;

@@ -957,9 +957,13 @@ describe('/mcp over HTTP', () => {
 		const served = await post({ authorization: `Bearer ${token}` });
 		expect(served.status).toBe(200);
 		expect(served.body).toMatch(/"name":"diff-delver"/);
+		const origin = `http://127.0.0.1:${String(port)}`;
+		const entry = value(await clientOf({ origin, token }).entryCode());
+		const entered = await rawRequest(port, { path: `/?entry=${entry.code}` });
+		expect(entered.status).toBe(303);
 		const cookie = await post({
-			cookie: `diff-delver-${String(port)}=${token}`,
-			origin: `http://127.0.0.1:${String(port)}`
+			cookie: entered.headers['set-cookie']?.[0]?.split(';', 1)[0] ?? '',
+			origin
 		});
 		expect(cookie.status).toBe(403);
 		expect(cookie.body).toMatch(

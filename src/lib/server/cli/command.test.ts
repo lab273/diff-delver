@@ -11,7 +11,6 @@ import { join } from 'node:path';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { HELP_TEXT } from '#lib/core/cli/command-line.ts';
-import { tokenCookieName } from '#lib/core/daemon/request-gate.ts';
 import { parseDaemonToken } from '#lib/core/daemon-token.tiny.ts';
 import { parseProcessId } from '#lib/core/process-id.tiny.ts';
 import { BUILT_COMMAND } from '../../../../tests/support/build.ts';
@@ -133,7 +132,7 @@ describe('the diff-delver command', () => {
 		expect(reused.body).toContain('This link is out of date');
 		const page = await rawRequest(lock.lock.port, {
 			path: address.pathname,
-			headers: { cookie: `${tokenCookieName(lock.lock.port)}=${lock.lock.token}` }
+			headers: { cookie: entered.headers['set-cookie']?.[0]?.split(';', 1)[0] ?? '' }
 		});
 		expect(page.status).toBe(200);
 		expect(page.body).toContain('Uncommitted changes');

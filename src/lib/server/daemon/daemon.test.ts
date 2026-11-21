@@ -11,6 +11,7 @@ import {
 	useFixture
 } from '../../../../tests/support/fixture-repos.ts';
 import {
+	browserCookie,
 	clientOf,
 	rawRequest,
 	testDaemon,
@@ -178,12 +179,16 @@ describe('the daemon’s gate', () => {
 		const entered = await rawRequest(daemon.port, { path: `/?entry=${code}` });
 		expect(entered.status).toBe(303);
 		expect(entered.headers['location']).toBe('/');
-		expect(entered.headers['set-cookie']).toEqual([
-			`${tokenCookieName(daemon.port)}=${daemon.token}; Path=/; HttpOnly; SameSite=Strict`
-		]);
+		const session = entered.headers['set-cookie']?.[0];
+		expect(session).toMatch(
+			new RegExp(
+				`^${tokenCookieName(daemon.port)}=[a-f0-9]{64}; Path=/; HttpOnly; SameSite=Strict$`
+			)
+		);
+		expect(session).not.toContain(daemon.token);
 		expect(entered.headers['referrer-policy']).toBe('no-referrer');
 
-		const cookie = `${tokenCookieName(daemon.port)}=${daemon.token}`;
+		const cookie = session?.split(';', 1)[0] ?? '';
 		const home = await rawRequest(daemon.port, { path: '/', headers: { cookie } });
 		expect(home.status).toBe(200);
 		expect(home.body).toContain('No Delves yet.');
@@ -240,7 +245,7 @@ describe('the daemon’s gate', () => {
 
 	it('answers only to its own host name', async () => {
 		const daemon = await testDaemon();
-		const cookie = `${tokenCookieName(daemon.port)}=${daemon.token}`;
+		const cookie = await browserCookie(daemon);
 		const rebound = await rawRequest(daemon.port, {
 			path: '/',
 			headers: { host: `evil.example:${String(daemon.port)}`, cookie }
@@ -252,7 +257,7 @@ describe('the daemon’s gate', () => {
 	it('makes changes asked for with the cookie only from its own pages', async () => {
 		const repo = await useFixture(edited);
 		const daemon = await testDaemon();
-		const cookie = `${tokenCookieName(daemon.port)}=${daemon.token}`;
+		const cookie = await browserCookie(daemon);
 		const post = (origin?: string) =>
 			rawRequest(daemon.port, {
 				method: 'POST',

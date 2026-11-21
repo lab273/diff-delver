@@ -5,8 +5,7 @@
  *
  * - its `Host` names the daemon itself (`127.0.0.1:<port>` or `localhost:<port>`),
  *   so a web page whose name was pointed at 127.0.0.1 cannot read the answers;
- * - it carries the daemon's token: in the cookie the browser was given, or, from
- *   the command and other programs, as `Authorization: Bearer <token>`;
+ * - it carries the browser's session cookie or the command's bearer token;
  * - when it changes anything and the token came in the cookie, its `Origin` is
  *   the daemon's own, so no other page can make the browser act. A browser sends
  *   `Origin` with every such request; a program that sends the token itself
@@ -53,6 +52,7 @@ export interface GateRequest {
 export interface GateSettings {
 	readonly port: PortNumber;
 	readonly token: DaemonToken;
+	readonly browserToken: DaemonToken;
 	/** Whether `given` is an entry code that may be used now; using it means it never works again. */
 	readonly redeemEntryCode: (given: string) => boolean;
 }
@@ -173,10 +173,10 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 			return {
 				kind: 'enter',
 				location: localPath(location),
-				setCookie: `${tokenCookieName(settings.port)}=${settings.token}; Path=/; HttpOnly; SameSite=Strict`
+				setCookie: `${tokenCookieName(settings.port)}=${settings.browserToken}; Path=/; HttpOnly; SameSite=Strict`
 			};
 		}
-		if (cookie !== undefined && isToken(settings.token, cookie)) {
+		if (cookie !== undefined && isToken(settings.browserToken, cookie)) {
 			return { kind: 'enter', location: localPath(location), setCookie: undefined };
 		}
 		return { kind: 'refuse', refusal: 'entry-used' };
@@ -196,7 +196,7 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 	// MCP is served only to programs that bring the token themselves.
 	if (isMcpTarget(request.target)) return { kind: 'refuse', refusal: 'no-token' };
 	if (cookie === undefined) return { kind: 'refuse', refusal: 'no-token' };
-	if (!isToken(settings.token, cookie)) return { kind: 'refuse', refusal: 'wrong-token' };
+	if (!isToken(settings.browserToken, cookie)) return { kind: 'refuse', refusal: 'wrong-token' };
 	if (!reading && request.origin !== `http://${host}`) {
 		return { kind: 'refuse', refusal: 'wrong-origin' };
 	}

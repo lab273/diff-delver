@@ -30,9 +30,9 @@
 	import type { Layout } from '#lib/core/settings.ts';
 	import type { Mark } from '#lib/core/search/marks.ts';
 	import { ROWS_PER_CHUNK } from '#lib/core/viewer/chunks.ts';
-	import CommentEditor from './CommentEditor.svelte';
-	import type { LineNumber } from '#lib/core/line-number.tiny.ts';
-	import type { Side } from '#lib/core/side.tiny.ts';
+	import type { CommentDraft } from './draft-comment.svelte.ts';
+	import { parseLineNumber, type LineNumber } from '#lib/core/line-number.tiny.ts';
+	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
 	import type { PartMarks } from './search.svelte.ts';
 
 	let {
@@ -46,7 +46,7 @@
 		busy,
 		layout,
 		marks,
-		oncommentsaved,
+		draft,
 		canComment
 	}: {
 		viewer: Viewer;
@@ -65,7 +65,7 @@
 		ongo: (group: GroupKeyView) => void;
 		/** A search's matches in the part, to mark; undefined when it has none. */
 		marks: PartMarks | undefined;
-		oncommentsaved: () => void;
+		draft: CommentDraft;
 		canComment: boolean;
 	} = $props();
 
@@ -243,39 +243,217 @@
 	function isElsewhere(line: ShownLineView): boolean {
 		return line.kind !== 'context' && line.home.kind === 'elsewhere';
 	}
-	let commenting = $state(false);
-	let commentSaved = $state(false);
+	type GutterLine = { readonly side: Side; readonly line: LineNumber };
+	let cursor = $state.raw<GutterLine>();
+	let first = $state<LineNumber>();
+	let drag = $state<number>();
+	let selectionProblem = $state(false);
 	let commentButton = $state<HTMLButtonElement>();
-	let editor = $state<{ choose: (side: Side, line: LineNumber) => Promise<void> }>();
 	let table: HTMLTableElement;
+	const canPick = $derived(
+		canComment && !draft.saving && (draft.location === undefined || draft.replacing)
+	);
+	const picking = $derived(canPick && cursor !== undefined);
+	const range = $derived(
+		cursor === undefined || first === undefined
+			? undefined
+			: {
+					side: cursor.side,
+					first: first < cursor.line ? first : cursor.line,
+					last: first > cursor.line ? first : cursor.line
+				}
+	);
+	const selected = $derived(
+		picking
+			? range
+			: draft.location?.version === viewer.version && draft.location.anchor.path === path
+				? draft.location.anchor
+				: undefined
+	);
 
-	async function startComment(): Promise<void> {
-		commentSaved = false;
-		commenting = true;
-		await tick();
-		table.querySelector<HTMLButtonElement>('.pick-line')?.focus();
+	function lineOfButton(button: HTMLButtonElement | null | undefined): GutterLine | undefined {
+		const side = parseSide(button?.dataset['side'] ?? '');
+		const line = parseLineNumber(Number(button?.dataset['line']));
+		return side.ok && line.ok ? { side: side.value, line: line.value } : undefined;
 	}
 
-	async function stopComment(saved: boolean): Promise<void> {
-		commenting = false;
-		commentSaved = saved;
-		if (saved) oncommentsaved();
+	function buttonFor(line: GutterLine): HTMLButtonElement | null {
+		return table.querySelector(
+			`button.pick-line[data-side="${line.side}"][data-line="${String(line.line)}"]`
+		);
+	}
+
+	async function startComment(): Promise<void> {
+		// Buttons are rendered only for the file where the reviewer is selecting.
+		for (const cell of table.querySelectorAll<HTMLTableCellElement>('td.number[data-side]')) {
+			const side = parseSide(cell.dataset['side'] ?? '');
+			const line = parseLineNumber(Number(cell.textContent));
+			if (!side.ok || !line.ok) continue;
+			const initial = { side: side.value, line: line.value };
+			cursor = initial;
+			first = line.value;
+			selectionProblem = false;
+			await tick();
+			buttonFor(initial)?.focus();
+			return;
+		}
+		selectionProblem = true;
+	}
+
+	async function stopPicking(): Promise<void> {
+		cursor = undefined;
+		first = undefined;
+		drag = undefined;
 		await tick();
 		commentButton?.focus();
+	}
+
+	function compose(): void {
+		if (!picking || range === undefined) return;
+		draft.compose({ version: viewer.version, anchor: { path, ...range } });
+		cursor = undefined;
+		first = undefined;
+		drag = undefined;
+	}
+
+	function move(next: GutterLine, extend: boolean): void {
+		if (!extend || cursor?.side !== next.side) first = next.line;
+		cursor = next;
+	}
+
+	/** Vertical movement follows the same side, drawing the next chunk if it is still a placeholder. */
+	async function vertical(
+		button: HTMLButtonElement,
+		side: Side,
+		step: number
+	): Promise<HTMLButtonElement | undefined> {
+		const items = Array.from(
+			table.querySelectorAll<HTMLElement>(
+				`button.pick-line[data-side="${side}"], [data-pending-key]`
+			)
+		);
+		const position = items.indexOf(button);
+		if (position < 0) return undefined;
+		for (let i = position + step; i >= 0 && i < items.length; i += step) {
+			const next = items[i];
+			if (next instanceof HTMLButtonElement) return next;
+			const key = next?.dataset['pendingKey'];
+			if (key !== undefined) {
+				drawn.add(key);
+				await tick();
+				return vertical(button, side, step);
+			}
+		}
+		return undefined;
+	}
+
+	/** In a unified diff a replacement may show the other side on a separate row. */
+	function across(button: HTMLButtonElement, side: Side): HTMLButtonElement | undefined {
+		const row = button.closest('tr')?.rowIndex;
+		if (row === undefined) return undefined;
+		let nearest: HTMLButtonElement | undefined;
+		let distance = Infinity;
+		for (const candidate of table.querySelectorAll<HTMLButtonElement>(
+			`button.pick-line[data-side="${side}"]`
+		)) {
+			const at = candidate.closest('tr')?.rowIndex;
+			if (at === undefined) continue;
+			const steps = Math.abs(at - row);
+			if (steps === 0) return candidate;
+			if (steps >= distance) continue;
+			distance = steps;
+			nearest = candidate;
+		}
+		return nearest;
+	}
+
+	async function arrow(event: KeyboardEvent, line: GutterLine): Promise<void> {
+		if (event.altKey || event.ctrlKey || event.metaKey) return;
+		const key = event.key;
+		if (key === 'Escape') {
+			event.preventDefault();
+			await stopPicking();
+			return;
+		}
+		const button = event.currentTarget;
+		if (!(button instanceof HTMLButtonElement)) return;
+		let next: HTMLButtonElement | null | undefined;
+		switch (key) {
+			case 'ArrowUp':
+			case 'ArrowDown':
+				event.preventDefault();
+				next = await vertical(button, line.side, key === 'ArrowUp' ? -1 : 1);
+				break;
+			case 'ArrowLeft':
+			case 'ArrowRight': {
+				event.preventDefault();
+				const side = key === 'ArrowLeft' ? 'old' : 'new';
+				if (line.side === side) return;
+				next = across(button, side);
+				break;
+			}
+			default:
+				return;
+		}
+		const target = lineOfButton(next);
+		if (target === undefined || !picking) return;
+		move(target, event.shiftKey);
+		next?.focus();
+	}
+
+	function beginDrag(event: PointerEvent, line: GutterLine): void {
+		const button = event.currentTarget;
+		if (event.button !== 0 || !event.isPrimary || !(button instanceof HTMLButtonElement)) return;
+		event.preventDefault();
+		drag = event.pointerId;
+		move(line, event.shiftKey);
+		button.focus({ preventScroll: true });
+		button.setPointerCapture(event.pointerId);
+	}
+
+	function dragOver(event: PointerEvent): void {
+		if (event.pointerId !== drag) return;
+		const cell = document.elementFromPoint(event.clientX, event.clientY)?.closest('td.number');
+		if (cell === null || cell === undefined || !table.contains(cell)) return;
+		const line = lineOfButton(cell.querySelector('button.pick-line'));
+		if (line?.side === cursor?.side && line !== undefined && line.line !== cursor?.line) {
+			move(line, true);
+		}
+	}
+
+	function endDrag(event: PointerEvent): void {
+		if (event.pointerId !== drag) return;
+		drag = undefined;
+		if (cursor !== undefined) buttonFor(cursor)?.focus({ preventScroll: true });
 	}
 </script>
 
 {#snippet lineNumber(side: Side, line: LineNumber | undefined)}
 	{#if line !== undefined}
-		{#if canComment && commenting}
+		{@const marked = selected?.side === side && line >= selected.first && line <= selected.last}
+		{#if picking}
 			<button
 				type="button"
 				class="pick-line"
-				aria-label="Comment on line {line} {side === 'old' ? 'before' : 'after'}"
-				onclick={() => editor?.choose(side, line)}
+				data-side={side}
+				data-line={line}
+				tabindex={cursor?.side === side && cursor.line === line ? 0 : -1}
+				aria-label="{side === 'old' ? 'Before' : 'After'}, line {line}"
+				aria-pressed={marked}
+				onkeydown={(event) => arrow(event, { side, line })}
+				onclick={(event) => {
+					if (event.detail === 0) compose();
+				}}
+				onpointerdown={(event) => {
+					beginDrag(event, { side, line });
+				}}
+				onpointermove={dragOver}
+				onlostpointercapture={endDrag}
 			>
 				{line}
 			</button>
+		{:else if marked}
+			<span class="marked">{line}</span>
 		{:else}
 			{line}
 		{/if}
@@ -289,10 +467,10 @@
 		class:fresh={isFresh(line)}
 		data-current-match={holdsCurrent(line) ? '' : undefined}
 	>
-		<td class="number">
+		<td class="number" data-side="old">
 			{@render lineNumber('old', line.kind === 'added' ? undefined : line.old)}
 		</td>
-		<td class="number">
+		<td class="number" data-side="new">
 			{@render lineNumber('new', line.kind === 'deleted' ? undefined : line.new)}
 		</td>
 		{#if hasFresh}
@@ -338,10 +516,10 @@
 		class:fresh={isFresh(removed) || isFresh(added)}
 		data-current-match={holdsCurrent(added) || holdsCurrent(removed) ? '' : undefined}
 	>
-		<td class="number">
+		<td class="number" data-side="old">
 			{@render lineNumber('old', removed.kind === 'deleted' ? removed.old : undefined)}
 		</td>
-		<td class="number">
+		<td class="number" data-side="new">
 			{@render lineNumber('new', added.kind === 'added' ? added.new : undefined)}
 		</td>
 		{#if hasFresh}
@@ -383,7 +561,7 @@
 
 {#snippet pending(key: string, rows: number)}
 	<!-- Drawn when it comes near the screen; until then, the room it will take. -->
-	<tr class="pending" aria-hidden="true" use:drawWhenNear={key}>
+	<tr class="pending" aria-hidden="true" data-pending-key={key} use:drawWhenNear={key}>
 		<td colspan={columns} style:height="{rows * ROW_HEIGHT}px"></td>
 	</tr>
 {/snippet}
@@ -436,7 +614,7 @@
 					: item.added}
 	{@const kind = line === undefined ? 'empty' : quiet ? 'context' : line.kind}
 	{@const cellClass = `cell-${kind}${line !== undefined && isElsewhere(line) ? ' cell-elsewhere' : ''}${line !== undefined && isFresh(line) ? ' cell-fresh' : ''}`}
-	<td class="number {cellClass}" class:side-start={side === 'new'}>
+	<td class="number {cellClass}" data-side={side} class:side-start={side === 'new'}>
 		{@render lineNumber(
 			side,
 			side === 'old'
@@ -513,7 +691,7 @@
 	{#if split}
 		<tr class="pair opened">
 			{#each ['old', 'new'] as side (side)}
-				<td class="number cell-context" class:side-start={side === 'new'}>
+				<td class="number cell-context" data-side={side} class:side-start={side === 'new'}>
 					{@render lineNumber(side === 'old' ? 'old' : 'new', side === 'old' ? line.old : line.new)}
 				</td>
 				{#if hasFresh}<td class="badge cell-context"></td>{/if}
@@ -532,8 +710,8 @@
 		</tr>
 	{:else}
 		<tr class="context opened" data-current-match={holdsCurrent(line) ? '' : undefined}>
-			<td class="number">{@render lineNumber('old', line.old)}</td>
-			<td class="number">{@render lineNumber('new', line.new)}</td>
+			<td class="number" data-side="old">{@render lineNumber('old', line.old)}</td>
+			<td class="number" data-side="new">{@render lineNumber('new', line.new)}</td>
 			{#if hasFresh}<td class="badge"></td>{/if}
 			<td class="marker"></td>
 			<td
@@ -550,22 +728,30 @@
 {/snippet}
 
 {#if canComment}
-	{#if commenting}
-		<CommentEditor
-			bind:this={editor}
-			{viewer}
-			{path}
-			onclose={() => stopComment(false)}
-			onsaved={() => stopComment(true)}
-		/>
-	{:else}
-		<div class="comment-action">
-			<button type="button" bind:this={commentButton} onclick={startComment}>
+	<div class="comment-action">
+		{#if picking}
+			<button type="button" onclick={compose}>Write comment</button>
+			<button type="button" onclick={stopPicking}>Cancel selection</button>
+			<p>
+				Drag line numbers on one side, or use arrows to move, Shift+↑/↓ to extend, and Enter to
+				write.
+			</p>
+		{:else}
+			<button
+				type="button"
+				aria-disabled={!canPick}
+				bind:this={commentButton}
+				onclick={() => {
+					if (canPick) void startComment();
+				}}
+			>
 				Comment on lines
 			</button>
-			{#if commentSaved}<span role="status">Draft comment saved.</span>{/if}
-		</div>
-	{/if}
+			{#if selectionProblem}<p role="status">
+					Show some lines in this file before choosing a range.
+				</p>{/if}
+		{/if}
+	</div>
 {/if}
 
 <table
@@ -745,7 +931,17 @@
 		gap: 0.5rem;
 		padding: 0.3rem 0.65rem;
 	}
+	.comment-action p {
+		margin: 0;
+	}
+	.marked,
+	.pick-line[aria-pressed='true'] {
+		background: var(--color-selected-button);
+		outline: 1px solid var(--color-focus);
+		border-radius: 3px;
+	}
 	.pick-line {
+		touch-action: none;
 		padding: 0 0.2rem;
 		font: inherit;
 		line-height: 1rem;

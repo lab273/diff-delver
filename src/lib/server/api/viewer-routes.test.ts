@@ -4,6 +4,7 @@
  * on the version shown, refused once the diff was updated.
  */
 import { describe, expect, it } from 'vitest';
+import { tokenCookieName } from '#lib/core/daemon/request-gate.ts';
 import { ApiClient, describeApiError } from '#lib/api/client.ts';
 import type { AddDraftComment, PartQuery } from '#lib/api/schemas.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
@@ -11,7 +12,13 @@ import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseRevisionNumber, type RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
 import { parseSearchText } from '#lib/core/search/search-text.tiny.ts';
-import { clientOf, rawRequest, testDaemon } from '../../../../tests/support/daemons.ts';
+import {
+	browserClient,
+	browserCookie,
+	clientOf,
+	rawRequest,
+	testDaemon
+} from '../../../../tests/support/daemons.ts';
 import { defineFixture, useFixture } from '../../../../tests/support/fixture-repos.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
 
@@ -344,7 +351,8 @@ describe('private draft comments', () => {
 	it('keeps comments on either side and on the version they were made on', async () => {
 		const repo = await useFixture(viewed);
 		const daemon = await testDaemon();
-		const client = clientOf(daemon);
+		const command = clientOf(daemon);
+		const client = await browserClient(daemon);
 		const started = value(await client.start({ directory: repo.dir }));
 		if (started.kind !== 'opened') throw new Error(started.kind);
 		const id = started.diff.id;
@@ -360,6 +368,35 @@ describe('private draft comments', () => {
 			},
 			body: 'Can these three unchanged lines be simplified?'
 		};
+		expect(await command.draftComments(id)).toMatchObject({
+			ok: false,
+			error: { status: 403, reason: 'BrowserSessionRequired' }
+		});
+		expect(await command.addDraftComment(id, request)).toMatchObject({
+			ok: false,
+			error: { status: 403, reason: 'BrowserSessionRequired' }
+		});
+		const cookie = await browserCookie(daemon);
+		const endpoint = `/api/diffs/${id}/comments`;
+		expect(
+			(
+				await rawRequest(daemon.port, {
+					path: endpoint,
+					headers: { cookie: `${tokenCookieName(daemon.port)}=${daemon.token}` }
+				})
+			).status
+		).toBe(403);
+		expect(
+			(
+				await rawRequest(daemon.port, {
+					method: 'POST',
+					path: endpoint,
+					headers: { cookie, origin: 'http://example.test', 'content-type': 'application/json' },
+					body: JSON.stringify(request)
+				})
+			).status
+		).toBe(403);
+
 		const after = value(await client.addDraftComment(id, request));
 		expect(after).toMatchObject(request);
 		const before = value(
@@ -394,7 +431,7 @@ describe('private draft comments', () => {
 			ok: false,
 			error: { status: 409, reason: 'VersionOutOfDate' }
 		});
-		const reopened = clientOf(daemon);
+		const reopened = await browserClient(daemon);
 		expect(value(await reopened.draftComments(id))).toEqual([after, before]);
 		value(await reopened.closeDiff(id));
 		expect(value(await reopened.draftComments(id))).toEqual([after, before]);

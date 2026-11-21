@@ -137,7 +137,10 @@ Comments cannot switch lint rules off (`noInlineConfig`); fix the code instead.
 Draft comments go through the viewer's `comments` HTTP route and the report
 service. Each row belongs to the revision that supplied its snapshot, with
 the path bytes, side and line range in that tree. The service checks the
-current version again in the transaction that saves the comment.
+current version again in the transaction that saves the comment. Both comment
+routes require the browser session cookie, which is separate from the bearer
+token. The open Delve page holds unsaved comments above the viewer so replacing
+a viewer leaves the original anchor and text available.
 
 ## How we work
 

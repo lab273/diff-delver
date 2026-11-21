@@ -24,6 +24,10 @@
 	import { nextShown, previousShown } from '#lib/core/viewer/reading-order.ts';
 	import { parsePartIndex, type PartIndex } from '#lib/core/part-index.tiny.ts';
 	import FileList from '#lib/ui/viewer/FileList.svelte';
+	import { SvelteMap } from 'svelte/reactivity';
+	import CommentEditor from '#lib/ui/viewer/CommentEditor.svelte';
+	import { CommentDraft } from '#lib/ui/viewer/draft-comment.svelte.ts';
+	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import DraftComments from '#lib/ui/viewer/DraftComments.svelte';
 	import Part from '#lib/ui/viewer/Part.svelte';
 	import TickRefused from '#lib/ui/viewer/TickRefused.svelte';
@@ -843,7 +847,16 @@
 		if (reviewed === units) return `Everything reviewed: ${describeChanges(units)}`;
 		return `${formatCount(reviewed)} of ${describeChanges(units)} reviewed`;
 	}
-	let commentChanges = $state(0);
+	const drafts = new SvelteMap<ReportId, CommentDraft>();
+	function draftFor(id: ReportId): CommentDraft {
+		return untrack(() => {
+			const existing = drafts.get(id);
+			if (existing !== undefined) return existing;
+			const draft = new CommentDraft();
+			drafts.set(id, draft);
+			return draft;
+		});
+	}
 </script>
 
 <svelte:head>
@@ -861,6 +874,7 @@
 {:else}
 	{@const page = data.loaded.value}
 	{@const summary = viewer.summary}
+	{@const draft = draftFor(summary.id)}
 	{@const updated = page.update}
 	{@const overall = viewer.overall}
 	{@const allDone = overall.units > 0 && overall.reviewed === overall.units}
@@ -1119,7 +1133,14 @@
 				/>
 			{/if}
 			{#key summary.id}
-				<DraftComments id={summary.id} version={summary.version} changes={commentChanges} />
+				<DraftComments id={summary.id} version={summary.version} changes={draft.changes} />
+				<CommentEditor
+					{draft}
+					id={summary.id}
+					version={summary.version}
+					open={summary.state.kind === 'open'}
+					{showNewer}
+				/>
 			{/key}
 
 			<!-- A new version is a new viewer: its parts are drawn afresh, never reused. -->
@@ -1194,7 +1215,7 @@
 										{state}
 										{previousVersion}
 										canComment={summary.state.kind === 'open'}
-										oncommentsaved={() => (commentChanges += 1)}
+										{draft}
 										ontick={tickPart}
 										ongo={goTo}
 										onshownewer={showNewer}

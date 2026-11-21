@@ -24,6 +24,7 @@ async function make(): Promise<DaemonContext> {
 	if (!service.ok) throw new Error(describeReportError(service.error));
 	return {
 		service: service.value,
+		isBrowserSession: () => true,
 		clock: systemClock,
 		version: codeVersion(),
 		// `pnpm dev` has no gate, so the code lets nothing in that was not let in already.

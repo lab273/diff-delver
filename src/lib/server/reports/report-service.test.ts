@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { settableClock, type SettableClock } from '#lib/core/clock.ts';
 import { assignedUnits } from '#lib/core/diff/state.ts';
+import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import { parseReportId, type ReportId } from '#lib/core/report-id.tiny.ts';
@@ -406,6 +407,39 @@ describe('the report service', () => {
 		expect(raw.prepare('SELECT COUNT(*) AS n FROM reviewed_marks').get()).toEqual({ n: 0 });
 		raw.close();
 		service.close();
+	});
+
+	it('refuses a comment when another connection updates its revision while it reads the anchor', async () => {
+		const { repo, data, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		const other = new DatabaseSync(join(data, DATABASE_FILE));
+		try {
+			// addDraftComment reads version 1 synchronously before reading its snapshot.
+			const saving = service.addDraftComment(
+				id,
+				FIRST,
+				{
+					path: path('src/app.ts'),
+					side: 'new',
+					first: lineNumberOf(2),
+					last: lineNumberOf(3)
+				},
+				'Keep these lines together.'
+			);
+			other.exec(`INSERT INTO revisions SELECT 'v_other', report_id, 2, store_id, snapshot_id,
+				base_tree, head_tree, fingerprint, base_commit, head_commit, left_out, taken_at, file_count,
+				added_lines, deleted_lines, counted_units, reviewed_units, ignored_units, uncategorised_units
+				FROM revisions WHERE id = 'v_1'`);
+			expect(failure(await saving)).toMatchObject({
+				kind: 'VersionOutOfDate',
+				seen: 1,
+				current: 2
+			});
+			expect(value(service.draftComments(id))).toEqual([]);
+		} finally {
+			other.close();
+			service.close();
+		}
 	});
 
 	it('refuses a change meant for a version the diff never had, saying so truly', async () => {

@@ -23,13 +23,19 @@ function made<T>(result: { ok: true; value: T } | { ok: false }): T {
 }
 
 const token: DaemonToken = made(parseDaemonToken('ab'.repeat(32)));
+const browserToken = made(parseDaemonToken('ef'.repeat(32)));
 const other: DaemonToken = made(parseDaemonToken('cd'.repeat(32)));
 const port: PortNumber = made(parsePortNumber(43210));
 const code = 'c'.repeat(32);
 /** The gate as a daemon that has given out `code` and will take any number of times. */
-const settings: GateSettings = { port, token, redeemEntryCode: (given) => given === code };
+const settings: GateSettings = {
+	port,
+	token,
+	browserToken,
+	redeemEntryCode: (given) => given === code
+};
 const host = '127.0.0.1:43210';
-const cookie = `${tokenCookieName(port)}=${token}`;
+const cookie = `${tokenCookieName(port)}=${browserToken}`;
 
 function request(overrides: Partial<GateRequest>): GateRequest {
 	return {
@@ -68,7 +74,7 @@ describe('the request gate', () => {
 		expect(gateRequest(request({ target: `/diffs/r_1?entry=${code}` }), settings)).toEqual({
 			kind: 'enter',
 			location: '/diffs/r_1',
-			setCookie: `diff-delver-43210=${token}; Path=/; HttpOnly; SameSite=Strict`
+			setCookie: `diff-delver-43210=${browserToken}; Path=/; HttpOnly; SameSite=Strict`
 		});
 		expect(gateRequest(request({ target: `/?entry=${code}` }), settings)).toMatchObject({
 			kind: 'enter',
@@ -84,7 +90,12 @@ describe('the request gate', () => {
 		const codes = entryCodes(settableClock(made(time)));
 		const issued = made(parseEntryCode('d'.repeat(32)));
 		codes.issue(issued);
-		const once: GateSettings = { port, token, redeemEntryCode: (given) => codes.redeem(given) };
+		const once: GateSettings = {
+			port,
+			token,
+			browserToken,
+			redeemEntryCode: (given) => codes.redeem(given)
+		};
 		const target = `/diffs/r_1?entry=${issued}`;
 		expect(gateRequest(request({ target }), once)).toMatchObject({ kind: 'enter' });
 		expect(gateRequest(request({ target }), once)).toEqual({
