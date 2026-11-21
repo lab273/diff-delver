@@ -1,4 +1,9 @@
-/** The `reports` table: one row per report (DESIGN 6.1). The only code that sees its rows. */
+/**
+ * The `reports` table: one row per report (DESIGN 6.1). The only code that
+ * sees its rows. A report of a run of commits has what its title is made of
+ * in `commit_runs`, which its own module reads and writes; a report is given
+ * back with it, and stored with it.
+ */
 import { z } from 'zod';
 import { parseAbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseReportId, type ReportId } from '#lib/core/report-id.tiny.ts';
@@ -10,6 +15,7 @@ import { formatGitSourceSpec, parseGitSourceSpec } from '#lib/core/sources/git-s
 import { parseStoreId } from '#lib/core/store-id.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 import { nullable, parseRow, parseRows, text, timestamp } from '../columns.ts';
+import { commitRunOf, insertCommitRun } from './commit-runs.ts';
 import type { Queries, RawRow } from '../database.ts';
 import type { StoredRowInvalid } from '../database-error.ts';
 
@@ -30,7 +36,7 @@ const row = z.object({
 	last_activity_at: timestamp
 });
 
-function toReport(raw: RawRow): Result<Report, StoredRowInvalid> {
+function toReport(q: Queries, raw: RawRow): Result<Report, StoredRowInvalid> {
 	return andThen(parseRow('reports', row, raw), (r) => {
 		const state: ReportState | undefined =
 			r.state === 'open'
@@ -47,17 +53,17 @@ function toReport(raw: RawRow): Result<Report, StoredRowInvalid> {
 				detail: 'state and closed_reason disagree'
 			});
 		}
-		return ok({
+		return map(commitRunOf(q, r.id), (run) => ({
 			id: r.id,
 			identity: r.identity,
-			source: { kind: r.source_kind, spec: r.source },
+			source: { kind: r.source_kind, spec: r.source, run },
 			store: r.store_id,
 			repositoryName: r.repository_name,
 			repositoryPath: r.repository_path,
 			state,
 			createdAt: r.created_at,
 			lastActivityAt: r.last_activity_at
-		});
+		}));
 	});
 }
 
@@ -70,7 +76,7 @@ function stateColumns(state: ReportState): readonly [string, string | null] {
 	}
 }
 
-/** Adds a report. */
+/** Adds a report, with its run of commits when it has one. */
 export function insertReport(q: Queries, report: Report): void {
 	q.run(
 		`INSERT INTO reports (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -85,12 +91,13 @@ export function insertReport(q: Queries, report: Report): void {
 		report.createdAt,
 		report.lastActivityAt
 	);
+	if (report.source.run !== undefined) insertCommitRun(q, report.id, report.source.run);
 }
 
 /** The report with this id, if there is one. */
 export function reportById(q: Queries, id: ReportId): Result<Report | undefined, StoredRowInvalid> {
 	const raw = q.get(`SELECT ${COLUMNS} FROM reports WHERE id = ?`, id);
-	return raw === undefined ? ok(undefined) : toReport(raw);
+	return raw === undefined ? ok(undefined) : toReport(q, raw);
 }
 
 /** The open report for a source, if there is one; there is never more than one. */
@@ -102,7 +109,7 @@ export function openReportFor(
 		`SELECT ${COLUMNS} FROM reports WHERE identity = ? AND state = 'open'`,
 		identity
 	);
-	return raw === undefined ? ok(undefined) : toReport(raw);
+	return raw === undefined ? ok(undefined) : toReport(q, raw);
 }
 
 /** A report row that could not be read: its id, when that much can be read, and why. */
@@ -121,7 +128,7 @@ export function everyReport(q: Queries): readonly Result<Report, UnreadableRepor
 	return q
 		.all(`SELECT ${COLUMNS} FROM reports ORDER BY last_activity_at DESC, created_at DESC, id`)
 		.map((raw) => {
-			const report = toReport(raw);
+			const report = toReport(q, raw);
 			if (report.ok) return report;
 			const id = parseRow('reports', idOnly, raw);
 			return err({ id: id.ok ? id.value.id : undefined, error: report.error });

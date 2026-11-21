@@ -103,10 +103,10 @@ describe('describeGitSource', () => {
 		);
 	});
 
-	it('says what a run of commits chosen from a list is, from a commit or from nothing', () => {
+	it('says what two commit ids compare, from a commit or from nothing', () => {
 		const to = 'abcdef0123456789abcdef0123456789abcdef01';
 		expect(describeGitSource(parsed(`0123456789abcdef0123456789abcdef01234567...${to}`))).toBe(
-			'The commits after 0123456, up to abcdef0'
+			'Commit abcdef0 compared with commit 0123456'
 		);
 		expect(describeGitSource(parsed(`4b825dc642cb6eb9a060e54bf8d69288fbee4904...${to}`))).toBe(
 			'Every commit up to abcdef0'

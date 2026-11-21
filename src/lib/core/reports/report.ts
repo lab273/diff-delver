@@ -7,6 +7,7 @@ import type { AbsolutePath } from '../absolute-path.tiny.ts';
 import type { AgentMarkdown } from '../agent-markdown.tiny.ts';
 import type { CommitId } from '../commit-id.tiny.ts';
 import type { FileCount } from '../file-count.tiny.ts';
+import type { CommitRun } from '../history/commit-run.ts';
 import type { LineCount } from '../line-count.tiny.ts';
 import type { ReportId } from '../report-id.tiny.ts';
 import type { ReportIdentity } from '../report-identity.tiny.ts';
@@ -24,8 +25,18 @@ import type { Timestamp } from '../timestamp.tiny.ts';
 import type { TreeId } from '../tree-id.tiny.ts';
 import type { UnitCount } from '../unit-count.tiny.ts';
 
-/** What a report follows. Later: jj changes and GitHub pull requests. */
-export type ReportSource = { readonly kind: 'git'; readonly spec: GitSourceSpec };
+/**
+ * What a report follows. Later: jj changes and GitHub pull requests. `run` is
+ * what its title is made of when the source is a run of commits, read when
+ * the report was opened; undefined for any other source, for a range between
+ * two commit ids that is not such a run, and for a report opened before runs
+ * were kept.
+ */
+export type ReportSource = {
+	readonly kind: 'git';
+	readonly spec: GitSourceSpec;
+	readonly run: CommitRun | undefined;
+};
 
 /** Why a report was closed. */
 export type ClosedReason =

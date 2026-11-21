@@ -69,9 +69,44 @@ describe('the choose page’s routes', () => {
 			await client.open({ directory: repo.dir, source: formatGitSourceSpec(source) })
 		);
 		expect(opened.kind === 'opened' && [opened.diff.title, opened.diff.sizeText]).toEqual([
-			`Every commit up to ${third.slice(0, 7)}`,
+			'The first 3 commits: “Start” to “Third”',
 			'2 files changed, 3 lines added'
 		]);
+
+		// A run of two, from the first commit's child: named the same in the list of
+		// diffs, on its page and when it is opened again, without reading the repository.
+		const two = tick(tick(NOTHING_SELECTED, itemIndexAt(0)), itemIndexAt(1));
+		const pair = value(
+			await client.open({
+				directory: repo.dir,
+				source: formatGitSourceSpec(value(selectionSource(commits.commits, two)))
+			})
+		);
+		if (pair.kind !== 'opened') throw new Error(pair.kind);
+		const title = '2 commits: “Second” and “Third”';
+		expect(pair.diff.title).toBe(title);
+		const listed = value(await client.listDiffs()).diffs.map((d) => d.kind === 'diff' && d.title);
+		expect(listed.toSorted()).toEqual([title, 'The first 3 commits: “Start” to “Third”']);
+		expect(value(await client.loadDiff(pair.diff.id)).summary.title).toBe(title);
+		const again = value(
+			await client.open({
+				directory: repo.dir,
+				source: formatGitSourceSpec(value(selectionSource(commits.commits, two)))
+			})
+		);
+		expect(again.kind === 'opened' && [again.diff.id, again.diff.title]).toEqual([
+			pair.diff.id,
+			title
+		]);
+
+		// Two ids that are not a run, written by hand: titled by what they compare.
+		await repo.git('checkout', '--quiet', '-b', 'other', `${third}~2`);
+		await repo.write('c.txt', 'c\n');
+		const { commit: other } = await repo.commit('Another way');
+		const apart = value(await client.open({ directory: repo.dir, source: `${third}...${other}` }));
+		expect(apart.kind === 'opened' && apart.diff.title).toBe(
+			`Commit ${other.slice(0, 7)} compared with commit ${third.slice(0, 7)}`
+		);
 	});
 
 	it('say plainly what is wrong: not a repository, a branch that is not there', async () => {

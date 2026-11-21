@@ -4,7 +4,7 @@ import { expect, test } from '../support/journey.ts';
 // repository, with its branches and the checked-out one's commits, each with
 // its size and when it was made, and when the repository last fetched. A run
 // of commits is ticked with the keyboard (ticking a second takes in every
-// commit between) and opened; a whole branch is opened compared with the main
+// commit between) and opened, titled by its commits; a whole branch is opened compared with the main
 // branch; the remote is asked whether it has moved on; a branch is found by
 // name; and the start page leads here too.
 test.describe('J17 Choose commits to review', () => {
@@ -67,12 +67,9 @@ test.describe('J17 Choose commits to review', () => {
 		await journey.activate(oldest, 'Space');
 		await journey.expectState(middle, { checked: true });
 		await journey.activate(journey.byRole('button', { name: 'Review these 3 commits' }));
-		await journey.expectVisible(
-			journey.byRole('heading', {
-				level: 1,
-				name: /^The commits after [0-9a-f]{7}, up to [0-9a-f]{7}$/
-			})
-		);
+		// The diff is named by its commits: how many, and the oldest and newest.
+		const run = '3 commits: “Add a discount rate” to “Say which code was used”';
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: run }));
 		await journey.expectVisible(
 			journey.within(journey.byRole('region', { name: 'Not sorted yet' })).byText('src/discount.ts')
 		);
@@ -115,6 +112,15 @@ test.describe('J17 Choose commits to review', () => {
 			journey.byRole('heading', { level: 1, name: 'discounts compared with origin/main' })
 		);
 		await journey.step('The whole branch opened');
+
+		// Both are in the list of diffs, each under the name its page has.
+		await journey.activate(journey.byRole('link', { name: 'See all your diffs' }));
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your diffs' }));
+		await journey.expectVisible(journey.byRole('link', { name: run }));
+		await journey.expectVisible(
+			journey.byRole('link', { name: 'discounts compared with origin/main' })
+		);
+		await journey.step('The run and the branch in the list of diffs');
 
 		// Asking origin whether it has moved on: only when the button is pressed.
 		const third = await journey.command(['choose'], shop);

@@ -171,13 +171,15 @@ export function describeGitSource(spec: GitSourceSpec): ReviewerMessage {
 			);
 		}
 		case 'range': {
-			// A run of commits chosen from a list, written as commit ids.
+			// Two commit ids. A run of commits chosen from a list is written so, and
+			// its report is titled by its commits (`reportTitle`); these are the words
+			// before it is opened, and for ids that are not such a run.
 			if (FULL_ID.test(spec.to) && isEmptyTreeRevision(spec.from)) {
 				return reviewerMessage(`Every commit up to ${shortRevisionName(spec.to)}`);
 			}
 			if (FULL_ID.test(spec.to) && FULL_ID.test(spec.from)) {
 				return reviewerMessage(
-					`The commits after ${shortRevisionName(spec.from)}, up to ${shortRevisionName(spec.to)}`
+					`Commit ${shortRevisionName(spec.to)} compared with commit ${shortRevisionName(spec.from)}`
 				);
 			}
 			const checkedOut = spec.to === HEAD || spec.to === '@';

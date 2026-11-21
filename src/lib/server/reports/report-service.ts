@@ -97,7 +97,7 @@ import {
 } from '#lib/core/revision-number.tiny.ts';
 import type { SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import type { SourceIdentity } from '#lib/core/source-identity.tiny.ts';
-import { describeGitSource, type GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
+import type { GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import {
 	assignmentRowsOf,
 	assignmentStateFromRows,
@@ -166,6 +166,7 @@ import {
 	checkRemote,
 	commitsSince,
 	headCommit,
+	readCommitRun,
 	lastFetch,
 	listBranches,
 	listCommits,
@@ -1762,11 +1763,17 @@ export class ReportService {
 		};
 		const diff = await this.#diffOf(snapshot);
 		if (!diff.ok) return discard(diff);
+		// A run of commits is named by its commits, read now and kept with the report.
+		const source: Report['source'] = {
+			kind: 'git',
+			spec,
+			run: await readCommitRun(repo, spec)
+		};
 		if (diff.value.files.length === 0) {
 			return discard(
 				ok({
 					kind: 'nothing-to-review',
-					source: describeGitSource(spec),
+					source: reportTitle(source),
 					reason: describeNothingToReview(spec),
 					leftOut: taken.value.leftOut,
 					closed: replacing,
@@ -1786,7 +1793,7 @@ export class ReportService {
 		const report: Report = {
 			id: this.#ids.reportId(),
 			identity,
-			source: { kind: 'git', spec },
+			source,
 			store: repo.storeId,
 			repositoryName: repositoryNameOf(repo.commonDir),
 			repositoryPath: worktreeOf(repo),

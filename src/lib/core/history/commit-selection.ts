@@ -16,7 +16,8 @@
  * One commit opens as the `commit` source. A run opens as a `range` from the
  * parent of its oldest commit to its newest, written as commit ids. When the
  * oldest is the repository's first commit there is no parent: the range starts
- * from git's empty tree, as the `commit` source does for a first commit.
+ * from git's empty tree, as the `commit` source does for a first commit. The
+ * diff it opens is titled by its commits (`commit-run.ts`).
  */
 import type { CommitId } from '../commit-id.tiny.ts';
 import { itemIndexAt, type ItemIndex } from '../item-index.tiny.ts';
@@ -25,11 +26,11 @@ import { err, ok, type Result } from '../result.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import { parseRevision, type Revision } from '../revision.tiny.ts';
 import type { GitSourceSpec } from '../sources/git-source-spec.ts';
-import { visibleText } from '../hidden-characters.ts';
 import { describeDiffSize } from '../reports/describe-report.ts';
 import type { DiffSize } from '../reports/report.ts';
 import { formatCount } from '../viewer/words.ts';
 import { commitCountOf, type CommitCount } from './commit-count.tiny.ts';
+import { quotedSubject } from './commit-run.ts';
 import type { SubjectLine } from './subject-line.tiny.ts';
 
 /** What a commit is compared with when it is reviewed: its first parent, or nothing before it. */
@@ -140,23 +141,6 @@ export function selectionSource(
 		case 'not-downloaded':
 			return err({ kind: 'HistoryNotDownloaded', commit: oldest.commit });
 	}
-}
-
-/** How long a subject may be in a sentence before it is cut short. */
-const SUBJECT_IN_SENTENCE = 60;
-
-/** A subject as a sentence quotes it: with what cannot be seen written out, and cut short if long. */
-export function quotedSubject(subject: SubjectLine): string {
-	if (subject.trim() === '') return 'a commit with no message';
-	const shown = visibleText(subject);
-	let kept = '';
-	let count = 0;
-	for (const character of shown) {
-		count += 1;
-		if (count < SUBJECT_IN_SENTENCE) kept += character;
-	}
-	const cut = count > SUBJECT_IN_SENTENCE ? `${kept}…` : shown;
-	return `“${cut}”`;
 }
 
 /**

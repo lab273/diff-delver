@@ -8,14 +8,27 @@ import type { AbsolutePath } from '../absolute-path.tiny.ts';
 import { fileCountOf } from '../file-count.tiny.ts';
 import { parseLineCount, type LineCount } from '../line-count.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
-import { describeGitSource, type GitSourceSpec } from '../sources/git-source-spec.ts';
+import { describeCommitRun } from '../history/commit-run.ts';
+import {
+	describeGitSource,
+	isEmptyTreeRevision,
+	type GitSourceSpec
+} from '../sources/git-source-spec.ts';
 import type { Diff } from '../diff/diff.ts';
 import type { ClosedReason, DiffSize, ReportSource, UnitProgress } from './report.ts';
 
-/** The report's title: its source in plain words, such as "Uncommitted changes". */
+/**
+ * The report's title: its source in plain words, such as "Uncommitted changes",
+ * and a run of commits by how many it is and their subjects, such as `3
+ * commits: “Add a discount rate” to “Say which code was used”`.
+ */
 export function reportTitle(source: ReportSource): ReviewerMessage {
 	// One kind of source so far; jj and GitHub will add their own titles.
-	return describeGitSource(source.spec);
+	const { spec, run } = source;
+	if (run !== undefined && spec.kind === 'range') {
+		return describeCommitRun(run, isEmptyTreeRevision(spec.from));
+	}
+	return describeGitSource(spec);
 }
 
 /**

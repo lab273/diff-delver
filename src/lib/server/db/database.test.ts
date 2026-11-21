@@ -165,6 +165,11 @@ describe('the database', () => {
 				version: 7,
 				name: "the agent's overview of each version, and each section's cross-references",
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 8,
+				name: 'how many commits a run of commits is, and the subjects of its oldest and newest',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -227,6 +232,7 @@ describe('the database', () => {
 			settings: [],
 			overviews: [],
 			section_references: [],
+			commit_runs: [],
 			revision_updates: [],
 			revisions_to_check: [{ revision_id: 'v_1' }]
 		});

@@ -8,7 +8,11 @@ import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseLineRange } from '#lib/core/line-range.ts';
 import { makeDiff, type Diff } from '#lib/core/diff/diff.ts';
 import { initialState, type AssignmentState } from '#lib/core/diff/state.ts';
+import { commitCountOf } from '#lib/core/history/commit-count.tiny.ts';
+import { runSubjectOf } from '#lib/core/history/run-subject.tiny.ts';
+import { subjectLineOf } from '#lib/core/history/subject-line.tiny.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
+import { parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { repoPathBytes } from '#lib/core/path-bytes.ts';
 import { andThen, ok } from '#lib/core/result.ts';
@@ -32,7 +36,7 @@ import { readSnapshotDiff } from '#lib/server/store/index.ts';
 import { oddPathBytes, pathBytes } from '../../../../tests/support/diff-fixtures.ts';
 import { tempDirectory, useFixture } from '../../../../tests/support/fixture-repos.ts';
 import { take, value } from '../../../../tests/support/git-source-helpers.ts';
-import { aReport, aRevision, at } from '../../../../tests/support/report-rows.ts';
+import { aReport, aRevision, at, WORKTREE } from '../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../tests/support/reviewer-git.ts';
 import {
 	arbitraryAssignScenario,
@@ -41,7 +45,14 @@ import {
 } from '../../../../tests/support/synthetic-diff.ts';
 import { Database } from './database.ts';
 import { assignmentRowsFor, replaceAssignmentRows } from './tables/assignments.ts';
-import { everyReport, insertReport, reportById, setReportState } from './tables/reports.ts';
+import {
+	deleteReportRow,
+	everyReport,
+	insertReport,
+	openReportFor,
+	reportById,
+	setReportState
+} from './tables/reports.ts';
 import { replaceReviewedRows, reviewedRowsFor } from './tables/reviewed-marks.ts';
 import { currentRevision, insertRevision } from './tables/revisions.ts';
 import { replaceSections, sectionsOf } from './tables/sections.ts';
@@ -154,6 +165,78 @@ describe('the tables', () => {
 		expect(after.all).toEqual([
 			ok({ ...report, state: { kind: 'closed', reason: 'reviewer' }, lastActivityAt: 9_000 })
 		]);
+	});
+
+	it('give back a report of a run of commits with its run, and say when the run cannot be read', async () => {
+		const db = await database();
+		const ids = sequentialIds();
+		const range = value(
+			parseGitSourceSpec(
+				'0123456789abcdef0123456789abcdef01234567...abcdef0123456789abcdef0123456789abcdef01'
+			)
+		);
+		const run = {
+			commits: commitCountOf(3),
+			oldest: runSubjectOf(subjectLineOf('Add a discount rate')),
+			newest: runSubjectOf(subjectLineOf('Say which code \u202Ewas used'))
+		};
+		const plain = aReport(ids.reportId());
+		const based = aReport(ids.reportId(), WORKTREE, range);
+		const report = { ...based, source: { ...based.source, run } };
+		value(
+			db.write((q) => {
+				insertReport(q, plain);
+				insertReport(q, report);
+				return ok(undefined);
+			})
+		);
+		const read = value(
+			db.read((q) =>
+				andThen(reportById(q, report.id), (r) =>
+					andThen(openReportFor(q, report.identity), (o) =>
+						andThen(reportById(q, plain.id), (p) => ok({ r, o, p, all: everyReport(q) }))
+					)
+				)
+			)
+		);
+		expect(read.r).toEqual(report);
+		expect(read.o).toEqual(report);
+		expect(read.p).toEqual(plain);
+		expect(read.all.map((r) => (r.ok ? r.value.source.run : 'unreadable'))).toEqual([
+			undefined,
+			run
+		]);
+
+		// A row that holds what a run never does: the report is unreadable, and says which table.
+		value(
+			db.write((q) => {
+				q.run(
+					"UPDATE commit_runs SET oldest_subject = 'two\nlines' WHERE report_id = ?",
+					report.id
+				);
+				return ok(undefined);
+			})
+		);
+		const damaged = db.read((q) => reportById(q, report.id));
+		expect(damaged.ok ? undefined : damaged.error).toMatchObject({
+			kind: 'StoredRowInvalid',
+			table: 'commit_runs'
+		});
+		const listed = value(db.read((q) => ok(everyReport(q))));
+		expect(listed.map((r) => (r.ok ? r.value.id : [r.error.id, r.error.error.table]))).toEqual([
+			plain.id,
+			[report.id, 'commit_runs']
+		]);
+
+		// The run goes with its report.
+		value(
+			db.write((q) => {
+				deleteReportRow(q, report.id);
+				return ok(undefined);
+			})
+		);
+		expect(value(db.read((q) => ok(q.all('SELECT count(*) AS n FROM commit_runs'))))[0]?.n).toBe(0);
+		db.close();
 	});
 
 	it('give back an overview and cross-references, removed with their section, and refuse a damaged overview', async () => {

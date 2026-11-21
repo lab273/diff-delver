@@ -277,6 +277,24 @@ CREATE TABLE section_references (
 	CHECK (side = 'file' OR (first_line >= 1 AND last_line >= first_line))
 ) STRICT, WITHOUT ROWID;
 `
+	},
+	{
+		version: schemaVersionOf(8),
+		name: 'how many commits a run of commits is, and the subjects of its oldest and newest',
+		sql: `
+-- For a report whose source is a run of commits, a range between two commit
+-- ids as ticking commits in a list opens it: what its title is made of, read
+-- from the repository once when the report is opened, since ids never come to
+-- name other commits. A report with no row is titled by its source alone: one
+-- of any other source, or opened before this table.
+CREATE TABLE commit_runs (
+	report_id TEXT PRIMARY KEY REFERENCES reports (id) ON DELETE CASCADE,
+	commits INTEGER NOT NULL CHECK (commits >= 1),
+	-- The first 200 characters of each subject, as git gives it.
+	oldest_subject TEXT NOT NULL,
+	newest_subject TEXT NOT NULL
+) STRICT;
+`
 	}
 ];
 

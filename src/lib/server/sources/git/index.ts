@@ -13,6 +13,7 @@
  */
 export type { RemoteOutcome } from './check-remote.ts';
 export { checkRemote, REMOTE_CHECK_SECONDS } from './check-remote.ts';
+export { readCommitRun } from './commit-run.ts';
 export { commitsSince } from './commits-since.ts';
 export type {
 	BranchSummary,

@@ -38,7 +38,7 @@ export function aReport(
 	return {
 		id,
 		identity: gitReportIdentity({ store: STORE, spec, worktree }),
-		source: { kind: 'git', spec },
+		source: { kind: 'git', spec, run: undefined },
 		store: STORE,
 		repositoryName: value(parseRepositoryName('/work/repo/.git')),
 		repositoryPath: worktree,
