@@ -5,6 +5,7 @@
  * is still marked. A page keeps saying it after a reload, so it is stored with
  * the version it made.
  */
+import { formatCount } from '../viewer/words.ts';
 import type { FileCount } from '../file-count.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import type { UnitCount } from '../unit-count.tiny.ts';
@@ -30,7 +31,7 @@ export interface UpdateSummary {
 }
 
 function plural(count: number, one: string, many: string): string {
-	return `${String(count)} ${count === 1 ? one : many}`;
+	return `${formatCount(count)} ${count === 1 ? one : many}`;
 }
 
 /** What the files' changes became, as the first sentence of the update's message. */
@@ -66,7 +67,7 @@ export function describeKeptMarks(summary: UpdateSummary): ReviewerMessage | und
 		return reviewerMessage(
 			before === 1
 				? 'The change you had marked as reviewed is still marked.'
-				: `All ${String(before)} changes you had marked as reviewed are still marked.`
+				: `All ${formatCount(before)} changes you had marked as reviewed are still marked.`
 		);
 	}
 	// A mark is kept only on a line that is the same and has no change close to it (carry-over.ts).
@@ -74,16 +75,16 @@ export function describeKeptMarks(summary: UpdateSummary): ReviewerMessage | und
 	const lost =
 		other === 1
 			? 'the other one changed or is close to a change, so it needs another look'
-			: `the other ${String(other)} changed or are close to a change, so they need another look`;
+			: `the other ${formatCount(other)} changed or are close to a change, so they need another look`;
 	if (kept === 0) {
 		return reviewerMessage(
 			before === 1
 				? 'The change you had marked as reviewed changed or is close to a change, so it needs another look.'
-				: `None of the ${String(before)} changes you had marked as reviewed are still marked: they changed or are close to a change, so they need another look.`
+				: `None of the ${formatCount(before)} changes you had marked as reviewed are still marked: they changed or are close to a change, so they need another look.`
 		);
 	}
 	return reviewerMessage(
-		`${String(kept)} of the ${String(before)} changes you had marked as reviewed ${kept === 1 ? 'is' : 'are'} still marked; ${lost}.`
+		`${formatCount(kept)} of the ${formatCount(before)} changes you had marked as reviewed ${kept === 1 ? 'is' : 'are'} still marked; ${lost}.`
 	);
 }
 

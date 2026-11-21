@@ -64,9 +64,10 @@ const DETERMINISTIC_CHROMIUM_ARGS = [
 ];
 
 export default defineConfig({
-	// The journeys, and the journey helper's own tests (tests/support/journey.spec.ts).
+	// The journeys, the journey helper's own tests (tests/support/journey.spec.ts)
+	// and the viewer's speed on a large diff (tests/speed/).
 	testDir: 'tests',
-	testMatch: ['journeys/**/*.journey.ts', 'support/**/*.spec.ts'],
+	testMatch: ['journeys/**/*.journey.ts', 'support/**/*.spec.ts', 'speed/**/*.speed.ts'],
 	timeout: HANG_TIMEOUT_MS,
 	expect: { timeout: WAIT_HANG_TIMEOUTS.expectPolling },
 	fullyParallel: true,

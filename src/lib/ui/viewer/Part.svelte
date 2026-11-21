@@ -65,13 +65,6 @@
 			}
 		};
 	}
-
-	$effect(() => {
-		// Opened by the person, or by a key: fetch at once rather than wait to be scrolled to.
-		if (state.open && !large && state.lines.kind === 'waiting' && viewer.current === at) {
-			void viewer.load(at);
-		}
-	});
 </script>
 
 <article
@@ -97,6 +90,8 @@
 				onclick={() => {
 					state.open = !state.open;
 					viewer.current = at;
+					// Opened by the person: fetch at once rather than wait to be scrolled to.
+					if (state.open && !large) void viewer.load(at);
 				}}
 			>
 				<span class="chevron" aria-hidden="true"></span>

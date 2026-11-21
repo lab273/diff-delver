@@ -2,6 +2,7 @@
  * Reports in plain words (DESIGN 8.5), for the reports list and the report's
  * own page, and the size of a diff as the list shows it.
  */
+import { formatCount } from '../viewer/words.ts';
 import type { AbsolutePath } from '../absolute-path.tiny.ts';
 import { fileCountOf } from '../file-count.tiny.ts';
 import { parseLineCount, type LineCount } from '../line-count.tiny.ts';
@@ -88,7 +89,7 @@ export function diffSizeOf(diff: Diff): DiffSize {
 }
 
 function plural(count: number, one: string, many: string): string {
-	return `${String(count)} ${count === 1 ? one : many}`;
+	return `${formatCount(count)} ${count === 1 ? one : many}`;
 }
 
 /** A diff's size in words: "3 files changed, 40 lines added and 12 removed". */
@@ -101,7 +102,7 @@ export function describeDiffSize(size: DiffSize): ReviewerMessage {
 	if (removed === 0) return reviewerMessage(`${files}, ${plural(added, 'line', 'lines')} added`);
 	if (added === 0) return reviewerMessage(`${files}, ${plural(removed, 'line', 'lines')} removed`);
 	return reviewerMessage(
-		`${files}, ${plural(added, 'line', 'lines')} added and ${String(removed)} removed`
+		`${files}, ${plural(added, 'line', 'lines')} added and ${formatCount(removed)} removed`
 	);
 }
 
@@ -115,5 +116,7 @@ export function describeUnitProgress(progress: UnitProgress): ReviewerMessage {
 	if (reviewed === counted) {
 		return reviewerMessage(`Everything reviewed: ${plural(counted, 'change', 'changes')}`);
 	}
-	return reviewerMessage(`${String(reviewed)} of ${plural(counted, 'change', 'changes')} reviewed`);
+	return reviewerMessage(
+		`${formatCount(reviewed)} of ${plural(counted, 'change', 'changes')} reviewed`
+	);
 }

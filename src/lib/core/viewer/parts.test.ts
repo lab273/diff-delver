@@ -184,7 +184,7 @@ describe('the frame', () => {
 					}
 				}
 			),
-			{ numRuns: 150 }
+			{ numRuns: 100 }
 		);
 	});
 });

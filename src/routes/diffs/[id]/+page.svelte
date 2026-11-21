@@ -25,7 +25,7 @@
 	import ProgressBar from '#lib/ui/viewer/ProgressBar.svelte';
 	import Shortcuts from '#lib/ui/viewer/Shortcuts.svelte';
 	import { shortcutOf } from '#lib/ui/viewer/keys.ts';
-	import { done, Viewer, type GroupInfo } from '#lib/ui/viewer/viewer.svelte.ts';
+	import { done, NEXT_BATCH, Viewer, type GroupInfo } from '#lib/ui/viewer/viewer.svelte.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -158,6 +158,22 @@
 
 	// ── The viewer ──────────────────────────────────────────────────────────────
 
+	// The rest of a large diff is drawn a batch a frame once the first screen is up.
+	$effect(() => {
+		const shown = viewer;
+		if (shown === undefined) return;
+		let frame = 0;
+		const more = (): void => {
+			if (shown.rendered >= shown.parts.length) return;
+			shown.rendered = Math.min(shown.parts.length, shown.rendered + NEXT_BATCH);
+			frame = requestAnimationFrame(more);
+		};
+		frame = requestAnimationFrame(more);
+		return () => {
+			cancelAnimationFrame(frame);
+		};
+	});
+
 	const EVERYTHING_REVIEWED = 'everything-reviewed';
 
 	/** Read from the address once, when the page opens: by file, and only what waits. */
@@ -216,7 +232,9 @@
 		}
 		if (!viewer.shows(at)) setOnlyWaiting(false);
 		viewer.current = at;
+		viewer.drawUpTo(at);
 		if (open) state.open = true;
+		if (state.open && !viewer.isLarge(state)) void viewer.load(at);
 		await tick();
 		const toggle = document.getElementById(`part-${String(at)}-toggle`);
 		toggle?.focus({ preventScroll: true });
@@ -597,72 +615,75 @@
 		</aside>
 
 		<div class="content" role="presentation" onfocusin={onFocusIn}>
-			{#if byFile}
-				<FileList {viewer} ontick={tickFile} ongo={goTo} />
-			{:else}
-				{@const anyShown = viewer.parts.some((p) => viewer.shows(p.index))}
-				{#if !anyShown}
-					<p class="empty">
-						{onlyWaiting
-							? 'You have reviewed everything: nothing is left to show with “Only what I have not reviewed”.'
-							: 'There is nothing to show.'}
-					</p>
-				{/if}
-				{#each viewer.groups as group (group.id)}
-					{@const tally = viewer.groupTally(group)}
-					{@const parts = viewer.parts.slice(group.first, group.first + group.count)}
-					{@const shown = parts.filter((p) => viewer.shows(p.index))}
-					{#if shown.length > 0 || (!onlyWaiting && group.count === 0)}
-						<section class="group" id={group.anchor} aria-labelledby="{group.anchor}-heading">
-							<div class="group-head">
-								<h2 id="{group.anchor}-heading" tabindex="-1">{group.name}</h2>
-								<span class="group-tally">
-									{fileCount(group.count)}{group.key.kind === 'ignored'
-										? ', not counted'
-										: `, ${groupProgress(tally)}`}
-								</span>
-								{#if group.key.kind !== 'ignored' && tally.units > 0}
-									<label class="tick">
-										<input
-											type="checkbox"
-											aria-label="All reviewed: {group.name}"
-											checked={done(tally)}
-											indeterminate={tally.reviewed > 0 && !done(tally)}
-											onchange={async (event) => {
-												const box = event.currentTarget;
-												await tickGroup(group, box.checked);
-												box.checked = done(viewer.groupTally(group));
-											}}
-										/>
-										All reviewed
-									</label>
-								{/if}
-							</div>
-							{#if group.key.kind === 'uncategorised'}
-								<p class="explain">
-									{page.sorted
-										? 'The agent did not place these, so they are listed here.'
-										: 'No agent has sorted this diff into sections, so every file is listed here.'}
-								</p>
-							{:else if group.key.kind === 'ignored'}
-								<p class="explain">
-									These need no review and are not counted; each says why. Open one to read it.
-								</p>
-							{/if}
-							{#each shown as state (state.key)}
-								<Part
-									{viewer}
-									{state}
-									{previousVersion}
-									ontick={tickPart}
-									ongo={goTo}
-									onshownewer={showNewer}
-								/>
-							{/each}
-						</section>
+			<!-- A new version is a new viewer: its parts are drawn afresh, never reused. -->
+			{#key viewer}
+				{#if byFile}
+					<FileList {viewer} ontick={tickFile} ongo={goTo} />
+				{:else}
+					{@const anyShown = viewer.parts.some((p) => viewer.shows(p.index))}
+					{#if !anyShown}
+						<p class="empty">
+							{onlyWaiting
+								? 'You have reviewed everything: nothing is left to show with “Only what I have not reviewed”.'
+								: 'There is nothing to show.'}
+						</p>
 					{/if}
-				{/each}
-			{/if}
+					{#each viewer.groups as group (group.id)}
+						{@const tally = viewer.groupTally(group)}
+						{@const parts = viewer.parts.slice(group.first, group.first + group.count)}
+						{@const shown = parts.filter((p) => viewer.shows(p.index) && viewer.drawn(p.index))}
+						{#if shown.length > 0 || (!onlyWaiting && group.count === 0)}
+							<section class="group" id={group.anchor} aria-labelledby="{group.anchor}-heading">
+								<div class="group-head">
+									<h2 id="{group.anchor}-heading" tabindex="-1">{group.name}</h2>
+									<span class="group-tally">
+										{fileCount(group.count)}{group.key.kind === 'ignored'
+											? ', not counted'
+											: `, ${groupProgress(tally)}`}
+									</span>
+									{#if group.key.kind !== 'ignored' && tally.units > 0}
+										<label class="tick">
+											<input
+												type="checkbox"
+												aria-label="All reviewed: {group.name}"
+												checked={done(tally)}
+												indeterminate={tally.reviewed > 0 && !done(tally)}
+												onchange={async (event) => {
+													const box = event.currentTarget;
+													await tickGroup(group, box.checked);
+													box.checked = done(viewer.groupTally(group));
+												}}
+											/>
+											All reviewed
+										</label>
+									{/if}
+								</div>
+								{#if group.key.kind === 'uncategorised'}
+									<p class="explain">
+										{page.sorted
+											? 'The agent did not place these, so they are listed here.'
+											: 'No agent has sorted this diff into sections, so every file is listed here.'}
+									</p>
+								{:else if group.key.kind === 'ignored'}
+									<p class="explain">
+										These need no review and are not counted; each says why. Open one to read it.
+									</p>
+								{/if}
+								{#each shown as state (state.key)}
+									<Part
+										{viewer}
+										{state}
+										{previousVersion}
+										ontick={tickPart}
+										ongo={goTo}
+										onshownewer={showNewer}
+									/>
+								{/each}
+							</section>
+						{/if}
+					{/each}
+				{/if}
+			{/key}
 			<p class="all-diffs"><a href={resolve('/')}>See all your diffs</a></p>
 		</div>
 	</div>

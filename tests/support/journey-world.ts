@@ -107,6 +107,9 @@ export const CHECKOUT_CHANGED = CHECKOUT.flatMap((line, i) =>
 		: [line]
 );
 
+/** How many files the large repository changes. */
+const LARGE_FILES = 2_000;
+
 /** The repositories a journey can ask for, by name. */
 export const JOURNEY_REPOSITORIES = {
 	/** A committed shop, with uncommitted changes: two edits, one in a longer file, a new file and a lockfile. */
@@ -225,6 +228,25 @@ export const JOURNEY_REPOSITORIES = {
 			lines('Saved by an editor that wrote its name in Latin-1.')
 		);
 		await repo.write('package-lock.json', lines('{ "lockfileVersion": 3, "packages": {} }'));
+	}),
+
+	/**
+	 * A large diff, for the viewer's speed (tests/speed/): 2,000 files of 100
+	 * lines, the first 50 of each rewritten and left uncommitted, so 200,000
+	 * changed lines.
+	 */
+	large: defineFixture('large', async (repo) => {
+		const name = (i: number): string =>
+			`src/module-${String(Math.floor(i / 100)).padStart(2, '0')}/file-${String(i).padStart(4, '0')}.ts`;
+		const numbered = (prefix: string, from: number, to: number): string =>
+			Array.from({ length: to - from + 1 }, (_, i) => `${prefix} line ${String(from + i)}\n`).join(
+				''
+			);
+		for (let i = 0; i < LARGE_FILES; i += 1) await repo.write(name(i), numbered('old', 1, 100));
+		await repo.commit('base');
+		for (let i = 0; i < LARGE_FILES; i += 1) {
+			await repo.write(name(i), numbered('new', 1, 50) + numbered('old', 51, 100));
+		}
 	}),
 
 	/** On main, with nothing uncommitted and no other branch: nothing new to review. */

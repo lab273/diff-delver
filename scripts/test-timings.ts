@@ -98,6 +98,26 @@ function measurements(meta: unknown): readonly Measurement[] {
 	});
 }
 
+/**
+ * The annotation type a Playwright test records a time it measured with: its
+ * description is the measurement as JSON, `{ what, ms, guidance }`.
+ */
+export const MEASURED_TIME_ANNOTATION = 'measured-time';
+
+/** The measurements a Playwright test recorded in its annotations. */
+function annotatedMeasurements(annotations: unknown): readonly Measurement[] {
+	const found = records(annotations)
+		.filter((a) => text(a.get('type')) === MEASURED_TIME_ANNOTATION)
+		.map((a): unknown => {
+			try {
+				return JSON.parse(text(a.get('description')));
+			} catch {
+				return undefined;
+			}
+		});
+	return measurements({ measuredTimes: found });
+}
+
 /** The tests in a Vitest JSON report. Anything unreadable is left out. */
 export function vitestTimings(report: unknown, root: string): readonly TestTiming[] {
 	return records(asRecord(report)?.get('testResults')).flatMap((file) => {
@@ -137,7 +157,7 @@ export function playwrightTimings(report: unknown, root: string): readonly TestT
 					// The first title is the file's, already given by `file`.
 					name: testName([...here.slice(1), text(spec.get('title'))].join(' > ')),
 					ms: millisecondsOf(ms),
-					measurements: []
+					measurements: annotatedMeasurements(test.get('annotations'))
 				});
 			}
 		}

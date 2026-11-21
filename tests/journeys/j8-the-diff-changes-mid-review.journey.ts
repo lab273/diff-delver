@@ -52,6 +52,16 @@ test.describe('J8 The diff changes mid-review', () => {
 			'You had marked 2 changes here as reviewed. They are unmarked now because lines close to them changed in this version'
 		);
 		await journey.expectText(checkout, '2 new');
+		await journey.expectVisible(
+			journey
+				.within(checkout)
+				.byText("\tconst items = count === 1 ? 'one item' : `${count} items`;")
+		);
+		await journey.expectVisible(
+			journey
+				.within(journey.byRole('article', { name: 'src/discount.ts' }))
+				.byText('export function discount(sum: number, code: string): number {')
+		);
 		await journey.expectText(review, '7 of 16 changes reviewed');
 		await journey.tabTo(
 			journey.within(checkout).byRole('button', { name: 'src/checkout.ts', exact: true })

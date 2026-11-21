@@ -10,6 +10,7 @@ import { millisecondsOf } from '../src/lib/core/milliseconds.tiny.ts';
 import { TIME_LIMITS } from './test-time-limits.ts';
 import {
 	describeTimeWarning,
+	MEASURED_TIME_ANNOTATION,
 	playwrightTimings,
 	slowest,
 	timeWarnings,
@@ -136,6 +137,39 @@ describe('playwrightTimings', () => {
 			}
 		]);
 		expect(playwrightTimings(undefined, ROOT)).toEqual([]);
+	});
+
+	it('reads the times a test measured from its annotations, leaving out what does not parse', () => {
+		const report = {
+			config: { rootDir: `${ROOT}/tests` },
+			suites: [
+				{
+					title: 'speed/viewer.speed.ts',
+					specs: [
+						{
+							title: 'opens a large diff',
+							file: 'speed/viewer.speed.ts',
+							tests: [
+								{
+									results: [{ duration: 5000 }],
+									annotations: [
+										{ type: 'screenshot', description: 'x.png' },
+										{
+											type: MEASURED_TIME_ANNOTATION,
+											description: JSON.stringify({ what: 'opening', ms: 900, guidance: 1500 })
+										},
+										{ type: MEASURED_TIME_ANNOTATION, description: 'not json' }
+									]
+								}
+							]
+						}
+					]
+				}
+			]
+		};
+		expect(playwrightTimings(report, ROOT)[0]?.measurements).toEqual([
+			{ what: 'opening', ms: 900, guidance: 1500 }
+		]);
 	});
 });
 

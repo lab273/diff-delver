@@ -40,6 +40,10 @@ import { describeChanges, formatCount } from '#lib/core/viewer/words.ts';
 import { pageClient } from '#lib/ui/client.ts';
 import { SvelteMap } from 'svelte/reactivity';
 
+/** How many parts are drawn at first, and how many more after each frame. */
+export const FIRST_BATCH = 40;
+export const NEXT_BATCH = 30;
+
 /** A part with more rows than this waits behind "Show this large change". */
 export const LARGE_PART_ROWS = 800;
 
@@ -181,6 +185,12 @@ export class Viewer {
 	onlyWaiting: boolean;
 	/** The part the person is on: the last moved to, or the one holding focus. */
 	current = $state<number>();
+	/**
+	 * How many parts, in reading order, are drawn. A large diff is drawn a
+	 * batch at a time after its first screen, so the first file is readable at
+	 * once and the page stays responsive while the rest are drawn.
+	 */
+	rendered = $state(FIRST_BATCH);
 	/** What the page says to screen readers, politely. */
 	announcement = $state('');
 
@@ -269,6 +279,16 @@ export class Viewer {
 	shows(at: number): boolean {
 		const part = this.parts[at];
 		return part !== undefined && (!this.onlyWaiting || waits(part.part));
+	}
+
+	/** Whether a part is drawn yet (see `rendered`). */
+	drawn(at: number): boolean {
+		return at < this.rendered;
+	}
+
+	/** Draws every part up to `at`, so it can be moved to. */
+	drawUpTo(at: number): void {
+		if (at >= this.rendered) this.rendered = at + 1;
 	}
 
 	/** The next part that waits after the one the person is on, or the first. */
@@ -421,7 +441,10 @@ export class Viewer {
 			state.part = part;
 			// A part just ticked is put away, and one just unticked is opened again, as GitHub does.
 			if (!wasDone && done(part.tally)) state.open = false;
-			if (wasDone && !done(part.tally) && part.group.kind !== 'ignored') state.open = true;
+			if (wasDone && !done(part.tally) && part.group.kind !== 'ignored') {
+				state.open = true;
+				if (at !== undefined && !this.isLarge(state)) void this.load(at);
+			}
 		}
 		for (const file of sent.value.files) {
 			const at = this.files.findIndex((f) => f.path === file.path);
