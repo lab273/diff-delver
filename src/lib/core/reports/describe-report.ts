@@ -2,6 +2,7 @@
  * Reports in plain words (DESIGN 8.5), for the reports list and the report's
  * own page, and the size of a diff as the list shows it.
  */
+import { visibleText } from '../hidden-characters.ts';
 import { formatCount } from '../viewer/words.ts';
 import type { AbsolutePath } from '../absolute-path.tiny.ts';
 import { fileCountOf } from '../file-count.tiny.ts';
@@ -26,7 +27,8 @@ export function repositoryLabel(path: AbsolutePath): ReviewerMessage {
 	const parts = path.split('/').filter((part) => part !== '');
 	const last = parts.at(-1);
 	const label = last === '.git' ? parts.at(-2) : last;
-	return reviewerMessage(label ?? path);
+	// A folder's name is shown with what cannot be seen written out, as a file's is.
+	return reviewerMessage(visibleText(label ?? path));
 }
 
 /** Why a report is closed, as a sentence. */

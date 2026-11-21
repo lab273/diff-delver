@@ -8,6 +8,8 @@
 	import type { GroupKeyView, PartLines as PartLinesView } from '#lib/api/schemas.ts';
 	import { describeByteSize, countOf, describeTally, formatCount } from '#lib/core/viewer/words.ts';
 	import type { EscapedPath } from '#lib/core/path-bytes.ts';
+	import { shownPath } from '#lib/core/shown-path.tiny.ts';
+	import PathText from '#lib/ui/PathText.svelte';
 	import type { PartIndex } from '#lib/core/part-index.tiny.ts';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
@@ -38,6 +40,8 @@
 	const reviewed = $derived(done(part.tally));
 	const large = $derived(viewer.isLarge(state));
 	const groupName = $derived(viewer.groupOfPart(at)?.name ?? '');
+	/** Its path as a person is shown it, in what is read out. */
+	const shown = $derived(shownPath(part.path));
 
 	// Its lines are fetched once it is open and near the screen, however it came to
 	// be open: by the person, by moving to it, or by unticking it.
@@ -95,7 +99,7 @@
 				id="part-{at}-toggle"
 				aria-expanded={state.open}
 				aria-controls="part-{at}-body"
-				aria-label="{part.path}{part.of > 1 ? `, part ${part.position} of ${part.of}` : ''}"
+				aria-label="{shown}{part.of > 1 ? `, part ${part.position} of ${part.of}` : ''}"
 				onclick={() => {
 					state.open = !state.open;
 					viewer.current = at;
@@ -104,7 +108,7 @@
 				}}
 			>
 				<span class="chevron" aria-hidden="true"></span>
-				<span class="path" id="part-{at}-name">{part.path}</span>
+				<span class="path" id="part-{at}-name"><PathText path={part.path} /></span>
 			</button>
 		</h3>
 		<span class="change">{part.change}</span>
@@ -115,7 +119,7 @@
 			<a
 				class="chip link"
 				href="#{viewer.groupWithKey(other)?.anchor ?? ''}"
-				aria-label="Also in {viewer.groupWithKey(other)?.name ?? 'another group'}: {part.path}"
+				aria-label="Also in {viewer.groupWithKey(other)?.name ?? 'another group'}: {shown}"
 				onclick={(event) => {
 					event.preventDefault();
 					ongo(part.path, other);
@@ -144,7 +148,7 @@
 			<label class="tick">
 				<input
 					type="checkbox"
-					aria-label="Reviewed: {part.path}{part.of > 1 ? ` in ${groupName}` : ''}"
+					aria-label="Reviewed: {shown}{part.of > 1 ? ` in ${groupName}` : ''}"
 					checked={reviewed}
 					indeterminate={partly(part.tally)}
 					aria-describedby={state.busy ? `part-${String(at)}-saving` : undefined}
@@ -225,7 +229,7 @@
 								type="button"
 								aria-label="{viewer.wholeShown(at)
 									? 'Show only the changes'
-									: 'Show the whole file'}: {part.path}"
+									: 'Show the whole file'}: {shown}"
 								onclick={() => {
 									viewer.current = at;
 									void viewer.wholeFile(at);

@@ -3,7 +3,7 @@ import type { ByteOffset } from '../byte-offset.tiny.ts';
 import type { FileCount } from '../file-count.tiny.ts';
 import type { LineNumber } from '../line-number.tiny.ts';
 import type { PatchCount } from '../patch-count.tiny.ts';
-import { escapedRepoPath } from '../path-bytes.ts';
+import { shownRepoPath } from '../shown-path.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 
@@ -58,6 +58,6 @@ function diffOutputErrorText(error: DiffOutputError): string {
 		case 'PatchCountMismatch':
 			return `git listed ${error.listedFiles} changed files, which should give ${error.expectedPatches} patches, but its diff has ${error.foundPatches}. ${report}`;
 		case 'PatchMismatch':
-			return `git's diff of ${escapedRepoPath(error.path)} does not match its status (${error.status}): ${error.detail}. ${report}`;
+			return `git's diff of ${shownRepoPath(error.path)} does not match its status (${error.status}): ${error.detail}. ${report}`;
 	}
 }

@@ -21,7 +21,7 @@
  * file, not a change to a file that was there.
  */
 import { fileModeKind, type FileMode, type FileModeKind } from '../file-mode.tiny.ts';
-import { escapedRepoPath } from '../path-bytes.ts';
+import { shownRepoPath } from '../shown-path.tiny.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import type { FileDiff } from './file-diff.ts';
@@ -81,9 +81,9 @@ function describeMode(from: FileMode, to: FileMode): string {
 function describeItself(change: FileItselfChange): string {
 	switch (change.kind) {
 		case 'renamed':
-			return `renamed from ${escapedRepoPath(change.from)}`;
+			return `renamed from ${shownRepoPath(change.from)}`;
 		case 'copied':
-			return `copied from ${escapedRepoPath(change.from)}`;
+			return `copied from ${shownRepoPath(change.from)}`;
 		case 'mode':
 			return describeMode(change.from, change.to);
 	}

@@ -5,7 +5,7 @@
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { CommitId } from '#lib/core/commit-id.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
-import { escapedRepoPath } from '#lib/core/path-bytes.ts';
+import { shownRepoPath } from '#lib/core/shown-path.tiny.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { Revision } from '#lib/core/revision.tiny.ts';
 import { describeStoreError, type StoreError } from '../../store/index.ts';
@@ -76,7 +76,7 @@ const NAMED_CONFLICTS = 3;
 
 /** "a", "a and b", "a, b and c", "a, b, c and 2 more files". */
 function listOfPaths(paths: readonly RepoPath[]): string {
-	const named: string[] = paths.slice(0, NAMED_CONFLICTS).map(escapedRepoPath);
+	const named: string[] = paths.slice(0, NAMED_CONFLICTS).map(shownRepoPath);
 	const more = paths.length - named.length;
 	if (more > 0) named.push(more === 1 ? '1 more file' : `${String(more)} more files`);
 	const last = named.pop() ?? '';

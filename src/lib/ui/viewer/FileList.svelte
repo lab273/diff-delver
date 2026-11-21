@@ -8,6 +8,8 @@
 	import type { FileView, GroupKeyView } from '#lib/api/schemas.ts';
 	import { describeTally } from '#lib/core/viewer/words.ts';
 	import type { EscapedPath } from '#lib/core/path-bytes.ts';
+	import { shownPath } from '#lib/core/shown-path.tiny.ts';
+	import PathText from '#lib/ui/PathText.svelte';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import { tick } from 'svelte';
 	import TickRefused from './TickRefused.svelte';
@@ -57,13 +59,13 @@
 		<ul class="files">
 			{#each shown as file, i (file.path)}
 				<li>
-					<span class="path">{file.path}</span>
+					<span class="path"><PathText path={file.path} /></span>
 					<span class="change">{file.change}</span>
 					{#each file.parts as group, i (i)}
 						<a
 							class="chip"
 							href="#{viewer.groupWithKey(group)?.anchor ?? ''}"
-							aria-label="Go to {file.path} in {viewer.groupWithKey(group)?.name ??
+							aria-label="Go to {shownPath(file.path)} in {viewer.groupWithKey(group)?.name ??
 								'another group'}"
 							onclick={(event) => {
 								event.preventDefault();
@@ -81,7 +83,7 @@
 						<label class="tick">
 							<input
 								type="checkbox"
-								aria-label="Reviewed: {file.path}"
+								aria-label="Reviewed: {shownPath(file.path)}"
 								checked={done(file.tally)}
 								indeterminate={partly(file.tally)}
 								onchange={async (event) => {

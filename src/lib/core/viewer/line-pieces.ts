@@ -10,10 +10,12 @@
  * - Control characters, and characters that change how text is drawn without
  *   being seen (zero-width spaces, the controls that reverse text direction, a
  *   byte-order mark, line and paragraph separators) are shown as escapes, such
- *   as `\x07` or `‮`, so code never reads differently from what it is.
+ *   as `\x07` or `\u202E` (`hidden-characters.ts`, the same rule as for
+ *   paths), so code never reads differently from what it is.
  *
  * Everything else is text, drawn as text: never markup.
  */
+import { escapeCharacter, isHiddenCharacter } from '../hidden-characters.ts';
 import type { LineText } from '../line-text.tiny.ts';
 
 export type LinePiece =
@@ -23,16 +25,6 @@ export type LinePiece =
 	| { readonly kind: 'trailing'; readonly text: string }
 	/** A character shown by its code, such as `\x1B`, with the character itself kept. */
 	| { readonly kind: 'escape'; readonly shown: string; readonly character: string };
-
-/** Characters that are not seen, or change how text around them is drawn. */
-const HIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Co}\p{Cn}]/u;
-
-function escapeOf(character: string): string {
-	const code = character.codePointAt(0) ?? 0;
-	if (character === '\r') return '\\r';
-	const hex = code.toString(16).toUpperCase();
-	return code < 0x100 ? `\\x${hex.padStart(2, '0')}` : `\\u${hex.padStart(4, '0')}`;
-}
 
 /**
  * The pieces of a line. `changed` marks its tabs and the white space at its
@@ -66,9 +58,9 @@ export function linePieces(text: LineText, changed: boolean): readonly LinePiece
 		if (character === '\t' && changed) {
 			flush();
 			pieces.push({ kind: 'tab' });
-		} else if (character !== '\t' && HIDDEN.test(character)) {
+		} else if (character !== '\t' && isHiddenCharacter(character)) {
 			flush();
-			pieces.push({ kind: 'escape', shown: escapeOf(character), character });
+			pieces.push({ kind: 'escape', shown: escapeCharacter(character), character });
 		} else plain += character;
 	}
 	flush();

@@ -10,7 +10,7 @@
  *
  * git prints paths from the top of the working tree, as they are on disk. Pure.
  */
-import { escapedRepoPath } from '../path-bytes.ts';
+import { shownRepoPath } from '../shown-path.tiny.ts';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 
@@ -104,7 +104,7 @@ export function parseAddRefusals(stderr: string): AddRefusals {
 
 /** One sentence for the reviewer: which file was left out, why, and what to do. */
 export function describeAddRefusal(refusal: AddRefusal): ReviewerMessage {
-	const path = escapedRepoPath(refusal.path);
+	const path = shownRepoPath(refusal.path);
 	switch (refusal.reason.kind) {
 		case 'unreadable':
 			return reviewerMessage(

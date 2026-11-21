@@ -22,7 +22,8 @@ import type { SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseBlobId, type BlobId } from '#lib/core/blob-id.tiny.ts';
 import type { CommitId } from '#lib/core/commit-id.tiny.ts';
-import { escapedRepoPath, repoPathFromBytes } from '#lib/core/path-bytes.ts';
+import { repoPathFromBytes } from '#lib/core/path-bytes.ts';
+import { shownRepoPath } from '#lib/core/shown-path.tiny.ts';
 import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
 import { repositoryNameOf } from '#lib/core/repository-name.tiny.ts';
 import { EMPTY_TREE } from '#lib/core/object-format.ts';
@@ -256,7 +257,7 @@ async function workingTreeTree(
 	const { added, vanished } = await addAll(repo, workTree, scratch, writer);
 	const leftOut: ReviewerMessage[] = vanished.map((gone) =>
 		reviewerMessage(
-			`Not included: ${escapedRepoPath(gone)}, which was deleted while the snapshot was being taken. Refresh to include its change.`
+			`Not included: ${shownRepoPath(gone)}, which was deleted while the snapshot was being taken. Refresh to include its change.`
 		)
 	);
 	// With --ignore-errors, git adds everything it can and exits 1 if some file could not be.
@@ -273,7 +274,7 @@ async function workingTreeTree(
 	for (const path of changing.value.changing) {
 		leftOut.push(
 			reviewerMessage(
-				`${escapedRepoPath(path)} kept changing while the snapshot was being taken, so it may hold part of an edit. Refresh to get its final version.`
+				`${shownRepoPath(path)} kept changing while the snapshot was being taken, so it may hold part of an edit. Refresh to get its final version.`
 			)
 		);
 	}

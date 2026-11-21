@@ -4,7 +4,7 @@
  */
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { describeDiffOutputError, type DiffOutputError } from '#lib/core/diff/diff-output-error.ts';
-import { escapedRepoPath } from '#lib/core/path-bytes.ts';
+import { shownRepoPath } from '#lib/core/shown-path.tiny.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import type { Side } from '#lib/core/side.tiny.ts';
@@ -120,19 +120,19 @@ export function describeLinesError(error: LinesError): ReviewerMessage {
 	switch (error.kind) {
 		case 'PathNotFound':
 			return reviewerMessage(
-				`${escapedRepoPath(error.path)} does not exist in ${sideName(error.side)}. Check the path, or open it from the file list.`
+				`${shownRepoPath(error.path)} does not exist in ${sideName(error.side)}. Check the path, or open it from the file list.`
 			);
 		case 'PathIsDirectory':
 			return reviewerMessage(
-				`${escapedRepoPath(error.path)} is a folder in ${sideName(error.side)}, not a file. Open one of the files inside it.`
+				`${shownRepoPath(error.path)} is a folder in ${sideName(error.side)}, not a file. Open one of the files inside it.`
 			);
 		case 'PathIsSubmodule':
 			return reviewerMessage(
-				`${escapedRepoPath(error.path)} is a submodule in ${sideName(error.side)}: its files belong to another repository, so only the commit it points at is shown. Open that repository to review its files.`
+				`${shownRepoPath(error.path)} is a submodule in ${sideName(error.side)}: its files belong to another repository, so only the commit it points at is shown. Open that repository to review its files.`
 			);
 		case 'FileIsBinary':
 			return reviewerMessage(
-				`${escapedRepoPath(error.path)} is a binary file in ${sideName(error.side)}, so it has no lines to show.`
+				`${shownRepoPath(error.path)} is a binary file in ${sideName(error.side)}, so it has no lines to show.`
 			);
 		case 'GitNotFound':
 		case 'GitTooOld':

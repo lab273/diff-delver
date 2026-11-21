@@ -191,7 +191,8 @@ export const JOURNEY_REPOSITORIES = {
 	 * tabs, trailing spaces, CRLF endings, a control character, a character that
 	 * turns text round, markup, a very long line and no newline at the end, a
 	 * generated data file too large to draw at once, a new file whose name is not
-	 * valid UTF-8, and a lockfile.
+	 * valid UTF-8, new files whose names hold a character that turns text round
+	 * and one that cannot be seen, and a lockfile.
 	 */
 	assorted: defineFixture('assorted', async (repo) => {
 		await repo.write('src/old-name.ts', lines('export const name = "moved";'));
@@ -231,6 +232,9 @@ export const JOURNEY_REPOSITORIES = {
 			]),
 			lines('Saved by an editor that wrote its name in Latin-1.')
 		);
+		// Names that would read as something else if drawn as they are.
+		await repo.write('notes/report\u202Etxt.exe', lines('Not an executable.'));
+		await repo.write('notes/a\u200Bb.txt', lines('A zero-width space in the name.'));
 		await repo.write('package-lock.json', lines('{ "lockfileVersion": 3, "packages": {} }'));
 	}),
 

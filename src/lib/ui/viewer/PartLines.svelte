@@ -8,6 +8,7 @@
 <script lang="ts">
 	import type { GroupKeyView, ShownLineView } from '#lib/api/schemas.ts';
 	import type { EscapedPath } from '#lib/core/path-bytes.ts';
+	import { shownPath } from '#lib/core/shown-path.tiny.ts';
 	import type { PartIndex } from '#lib/core/part-index.tiny.ts';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import type { BlockState, OpenLine, Viewer } from './viewer.svelte.ts';
@@ -128,7 +129,7 @@
 				<td colspan={columns} class="where">
 					Shown in <a
 						href="#{viewer.groupWithKey(elsewhere)?.anchor ?? ''}"
-						aria-label="Go to {path} in {name(elsewhere)}"
+						aria-label="Go to {shownPath(path)} in {name(elsewhere)}"
 						onclick={(event) => {
 							event.preventDefault();
 							ongo(elsewhere);
@@ -153,7 +154,7 @@
 	</tr>
 {/snippet}
 
-<table class="lines" aria-label="Lines of {path}">
+<table class="lines" aria-label="Lines of {shownPath(path)}">
 	<colgroup>
 		<col class="number-column" />
 		<col class="number-column" />
@@ -238,7 +239,7 @@
 									: 'are'} shown in
 								{#each block.groups as group, g (g)}{g > 0 ? ', ' : ''}<a
 										href="#{viewer.groupWithKey(group)?.anchor ?? ''}"
-										aria-label="Go to {path} in {name(group)}"
+										aria-label="Go to {shownPath(path)} in {name(group)}"
 										onclick={(event) => {
 											event.preventDefault();
 											ongo(group);

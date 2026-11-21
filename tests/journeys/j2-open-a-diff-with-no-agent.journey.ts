@@ -113,6 +113,16 @@ test.describe('J2 Open a diff with no agent', () => {
 		await journey.expectText(prices, 'This is a large change: 901 lines.');
 		// A file whose name is not valid UTF-8 shows its name escaped.
 		await journey.expectVisible(journey.byRole('article', { name: 'notes/caf\\xE9.txt' }));
+		// Names with characters that turn text round or cannot be seen show them written out.
+		const reversed = journey.byRole('article', { name: 'notes/report\\u202Etxt.exe' });
+		await journey.expectText(reversed, 'notes/report\\u202Etxt.exe');
+		await journey.expectVisible(
+			journey.within(reversed).byRole('checkbox', { name: 'Reviewed: notes/report\\u202Etxt.exe' })
+		);
+		await journey.expectText(
+			journey.byRole('article', { name: 'notes/a\\u200Bb.txt' }),
+			'notes/a\\u200Bb.txt'
+		);
 		const odd = journey.byRole('article', { name: 'notes/odd.txt' });
 		await journey.expectVisible(
 			journey.within(odd).byText('<b>Not bold</b> &amp; not an entity', { exact: false })

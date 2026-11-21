@@ -4,7 +4,7 @@
  * sorted yet); the mark goes on each change unit the target covers, so a file
  * split across sections is ticked exactly where it was ticked.
  */
-import { escapedRepoPath } from '../path-bytes.ts';
+import { shownRepoPath } from '../shown-path.tiny.ts';
 import { RangeSet, type Interval } from '../range-set.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import { err, ok, type Result } from '../result.ts';
@@ -42,7 +42,7 @@ export function describeMarkError(error: MarkError): ReviewerMessage {
 	switch (error.kind) {
 		case 'FileNotInDiff':
 			return reviewerMessage(
-				`${escapedRepoPath(error.path)} is not one of the files this version of the diff changes. Reload the page to see the files it changes now.`
+				`${shownRepoPath(error.path)} is not one of the files this version of the diff changes. Reload the page to see the files it changes now.`
 			);
 		case 'NothingToMark':
 			return reviewerMessage(

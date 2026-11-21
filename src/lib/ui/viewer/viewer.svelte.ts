@@ -26,6 +26,7 @@ import type {
 import { groupKeyId } from '#lib/core/group-key-id.tiny.ts';
 import { lineNumberOf, type LineNumber } from '#lib/core/line-number.tiny.ts';
 import type { EscapedPath } from '#lib/core/path-bytes.ts';
+import { shownPath } from '#lib/core/shown-path.tiny.ts';
 import type { LineText } from '#lib/core/line-text.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
@@ -149,6 +150,10 @@ export function partly(tally: TallyView): boolean {
 export function showTally(box: HTMLInputElement, tally: TallyView): void {
 	box.checked = done(tally);
 	box.indeterminate = partly(tally);
+}
+
+function shownOf(path: EscapedPath | undefined): string {
+	return path === undefined ? '' : shownPath(path);
 }
 
 function sameTally(a: TallyView, b: TallyView): boolean {
@@ -651,9 +656,9 @@ export class Viewer {
 	): string {
 		const what =
 			target.kind === 'part'
-				? (this.parts[target.at]?.part.path ?? '')
+				? shownOf(this.parts[target.at]?.part.path)
 				: target.kind === 'file'
-					? target.path
+					? shownPath(target.path)
 					: target.group.name;
 		const overall = this.overall;
 		const progress = `${formatCount(overall.reviewed)} of ${describeChanges(overall.units)} reviewed.`;

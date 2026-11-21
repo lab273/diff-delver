@@ -5,7 +5,7 @@
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { DuplicateFilePath } from '#lib/core/diff/diff.ts';
 import { describeDiffOutputError, type DiffOutputError } from '#lib/core/diff/diff-output-error.ts';
-import { escapedRepoPath } from '#lib/core/path-bytes.ts';
+import { shownRepoPath } from '#lib/core/shown-path.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { describeSectionProblem, type SectionProblem } from '#lib/core/reports/section-requests.ts';
@@ -192,13 +192,13 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 			);
 		case 'DuplicateFilePath':
 			return reviewerMessage(
-				`git listed ${escapedRepoPath(error.path)} twice in one diff, which it never does, so diff delver read its output wrongly. Please report this as a bug.`
+				`git listed ${shownRepoPath(error.path)} twice in one diff, which it never does, so diff delver read its output wrongly. Please report this as a bug.`
 			);
 		case 'StoredStateMismatch':
 			return describeStoredStateMismatch(error);
 		case 'PartNotFound':
 			return reviewerMessage(
-				`This part of ${escapedRepoPath(error.path)} is not where the page showed it any more: the diff was sorted again since. Reload the page to see where it is now.`
+				`This part of ${shownRepoPath(error.path)} is not where the page showed it any more: the diff was sorted again since. Reload the page to see where it is now.`
 			);
 		case 'PathNotFound':
 		case 'PathIsDirectory':
