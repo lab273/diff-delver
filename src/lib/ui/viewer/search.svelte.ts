@@ -85,6 +85,8 @@ export class DiffSearch {
 	skipClosed = $state(false);
 	found = $state<Found>({ kind: 'none' });
 	current = $state<CurrentMatch>();
+	/** Why the last move to a match stopped short: the lines it needed could not be read. */
+	problem = $state('');
 	#changed: Changed = { opened: new SvelteSet(), large: new SvelteSet(), whiteSpace: [] };
 	/** Bumped for each search sent, so an answer to an older one is dropped. */
 	#asked = 0;
@@ -169,6 +171,7 @@ export class DiffSearch {
 			case 'failed':
 				return found.message;
 			case 'found': {
+				if (this.problem !== '') return this.problem;
 				const { matches, files } = this.totals;
 				if (matches === 0) return 'No matches';
 				const where = `${countOf(matches, 'match', 'matches')} in ${countOf(files, 'file', 'files')}`;
@@ -239,6 +242,7 @@ export class DiffSearch {
 		clearTimeout(this.#pause);
 		const asked = (this.#asked += 1);
 		this.current = undefined;
+		this.problem = '';
 		if (this.text === '') {
 			this.found = { kind: 'none' };
 			this.putBack();
@@ -299,6 +303,7 @@ export class DiffSearch {
 	async step(forward: boolean): Promise<CurrentMatch | undefined> {
 		const found = this.found;
 		if (found.kind !== 'found') return undefined;
+		this.problem = '';
 		const viewer = this.#viewer;
 		const count = viewer.parts.length;
 		const current = this.current;
@@ -310,6 +315,12 @@ export class DiffSearch {
 			if (!this.counts(at) || this.matchesIn(at) === 0) continue;
 			const places = await this.#loadedPlaces(at);
 			if (found !== this.found) return undefined;
+			// Its lines could not be read: say so, rather than pass over its matches unseen.
+			const state = viewer.parts[at];
+			if (state?.lines.kind === 'failed') {
+				this.problem = `Could not read the lines of ${shownPath(state.part.path)}, so its matches cannot be shown. ${state.lines.message} Press Enter to try again.`;
+				return undefined;
+			}
 			// From the match the person is on, the one after it; anywhere else, a part's
 			// first (or last). The last turn comes back to where it began, so the search
 			// goes round within a part that holds every match.
@@ -326,9 +337,9 @@ export class DiffSearch {
 		return undefined;
 	}
 
+	/** A part's matches, once its lines are here: fetched now, or waited for when on their way. */
 	async #loadedPlaces(at: PartIndex): Promise<readonly MatchPlace[]> {
-		const state = this.#viewer.parts[at];
-		if (state !== undefined && state.lines.kind !== 'loaded') await this.#viewer.load(at);
+		await this.#viewer.load(at);
 		return this.#placesOf(at);
 	}
 

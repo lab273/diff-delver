@@ -369,6 +369,8 @@ export class Viewer {
 	readonly #lineTurns = new Turns(PART_REQUESTS_AT_ONCE);
 	/** Parts' colours being fetched, and those waiting their turn. */
 	readonly #colourTurns = new Turns(COLOUR_REQUESTS_AT_ONCE);
+	/** Parts' lines on their way, so a second asker waits for the same answer. */
+	readonly #loading = new WeakMap<PartState, Promise<void>>();
 	/** Which lines' colours each part has asked for, so none is asked for twice. */
 	readonly #askedColours = new AskedLines();
 	/** How many ticks have been answered, so a slower refresh never undoes a newer tick. */
@@ -516,11 +518,27 @@ export class Viewer {
 		return part.part.rows > LARGE_PART_ROWS && !part.showLarge;
 	}
 
-	/** Fetches a part's lines, once, unless they are on their way. */
+	/**
+	 * Fetches a part's lines, once. When they are already on their way, waits
+	 * for them; afterwards they are loaded, or failed with the reason.
+	 */
 	async load(at: PartIndex): Promise<void> {
 		const state = this.parts[at];
-		if (state === undefined) return;
-		if (state.lines.kind === 'loading' || state.lines.kind === 'loaded') return;
+		if (state === undefined || state.lines.kind === 'loaded') return;
+		if (state.lines.kind === 'loading') {
+			await this.#loading.get(state);
+			return;
+		}
+		const fetching = this.#fetchLines(state);
+		this.#loading.set(state, fetching);
+		try {
+			await fetching;
+		} finally {
+			this.#loading.delete(state);
+		}
+	}
+
+	async #fetchLines(state: PartState): Promise<void> {
 		if (state.part.content !== 'text' && state.part.content !== 'binary') {
 			state.lines = { kind: 'loaded', blocks: [], sizes: null };
 			return;

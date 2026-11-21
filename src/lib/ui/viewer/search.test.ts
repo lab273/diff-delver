@@ -44,12 +44,18 @@ const B = partIndexOf(1);
 class HeldFetch {
 	#held: Promise<void> | undefined;
 	#release: (() => void) | undefined;
+	#arrived: (() => void) | undefined;
 	failing = false;
+	/** Settled when a request for `b.ts`'s lines has come while they are held. */
+	arrived: Promise<void> = Promise.resolve();
 
 	/** Holds the answers to requests for `b.ts`'s lines until `release` is called. */
 	hold(): void {
 		this.#held = new Promise((resolve) => {
 			this.#release = resolve;
+		});
+		this.arrived = new Promise((resolve) => {
+			this.#arrived = resolve;
 		});
 	}
 
@@ -62,6 +68,7 @@ class HeldFetch {
 		const url = input instanceof Request ? input.url : String(input);
 		if (url.includes('/part?') && url.includes('path=b.ts')) {
 			if (this.failing) throw new TypeError('fetch failed');
+			this.#arrived?.();
 			await this.#held;
 		}
 		return fetch(input, init);
@@ -194,6 +201,7 @@ describe('searching within the diff on its page', () => {
 		search.close();
 		expect(partOf(viewer, B).open).toBe(false);
 	});
+
 	it('stays on the match the person is on when lines are opened above it in its part', async () => {
 		const { viewer, search } = await opened();
 		await searchFor(viewer, 'findme');
@@ -240,5 +248,36 @@ describe('searching within the diff on its page', () => {
 		await viewer.tick({ kind: 'part', at: B }, true);
 		expect(search.summary).toBe('3 matches in 1 file. Press Enter to go to the next.');
 		expect(await steps(viewer, [true])).toEqual(['1 a.ts findme10 = 1 6']);
+	});
+
+	it('waits for lines already on their way before moving into their part, and says when they cannot be read', async () => {
+		const { viewer, held } = await opened();
+		await searchFor(viewer, 'findme');
+		expect(await steps(viewer, [true, true, true])).toContain("3 a.ts findme'; 18");
+		// b.ts's lines are on their way, as when it comes near the screen, and held.
+		held.hold();
+		const coming = viewer.load(B);
+		await held.arrived;
+		expect(partOf(viewer, B).lines.kind).toBe('loading');
+		const moving = steps(viewer, [true]);
+		// Let go once the move has had every chance to go on without them.
+		setTimeout(() => {
+			held.release();
+		}, 0);
+		expect(await moving).toEqual(['4 b.ts findme b 0']);
+		await coming;
+
+		// Lines that cannot be read: the move stops there and says so, and the next tries again.
+		const again = await opened();
+		await searchFor(again.viewer, 'findme');
+		expect(await steps(again.viewer, [true, true, true])).toContain("3 a.ts findme'; 18");
+		again.held.failing = true;
+		expect(await again.search.step(true)).toBeUndefined();
+		expect(again.search.summary).toMatch(
+			/^Could not read the lines of b\.ts, so its matches cannot be shown\. .+ Press Enter to try again\.$/
+		);
+		expect(where(again.viewer, again.search.current)).toBe("a.ts findme'; 18");
+		again.held.failing = false;
+		expect(await steps(again.viewer, [true])).toEqual(['4 b.ts findme b 0']);
 	});
 });
