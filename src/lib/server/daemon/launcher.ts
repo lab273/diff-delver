@@ -54,8 +54,8 @@ export function describeLaunchError(error: LaunchError): ReviewerMessage {
 
 export interface Launched {
 	readonly connection: DaemonConnection;
-	/** What happened to an earlier daemon, for the command to say. */
-	readonly replaced: 'other-version' | undefined;
+	/** The version of a daemon this one replaced, for the command to say. */
+	readonly replaced: CodeVersion | undefined;
 }
 
 /** How long a new daemon has to say it is listening. */
@@ -187,7 +187,7 @@ export async function ensureDaemon(
 				if (!(await stopDaemonOf(dataDirectory, content.lock, content.text))) {
 					return err({ kind: 'OldDaemonWouldNotStop', lock: content.lock });
 				}
-				replaced = 'other-version';
+				replaced = probe.version;
 				continue;
 			}
 		}

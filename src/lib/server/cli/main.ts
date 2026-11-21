@@ -30,6 +30,7 @@ import {
 import { machineDataDirectory } from '../store/index.ts';
 import { randomIds, systemClock } from '../system.ts';
 import { codeVersion } from '../version.ts';
+import { describeReplacedDaemon } from '#lib/core/cli/replaced-daemon.ts';
 import { openBrowser } from './open-browser.ts';
 import { openOutcome, startOutcome, type CommandOutcome } from './outcome.ts';
 
@@ -206,10 +207,8 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 				return 1;
 			}
 			const { connection, replaced } = launched.value;
-			if (replaced === 'other-version') {
-				terminal.print(
-					'A different version of diff delver was running; this version has replaced it. Pages the old one had open need opening again.'
-				);
+			if (replaced !== undefined) {
+				terminal.print(describeReplacedDaemon(replaced, codeVersion(), entry));
 			}
 			const client = new ApiClient({ fetch, base: connection.origin, token: connection.token });
 			const outcome =
