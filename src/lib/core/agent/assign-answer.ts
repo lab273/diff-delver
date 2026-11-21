@@ -10,10 +10,11 @@ import {
 	describeRejection,
 	IGNORED_SECTION,
 	type AssignOutcome,
+	type MovedFrom,
 	type AssignRequest
 } from '../diff/assign.ts';
 import type { Bucket } from '../diff/bucket.ts';
-import { coverage } from '../diff/coverage.ts';
+import { coverage, describeBucket } from '../diff/coverage.ts';
 import type { Diff } from '../diff/diff.ts';
 import { textForAgent, type TextForAgent } from '../text-for-agent.tiny.ts';
 import {
@@ -21,6 +22,7 @@ import {
 	counted,
 	grouped,
 	headingLine,
+	listInWords,
 	PAGE_LENGTH,
 	quotedAgentText,
 	type ReportHeading
@@ -57,7 +59,7 @@ export function renderAssign(input: AssignAnswerInput, budget = PAGE_LENGTH): Te
 		if (item.units > 0) {
 			text = roleOnly
 				? `Item ${String(item.index)}: set the role of ${changes(item.units)} to ${request.role ?? ''}.`
-				: `Item ${String(item.index)}: took ${changes(item.units)} into ${where}${request.role === undefined ? '' : `, with role ${request.role}`}.`;
+				: `Item ${String(item.index)}: took ${changes(item.units)} into ${where}${request.role === undefined ? '' : `, with role ${request.role}`}${movedText(item.movedFrom, item.units)}.`;
 		} else if (item.nothingTaken !== undefined) {
 			const [only, ...others] = item.nothingTaken.sortedInto;
 			const already = others.length === 0 && only !== undefined && isDestination(only, request);
@@ -111,6 +113,22 @@ export function renderAssign(input: AssignAnswerInput, budget = PAGE_LENGTH): Te
 			: `Not sorted yet: ${changes(left.units)} in ${counted(left.files, 'file', 'files')}. get_coverage lists them.`
 	);
 	return textForAgent(out.join('\n'));
+}
+
+/**
+ * What an item moved out of where it was, after what it took: ", moving them
+ * out of section "a"", ", moving 2 of them out of section "a" and 1 out of Ignored".
+ */
+function movedText(moved: readonly MovedFrom[] | undefined, units: number): string {
+	if (moved === undefined || moved.length === 0) return '';
+	const [only] = moved;
+	if (moved.length === 1 && only !== undefined && only.units === units) {
+		return `, moving ${units === 1 ? 'it' : 'them'} out of ${describeBucket(only.bucket)}`;
+	}
+	const parts = moved.map(
+		(m, i) => `${grouped(m.units)}${i === 0 ? ' of them' : ''} out of ${describeBucket(m.bucket)}`
+	);
+	return `, moving ${listInWords(parts)}`;
 }
 
 /** Whether a bucket is where the item sends its change lines. */

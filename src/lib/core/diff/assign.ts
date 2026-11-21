@@ -232,6 +232,19 @@ export interface AcceptedItem {
 	readonly nothingTaken: NothingTaken | undefined;
 	/** The item's line ranges that took nothing, when some of them did. */
 	readonly rangesTakingNothing: RangesTakingNothing | undefined;
+	/**
+	 * Of the units it took, those that were in another section, or ignored when
+	 * it sends them to a section, or in a section when it ignores them: where
+	 * from and how many. Empty when it took only what was not sorted, or what
+	 * was already where it sends it: then undefined, as the fields above are when they say nothing.
+	 */
+	readonly movedFrom: readonly MovedFrom[] | undefined;
+}
+
+/** Units an item moved out of a bucket. */
+export interface MovedFrom {
+	readonly bucket: Bucket;
+	readonly units: UnitCount;
 }
 
 export interface AssignOutcome {
@@ -289,7 +302,8 @@ function applyItems(
 				index,
 				units: applied.value.units,
 				nothingTaken,
-				rangesTakingNothing: applied.value.rangesTakingNothing
+				rangesTakingNothing: applied.value.rangesTakingNothing,
+				movedFrom: applied.value.movedFrom.length === 0 ? undefined : applied.value.movedFrom
 			});
 		} else {
 			rejected.push({ index, rejection: applied.error });
@@ -485,6 +499,7 @@ interface Resolved {
 interface Applied {
 	readonly state: AssignmentState;
 	readonly units: UnitCount;
+	readonly movedFrom: readonly MovedFrom[];
 	/** The files the item covered. */
 	readonly files: readonly DiffFile[];
 	readonly rangesTakingNothing: RangesTakingNothing | undefined;
@@ -520,14 +535,30 @@ function applyItem(
 
 	const files = new Map(state.files);
 	let units = NO_UNITS;
+	const movedFrom: MovedFrom[] = [];
+	const moved = (from: Assignment, count: number): void => {
+		if (bucket === undefined || !isMove(from.bucket, bucket) || count === 0) return;
+		const at = movedFrom.findIndex((m) => sameBucket(m.bucket, from.bucket));
+		const before = movedFrom[at];
+		if (before === undefined) movedFrom.push({ bucket: from.bucket, units: unitCountOf(count) });
+		else
+			movedFrom[at] = { bucket: before.bucket, units: addUnits(before.units, unitCountOf(count)) };
+	};
 	for (const [file, target] of targets.value.files) {
-		const updated = applyToFile(fileAssignment(state, file), target, onlyUncategorised, change);
+		const updated = applyToFile(
+			fileAssignment(state, file),
+			target,
+			onlyUncategorised,
+			change,
+			moved
+		);
 		files.set(file.file.path, updated.assignment);
 		units = addUnits(units, updated.units);
 	}
 	return ok({
 		state: { files },
 		units,
+		movedFrom,
 		files: [...targets.value.files.keys()],
 		rangesTakingNothing: targets.value.rangesTakingNothing
 	});
@@ -569,11 +600,19 @@ function destinationBucket(destination: Destination): Bucket {
 	}
 }
 
+/** Whether taking units out of `from` into `to` moves them: out of a section, or between a section and Ignored. */
+function isMove(from: Bucket, to: Bucket): boolean {
+	if (from.kind === 'uncategorised') return false;
+	if (from.kind === 'ignored' && to.kind === 'ignored') return false;
+	return !sameBucket(from, to);
+}
+
 function applyToFile(
 	assignment: FileAssignment,
 	target: FileTarget,
 	onlyUncategorised: boolean,
-	change: (a: Assignment) => Assignment
+	change: (a: Assignment) => Assignment,
+	moved: (from: Assignment, units: number) => void
 ): { readonly assignment: FileAssignment; readonly units: UnitCount } {
 	const takes = (a: Assignment): boolean => !onlyUncategorised || a.bucket.kind === 'uncategorised';
 	let units = NO_UNITS;
@@ -581,13 +620,16 @@ function applyToFile(
 	for (const side of ['old', 'new'] as const) {
 		const map = sides[side];
 		const wanted = target.kind === 'whole' ? map.domain : target.lines[side];
-		const taken = RangeSet.fromIntervals(map.within(wanted).filter((s) => takes(s.value)));
+		const segments = map.within(wanted).filter((s) => takes(s.value));
+		for (const segment of segments) moved(segment.value, segment.last - segment.first + 1);
+		const taken = RangeSet.fromIntervals(segments);
 		units = addUnits(units, unitCountOf(taken.size));
 		sides[side] = map.update(taken, change);
 	}
 	let file = assignment.file;
 	const wantsFile = target.kind === 'whole' || target.file;
 	if (file !== undefined && wantsFile && takes(file)) {
+		moved(file, 1);
 		file = change(file);
 		units = addUnits(units, ONE_UNIT);
 	}

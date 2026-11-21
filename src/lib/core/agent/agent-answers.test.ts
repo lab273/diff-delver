@@ -286,6 +286,34 @@ describe('answers for an agent', () => {
 		);
 	});
 
+	it('say when an item moves lines out of a section or out of Ignored, in the same call or a later one', () => {
+		const diff = syntheticDiff([
+			{ path: 'a.ts', change: 'modified', hunks: [{ gap: 0, lines: ['-', '+', '+'] }] }
+		]);
+		const known = { knownSections: new Set(['one', 'two'].map((id) => value(parseSectionId(id)))) };
+		const requests = [
+			{ file: 'a.ts', lines: '+2', section: 'one' },
+			{ file: 'a.ts', lines: '+2', section: 'two' }
+		];
+		const first = assign(diff, initialState(diff), requests, known);
+		const lines = renderAssign({ heading, diff, requests, outcome: first }).split('\n');
+		expect(lines.slice(2, 4)).toEqual([
+			'Item 0: took 1 change line into section "one".',
+			'Item 1: took 1 change line into section "two", moving it out of section "one".'
+		]);
+		const later = [
+			{ file: 'a.ts', lines: '-1', section: 'ignored', reason: 'Old code.' },
+			{ file: 'a.ts', lines: '-1,+1..+2', section: 'one' }
+		];
+		const second = assign(diff, first.state, later, known);
+		expect(
+			renderAssign({ heading, diff, requests: later, outcome: second }).split('\n').slice(2, 4)
+		).toEqual([
+			'Item 0: took 1 change line into Ignored.',
+			'Item 1: took 3 change lines into section "one", moving 1 of them out of Ignored and 1 out of section "two".'
+		]);
+	});
+
 	it('cut an answer that would be too long, at a line, and say so', () => {
 		const long = Array.from({ length: 10_000 }, (_, i) => `line ${grouped(i)}`).join('\n');
 		const cut = boundedAnswer(long);

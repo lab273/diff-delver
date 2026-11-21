@@ -164,7 +164,13 @@ describe('assign', () => {
 		const second = assign(diff, first.state, [
 			{ file: 'src/app.ts', lines: '+3', section: 'beta' }
 		]);
-		expect(second.accepted).toEqual([{ index: 0, units: 1 }]);
+		expect(second.accepted).toEqual([
+			{
+				index: 0,
+				units: 1,
+				movedFrom: [{ bucket: { kind: 'section', section: 'alpha' }, units: 1 }]
+			}
+		]);
 		expect(bucketOf(second.state, 'src/app.ts', 'new', 3)).toBe('beta');
 	});
 
