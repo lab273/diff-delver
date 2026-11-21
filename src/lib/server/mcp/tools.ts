@@ -19,6 +19,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
+import type { BrowserAsk } from '#lib/core/cli/browser-offer.ts';
 import {
 	boundedAnswer,
 	changes,
@@ -90,8 +91,8 @@ export interface ToolContext {
 	readonly service: ReportService;
 	/** The folder the agent works in, as the stdio shim says; undefined when nothing said. */
 	readonly directory: AbsolutePath | undefined;
-	/** Whether to open the person's browser on a report that `create_report` makes. */
-	readonly openBrowser: boolean;
+	/** Whether a report `create_report` makes may open in the person's browser, or why not. */
+	readonly browser: BrowserAsk;
 	/** An address of a page of the daemon that lets a browser in once, within two minutes. */
 	readonly entryAddress: (page: string) => string;
 	/** Opens an address in the person's browser; whether the browser could be asked to. */
@@ -446,13 +447,16 @@ async function opened(outcome: OpenOutcome, context: ToolContext): Promise<Resul
 	}
 	out.push(...sentencesListed('Left out of the diff: ', page.value.leftOut));
 	const browser =
-		outcome.kind === 'created' && context.openBrowser
+		outcome.kind === 'created' && context.browser === 'may-open'
 			? await context.open(context.entryAddress(`/diffs/${report.id}`))
 			: false;
+	const giveIt = `Give the person this address to open it in their browser: ${address} (it opens the report once, within two minutes; call create_report again for a new one). It shows your sorting as you go.`;
 	out.push(
 		browser
 			? `It is opening in the person's browser now. If they need it again, give them this address: ${address} (it opens the report once, within two minutes; call create_report again for a new one).`
-			: `Give the person this address to open it in their browser: ${address} (it opens the report once, within two minutes; call create_report again for a new one). It shows your sorting as you go.`
+			: outcome.kind === 'created' && context.browser === 'already-opened'
+				? `It was not opened in the person's browser: diff delver opens one window for each session of an agent, and opened one for an earlier report. ${giveIt}`
+				: giveIt
 	);
 	out.push(`Next: call get_manifest with "report": "${report.id}".`);
 	return ok(out.join('\n'));

@@ -8,7 +8,9 @@
  *
  * It tells the daemon the folder it was started in, which `create_report`
  * opens unless told another, and, unless started with `--no-open`, that a
- * report `create_report` makes is to be opened in the person's browser.
+ * report `create_report` makes may be opened in the person's browser: the
+ * first one only, for the whole session (`BrowserOffer`), whichever daemon
+ * serves it.
  *
  * The daemon serves MCP without sessions, so when it stops or is replaced
  * mid-session (a newer diff delver started, or `diff-delver stop`), the shim
@@ -25,13 +27,19 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { BrowserOffer } from '#lib/core/cli/browser-offer.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { describeNewerDaemon, describeReplacedDaemon } from '#lib/core/cli/replaced-daemon.ts';
 import { MCP_PATH } from '#lib/core/daemon/request-gate.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import type { DaemonConnection } from '../daemon/daemon.ts';
 import { describeLaunchError, ensureDaemon } from '../daemon/launcher.ts';
-import { DIRECTORY_HEADER, OPEN_BROWSER_HEADER } from '../mcp/mcp-server.ts';
+import {
+	browserHeader,
+	DIRECTORY_HEADER,
+	OPEN_BROWSER_HEADER,
+	OPENED_HEADER
+} from '../mcp/mcp-server.ts';
 
 export interface ShimOptions {
 	readonly dataDirectory: AbsolutePath;
@@ -91,6 +99,8 @@ export async function runShim(options: ShimOptions): Promise<number> {
 	};
 
 	let protocolVersion: string | undefined;
+	/** One browser window for the session, however many reports it creates. */
+	const browser = new BrowserOffer(!options.noOpen);
 	const transport = new StdioServerTransport();
 
 	const post = async (
@@ -103,7 +113,9 @@ export async function runShim(options: ShimOptions): Promise<number> {
 			authorization: `Bearer ${connection.token}`,
 			[DIRECTORY_HEADER]: encodeURIComponent(options.directory)
 		};
-		if (!options.noOpen) headers[OPEN_BROWSER_HEADER] = 'yes';
+		const ask = browser.lend();
+		const asked = browserHeader(ask);
+		if (asked !== undefined) headers[OPEN_BROWSER_HEADER] = asked;
 		if (protocolVersion !== undefined) headers['mcp-protocol-version'] = protocolVersion;
 		let response: Response;
 		try {
@@ -113,11 +125,13 @@ export async function runShim(options: ShimOptions): Promise<number> {
 				body: JSON.stringify(message)
 			});
 		} catch (error) {
+			browser.settle(ask, false);
 			return err({
 				kind: 'retry',
 				reason: `diff delver did not answer at ${connection.origin} (${error instanceof Error ? error.message : String(error)})`
 			});
 		}
+		browser.settle(ask, response.headers.get(OPENED_HEADER) === 'yes');
 		const text = await response.text().catch(() => '');
 		// The token belongs to a daemon that has stopped since, or another took the port.
 		if (response.status === 403 || response.status === 421 || response.status === 503) {

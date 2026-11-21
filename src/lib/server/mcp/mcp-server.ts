@@ -9,9 +9,12 @@
  * The stdio shim says two things about the agent's side in headers:
  * `X-Diff-Delver-Directory`, the folder it was started in (percent-encoded,
  * since a header is ASCII), which `create_report` opens when not told another;
- * and `X-Diff-Delver-Open-Browser: yes`, when a report it makes is to be
- * opened in the person's browser. A client that speaks HTTP MCP itself sends
- * neither, and gives `create_report` a directory.
+ * and `X-Diff-Delver-Open-Browser`: `yes` when a report this message makes
+ * may be opened in the person's browser, `already` when one was opened for the
+ * shim's session before (`BrowserOffer`: one window per session). When it
+ * opens a window, the answer says so in `X-Diff-Delver-Opened: yes`, so the
+ * shim offers no more. A client that speaks HTTP MCP itself sends neither
+ * header, and gives `create_report` a directory.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -24,12 +27,30 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import type { BrowserAsk } from '#lib/core/cli/browser-offer.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import type { ReportService } from '../reports/index.ts';
 import { SERVER_INSTRUCTIONS, TOOLS, unknownTool, type ToolContext } from './tools.ts';
 
 export const DIRECTORY_HEADER = 'x-diff-delver-directory';
 export const OPEN_BROWSER_HEADER = 'x-diff-delver-open-browser';
+export const OPENED_HEADER = 'x-diff-delver-opened';
+
+/** The browser header's value for what a message asks, and back. */
+export function browserHeader(ask: BrowserAsk): string | undefined {
+	switch (ask) {
+		case 'may-open':
+			return 'yes';
+		case 'already-opened':
+			return 'already';
+		case 'not-asked':
+			return undefined;
+	}
+}
+
+function browserAsk(value: string | undefined): BrowserAsk {
+	return value === 'yes' ? 'may-open' : value === 'already' ? 'already-opened' : 'not-asked';
+}
 
 export interface McpOptions {
 	readonly service: ReportService;
@@ -122,12 +143,19 @@ export function mcpHandler(
 	options: McpOptions
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
 	return async (req, res) => {
+		// At most one window for a message, and the shim is told when it opened one.
+		let opened = false;
 		const context: ToolContext = {
 			service: options.service,
 			directory: directoryOf(req),
-			openBrowser: header(req, OPEN_BROWSER_HEADER) === 'yes',
+			browser: browserAsk(header(req, OPEN_BROWSER_HEADER)),
 			entryAddress: options.entryAddress,
-			open: options.open
+			open: async (address) => {
+				if (opened) return false;
+				opened = await options.open(address);
+				if (opened && !res.headersSent) res.setHeader(OPENED_HEADER, 'yes');
+				return opened;
+			}
 		};
 		const server = serverFor(context, options.version);
 		// No session id: stateless, as above.

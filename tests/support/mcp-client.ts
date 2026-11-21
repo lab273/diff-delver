@@ -95,8 +95,12 @@ export interface HttpOptions {
 	readonly token: string;
 	/** The folder the agent works in, as the shim would say it. */
 	readonly directory?: string;
-	/** Asks for a report `create_report` makes to be opened in the browser, as the shim does without `--no-open`. */
-	readonly openBrowser?: boolean;
+	/**
+	 * Says a report `create_report` makes may be opened in the browser, as the
+	 * shim does without `--no-open` until a window has opened (`true`), or that
+	 * one was opened for the session already (`'already'`), as it says after.
+	 */
+	readonly openBrowser?: boolean | 'already';
 }
 
 /** An MCP client connected straight to a daemon's `/mcp`, with its token. */
@@ -106,6 +110,7 @@ export async function mcpOverHttp(options: HttpOptions): Promise<McpSession> {
 		headers['x-diff-delver-directory'] = encodeURIComponent(options.directory);
 	}
 	if (options.openBrowser === true) headers['x-diff-delver-open-browser'] = 'yes';
+	if (options.openBrowser === 'already') headers['x-diff-delver-open-browser'] = 'already';
 	const transport = new StreamableHTTPClientTransport(new URL('/mcp', options.origin), {
 		requestInit: { headers }
 	});

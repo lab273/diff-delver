@@ -756,6 +756,51 @@ describe('/mcp over HTTP', () => {
 		expect(opened).toHaveLength(1);
 	});
 
+	it('opens no window for a session that has had one, and says why', async () => {
+		const repo = await useFixture(shop);
+		const opened: string[] = [];
+		const daemon = await testDaemon({
+			openBrowser: (address) => {
+				opened.push(address);
+				return Promise.resolve(true);
+			}
+		});
+		const session = await mcpOverHttp({
+			origin: daemon.origin,
+			token: daemon.token,
+			directory: repo.dir,
+			openBrowser: 'already'
+		});
+		onTestFinished(() => session.close());
+		const created = await session.call('create_report', { source: 'working-tree' });
+		expect(opened).toEqual([]);
+		expect(created.text).toMatch(
+			/It was not opened in the person's browser: diff delver opens one window for each session of an agent, and opened one for an earlier report\. Give the person this address to open it in their browser: http:\S+\?entry=/
+		);
+		// The shim is told when a window opened, so it offers no more.
+		const response = await rawRequest(daemon.port, {
+			method: 'POST',
+			path: '/mcp',
+			headers: {
+				'content-type': 'application/json',
+				accept: 'application/json, text/event-stream',
+				authorization: `Bearer ${daemon.token}`,
+				'x-diff-delver-directory': encodeURIComponent(repo.dir),
+				'x-diff-delver-open-browser': 'yes',
+				'mcp-protocol-version': '2025-06-18'
+			},
+			body: JSON.stringify({
+				jsonrpc: '2.0',
+				id: 1,
+				method: 'tools/call',
+				params: { name: 'create_report', arguments: { source: 'HEAD' } }
+			})
+		});
+		expect(response.status).toBe(200);
+		expect(opened).toHaveLength(1);
+		expect(response.headers['x-diff-delver-opened']).toBe('yes');
+	});
+
 	it('is served only with the token in Authorization, never on the cookie', async () => {
 		const { data, session } = await shopAgent();
 		await session.call('list_reports', {});
