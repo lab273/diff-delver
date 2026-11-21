@@ -13,6 +13,7 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { MEASURED_TIME_ANNOTATION } from '../../scripts/test-timings.ts';
 import { makeJourneyWorld } from '../support/journey-world.ts';
+import { PART_REQUESTS_AT_ONCE } from '../../src/lib/ui/viewer/requests.ts';
 
 function record(testInfo: TestInfo, what: string, ms: number, guidance: number): void {
 	testInfo.annotations.push({
@@ -113,6 +114,52 @@ test('a diff of 2,000 files and 200,000 changed lines opens and moves at once', 
 		await expect(page.getByRole('complementary', { name: 'Your review' })).toContainText(
 			'100 of 200,000 changes reviewed'
 		);
+
+		// Ticking and unticking the whole group: every part is opened again, but only
+		// those near the screen fetch their lines, a few at a time, and none fails.
+		let inFlight = 0;
+		let mostInFlight = 0;
+		let partRequests = 0;
+		const isPart = (url: string): boolean => url.includes('/part?');
+		page.on('request', (request) => {
+			if (!isPart(request.url())) return;
+			partRequests += 1;
+			inFlight += 1;
+			mostInFlight = Math.max(mostInFlight, inFlight);
+		});
+		const ended = (url: string): void => {
+			if (isPart(url)) inFlight -= 1;
+		};
+		page.on('requestfinished', (request) => {
+			ended(request.url());
+		});
+		page.on('requestfailed', (request) => {
+			ended(request.url());
+		});
+		const review = page.getByRole('complementary', { name: 'Your review' });
+		const group = page.getByRole('checkbox', { name: 'All reviewed: Not sorted yet' });
+		await group.focus();
+		const ticking = performance.now();
+		await page.keyboard.press('Space');
+		await expect(review).toContainText('Everything reviewed: 200,000 changes');
+		record(testInfo, 'time to tick a group of 2,000 files', performance.now() - ticking, 1_000);
+		// Everything is reviewed, and the page moved focus there; back to the group's box.
+		await group.focus();
+		partRequests = 0;
+		const unticking = performance.now();
+		await page.keyboard.press('Space');
+		await expect(review).toContainText('Not started: 200,000 changes to review');
+		await page.waitForFunction(
+			() => document.querySelector('#part-0 td.code')?.textContent === 'old line 1',
+			undefined,
+			{ polling: 'raf' }
+		);
+		record(testInfo, 'time to untick a group of 2,000 files', performance.now() - unticking, 1_000);
+		await expect.poll(() => inFlight).toBe(0);
+		expect(mostInFlight).toBeLessThanOrEqual(PART_REQUESTS_AT_ONCE);
+		expect(partRequests).toBeLessThan(100);
+		await expect(page.getByText('diff delver is not answering')).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
 	} finally {
 		await world.close();
 	}

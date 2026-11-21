@@ -39,6 +39,12 @@
 	const large = $derived(viewer.isLarge(state));
 	const groupName = $derived(viewer.groupOfPart(at)?.name ?? '');
 
+	// Its lines are fetched once it is open and near the screen, however it came to
+	// be open: by the person, by moving to it, or by unticking it.
+	$effect(() => {
+		if (state.near && state.open && !large && state.lines.kind === 'waiting') void viewer.load(at);
+	});
+
 	function sizesText(sizes: NonNullable<PartLinesView['sizes']>): string {
 		if (sizes.old !== null && sizes.new !== null) {
 			return `${describeByteSize(sizes.old)} before, ${describeByteSize(sizes.new)} after`;
@@ -52,13 +58,12 @@
 		return text.charAt(0).toUpperCase() + text.slice(1);
 	}
 
-	/** Fetches the part's lines once it is open and near the screen. */
+	/** Watches whether the part is near the screen. */
 	function nearScreen(element: HTMLElement) {
 		const observer = new IntersectionObserver(
 			(entries) => {
-				if (entries.some((e) => e.isIntersecting) && state.open && !viewer.isLarge(state)) {
-					void viewer.load(at);
-				}
+				const last = entries.at(-1);
+				if (last !== undefined) state.near = last.isIntersecting;
 			},
 			{ rootMargin: '1500px 0px' }
 		);

@@ -4,7 +4,7 @@
  * on the version shown, refused once the diff was updated.
  */
 import { describe, expect, it } from 'vitest';
-import { describeApiError } from '#lib/api/client.ts';
+import { ApiClient, describeApiError } from '#lib/api/client.ts';
 import type { PartQuery } from '#lib/api/schemas.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
@@ -140,6 +140,38 @@ describe('the viewer’s routes', () => {
 		}
 		const never = await client.readPart(id, { ...part('src/long.ts'), version: revision(4) });
 		expect(never).toMatchObject({ ok: false, error: { status: 409, reason: 'VersionNotFound' } });
+	});
+
+	it('says a request that got no answer from a running daemon did not reach it, and only one that has stopped has stopped', async () => {
+		const repo = await useFixture(viewed);
+		const daemon = await testDaemon();
+		const started = value(await clientOf(daemon).start({ directory: repo.dir }));
+		if (started.kind !== 'opened') throw new Error(started.kind);
+		// The browser gives up on requests for lines, as when too many are under way.
+		const givingUp: typeof fetch = (input, init) =>
+			(input instanceof Request ? input.url : input instanceof URL ? input.href : input).includes(
+				'/part?'
+			)
+				? Promise.reject(new TypeError('Failed to fetch', { cause: new Error('too many') }))
+				: fetch(input, init);
+		const client = new ApiClient({ fetch: givingUp, base: daemon.origin, token: daemon.token });
+		const query: PartQuery = {
+			version: revision(1),
+			view: 'sections',
+			group: { kind: 'uncategorised' },
+			path: path('src/new.ts')
+		};
+		const interrupted = await client.readPart(started.diff.id, query);
+		expect(interrupted).toMatchObject({ ok: false, error: { kind: 'interrupted' } });
+		if (!interrupted.ok) {
+			expect(describeApiError(interrupted.error)).toBe(
+				'This did not reach diff delver (too many), though diff delver is running. Try again.'
+			);
+		}
+		await daemon.stop();
+		const stopped = await client.readPart(started.diff.id, query);
+		expect(stopped).toMatchObject({ ok: false, error: { kind: 'unreachable' } });
+		if (!stopped.ok) expect(describeApiError(stopped.error)).toMatch(/It may have stopped/);
 	});
 
 	it('stops saying an update unmarked a change once the reviewer has marked it again', async () => {

@@ -64,8 +64,13 @@ export type ApiError =
 			readonly reason: string;
 			readonly message: ReviewerMessage;
 	  }
-	/** No answer: the daemon is not running, or the connection failed. */
+	/** No answer, and none to a check that it is running: the daemon has stopped, or cannot be reached. */
 	| { readonly kind: 'unreachable'; readonly detail: string }
+	/**
+	 * No answer to this request, though the daemon answers: the browser gave up
+	 * on it, such as when it had too many under way.
+	 */
+	| { readonly kind: 'interrupted'; readonly detail: string }
 	/** An answer this client cannot read, from another build of diff delver. */
 	| { readonly kind: 'unreadable'; readonly status: number; readonly detail: string };
 
@@ -76,6 +81,10 @@ export function describeApiError(error: ApiError): ReviewerMessage {
 		case 'unreachable':
 			return reviewerMessage(
 				`diff delver is not answering (${error.detail}). It may have stopped: run diff-delver in a terminal, in your repository, to start it again.`
+			);
+		case 'interrupted':
+			return reviewerMessage(
+				`This did not reach diff delver (${error.detail}), though diff delver is running. Try again.`
 			);
 		case 'unreadable':
 			return reviewerMessage(
@@ -122,15 +131,15 @@ export class ApiClient {
 				...(body === undefined ? {} : { body: JSON.stringify(body) })
 			});
 		} catch (error) {
-			return err({
-				kind: 'unreachable',
-				detail:
-					error instanceof Error
-						? error.cause instanceof Error
-							? error.cause.message
-							: error.message
-						: String(error)
-			});
+			const detail =
+				error instanceof Error
+					? error.cause instanceof Error
+						? error.cause.message
+						: error.message
+					: String(error);
+			// Only a daemon that does not answer either has stopped; one that answers
+			// was not reached by this request for some other reason.
+			return err({ kind: (await this.#answers()) ? 'interrupted' : 'unreachable', detail });
 		}
 		let json: unknown;
 		try {
@@ -165,6 +174,23 @@ export class ApiClient {
 			status: response.status,
 			detail: `${issue?.path.join('.') ?? ''}: ${issue?.message ?? 'not as expected'}`
 		});
+	}
+
+	/** Whether the daemon answers at all, after a request that got no answer. */
+	async #answers(): Promise<boolean> {
+		try {
+			const response = await this.#options.fetch(`${this.#options.base}/api/daemon`, {
+				headers: {
+					accept: 'application/json',
+					...(this.#options.token === undefined
+						? {}
+						: { authorization: `Bearer ${this.#options.token}` })
+				}
+			});
+			return response.ok;
+		} catch {
+			return false;
+		}
 	}
 
 	listDiffs(): Promise<Result<DiffList, ApiError>> {

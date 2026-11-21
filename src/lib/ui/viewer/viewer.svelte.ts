@@ -47,6 +47,7 @@ import { partIndexOf, type PartIndex } from '#lib/core/part-index.tiny.ts';
 import { describeChanges, formatCount } from '#lib/core/viewer/words.ts';
 import { pageClient } from '#lib/ui/client.ts';
 import { SvelteMap } from 'svelte/reactivity';
+import { PART_REQUESTS_AT_ONCE } from './requests.ts';
 
 /** How many parts are drawn at first, and how many more after each frame. */
 export const FIRST_BATCH = 40;
@@ -96,6 +97,8 @@ export interface PartState {
 	readonly key: string;
 	part: PartView;
 	open: boolean;
+	/** Whether it is on the screen or near it, so its lines are wanted when open. */
+	near: boolean;
 	/** For a large part: whether the person asked to see it. */
 	showLarge: boolean;
 	lines: LinesState;
@@ -244,6 +247,9 @@ export class Viewer {
 	readonly #groupOf: number[] = [];
 	/** Where each file is in the by-file list. */
 	readonly #fileAt: ReadonlyMap<EscapedPath, number>;
+	/** Parts' lines being fetched, and those waiting their turn (`PART_REQUESTS_AT_ONCE`). */
+	#fetching = 0;
+	readonly #waitingTurns: (() => void)[] = [];
 	/** How many ticks have been answered, so a slower refresh never undoes a newer tick. */
 	#ticks = 0;
 
@@ -276,6 +282,7 @@ export class Viewer {
 					key,
 					part,
 					open: part.group.kind !== 'ignored' && !done(part.tally),
+					near: false,
 					showLarge: false,
 					lines: { kind: 'waiting' },
 					busy: false,
@@ -382,12 +389,18 @@ export class Viewer {
 			return;
 		}
 		state.lines = { kind: 'loading' };
-		const read = await pageClient().readPart(this.id, {
-			version: this.version,
-			view: this.view,
-			group: state.part.group,
-			path: state.part.path
-		});
+		const release = await this.#turn();
+		let read: Awaited<ReturnType<ReturnType<typeof pageClient>['readPart']>>;
+		try {
+			read = await pageClient().readPart(this.id, {
+				version: this.version,
+				view: this.view,
+				group: state.part.group,
+				path: state.part.path
+			});
+		} finally {
+			release();
+		}
 		if (!read.ok) {
 			state.lines = { kind: 'failed', message: describeApiError(read.error) };
 			return;
@@ -405,6 +418,20 @@ export class Viewer {
 						return { ...block, shown: false };
 				}
 			})
+		};
+	}
+
+	/** Waits for a turn to fetch a part's lines; the function it gives ends the turn. */
+	async #turn(): Promise<() => void> {
+		if (this.#fetching >= PART_REQUESTS_AT_ONCE) {
+			await new Promise<void>((resolve) => {
+				this.#waitingTurns.push(resolve);
+			});
+		}
+		this.#fetching += 1;
+		return () => {
+			this.#fetching -= 1;
+			this.#waitingTurns.shift()?.();
 		};
 	}
 
@@ -513,12 +540,11 @@ export class Viewer {
 			if (state === undefined) continue;
 			const wasDone = done(state.part.tally);
 			state.part = part;
-			// A part just ticked is put away, and one just unticked is opened again, as GitHub does.
+			// A part just ticked is put away, and one just unticked is opened again, as
+			// GitHub does; its lines are fetched when it comes near the screen, as any
+			// part's are (Part.svelte), so unticking 2,000 parts fetches only those in view.
 			if (!wasDone && done(part.tally)) state.open = false;
-			if (wasDone && !done(part.tally) && part.group.kind !== 'ignored') {
-				state.open = true;
-				if (at !== undefined && !this.isLarge(state)) void this.load(at);
-			}
+			if (wasDone && !done(part.tally) && part.group.kind !== 'ignored') state.open = true;
 		}
 		this.#putFiles(sent.value.files);
 		// What is stored differs from what the page holds: another page on the same
