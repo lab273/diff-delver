@@ -194,4 +194,51 @@ describe('searching within the diff on its page', () => {
 		search.close();
 		expect(partOf(viewer, B).open).toBe(false);
 	});
+	it('stays on the match the person is on when lines are opened above it in its part', async () => {
+		const { viewer, search } = await opened();
+		await searchFor(viewer, 'findme');
+		expect(await steps(viewer, [true, true])).toEqual([
+			'1 a.ts findme10 = 1 6',
+			"2 a.ts findme50 = ' 6"
+		]);
+		await viewer.openLines(A, hiddenBetweenHunks(viewer, A), 'all');
+		// The opened line's match comes before it now: the same match, counted third.
+		expect(where(viewer, search.current)).toBe("a.ts findme50 = ' 6");
+		expect(search.summary).toBe('3 of 6 matches in 2 files');
+		// The mark drawn as the current one is on that line, at that offset.
+		const place = search.current?.place;
+		if (place?.kind !== 'line') throw new Error('Not on a line');
+		const marked = [...(search.marksIn(A)?.lines.entries() ?? [])].flatMap(([line, marks]) =>
+			marks.filter((m) => m.current).map((m) => ({ line, start: m.start }))
+		);
+		expect(marked).toEqual([{ line: place.line, start: 6 }]);
+		expect(place.line.text).toBe("const findme50 = 'findme';");
+		expect(await steps(viewer, [true])).toEqual(["4 a.ts findme'; 18"]);
+		expect(await steps(viewer, [false, false])).toEqual([
+			"3 a.ts findme50 = ' 6",
+			'2 a.ts findme, unch 3'
+		]);
+	});
+
+	it('says no place among the matches once the one the person is on is hidden or skipped, and goes on from it', async () => {
+		const { viewer, search } = await opened();
+		await searchFor(viewer, 'findme');
+		expect(await steps(viewer, [true, true, true, true])).toContain('4 b.ts findme b 0');
+		// Ticking it closes it, and the filter hides it.
+		await viewer.tick({ kind: 'part', at: B }, true);
+		viewer.onlyWaiting = true;
+		expect(search.ordinal).toBeUndefined();
+		expect(search.summary).toBe('3 matches in 1 file. Press Enter to go to the next.');
+		expect(search.describeCurrent()).toBe(search.summary);
+		expect(await steps(viewer, [false])).toEqual(["3 a.ts findme'; 18"]);
+
+		// With Skip closed files, a part ticked, and so closed, stops counting too.
+		viewer.onlyWaiting = false;
+		await viewer.tick({ kind: 'part', at: B }, false);
+		expect(await steps(viewer, [true])).toEqual(['4 b.ts findme b 0']);
+		search.skipClosed = true;
+		await viewer.tick({ kind: 'part', at: B }, true);
+		expect(search.summary).toBe('3 matches in 1 file. Press Enter to go to the next.');
+		expect(await steps(viewer, [true])).toEqual(['1 a.ts findme10 = 1 6']);
+	});
 });

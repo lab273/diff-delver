@@ -43,11 +43,20 @@ export type Found =
 			readonly counts: ReadonlyMap<PartIndex, number>;
 	  };
 
-/** The match the person is on: a part, and the match's place among that part's. */
+/**
+ * The match the person is on: a part, and the line (or the part's name) and
+ * offset in it. Its place among the part's matches is worked out again
+ * whenever they change, as when lines are opened above it.
+ */
 export interface CurrentMatch {
 	readonly at: PartIndex;
-	readonly index: number;
 	readonly place: MatchPlace;
+}
+
+/** Whether two places are the same match: on the same line, or the name, at the same offset. */
+function samePlace(a: MatchPlace, b: MatchPlace): boolean {
+	if (a.kind === 'path' || b.kind === 'path') return a.kind === b.kind && a.start === b.start;
+	return a.line === b.line && a.start === b.start;
 }
 
 /** Where a part's matches are, for drawing them: on its path, and on each line. */
@@ -127,13 +136,26 @@ export class DiffSearch {
 		return { matches, files: files.size };
 	}
 
-	/** The current match's place among all of them, from 1. */
+	/**
+	 * Where the current match is among its part's matches, as they are now;
+	 * undefined when there is none, or its part no longer counts, as when the
+	 * filter hides it or it was closed with Skip closed files on.
+	 */
+	#currentIndex(): number | undefined {
+		const current = this.current;
+		if (current === undefined || !this.counts(current.at)) return undefined;
+		const index = this.#placesOf(current.at).findIndex((p) => samePlace(p, current.place));
+		return index < 0 ? undefined : index;
+	}
+
+	/** The current match's place among all of them, from 1, while it counts. */
 	get ordinal(): number | undefined {
 		const current = this.current;
-		if (current === undefined) return undefined;
+		const index = this.#currentIndex();
+		if (current === undefined || index === undefined) return undefined;
 		let before = 0;
 		for (let at = 0; at < current.at; at += 1) before += this.matchesIn(partIndexOf(at));
-		return before + current.index + 1;
+		return before + index + 1;
 	}
 
 	/** What the search box says of what was found. */
@@ -151,9 +173,11 @@ export class DiffSearch {
 				if (matches === 0) return 'No matches';
 				const where = `${countOf(matches, 'match', 'matches')} in ${countOf(files, 'file', 'files')}`;
 				const ordinal = this.ordinal;
-				return ordinal === undefined
+				if (ordinal !== undefined) return `${formatCount(ordinal)} of ${where}`;
+				// The match the person was on is hidden or skipped now: Enter goes on from there.
+				return this.current === undefined
 					? `${where}. Press Enter to go to the first.`
-					: `${formatCount(ordinal)} of ${where}`;
+					: `${where}. Press Enter to go to the next.`;
 			}
 		}
 	}
@@ -166,11 +190,15 @@ export class DiffSearch {
 		if ((found.counts.get(at) ?? 0) === 0 && state.lines.kind !== 'loaded') return undefined;
 		const places = this.#placesOf(at);
 		if (places.length === 0) return undefined;
-		const current = this.current?.at === at ? this.current.index : undefined;
+		const current = this.current?.at === at ? this.current.place : undefined;
 		const path: Mark[] = [];
 		const lines = new SvelteMap<object, (Mark & { index: number })[]>();
 		for (const [index, place] of places.entries()) {
-			const mark = { start: place.start, length: place.length, current: index === current };
+			const mark = {
+				start: place.start,
+				length: place.length,
+				current: current !== undefined && samePlace(place, current)
+			};
 			if (place.kind === 'path') {
 				path.push(mark);
 				continue;
@@ -274,6 +302,7 @@ export class DiffSearch {
 		const viewer = this.#viewer;
 		const count = viewer.parts.length;
 		const current = this.current;
+		const currentIndex = this.#currentIndex();
 		const from = current?.at ?? viewer.current ?? partIndexOf(forward ? 0 : Math.max(0, count - 1));
 		for (let n = 0; n <= count; n += 1) {
 			const raw = forward ? from + n : from - n;
@@ -285,14 +314,14 @@ export class DiffSearch {
 			// first (or last). The last turn comes back to where it began, so the search
 			// goes round within a part that holds every match.
 			const index =
-				n === 0 && current !== undefined
-					? current.index + (forward ? 1 : -1)
+				n === 0 && currentIndex !== undefined
+					? currentIndex + (forward ? 1 : -1)
 					: forward
 						? 0
 						: places.length - 1;
 			const place = places[index];
 			if (place === undefined) continue;
-			return this.#moveTo(at, index, place);
+			return this.#moveTo(at, place);
 		}
 		return undefined;
 	}
@@ -304,7 +333,7 @@ export class DiffSearch {
 	}
 
 	/** Makes a match the current one, and the page show it: its part open and its line drawn. */
-	#moveTo(at: PartIndex, index: number, place: MatchPlace): CurrentMatch {
+	#moveTo(at: PartIndex, place: MatchPlace): CurrentMatch {
 		const viewer = this.#viewer;
 		const state = viewer.parts[at];
 		if (state !== undefined) {
@@ -333,7 +362,7 @@ export class DiffSearch {
 		}
 		viewer.current = at;
 		viewer.drawUpTo(at);
-		const moved = { at, index, place };
+		const moved = { at, place };
 		this.current = moved;
 		return moved;
 	}
@@ -342,7 +371,9 @@ export class DiffSearch {
 	describeCurrent(): string {
 		const current = this.current;
 		const state = current === undefined ? undefined : this.#viewer.parts[current.at];
-		if (current === undefined || state === undefined) return this.summary;
+		if (current === undefined || state === undefined || this.ordinal === undefined) {
+			return this.summary;
+		}
 		const path = shownPath(state.part.path);
 		const where =
 			current.place.kind === 'path'
