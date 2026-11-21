@@ -367,7 +367,7 @@ export async function listCommits(
 		logged = await gitIn(repo, gitCwd(repo), [...walk, '-z', '--end-of-options', start, '--']);
 	}
 	if (!logged.ok) {
-		if (logged.error.kind === 'BadRevision' || logged.error.kind === 'GitFailed') {
+		if (logged.error.kind === 'BadRevision') {
 			const revision = parseRevision(branch);
 			if (revision.ok) {
 				return err({

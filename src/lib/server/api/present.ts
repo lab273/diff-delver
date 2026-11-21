@@ -242,8 +242,7 @@ export function historyView(found: RepositoryBranches, now: Timestamp): HistoryV
 		lastFetch:
 			found.lastFetch.kind === 'no-remote'
 				? { kind: 'no-remote' }
-				: { ...found.lastFetch, remotes: [...found.lastFetch.remotes] },
-		shallow: found.shallow
+				: { ...found.lastFetch, remotes: [...found.lastFetch.remotes] }
 	};
 }
 

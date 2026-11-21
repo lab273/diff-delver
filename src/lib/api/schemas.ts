@@ -710,9 +710,7 @@ export const HistorySchema = z.object({
 		z.object({ kind: z.literal('no-remote') }),
 		z.object({ kind: z.literal('never'), remotes: z.array(remoteName) }),
 		z.object({ kind: z.literal('fetched'), at: timestamp, remotes: z.array(remoteName) })
-	]),
-	/** A shallow clone: the oldest commits shown may have no history before them. */
-	shallow: z.boolean()
+	])
 });
 export type HistoryView = z.output<typeof HistorySchema>;
 export type BranchView = HistoryView['branches'][number];

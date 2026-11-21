@@ -544,8 +544,6 @@ export interface RepositoryBranches {
 	readonly repository: ReviewerMessage;
 	readonly branches: Branches;
 	readonly lastFetch: LastFetch;
-	/** A shallow clone: some history was not downloaded. */
-	readonly shallow: boolean;
 }
 
 function worktreeOf(repo: LocalRepository): AbsolutePath {
@@ -842,8 +840,7 @@ export class ReportService {
 		return ok({
 			repository: repositoryLabel(worktreeOf(repo.value)),
 			branches: branches.value,
-			lastFetch: await lastFetch(repo.value, branches.value.remotes, branches.value.main),
-			shallow: repo.value.shallow
+			lastFetch: await lastFetch(repo.value, branches.value.remotes, branches.value.main)
 		});
 	}
 
