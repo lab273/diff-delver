@@ -9,24 +9,49 @@ LLM-assisted diff organisation. An agent sorts your diff into logical sections a
 With Node 26 (or newer) and git, in a git repository with changes:
 
 ```
-npx github:lab273/diff-delver
+npx https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz
 ```
+
+That address is always the newest [release](https://github.com/lab273/diff-delver/releases).
+npx asks once whether to install it (about 3 MB, with nothing else to fetch), then runs it.
+Until the first release is made the address finds nothing; meanwhile, run it from a
+clone (below) or with `npx github:lab273/diff-delver`, which fetches the repository and
+builds it, and takes a while.
 
 It opens your uncommitted changes in the browser, or your branch compared with the
 main branch, or a short choice when several are likely. Run it again later to see
 your files as they are then: the diff is brought up to date. Nothing is written to the
-repository. The first run fetches diff delver and builds it, which takes a while;
-after that it starts at once. `npx github:lab273/diff-delver --help` lists the rest:
+repository. `diff-delver --help` (after the same `npx` address) lists the rest:
 `open <source>` for a commit, a range such as `main...feature-x`, `staged` or
 `working-tree`; `--no-open` to print the address instead of opening a browser (it works once, within two minutes);
-`stop`; `serve`; `--data-directory <folder>` (or `DIFF_DELVER_DATA_DIRECTORY`) to keep
+`stop`; `serve`; `--version`; `--data-directory <folder>` (or `DIFF_DELVER_DATA_DIRECTORY`) to keep
 its data somewhere other than this machine's usual place (`~/.local/share/diff-delver`
 on Linux).
+
+`pnpm dlx` with the same address works too, and does not fetch it again on later runs.
 
 From a clone instead: `pnpm install` (which builds it; after pulling changes, `pnpm build`), then run
 `node <clone>/bin/diff-delver.js` in the repository you want to review.
 
-diff delver is not published to npm, and never will be under this name.
+diff delver is not published to npm, and never will be under this name. Releases are
+tarballs on GitHub.
+
+### Upgrading
+
+npx fetches the address each time it runs, so it needs the network, but it keeps
+running the copy it installed first, even after a newer release. To move to the newest
+release, delete npx's copies (they are only a cache) and run the same command again:
+`rm -rf ~/.npm/_npx` on Linux and macOS, or the `_npx` folder in `%LocalAppData%\npm-cache`
+on Windows. When an older copy finds a newer diff delver running, it says so and names
+the folder to delete.
+
+To keep diff delver installed instead, `npm install --global
+https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz` and then
+run `diff-delver`; running the same install again moves to the newest release. `pnpm dlx`
+keeps its copy for a day by default, then fetches the newest.
+
+When a newer diff delver starts and an older one is running, the newer one replaces it
+and says so; pages the old one had open need opening again.
 
 ## Developer guidance
 
@@ -56,7 +81,7 @@ what do they do next?
 - beads (`bd`), the issue tracker, 1.3.4 or newer. It is needed only to track work, not to build or test.
 
 Running diff delver, rather than working on it, needs only Node 26 and git (see
-[Try it](#try-it)).
+[Try it](#try-it)): a release is a tarball of the build with no dependencies.
 
 `.nvmrc` pins the Node line and `package.json` pins pnpm (`packageManager`). After
 cloning: `pnpm install`, then `pnpm exec playwright install chromium` once. `pnpm
@@ -69,7 +94,7 @@ github:` does when it fetches diff delver.
 |---|---|
 | `pnpm verify` | Everything a commit must pass, failing fast: Prettier check, ESLint, `svelte-check`, a production build, the Vitest suite (whose daemon and command tests use the build), the Playwright journeys with their committed screenshots, and the viewer's speed on a large diff (`tests/speed/`). Prints the time per step, the slowest tests, and a warning for each test over the time guidance under [Testing](#testing) and for a run over two minutes (`VERIFY_WARN_AFTER_SECONDS` changes that); time never fails it. |
 | `pnpm dev` | The app with live reload, on the data folder in `DIFF_DELVER_DATA_DIRECTORY` or this machine's default, without the daemon's checks: for working on the pages. |
-| `pnpm build` | A production build into `build/`: the app (`vite build`, the Node adapter's `build/handler.js`), then the command (`vite.cli.config.ts`, `build/cli/diff-delver.js`). `node bin/diff-delver.js` runs it. The integration tests that run the command make it themselves when it is older than its sources. |
+| `pnpm build` | A production build into `build/`: the app (`vite build`, the Node adapter's `build/handler.js`), then the command (`vite.cli.config.ts`, `build/cli/diff-delver.js`). `node bin/diff-delver.js` runs it. The integration tests that run the command make it themselves when it is older than its sources. Its version is the package version marked `-dev` and a hash of the code; with `DIFF_DELVER_RELEASE_VERSION` set, as the release workflow sets it, the release's version instead. |
 | `pnpm test` | Every Vitest test, core and integration. |
 | `pnpm test:core` / `pnpm test:integration` | One Vitest layer. `pnpm test:watch` reruns on change. |
 | `pnpm test:journeys` | A production build, then the Playwright journeys against it, with the journey helper's own tests and the viewer's speed on a large diff. |
@@ -79,6 +104,8 @@ github:` does when it fetches diff delver.
 | `pnpm check` | `svelte-check`: types in TypeScript and Svelte files. |
 | `pnpm format` | Rewrites files with Prettier. `pnpm format:check` only checks. |
 | `pnpm bd <arguments>` | beads' `bd`, with the agent identity set. `pnpm bd push` flags likely personal data before publishing. See [Tracking work](#tracking-work). |
+| `pnpm release:package [--version <release>] [--out <folder>]` | Packs the build already in `build/` into `release/diff-delver.tgz`, with its checksum and release notes: bin, the build without source maps, the licence, the README and a package.json with no scripts or dependencies, still private. With `--version`, refuses a build that reports another. Never builds and never publishes. See [Releasing](#releasing). |
+| `pnpm release:check [<tarball>] [--version <release>]` | Proves a packed package works: installs it with `npx` from a local address that redirects as GitHub's does, in a fresh folder with only Node, npm, git and a shell, no registry and nothing of the machine's, asks its version, opens a diff with `--no-open` and asks its page, and stops it. Says how long the first run took and what it downloaded. |
 | `pnpm fixtures:capture` | Rebuilds the diff fixture repositories with real git and records git's output as the core parser's fixtures. Run it after changing a fixture or the diff command. |
 | `pnpm fixtures:old-database` | Rebuilds the data folder an earlier diff delver wrote (`src/lib/server/reports/fixtures/before-file-units/`), by running that version's code from git history, so it needs a clone with history. Run it only to change what the fixture holds. |
 
@@ -117,6 +144,7 @@ github:` does when it fetches diff delver.
 | `src/lib/server/sources/git/` | Local git sources (DESIGN 3.1), imported from `#lib/server/sources/git/index.ts`. `locateRepository` finds the repository a directory is in; its store is named by its common git directory with links resolved, and its object format, so subdirectories, symbolic links and linked worktrees share one store. `snapshotGitSource` turns a working tree, the index, a commit or a range into a snapshot without writing to the repository: commits are copied in read-only, and the working tree and index are written into the store with `git add --all` and `git write-tree` against a private copy of the index (`scratch-index.ts`), with the store as git's only object directory. `sourceIdentity` is the cheap check for change, `sourceHasChanges` the cheap check that a source can be read and has something to review, `commitsSince` tells which commits were made on top of the one uncommitted changes were made on, and `suggestSource` decides what the no-argument start opens: uncommitted changes, else the branch compared with the main branch, else a chooser or the reason there is nothing, each candidate described in plain words with its size. Commands in the reviewed repository go through `gitIn`, which uses the reviewer's git config and never lets git fetch a missing object into a partial clone; tests pass their own config with `RepositoryOptions.gitEnv`. The source spec and its plain-words descriptions are pure, in `src/lib/core/sources/`, as is reading why `git add` left a file out (`git-add-refusal.ts`). |
 | `tests/support/` | Shared test helpers. `journey.ts` is the journey helper: a journey gets only its `Journey`, never a Playwright page or locator. `journey.step` waits until nothing on the page is `aria-busy`, then checks a screen (screenshots of the viewport in both themes compared exactly, accessibility, bundled fonts only, no browser errors, and no refusal from the app's API but those the step declares, by route and status); a journey finds things by role, text or label, inside a region (`within`) or by place (`nth`), moves with `press`, `type`, `tabTo` and `activate` (which, like `open` and `step`, first wait for the page's `data-ready`, so no key reaches a page that is drawn but not yet working), checks with `expect…` methods that wait for the app (text, visibility, focus, a control's state), and uses `readClipboard`, `chooseFiles`, `editFile`, `commitAll`, `returnToPage` (the page's window gets the focus again) and `inAnotherTab` (a second tab, as running the command again opens, with a journey of its own whose screenshots are not kept) for what a person does outside the page; `repository` gives it a named fixture repository and `command` runs `diff-delver` there as a person would, against the journey's own daemon, giving what it prints and the address it opens. Lint keeps journeys to it, and so to the keyboard (`scripts/eslint-journey-rules.ts`, tested by `scripts/journey-rules.test.ts`); the page itself is not watched, so the app may set its own fields and fire its own events. `journey.spec.ts` tests the helper itself, in the journey browser, on pages it plants. `accessibility.ts` scans the current screen with axe, for the step. `journey-fonts.ts` and `fontconfig/` give the journey browser the bundled Inter as its only installed font. `journey-world.ts` holds the journeys' named repositories (built once per run, each copied into a folder named after it, so the page names it the same on every machine) and starts each journey's daemon in its worker, on the production build, with its own data folder, the fixed `JOURNEY_TIME` and sequential ids. `daemons.ts` starts daemons for integration tests and makes raw HTTP requests with exactly the headers given; `build.ts` makes the production build for them when it is older than its sources. `git-repo.ts` builds real repositories with real git, with a fixed identity and dates. `fixture-repos.ts` gives each integration test its own copy of a named fixture repository (`defineFixture`, `useFixture`), built once per run, a fresh empty one (`emptyRepo`), or a fresh empty directory (`tempDirectory`), such as a data directory. `report-rows.ts` makes reports and revisions with fixed ids and times for the table tests. `directory-listing.ts` lists a directory completely (kinds, modes, sizes, times in nanoseconds, inodes, content hashes), to prove an operation wrote nothing to it. `partial-clone.ts` makes blobless and treeless clones of a small server repository. `reviewer-git.ts` gives a test its own reviewer git setup (home folder and global config, never the machine's) and works out the tree real git would commit from a copy of a repository; `git-source-helpers.ts` takes a git source's snapshot while checking that the repository's listing did not change. `diff-fixtures.ts` defines the repositories with every awkward kind of change. `tree-diffs.ts` gives the diff between two modelled trees (a path to each file's lines, with the renames, copies and modes the test names), with Myers' algorithm, as the fixed diff command would, and `update-scale.ts` an update of 2,000 files for the carry-over's size tests; both are pure. `synthetic-diff.ts` writes diff output for property and size tests, with arbitraries for `assign` calls and reviewed marks, and is pure, so core tests may use it. `stopwatch.ts` is the real clock, for the size tests that measure elapsed time, and `measured-time.ts` records what they measured against its guidance (`timed`, `recordTime`), for `pnpm verify` to warn about instead of the test failing. `work-count.ts` counts the blocks of core code a piece of work runs, with V8's precise coverage, for tests that hold work to a bound instead of a time. |
 | `scripts/verify.ts` | The `pnpm verify` runner. |
+| `scripts/release-package.ts`, `release-check.ts`, `release-preflight.ts` | Releasing (see [Releasing](#releasing)): `pnpm release:package` and `pnpm release:check`, and the release workflow's first checks of what the person typed. `release.test.ts` packs the build `pnpm verify` made and checks it, offline; `release-workflow.test.ts` holds the workflow to its rules and runs the first checks. The release version (`src/lib/core/release-version.tiny.ts`) is three whole numbers with a `v` tag, and what the command says when it replaced a daemon of an older or newer release, with how to upgrade, is `src/lib/core/cli/replaced-daemon.ts`. |
 | `scripts/test-time-limits.ts` | Each type of test's time guidance and its hang timeout, the only time limit that fails a test. The Vitest and Playwright configs and `pnpm verify` read it. |
 | `scripts/journeys.ts` | `pnpm journeys:update`, `pnpm journeys:repeat`, and the check `pnpm verify` runs after the journeys for committed screenshots no step produces. `journey-screenshots.ts` names the images and finds stale ones; `png-pixels.ts` compares two images pixel for pixel; `woff-to-sfnt.ts` unpacks a WOFF font. |
 | `scripts/test-timings.ts` | Reads the test reports and works out which tests went over their guidance, for `pnpm verify`. |
@@ -126,6 +154,7 @@ github:` does when it fetches diff delver.
 | `scripts/bd.ts` | The `pnpm bd` wrapper. `bd-push.ts` decides which commands are checked first, when a push is tried again and what a finding says; `private-data-scan.ts` finds personal and sensitive data in the issue data; `issue-tracker-identity.ts` holds the agent identity and the email allow-list. |
 | `scripts/ci-commits.sh` | Lists the commits a push must verify, for CI, and splits them into jobs. Tested by `scripts/ci-commits.test.ts`, in the `integration` project. |
 | `.github/workflows/verify.yml` | CI: `pnpm verify` on every commit of every push to `main`, including every rewritten commit of a force push. |
+| `.github/workflows/release.yml` | The release, started only by hand: checks, `pnpm verify`, packing and trying the package, then the GitHub release. See [Releasing](#releasing). |
 | `.beads/` | The beads issue tracker's settings. The issue database itself is not in git; it syncs through `pnpm bd push` and `pnpm bd dolt pull`. After cloning, `pnpm bd bootstrap` fetches it. `private-terms.txt`, if you make one, is ignored by git. |
 
 **Tiny-type files.** A tiny type and its parse function live in their own file
@@ -162,11 +191,41 @@ Comments cannot switch lint rules off (`noInlineConfig`); fix the code instead.
   save time. The limits are under [Testing](#testing) and they are guidance.
 - **Not published to npm.** The package is private and stays that way. Never run
   a publish command and never reserve the name on a registry.
+- **Releases only by hand.** A release is made only by a person starting the
+  release workflow; it runs every test before it packages. Nothing releases
+  automatically, and nothing else makes a release, a release tag or an asset.
 - **Work is tracked in beads.** See [Tracking work](#tracking-work).
 
 The repository is used with both git and jj, and jj does not run git hooks, so the
 check cannot rely on a pre-commit hook alone. `pnpm verify` and per-commit CI are
 the mechanism.
+
+### Releasing
+
+A release is a tarball on GitHub, `diff-delver.tgz`, which the command under
+[Try it](#try-it) fetches from the newest release. Only the release workflow makes one,
+and only when a person starts it.
+
+1. On GitHub, open **Actions**, choose **Release**, then **Run workflow**. Leave
+   **Use workflow from** on `main`: any other branch is refused.
+2. Type the **version**, three whole numbers with no `v`, after the newest release
+   (`0.2.0`), and the **commit** you mean to release: at least the first 7
+   characters of its id, from `main`'s history. If `main` has moved on since you
+   looked, the release stops.
+3. It checks what you typed and that no tag or release of that version exists; runs
+   `pnpm verify` on the commit; builds it with the version written in, packs it and
+   installs and runs the packed package (`pnpm release:package`, `pnpm
+   release:check`); and only then makes the release `v<version>` on that commit, with
+   the tarball, its checksum and notes that say how to run it. Any refusal or failure
+   says what is wrong, and nothing is released. It takes around ten minutes, most of
+   it the tests; the run's page shows each job as it goes.
+4. Afterwards, open the release's page and check its notes and its two files; then, in
+   a repository with changes, run the command under [Try it](#try-it) after deleting
+   npx's copies (see [Upgrading](#upgrading)), and check `--version` shows the new
+   version.
+
+The scripts it runs can be run locally: `pnpm build`, `pnpm release:package`, `pnpm
+release:check`. They never publish, tag or upload anything.
 
 ### Tracking work
 
