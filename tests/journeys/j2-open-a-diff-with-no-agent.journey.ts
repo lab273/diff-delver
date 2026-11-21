@@ -6,9 +6,8 @@ import { expect, test } from '../support/journey.ts';
 // with every awkward kind of change, all under "Not sorted yet": a rename and a
 // file made executable shown and ticked, odd characters shown for what they
 // are, a binary file and a large one, the lockfile ignored with its reason,
-// and the by-file view with every file once; then code to read, coloured by
-// language, with its marks over the colours, and plain when asked; side by
-// side; and with changes to white space hidden.
+// and the by-file view with every file once. Reading code, coloured, side by
+// side and with white space hidden, is J16.
 test.describe('J2 Open a diff with no agent', () => {
 	test('the command opens the branch, offers a choice, or says there is nothing new', async ({
 		journey
@@ -186,110 +185,5 @@ test.describe('J2 Open a diff with no agent', () => {
 			{ checked: true }
 		);
 		await journey.step('Every file once');
-
-		// Code is coloured by language, each file as a whole: a line deep inside a
-		// comment is coloured as a comment though the line that opens it is hidden.
-		const reading = await journey.repository('reading');
-		await journey.open((await journey.command([], reading)).address);
-		const lexer = journey.byRole('article', { name: 'src/lexer.ts' });
-		await journey.expectVisible(journey.within(lexer).byText('8 unchanged lines'));
-		await journey.expectVisible(
-			journey.within(lexer).byText(' *   4. A number is a word, and keeps its digits.')
-		);
-		await journey.expectVisible(journey.byRole('article', { name: 'app/models.py' }));
-		await journey.step('Code coloured by language');
-
-		// Rust and CSS too; and the marks for a tab, white space at the end, a CRLF
-		// ending and a character that cannot be seen are drawn over the colours.
-		for (let n = 0; n < 4; n += 1) await journey.press('j');
-		const marks = journey.byRole('article', { name: 'src/marks.ts' });
-		await journey.expectFocused(journey.byRole('button', { name: 'src/marks.ts', exact: true }));
-		await journey.expectVisible(journey.within(marks).byText('\\u200B'));
-		await journey.step('Marks over colours');
-
-		// Colours can be switched off, for every diff; the code is then plain.
-		const colours = journey.byRole('button', { name: 'Colour the code' });
-		await journey.activate(colours);
-		await journey.expectState(colours, { pressed: false });
-		await journey.step('Code shown plain');
-		await journey.activate(colours);
-		await journey.expectState(colours, { pressed: true });
-
-		// Side by side: before on the left, after on the right, a removed run beside
-		// the added run that replaces it, a line with nothing in its place beside an
-		// empty cell, and unchanged lines opened across both sides.
-		await journey.press('s');
-		await journey.expectState(journey.byRole('button', { name: 'Side by side' }), {
-			pressed: true
-		});
-		await journey.tabTo(journey.byRole('button', { name: 'src/pairs.ts', exact: true }));
-		const pairs = journey.byRole('article', { name: 'src/pairs.ts' });
-		await journey.expectFocused(journey.byRole('button', { name: 'src/pairs.ts', exact: true }));
-		await journey.expectVisible(
-			journey.within(pairs).byRole('table', { name: 'Lines side by side of src/pairs.ts' })
-		);
-		await journey.activate(
-			journey.within(pairs).byRole('button', { name: 'Show all 7 unchanged lines' })
-		);
-		// An unchanged line opened is on both sides.
-		const price13 = journey.within(pairs).byText('export const price13 = 130;');
-		await journey.expectVisible(journey.nth(price13, 1));
-		await journey.expectVisible(journey.nth(price13, 2));
-		await journey.step('Side by side');
-		// Back to one column, from the keyboard: the reader stays on the same file.
-		await journey.press('s');
-		await journey.expectVisible(
-			journey.within(pairs).byRole('table', { name: 'Lines of src/pairs.ts' })
-		);
-		await journey.expectInView(journey.byRole('button', { name: 'src/pairs.ts', exact: true }));
-
-		// White-space changes hidden: a re-indented block reads as unchanged lines
-		// among the real change, a hunk with nothing else says so, and the file says
-		// how many are hidden and that marking it reviewed covers them.
-		await journey.press('w');
-		await journey.expectState(journey.byRole('button', { name: 'Hide white-space changes' }), {
-			pressed: true
-		});
-		await journey.press('j');
-		await journey.press('j');
-		const total = journey.byRole('article', { name: 'tools/total.ts' });
-		await journey.expectFocused(journey.byRole('button', { name: 'tools/total.ts', exact: true }));
-		await journey.expectText(
-			total,
-			'10 changes here only change white space, so they are drawn as unchanged lines. Marking this file as reviewed covers them too.'
-		);
-		await journey.expectText(total, 'Only white space changed here: 2 changes hidden');
-		await journey.step('White-space changes hidden');
-
-		// Side by side too: each side keeps its own white space.
-		await journey.press('s');
-		await journey.expectVisible(
-			journey.within(total).byRole('table', { name: 'Lines side by side of tools/total.ts' })
-		);
-		await journey.step('White-space changes hidden side by side');
-
-		// They are still changes: ticking the file marks all twelve.
-		await journey.press('r');
-		await journey.expectState(
-			journey.within(total).byRole('checkbox', { name: 'Reviewed: tools/total.ts' }),
-			{ checked: true }
-		);
-		await journey.expectText(
-			journey.byRole('complementary', { name: 'Your review' }),
-			'12 of 40 changes reviewed'
-		);
-
-		// Where white space is part of what a file says, as in YAML, the file says
-		// so: its hidden change moves a key out of its block.
-		await journey.press('j');
-		const workflow = journey.byRole('article', { name: 'tools/workflow.yml' });
-		await journey.expectFocused(
-			journey.byRole('button', { name: 'tools/workflow.yml', exact: true })
-		);
-		await journey.expectText(
-			workflow,
-			'In a YAML file, white space can change what a line means, so they are worth a look.'
-		);
-		await journey.step('White space that matters, hidden');
 	});
 });
