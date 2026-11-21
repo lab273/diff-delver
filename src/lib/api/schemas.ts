@@ -339,8 +339,15 @@ function inQuery<T>(parse: (value: number) => Result<T, unknown>): z.ZodType<T> 
 	);
 }
 
-/** GET /api/diffs/:id?view=V: which view to give the page in. */
-export const PageQuerySchema = z.object({ view: ViewSchema.default('sections') });
+/**
+ * GET /api/diffs/:id?view=V&version=N: which view to give the page in, and of
+ * which version: the newest, or the one a page shows, to bring its ticks up to
+ * date with what another page marked.
+ */
+export const PageQuerySchema = z.object({
+	view: ViewSchema.default('sections'),
+	version: inQuery(parseRevisionNumber).optional()
+});
 export type PageQuery = z.input<typeof PageQuerySchema>;
 
 /** GET /api/diffs/:id/part: which part, of the version the page shows. */
@@ -486,7 +493,12 @@ export type MarkReviewedRequest = z.input<typeof MarkReviewedRequestSchema>;
 export const MarkedSchema = z.object({
 	summary: DiffSummarySchema,
 	parts: z.array(PartSchema),
-	files: z.array(FileSchema)
+	files: z.array(FileSchema),
+	/**
+	 * Every group's changes and how many are reviewed, as stored: a page whose
+	 * own sums differ was behind another page's ticks, and fetches its frame again.
+	 */
+	groups: z.array(z.object({ key: GroupKeySchema, units: unitCount, reviewed: unitCount }))
 });
 export type Marked = z.output<typeof MarkedSchema>;
 

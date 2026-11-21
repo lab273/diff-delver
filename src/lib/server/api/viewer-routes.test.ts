@@ -195,6 +195,15 @@ describe('the viewer’s routes', () => {
 			['src/long.ts', 3, 3]
 		]);
 		expect(marked.files.map((f) => [f.path, f.tally.reviewed])).toEqual([['src/long.ts', 3]]);
+		// Every group's figures as stored, which are the sums of its parts on the page.
+		const frame = value(await client.loadDiff(id));
+		expect(marked.groups).toEqual(
+			frame.groups.map((g) => ({
+				key: g.key,
+				units: g.parts.reduce((n, p) => n + p.tally.units, 0),
+				reviewed: g.parts.reduce((n, p) => n + p.tally.reviewed, 0)
+			}))
+		);
 
 		const group = value(
 			await client.markReviewed(id, {
@@ -233,7 +242,11 @@ describe('the viewer’s routes', () => {
 		});
 		expect(late).toMatchObject({ ok: false, error: { status: 409, reason: 'VersionOutOfDate' } });
 		if (!late.ok) expect(describeApiError(late.error)).toMatch(/updated to version 2/);
-		// The page left on version 1 can still read it.
+		// The page left on version 1 can still read it, and fetch its ticks again.
+		const first = value(await client.loadDiff(id, 'sections', revision(1)));
+		expect(first.summary.version).toBe(1);
+		expect(first.files.find((f) => f.path === 'logo.png')?.tally.reviewed).toBe(0);
+		expect(value(await client.loadDiff(id)).summary.version).toBe(2);
 		const old = value(
 			await client.readPart(id, {
 				version: revision(1),

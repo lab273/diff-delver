@@ -316,6 +316,22 @@ test.describe('the journey helper finds text drawn in a font that is not bundled
 	});
 });
 
+test.describe('the journey helper works in a second tab', () => {
+	test('does what a journey does there, and leaves the first tab as it was', async ({
+		onTheApp: journey
+	}) => {
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your diffs' }));
+		const shop = await journey.repository('shop');
+		const run = await journey.command([], shop);
+		await journey.inAnotherTab(run.address, async (tab) => {
+			await tab.expectVisible(tab.byRole('heading', { level: 1, name: 'Uncommitted changes' }));
+			await tab.step('The other tab');
+		});
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your diffs' }));
+		expect(await journey.address()).toBe('/');
+	});
+});
+
 test.describe('the journey helper works in a repository as a person does', () => {
 	test('commits everything, so the command finds nothing uncommitted', async ({
 		onTheApp: journey

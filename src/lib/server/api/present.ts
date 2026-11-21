@@ -24,6 +24,7 @@ import type {
 	UpdateView
 } from '#lib/api/schemas.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import type { Progress } from '#lib/core/review/progress.ts';
 import { describeUpdate, type UpdateSummary } from '#lib/core/update/update-summary.ts';
 import {
 	describeClosedReason,
@@ -289,7 +290,8 @@ function sectionTitleOf(section: SectionId): SectionTitle {
 export function markedView(
 	loaded: LoadedReport,
 	view: ViewKind,
-	paths: Iterable<RepoPath>
+	paths: Iterable<RepoPath>,
+	progress: Progress
 ): Marked {
 	const sections = loaded.sections.map((s) => s.id);
 	const parts: PartView[] = [];
@@ -312,7 +314,16 @@ export function markedView(
 			})
 		);
 	}
-	return { summary: summaryView(loaded.summary), parts, files };
+	return {
+		summary: summaryView(loaded.summary),
+		parts,
+		files,
+		groups: [...progress.groups.values()].map((g) => ({
+			key: g.key,
+			units: g.tally.units,
+			reviewed: g.tally.reviewedUnits
+		}))
+	};
 }
 
 function lineView(line: ShownLine): ShownLineView {

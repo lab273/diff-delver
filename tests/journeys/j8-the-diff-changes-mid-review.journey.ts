@@ -29,6 +29,42 @@ test.describe('J8 The diff changes mid-review', () => {
 		await journey.expectState(checkoutTick, { checked: true });
 		await journey.expectText(review, '9 of 14 changes reviewed');
 
+		// Running the command again opens the same diff in another tab, where the
+		// discount is ticked: everything is reviewed there.
+		const discountTick = journey.byRole('checkbox', { name: 'Reviewed: src/discount.ts' });
+		const again = await journey.command([], shop);
+		await journey.inAnotherTab(again.address, async (tab) => {
+			const tabReview = tab.byRole('complementary', { name: 'Your review' });
+			await tab.expectText(tabReview, '9 of 14 changes reviewed');
+			const tabTick = tab.byRole('checkbox', { name: 'Reviewed: src/discount.ts' });
+			await tab.activate(tabTick, 'Space');
+			await tab.expectState(tabTick, { checked: true });
+			await tab.expectVisible(tab.byRole('heading', { name: 'Everything is reviewed' }));
+			await tab.step('Everything reviewed in another tab');
+		});
+		// The first tab is behind. A tick there shows what is stored, the other tab's tick too.
+		await journey.expectState(discountTick, { checked: false });
+		await journey.tabTo(checkoutTick);
+		await journey.press('Space');
+		await journey.expectState(checkoutTick, { checked: false });
+		await journey.expectState(discountTick, { checked: true });
+		await journey.expectText(review, '11 of 14 changes reviewed');
+		// Unticked in yet another tab, the discount is shown unticked here as soon as the
+		// reviewer comes back, with nothing moved: focus is still on the checkout's box.
+		await journey.inAnotherTab((await journey.command([], shop)).address, async (tab) => {
+			const tabTick = tab.byRole('checkbox', { name: 'Reviewed: src/discount.ts' });
+			await tab.activate(tabTick, 'Space');
+			await tab.expectState(tabTick, { checked: false });
+			await tab.step('Unticked in another tab');
+		});
+		await journey.returnToPage();
+		await journey.expectState(discountTick, { checked: false });
+		await journey.expectText(review, '6 of 14 changes reviewed');
+		await journey.expectFocused(checkoutTick);
+		await journey.press('Space');
+		await journey.expectState(checkoutTick, { checked: true });
+		await journey.expectText(review, '9 of 14 changes reviewed');
+
 		// The reviewer edits the checkout close to the change they ticked, and comes back.
 		await journey.editFile(shop, 'src/checkout.ts', `${CHECKOUT_EDITED_AGAIN.join('\n')}\n`);
 		await journey.returnToPage();
@@ -113,11 +149,10 @@ test.describe('J8 The diff changes mid-review', () => {
 			'src/discount.ts',
 			'export const discount = (code?: string) => (code === undefined ? 0 : 10);\n'
 		);
-		const again = await journey.command([], shop);
-		expect(again.output).toContain(
+		const later = await journey.command([], shop);
+		expect(later.output).toContain(
 			'Uncommitted changes in shop, updated to your files as they are now (version 3).'
 		);
-		const discountTick = journey.byRole('checkbox', { name: 'Reviewed: src/discount.ts' });
 		await journey.activate(discountTick, 'Space');
 		const discount = journey.byRole('article', { name: 'src/discount.ts' });
 		await journey.expectText(

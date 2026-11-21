@@ -3,13 +3,16 @@ import { pageView, serviceFailure } from '#lib/server/api/present.ts';
 import { diffId, readQuery } from '#lib/server/api/request.ts';
 import type { RequestHandler } from './$types';
 
-/** One diff, as its page shows it: everything but the code, which comes a part at a time. */
+/**
+ * One diff, as its page shows it: everything but the code, which comes a part
+ * at a time. Its newest version, or the one asked for.
+ */
 export const GET: RequestHandler = async ({ locals, params, url }) => {
 	const id = diffId(params.id);
 	if (!id.ok) return id.error;
 	const query = readQuery(url, PageQuerySchema);
 	if (!query.ok) return query.error;
-	const loaded = await locals.daemon.service.load(id.value);
+	const loaded = await locals.daemon.service.load(id.value, query.value.version);
 	if (!loaded.ok) return serviceFailure(loaded.error);
 	const body: DiffPage = pageView(loaded.value, locals.daemon.clock.now(), query.value.view);
 	return Response.json(body);

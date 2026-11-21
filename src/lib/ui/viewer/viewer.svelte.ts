@@ -16,6 +16,7 @@ import type {
 	DiffSummary,
 	FileView,
 	GroupKeyView,
+	Marked,
 	PartLines,
 	PartView,
 	ShownLineView,
@@ -147,6 +148,15 @@ export function showTally(box: HTMLInputElement, tally: TallyView): void {
 	box.indeterminate = partly(tally);
 }
 
+function sameTally(a: TallyView, b: TallyView): boolean {
+	return (
+		a.units === b.units &&
+		a.reviewed === b.reviewed &&
+		a.fresh === b.fresh &&
+		a.unmarked === b.unmarked
+	);
+}
+
 export function sumTallies(tallies: readonly TallyView[]): TallyView {
 	let units = 0;
 	let reviewed = 0;
@@ -232,6 +242,10 @@ export class Viewer {
 	/** Where each part is; fixed for the viewer's life, so not reactive. */
 	readonly #byKey: ReadonlyMap<string, PartIndex>;
 	readonly #groupOf: number[] = [];
+	/** Where each file is in the by-file list. */
+	readonly #fileAt: ReadonlyMap<EscapedPath, number>;
+	/** How many ticks have been answered, so a slower refresh never undoes a newer tick. */
+	#ticks = 0;
 
 	constructor(page: DiffPage, onlyWaiting: boolean) {
 		this.summary = $state.raw(page.summary);
@@ -274,6 +288,9 @@ export class Viewer {
 		this.#byKey = byKey;
 		this.parts = $state(parts);
 		this.files = $state([...page.files]);
+		const fileAt = new SvelteMap<EscapedPath, number>();
+		for (const [at, file] of page.files.entries()) fileAt.set(file.path, at);
+		this.#fileAt = fileAt;
 	}
 
 	/** The group a part is in. */
@@ -487,6 +504,7 @@ export class Viewer {
 						: { kind: 'group', group: target.group.key }
 		});
 		for (const part of busy) part.busy = false;
+		this.#ticks += 1;
 		if (!sent.ok) return this.#refused(sent.error, busy, target);
 		this.summary = sent.value.summary;
 		for (const part of sent.value.parts) {
@@ -502,10 +520,10 @@ export class Viewer {
 				if (at !== undefined && !this.isLarge(state)) void this.load(at);
 			}
 		}
-		for (const file of sent.value.files) {
-			const at = this.files.findIndex((f) => f.path === file.path);
-			if (at >= 0) this.files[at] = file;
-		}
+		this.#putFiles(sent.value.files);
+		// What is stored differs from what the page holds: another page on the same
+		// diff ticked or unticked something. Its ticks and progress are fetched again.
+		if (!this.#agrees(sent.value.groups)) await this.refreshTicks();
 		const overall = this.overall;
 		const allDone = overall.units > 0 && overall.reviewed === overall.units;
 		const finished =
@@ -516,6 +534,48 @@ export class Viewer {
 			groupFinished: target.kind === 'group' && reviewed ? target.group : finished,
 			allDone
 		};
+	}
+
+	/**
+	 * Brings the ticks and progress the page shows up to date with what is
+	 * stored for the version it shows, as when another page on the same diff
+	 * marked something: each part's tally and each file's, nothing else. What is
+	 * open, the lines fetched, the filter and where the reader is stay as they
+	 * are, so nothing moves under them. An answer that comes after a tick made
+	 * meanwhile is dropped, since the tick's own answer is newer.
+	 */
+	async refreshTicks(): Promise<void> {
+		if (this.parts.some((p) => p.busy)) return;
+		const ticks = this.#ticks;
+		const loaded = await pageClient().loadDiff(this.id, this.view, this.version);
+		if (!loaded.ok || ticks !== this.#ticks || this.parts.some((p) => p.busy)) return;
+		this.summary = loaded.value.summary;
+		for (const group of loaded.value.groups) {
+			for (const part of group.parts) {
+				const at = this.#byKey.get(keyOf(part.group, part.path));
+				const state = at === undefined ? undefined : this.parts[at];
+				if (state !== undefined && !sameTally(state.part.tally, part.tally)) state.part = part;
+			}
+		}
+		this.#putFiles(loaded.value.files);
+	}
+
+	/** Puts files the daemon sent in place of the page's own. */
+	#putFiles(files: readonly FileView[]): void {
+		for (const file of files) {
+			const at = this.#fileAt.get(file.path);
+			if (at !== undefined) this.files[at] = file;
+		}
+	}
+
+	/** Whether every group's figures, as stored, are those the page holds. */
+	#agrees(groups: Marked['groups']): boolean {
+		return groups.every((stored) => {
+			const group = this.groupWithKey(stored.key);
+			if (group === undefined) return stored.units === 0;
+			const held = this.groupTally(group);
+			return held.units === stored.units && held.reviewed === stored.reviewed;
+		});
 	}
 
 	groupOfPartIn(target: TickTarget): GroupInfo | undefined {

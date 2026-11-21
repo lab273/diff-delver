@@ -271,6 +271,14 @@ export interface Journey extends Finder {
 	 * these files in it, as a person does in the system's dialog.
 	 */
 	chooseFiles(target: Target, files: readonly string[], key?: string): Promise<void>;
+	/**
+	 * Opens an address in a second tab, as running the command again does, does
+	 * `what` there with that tab's own journey, and closes the tab. This journey's
+	 * page is left as it was, and is not told it was left: `returnToPage` tells
+	 * it. The other tab's steps check its screen as any step does, but their
+	 * screenshots are not kept.
+	 */
+	inAnotherTab(address: string, what: (tab: Journey) => Promise<void>): Promise<void>;
 }
 
 /**
@@ -913,6 +921,17 @@ export async function startJourney(
 			const chooser = page.waitForEvent('filechooser');
 			await activate(target, key);
 			await (await chooser).setFiles([...files]);
+		},
+		async inAnotherTab(address, what) {
+			const other = await page.context().newPage();
+			try {
+				const tab = await startJourney(other, testInfo, origin, { screenshots: 'take' }, world);
+				await tab.journey.open(address);
+				await what(tab.journey);
+				await tab.finish();
+			} finally {
+				await other.close();
+			}
 		}
 	};
 

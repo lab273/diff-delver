@@ -37,6 +37,6 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	if (!marked.ok) return serviceFailure(marked.error);
 	const loaded = await service.load(id.value, version);
 	if (!loaded.ok) return serviceFailure(loaded.error);
-	const answer: Marked = markedView(loaded.value, view, marked.value.files);
+	const answer: Marked = markedView(loaded.value, view, marked.value.files, marked.value.progress);
 	return Response.json(answer);
 };

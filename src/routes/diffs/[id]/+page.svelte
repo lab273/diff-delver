@@ -86,9 +86,13 @@
 
 	// Nothing changes under the person reading: the page only says that something
 	// did, when they come back to it or now and then, and changes on their word.
+	// Ticks are the exception: what another page on the same diff marked is shown
+	// at the same moments, in place, without moving the reader.
 	$effect(() => {
 		const again = (): void => {
-			if (document.visibilityState === 'visible' && !busy) void checkForChanges(true);
+			if (document.visibilityState !== 'visible' || busy) return;
+			void checkForChanges(true);
+			void viewer?.refreshTicks();
 		};
 		window.addEventListener('focus', again);
 		document.addEventListener('visibilitychange', again);

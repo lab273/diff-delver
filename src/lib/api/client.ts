@@ -186,9 +186,17 @@ export class ApiClient {
 		return this.#call('GET', `/api/suggest?${query.toString()}`, SuggestResponseSchema);
 	}
 
-	loadDiff(id: ReportId, view: ViewName = 'sections'): Promise<Result<DiffPage, ApiError>> {
-		const query = view === 'sections' ? '' : `?view=${view}`;
-		return this.#call('GET', `/api/diffs/${id}${query}`, DiffPageSchema);
+	/** A diff's page: of its newest version, or of `version`, the one a page shows. */
+	loadDiff(
+		id: ReportId,
+		view: ViewName = 'sections',
+		version?: RevisionNumber
+	): Promise<Result<DiffPage, ApiError>> {
+		const query = new URLSearchParams();
+		if (view !== 'sections') query.set('view', view);
+		if (version !== undefined) query.set('version', String(version));
+		const text = query.toString();
+		return this.#call('GET', `/api/diffs/${id}${text === '' ? '' : `?${text}`}`, DiffPageSchema);
 	}
 
 	/** One part's lines, of the version the page shows. */
