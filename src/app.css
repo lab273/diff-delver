@@ -40,9 +40,12 @@
 	--color-primary-button-hover: #1c8139;
 	--color-on-primary-button: #ffffff;
 	--color-selected-button: #ddf4ff;
-	/* A search's matches; the one the person is on is outlined too, so colour is not all that tells it. */
-	--color-match: #fff1a8;
-	--color-match-current: #ffe58a;
+	/*
+	 * A search's matches; the one the person is on is outlined too, so colour is
+	 * not all that tells it. Code's colours keep 4.5 to 1 on both, on every row.
+	 */
+	--color-match: #fff8c5;
+	--color-match-current: #fff1a8;
 	--color-match-current-border: #9a6700;
 	/*
 	 * Only the fonts bundled with the app (src/routes/+layout.svelte imports them),
@@ -89,8 +92,8 @@
 		--color-primary-button-hover: #29903b;
 		--color-on-primary-button: #ffffff;
 		--color-selected-button: #388bfd26;
-		--color-match: #bb800926;
-		--color-match-current: #bb800940;
+		--color-match: #bb80091a;
+		--color-match-current: #3a2a00;
 		--color-match-current-border: #e3b341;
 	}
 }
