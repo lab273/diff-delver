@@ -133,4 +133,54 @@ describe('searching a diff', () => {
 			service.close();
 		}
 	});
+	it('searches the sorting as it is now, after every change to it, made here or by another copy', async () => {
+		const repo = await emptyRepo();
+		await repo.write('src/sum.ts', `${before.join('\n')}\n`);
+		await repo.commit('first');
+		await repo.write('src/sum.ts', `${after.join('\n')}\n`);
+		const who = await reviewer();
+		const dataDirectory = await tempDirectory();
+		const openService = async () =>
+			value(
+				await ReportService.open({
+					dataDirectory,
+					clock: settableClock(at(1_700_000_000_000)),
+					ids: sequentialIds(''),
+					repository: { gitEnv: who.gitEnv },
+					log: () => undefined
+				})
+			);
+		const service = await openService();
+		const other = await openService();
+		try {
+			const opened = value(await service.open(repo.dir, value(parseGitSourceSpec('working-tree'))));
+			if (opened.kind !== 'created') throw new Error(opened.kind);
+			const id = opened.report.id;
+			const sum = value(parseSearchText('sum('));
+			const options = { matchCase: false, changedOnly: true };
+			const groups = async (): Promise<string[]> =>
+				value(await service.searchDiff(id, FIRST, 'sections', sum, options)).map(
+					(p) =>
+						`${p.group.kind === 'section' ? p.group.section : p.group.kind} ${String(p.matches)}`
+				);
+			expect(await groups()).toEqual(['uncategorised 1']);
+			// The same again, with nothing changed between.
+			expect(await groups()).toEqual(['uncategorised 1']);
+
+			// Sorted here, between two searches.
+			value(await service.upsertSections(id, FIRST, [{ id: 'early', title: 'Early' }]));
+			value(
+				await service.assign(id, FIRST, [{ file: 'src/sum.ts', lines: '+4', section: 'early' }])
+			);
+			expect(await groups()).toEqual(['early 1', 'uncategorised 1']);
+
+			// Sorted by another copy of diff delver, with a connection of its own.
+			value(await other.upsertSections(id, FIRST, [{ id: 'late', title: 'Late' }]));
+			value(await other.assign(id, FIRST, [{ file: 'src/sum.ts', lines: '+4', section: 'late' }]));
+			expect(await groups()).toEqual(['late 1', 'uncategorised 1']);
+		} finally {
+			other.close();
+			service.close();
+		}
+	});
 });

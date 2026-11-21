@@ -151,6 +151,7 @@ import {
 	snapshotsOfReport
 } from '../db/tables/revisions.ts';
 import { replaceSections, sectionsOf } from '../db/tables/sections.ts';
+import { writesElsewhere } from '../db/tables/data-version.ts';
 import { checkedRevision, isToCheck, revisionsToCheck } from '../db/tables/revisions-to-check.ts';
 import {
 	forgetSnapshot,
@@ -700,6 +701,12 @@ export class ReportService {
 	 * revision's lines are sorted, so sorting them again makes a new one.
 	 */
 	readonly #searchIndexes = new Map<string, SearchIndex>();
+	/**
+	 * How many times each revision's sorting, its sections and which lines are
+	 * in them, has been written by this service: part of a search index's key,
+	 * so an index is never used once what it was made from has changed.
+	 */
+	readonly #sortingWrites = new Map<RevisionId, number>();
 
 	private constructor(db: Database, options: ReportServiceOptions) {
 		this.#db = db;
@@ -971,7 +978,7 @@ export class ReportService {
 								{ diff, unitsIn: (section) => totals.get(section)?.units ?? NO_UNITS }
 							);
 							if (!next.ok) return err({ kind: 'SectionsRefused', problems: next.error });
-							replaceSections(q, revision.id, next.value.sections);
+							this.#replaceSections(q, revision.id, next.value.sections);
 							replaceReferenceRows(q, revision.id, referenceRowsOf(next.value.references));
 							touchReport(q, id, this.#clock.now());
 							return ok(next.value.sections);
@@ -1018,7 +1025,7 @@ export class ReportService {
 					knownSections: new Set(sections.map((s) => s.id))
 				});
 				const changed = changedAssignmentPaths(diff, state, outcome.state);
-				replaceAssignmentRows(
+				this.#replaceAssignmentRows(
 					q,
 					revision.id,
 					changed,
@@ -1174,17 +1181,26 @@ export class ReportService {
 		const content = await this.#contentOf(shown.value.report, shown.value.revision);
 		if (!content.ok) return content;
 		const { diff, revision } = content.value;
-		const stored = this.#db.read(
-			(q): Result<{ sections: readonly Section[]; rows: readonly AssignmentRow[] }, ReportError> =>
-				andThen(sectionsOf(q, revision.id), (sections) =>
-					andThen(assignmentRowsFor(q, revision.id), (rows) => ok({ sections, rows }))
-				)
-		);
-		if (!stored.ok) return stored;
-		const sections = stored.value.sections.map((s) => s.id);
-		const key = `${revision.id}\u0000${view}\u0000${JSON.stringify([sections, stored.value.rows])}`;
-		let found = this.#searchIndexes.get(key);
+		// The index is kept while nothing it was made from can have changed: its
+		// sorting, as written here, and the database, as written by any other copy.
+		const elsewhere = this.#db.read((q) => ok(writesElsewhere(q)));
+		if (!elsewhere.ok) return elsewhere;
+		const key =
+			elsewhere.value === undefined
+				? undefined
+				: `${revision.id}\u0000${view}\u0000${String(this.#sortingWrites.get(revision.id) ?? 0)}\u0000${String(elsewhere.value)}`;
+		let found = key === undefined ? undefined : this.#searchIndexes.get(key);
 		if (found === undefined) {
+			const stored = this.#db.read(
+				(
+					q
+				): Result<{ sections: readonly Section[]; rows: readonly AssignmentRow[] }, ReportError> =>
+					andThen(sectionsOf(q, revision.id), (sections) =>
+						andThen(assignmentRowsFor(q, revision.id), (rows) => ok({ sections, rows }))
+					)
+			);
+			if (!stored.ok) return stored;
+			const sections = stored.value.sections.map((s) => s.id);
 			const state = assignmentStateFromRows(diff, stored.value.rows);
 			if (!state.ok) return state;
 			const frame = frameOf(diff, state.value, NO_PART_MARKS, view, sections);
@@ -1201,13 +1217,7 @@ export class ReportService {
 				)
 			};
 		}
-		this.#searchIndexes.delete(key);
-		this.#searchIndexes.set(key, found);
-		while (this.#searchIndexes.size > CACHED_SEARCH_INDEXES) {
-			const oldest = this.#searchIndexes.keys().next();
-			if (oldest.done === true) break;
-			this.#searchIndexes.delete(oldest.value);
-		}
+		if (key !== undefined) this.#keepSearchIndex(key, found);
 		const counts = found.index.counts(query, options);
 		const matches: PartMatches[] = [];
 		for (const [i, part] of found.parts.entries()) {
@@ -1215,6 +1225,34 @@ export class ReportService {
 			if (count !== undefined && count > 0) matches.push({ ...part, matches: count });
 		}
 		return ok(matches);
+	}
+
+	/** Replaces a revision's sections, counting it as a change to its sorting. */
+	#replaceSections(q: Queries, revision: RevisionId, sections: readonly Section[]): void {
+		this.#sortingWrites.set(revision, (this.#sortingWrites.get(revision) ?? 0) + 1);
+		replaceSections(q, revision, sections);
+	}
+
+	/** Replaces a revision's assignment rows, counting it as a change to its sorting. */
+	#replaceAssignmentRows(
+		q: Queries,
+		revision: RevisionId,
+		files: ReadonlySet<RepoPath> | 'all',
+		rows: readonly AssignmentRow[]
+	): void {
+		this.#sortingWrites.set(revision, (this.#sortingWrites.get(revision) ?? 0) + 1);
+		replaceAssignmentRows(q, revision, files, rows);
+	}
+
+	/** Keeps a search index, as the most recently used, and lets the oldest go. */
+	#keepSearchIndex(key: string, found: SearchIndex): void {
+		this.#searchIndexes.delete(key);
+		this.#searchIndexes.set(key, found);
+		while (this.#searchIndexes.size > CACHED_SEARCH_INDEXES) {
+			const oldest = this.#searchIndexes.keys().next();
+			if (oldest.done === true) break;
+			this.#searchIndexes.delete(oldest.value);
+		}
 	}
 
 	/**
@@ -1696,7 +1734,12 @@ export class ReportService {
 				if (raced !== undefined) return ok(raced.id);
 				insertReport(q, report);
 				insertRevision(q, revision);
-				replaceAssignmentRows(q, revision.id, 'all', assignmentRowsOf(diff.value, sorted.state));
+				this.#replaceAssignmentRows(
+					q,
+					revision.id,
+					'all',
+					assignmentRowsOf(diff.value, sorted.state)
+				);
 				return ok(undefined);
 			})
 		);
@@ -1976,14 +2019,19 @@ export class ReportService {
 							)
 						};
 						insertRevision(q, revision);
-						replaceSections(q, revision.id, sections);
+						this.#replaceSections(q, revision.id, sections);
 						replaceReferenceRows(
 							q,
 							revision.id,
 							referenceRowsOf(carryUnitSets(input, references.value))
 						);
 						if (overview.value !== undefined) storeOverview(q, revision.id, overview.value);
-						replaceAssignmentRows(q, revision.id, 'all', assignmentRowsOf(diff, carried.state));
+						this.#replaceAssignmentRows(
+							q,
+							revision.id,
+							'all',
+							assignmentRowsOf(diff, carried.state)
+						);
 						replaceReviewedRows(q, revision.id, 'all', reviewedRowsOf(carried.marks));
 						insertNewUnitRows(q, revision.id, unitRowsOf(carried.fresh));
 						insertUnmarkedUnitRows(q, revision.id, unitRowsOf(carried.unmarked));
@@ -2104,7 +2152,7 @@ export class ReportService {
 					andThen(reviewedRowsFor(q, revision.id), (marked) =>
 						andThen(reviewedMarksFromRows(diff, marked), (marks): Result<Revision, ReportError> => {
 							const progress = unitProgressOf(reviewProgress(diff, state, marks, 'sections'));
-							replaceAssignmentRows(
+							this.#replaceAssignmentRows(
 								q,
 								revision.id,
 								lacking,
