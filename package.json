@@ -48,6 +48,7 @@
 		"fixtures:capture": "node scripts/capture-diff-fixtures.ts",
 		"fixtures:old-database": "node scripts/capture-old-database.ts",
 		"mcp:surface": "node scripts/mcp-surface.ts",
+		"trials:run": "node tests/agent-trials/run.ts",
 		"bd": "node scripts/bd.ts"
 	},
 	"devDependencies": {

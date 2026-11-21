@@ -1,0 +1,893 @@
+{
+	"format": 1,
+	"fixture": "ledger",
+	"agent": {
+		"cli": "codex",
+		"cliVersion": "codex-cli 0.170.0",
+		"model": "gpt-6.2-sol"
+	},
+	"recordedOn": "2026-11-21",
+	"prompt": "Use diff delver to get my uncommitted changes ready for me to review.",
+	"skill": true,
+	"hashes": {
+		"agentSurface": "sha256:058c34b872b2424ca54b51ffad9afb655e6a1f7d4a64410b5ea24aad288ae005",
+		"skill": "sha256:4a921c83f2976b2d7d6afb0ba5d437bf3df5ff0321de533b3905d6345d36e10f"
+	},
+	"bounds": {
+		"timeLimitSeconds": 600,
+		"turnLimit": null
+	},
+	"outcome": "finished",
+	"outcomeDetail": null,
+	"session": {
+		"mcpServers": ["diff-delver"],
+		"tools": [],
+		"skills": [
+			"imagegen (r1/imagegen/SKILL.md)",
+			"openai-docs (r1/openai-docs/SKILL.md)",
+			"skill-creator (r1/skill-creator/SKILL.md)",
+			"skill-installer (r1/skill-installer/SKILL.md)",
+			"diff-delver (r0/diff-delver/SKILL.md)"
+		],
+		"plugins": [],
+		"instructions": []
+	},
+	"messages": [
+		"agent → initialize #0",
+		"server ← initialize #0",
+		"agent → notifications/initialized",
+		"agent → tools/list #1",
+		"server ← tools/list #1",
+		"agent → initialize #0",
+		"server ← initialize #0",
+		"agent → notifications/initialized",
+		"agent → tools/list #1",
+		"server ← tools/list #1",
+		"agent → tools/call #2",
+		"server ← tools/call #2",
+		"agent → tools/call #3",
+		"server ← tools/call #3",
+		"agent → tools/call #4",
+		"server ← tools/call #4",
+		"agent → tools/call #5",
+		"server ← tools/call #5",
+		"agent → tools/call #6",
+		"server ← tools/call #6",
+		"agent → tools/call #7",
+		"server ← tools/call #7",
+		"agent → tools/call #8",
+		"server ← tools/call #8",
+		"agent → tools/call #9",
+		"server ← tools/call #9",
+		"agent → tools/call #10",
+		"server ← tools/call #10",
+		"agent → tools/call #11",
+		"server ← tools/call #11",
+		"agent → tools/call #12",
+		"server ← tools/call #12",
+		"agent → tools/call #13",
+		"server ← tools/call #13"
+	],
+	"calls": [
+		{
+			"tool": "create_report",
+			"arguments": {},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nThis is a new report.\n31 files changed, 756 lines added and 267 removed: 1,026 change lines, 718 not sorted yet.\nIgnored automatically, so the person need not review them: pnpm-lock.yaml (Lockfile), src/generated/api-types.ts (Marked as generated in .gitattributes). Leave them, or move them into a section with assign and \"lines\" if they need a look.\nGive the person this address to open it in their browser: http://127.0.0.1:<port>/diffs/r_1?entry=<code> (it opens the report once, within two minutes; call create_report again for a new one). It shows your sorting as you go.\nNext: call get_manifest with \"report\": \"r_1\".",
+				"refused": false
+			}
+		},
+		{
+			"tool": "get_manifest",
+			"arguments": {
+				"report": "r_1"
+			},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n31 files, 1,026 change lines: 718 not sorted yet, 0 in 0 sections, 308 ignored.\nA change line is one added line (labelled +<line> in get_diff) or one deleted line (-<line>), or the change to a file itself (labelled \"file\"): a rename, a mode or kind change, or a change with no lines, such as a binary file.\nOverview: not written yet. Write it with set_overview once the sections are clear.\nSections: none yet. Make them with upsert_sections, then put lines in them with assign.\n\nFiles (all 31, by path. Each line: path: how it changed, lines added and deleted, hunk ids, role; then where its change lines are now):\nREADME.md: changed, +11 -3, h1, code; not sorted 14\napi/openapi.yaml: changed, +9 -3, h1..h3, code; not sorted 12\nassets/logo.png: changed, binary file, +0 -0, no lines: one change to the file, \"file\", code; not sorted 1\ndocs/currencies.md: added, +37 -0, h1, code; not sorted 37\npackage.json: changed, +3 -2, h1, code; not sorted 5\npnpm-lock.yaml: changed, +133 -133, h1..h3, code; ignored (Lockfile) 266\nscripts/release.sh: changed, made executable, +1 -0, h1, and \"file\", code; not sorted 2\nsrc/config.ts: changed, +15 -1, h1..h2, code; not sorted 16\nsrc/currency.test.ts: added, +33 -0, h1, test; not sorted 33\nsrc/currency.ts: added, +48 -0, h1, code; not sorted 48\nsrc/format/amount.ts: changed, renamed from src/format.ts, +12 -8, h1, and \"file\", code; not sorted 21\nsrc/generated/api-types.ts: changed, +35 -7, h1..h5, code; ignored (Marked as generated in .gitattributes) 42\nsrc/invoice.test.ts: changed, +24 -4, h1..h2, test; not sorted 28\nsrc/invoice.ts: changed, +19 -10, h1..h3, code; not sorted 29\nsrc/log.test.ts: added, +31 -0, h1, test; not sorted 31\nsrc/log.ts: changed, +56 -6, h1, code; not sorted 62\nsrc/money.test.ts: changed, +22 -10, h1, test; not sorted 32\nsrc/money.ts: changed, +44 -13, h1, code; not sorted 57\nsrc/pdf/render.ts: changed, +3 -1, h1..h2, code; not sorted 4\nsrc/server/app.ts: changed, +7 -5, h1, code; not sorted 12\nsrc/server/routes.test.ts: changed, +39 -8, h1, test; not sorted 47\nsrc/server/routes.ts: changed, +46 -10, h1, code; not sorted 56\nsrc/store/customers.ts: changed, +15 -1, h1..h2, code; not sorted 16\nsrc/store/invoices.ts: changed, +18 -15, h1..h6, code; not sorted 33\nsrc/store/migrations/004-invoice-currency.sql: added, +9 -0, h1, code; not sorted 9\nsrc/tax.test.ts: changed, +7 -3, h1, test; not sorted 10\nsrc/tax.ts: changed, +6 -3, h1, code; not sorted 9\nsrc/test-helpers.ts: changed, +9 -0, h1..h2, code; not sorted 9\ntests/__snapshots__/pdf.test.ts.snap: changed, +25 -6, h1, snapshot; not sorted 31\ntests/pdf.test.ts: changed, +21 -15, h1, test; not sorted 36\ntests/smoke.test.ts: added, +18 -0, h1, test; not sorted 18",
+				"refused": false
+			}
+		},
+		{
+			"tool": "get_diff",
+			"arguments": {
+				"report": "r_1"
+			},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nThe whole diff: files 1 to 17 of 31.\nEach changed line starts with the label assign takes for it: +<line> for an added line, -<line> for a deleted one; unchanged lines have no label. Hunks are headed \"@@ <hunk id> ...\". \"file\" labels the change to a file itself.\n\n## README.md\nmodified\n@@ h1 -8,9 +8,17 @@ Issues invoices for Ledger Ltd and keeps them.\n    DATABASE_URL=postgres://localhost/ledger pnpm start\n    ```\n\n-11 `PORT` sets the port (8080 by default) and `COMPANY_NAME` the name printed on\n-12 invoices.\n+11 `PORT` sets the port (8080 by default), `COMPANY_NAME` the name printed on\n+12 invoices, `DEFAULT_CURRENCY` the currency of an invoice that names none (EUR by\n+13 default) and `LOG_LEVEL` how much is logged (`info` by default).\n\n    ## Money\n\n-16 Every amount is kept in whole cents. Nothing is ever a float of euros.\n+17 Every amount is kept in whole minor units of its currency (cents, pence, yen),\n+18 with the currency beside it. Nothing is ever a float, and amounts in different\n+19 currencies are never added. See [docs/currencies.md](docs/currencies.md).\n+20\n+21 ## Logs\n+22\n+23 Logs are JSON lines on standard error, one object per line, with `time`,\n+24 `level` and `message` and the fields of what was logged.\n\n## api/openapi.yaml\nmodified\n@@ h1 -1,7 +1,7 @@\n    openapi: 3.1.0\n    info:\n      title: Ledger\n-4    version: 1.4.0\n+4    version: 1.5.0\n    paths:\n      /invoices:\n        post:\n@@ h2 -16,15 +16,20 @@ paths:\n      /customers/{id}/invoices:\n        get:\n          summary: A customer's invoices, newest first.\n+19   /currencies:\n+20     get:\n+21       summary: The currencies invoices can be written in.\n    components:\n      schemas:\n+24     Currency:\n+25       enum: [EUR, GBP, USD, JPY, CHF, SEK, KWD]\n        InvoiceLineRequest:\n          type: object\n-23       required: [description, quantity, unit_price_cents, tax_rate]\n+28       required: [description, quantity, unit_price_minor, tax_rate]\n          properties:\n            description: { type: string }\n            quantity: { type: number }\n-27         unit_price_cents: { type: integer }\n+32         unit_price_minor: { type: integer }\n            tax_rate: { enum: [standard, reduced, zero] }\n        CreateInvoiceRequest:\n          type: object\n@@ h3 -33,4 +38,5 @@ components:\n            id: { type: string }\n            customer_id: { type: string }\n            issued_on: { type: string, format: date }\n+41         currency: { $ref: \"#/components/schemas/Currency\" }\n            lines: { type: array, items: { $ref: \"#/components/schemas/InvoiceLineRequest\" } }\n\n## assets/logo.png\nmodified, binary, no changed lines: assign the whole file\nfile changed, binary file\n\n## docs/currencies.md\nadded\n@@ h1 -0,0 +1,37 @@\n+1  # Currencies\n+2\n+3  An invoice is written in one currency, and every amount on it is in that\n+4  currency. Amounts are kept as whole numbers of the currency's minor unit: cents\n+5  for euros, pence for pounds, and yen themselves for yen, which have none.\n+6\n+7  ## Which currency an invoice is in\n+8\n+9  1. The currency the request names, if it names one.\n+10 2. Otherwise the customer's preferred currency, if they have one.\n+11 3. Otherwise `DEFAULT_CURRENCY`, which is EUR unless it is set.\n+12\n+13 An invoice whose lines are in another currency than its own is refused.\n+14\n+15 ## Supported currencies\n+16\n+17 | Code | Name | Minor units | Shown as |\n+18 |---|---|---|---|\n+19 | EUR | Euro | 2 | €1,234.56 |\n+20 | GBP | Pound sterling | 2 | £1,234.56 |\n+21 | USD | US dollar | 2 | $1,234.56 |\n+22 | JPY | Japanese yen | 0 | ¥1,234 |\n+23 | CHF | Swiss franc | 2 | CHF 1,234.55 |\n+24 | SEK | Swedish krona | 2 | kr 1,234.56 |\n+25 | KWD | Kuwaiti dinar | 3 | KD 1,234.567 |\n+26\n+27 ## Tax\n+28\n+29 Tax is worked out on each line in exact minor units, then rounded half away\n+30 from zero. Swiss francs are rounded to the nearest five rappen, as Swiss\n+31 invoices must be.\n+32\n+33 ## Existing invoices\n+34\n+35 Migration `004-invoice-currency.sql` marks every invoice written before it as\n+36 EUR, which every invoice then was, and renames `unit_price_cents` to\n+37 `unit_price_minor`.\n\n## package.json\nmodified\n@@ h1 -5,10 +5,11 @@\n    \t\"type\": \"module\",\n    \t\"scripts\": {\n    \t\t\"start\": \"node src/server/app.ts\",\n-8  \t\t\"test\": \"vitest run\"\n+8  \t\t\"test\": \"vitest run\",\n+9  \t\t\"openapi:generate\": \"openapi-typescript api/openapi.yaml -o src/generated/api-types.ts\"\n    \t},\n    \t\"devDependencies\": {\n    \t\t\"typescript\": \"^5.8.3\",\n-12 \t\t\"vitest\": \"^3.1.4\"\n+13 \t\t\"vitest\": \"^3.2.1\"\n    \t}\n    }\n\n## pnpm-lock.yaml\nmodified\n@@ h1 -12,8 +12,8 @@ importers:\n             specifier: ^5.8.3\n             version: 5.8.3\n           vitest:\n-15          specifier: ^3.1.4\n-16          version: 3.1.4\n+15          specifier: ^3.2.1\n+16          version: 3.2.1\n\n     packages:\n\n@@ h2 -29,104 +29,104 @@ packages:\n       typescript@5.8.3:\n         resolution: {integrity: sha512-WHWIkH58MxhaSqWwlg1TA5zyJwi11Qh5+JWQ0XA97OIa2bDa9RHDIxQbGZUyx/U8WNTjzqu1voAmXRGUgeuIRA==}\n\n-32    @esbuild/aix-ppc64@0.25.4:\n-33      resolution: {integrity: sha512-zjATUtSU7BYUjSGYdTGGr9BVmpDZfakA1bHHGcDUBYoUHjy0H86jXuIXusTLK+p71XJ+YV5vePdRBjGE07uo0A==}\n+32    @esbuild/aix-ppc64@0.25.5:\n+33      resolution: {integrity: sha512-o4+YhAHTXonsQRqnjmFipcWs1LXiy8w7ZG+sxQdDjbuPLaxWj93y2EDP+hXxo5D0UwY2tFaVjHhh1ynOWI7XDA==}\n\n-35    @esbuild/android-arm@0.25.4:\n-36      resolution: {integrity: sha512-CUrk3yLxoWyDMF8h6XaMErfIcDaT/CGiptM/sdUzk9FKB8R3PyfwjXuXrdMApwocvq7Mjklmc/FHar4hEukOhw==}\n+35    @esbuild/android-arm@0.25.5:\n+36      resolution: {integrity: sha512-77dxICybxiZj/IizPy4logwQZF0SLrK1jpR90XhaycMvtJzBO+Z3cpnYIaoWJNFNoxGp37vhyjG68mxACsdmMw==}\n\n-38    @esbuild/android-arm64@0.25.4:\n-39      resolution: {integrity: sha512-GpIY2JvFVu7JSfrbONwzUnhjAtz1H7sSA8TeHpAFNNDjoBqX8HTeVCuCBqSFglqyOvuNuJLgmYTOv6E0KJkoag==}\n+38    @esbuild/android-arm64@0.25.5:\n+39      resolution: {integrity: sha512-s9u80RdnQTlleeHU5MNjhDsapjUEoyFOyf8b30w6pqfIjcBVmglB4L5YVABapsENVGA3N9yYn0+/kP5abyRNGQ==}\n\n-41    @esbuild/android-x64@0.25.4:\n-42      resolution: {integrity: sha512-wu07mOa+FP7VkbpNUJNq+RzX4nhxbdXtwRfKSkNZI5YT8tRd/jSAHFTGkn5g5G+oQjfYZ9p+6Qq2cMdAZ28YTg==}\n+41    @esbuild/android-x64@0.25.5:\n+42      resolution: {integrity: sha512-lrsYlmWwIaXyNy89Z0PVpNmTzMILQM9+1TBHs0lWB+ehU7WGdinynUHKgZQUIGtEuKxGSSyx2bTP0iyUvmIEbw==}\n\n-44    @esbuild/darwin-arm64@0.25.4:\n-45      resolution: {integrity: sha512-qb6Dn/sgY5LFtMVDZqnapzYHiSKc5SuQvtaCHt266Iy6e21exelI2JNZdWYLOO46+pTSSm/ac11rFy3DsAywSQ==}\n+44    @esbuild/darwin-arm64@0.25.5:\n+45      resolution: {integrity: sha512-hhQMGlOvi+ILzikSy0idg+YbBZV8IiUIKla5V/ONN7C2BV8ir6eAr8sPZXecv4VjH6SIiP5r8Usg62ZATxPKjQ==}\n\n-47    @esbuild/darwin-x64@0.25.4:\n-48      resolution: {integrity: sha512-LqI6T698n+/SoXe/4PUOJcyfjEoOrekKOYk5VwBIB9G2rK2MIxMTUdP4IoAQnQ0wlBLfrviPCvgvqBYxlWdaOQ==}\n+47    @esbuild/darwin-x64@0.25.5:\n+48      resolution: {integrity: sha512-PhhrCvphMlLnJ514IferxTEUID9ly3Ta0mbhJDP0IRDeGm5GAxaT14vKpLtBneZIPb/RSfIOx4ziPGpHsF+jWw==}\n\n-50    @esbuild/freebsd-arm64@0.25.4:\n-51      resolution: {integrity: sha512-ee8E5mOEj+/Gv/x7e/3flRKycm7JU0aa6Wrr8AElh3VoDfm/7Jnw8t7vb+STXBJWdHL/tBZCGELvrBbjMw3A7Q==}\n+50    @esbuild/freebsd-arm64@0.25.5:\n+51      resolution: {integrity: sha512-qziSo+VF+UpZog09Ln3J/EdIo3LC+6ILZR+cyY4tf459EiaeVA7Xlkp211KycDxw9IyJI48Ddo3W8VjYjkHVjQ==}\n\n-53    @esbuild/freebsd-x64@0.25.4:\n-54      resolution: {integrity: sha512-D+JmXORWLLBgqkYRqzXyvYcStYGQZ+7Hhse0HJGvv9wYYSFBLttrtMgRwWEmxZ+P+G988iTVbmQvFyAVwpibow==}\n+53    @esbuild/freebsd-x64@0.25.5:\n+54      resolution: {integrity: sha512-v+r+WehjVRN8tTGEKOjLoohBaXdGSaUN6d7TCDa0A0KG/k3BHgiCPD6ABtx4Q99+i7Cs6eb/iui02pGqM5TlbA==}\n\n-56    @esbuild/linux-arm@0.25.4:\n-57      resolution: {integrity: sha512-3ecW4SioeGQVvHom0Ko0sPGWz5YDooqCVcbBb0ddzO/1XZcvHxIimnMVPtYHMBhnd9yZpuJLqfWQtbgxEvnRKg==}\n+56    @esbuild/linux-arm@0.25.5:\n+57      resolution: {integrity: sha512-GmFK8HKaegutkeKcLTijHLhVWEWO3BRyk8nJFcH8MGz9blxIJQcg45fAYFc8S1JChPZeDoWD5wullj8AtX8l/Q==}\n\n-59    @esbuild/linux-arm64@0.25.4:\n-60      resolution: {integrity: sha512-6dCry8+80ShNBpZl3+/AFQ3Uvpp/KessbVgwvIS0dX/BxlP4APQb3bDUv5FvUL3kkGs488KR9kl9Et7pvDwriQ==}\n+59    @esbuild/linux-arm64@0.25.5:\n+60      resolution: {integrity: sha512-/k5iHXhxJIBK6SfTg8tXsSURenMvutQVQF/cZYXD8H1bq4lzBn4fClTz+unDPw0wz38zuDnVRyo6H+2xDSYVxA==}\n\n-62    @esbuild/linux-ia32@0.25.4:\n-63      resolution: {integrity: sha512-kOR9SzX5O48tW281q4MbPvoII9Iq3OnyxCB6JFYoanYj7wupMrw0H6CnXIQ2KdVfUFK8Odx9RfsLqAE0TxQKzw==}\n+62    @esbuild/linux-ia32@0.25.5:\n+63      resolution: {integrity: sha512-2sVmd0ks9oEZvold6tyujaCrEX0FcwCGu6oFb/InA270PeTu/94BvHnnkVwmmv/wFZsLM4xScQvG3uzI06WavQ==}\n\n-65    @esbuild/linux-loong64@0.25.4:\n-66      resolution: {integrity: sha512-AhS1gjNgAUJgcbCG3TVaFng61i+hD7iE1BnJOURsaN0gfzpFWioF/AtiCRa7Hl8SKHVuMRJiY9KJ3vuOycD6hw==}\n+65    @esbuild/linux-loong64@0.25.5:\n+66      resolution: {integrity: sha512-RLzUC/GmHDrRpcfiOojxYWvLufJZxwsYhcIp43GTQM1/xOUZFJcikCpZyfIKvMq7cbo0UMCE3j8ZCwclIb1uLw==}\n\n-68    @esbuild/linux-mips64el@0.25.4:\n-69      resolution: {integrity: sha512-3CmRZchISRz1v0ARGG+JdasEExW5c+VnmopBLj6GHHOzKz/K+I054tbGiJh31fVAuLEPx04svAVnK/LscuTGRw==}\n+68    @esbuild/linux-mips64el@0.25.5:\n+69      resolution: {integrity: sha512-f0C4mzFSv4Iczhj9FUTfjnqOa9zqTf3ZwZq8IxiHDJ6a8BaRzwf3zVh+K5rwy+g70O9KoDdkktLQQYqcKdEmpw==}\n\n-71    @esbuild/linux-ppc64@0.25.4:\n-72      resolution: {integrity: sha512-cqfe/VvBZLMQuEEwK+ah8JpBwbrs/boHZiNAp4SjtmY/ID1C8B0dc+rjb5wH4KGs1AhaL0blcQDK6tbtOf8aUw==}\n+71    @esbuild/linux-ppc64@0.25.5:\n+72      resolution: {integrity: sha512-TPs6RoU981jXljwRProftYDt/DCDPGxBtJs2/StLd5F071CljDlyP5Bnd8TXmoV8ANaG9EY/iEKZuuA8aiz5gw==}\n\n-74    @esbuild/linux-riscv64@0.25.4:\n-75      resolution: {integrity: sha512-GuNX+9khcgdlDWj9RWaH65VGj0rKzEN31YmIDNcX7id5nQ/Vicu75JDKkGvGRwfOyGO/oc2UhoP/22Jj0Ip+RQ==}\n+74    @esbuild/linux-riscv64@0.25.5:\n+75      resolution: {integrity: sha512-iotkaI/eXWclzLycJscw5y71sPwZsK94JeswCUMxVMu6NefwbQ43qYnKUEPulnMsgHUAp0E0Riw1vmhVLgEe/Q==}\n\n-77    @esbuild/linux-s390x@0.25.4:\n-78      resolution: {integrity: sha512-wbQ0KJ4+tiHJRQJAaSylz/6WjQsU4cPvGnKfcW0qRHemaAygsfmxDoEFfth8nXPkcgnaTodlgbNesjR5YxRqow==}\n+77    @esbuild/linux-s390x@0.25.5:\n+78      resolution: {integrity: sha512-lYzKmI3OKJS91EcO3h3dFL+0fwJtuC0MqBVpgoR9zmGMbPSCl65bpztQy792xZz16vkaeOcEBY9lwit2XCRWkA==}\n\n-80    @esbuild/linux-x64@0.25.4:\n-81      resolution: {integrity: sha512-zJdy47+cT0L9DmLk5oo3Fth56L00OIbuoku8j+eg4l68gCnrbQKx6PytL3AkqHpTmL2M7WrsvtYPpfmbJSBbzQ==}\n+80    @esbuild/linux-x64@0.25.5:\n+81      resolution: {integrity: sha512-2NqR2Cat2YnoM907JEZgzH5hgFMcgFg69N6LhGJTmyaDHuw+rEqBvxv8fg+TS6rZdqfX7GXy4/sUSU9U7lDjnQ==}\n\n-83    @esbuild/netbsd-x64@0.25.4:\n-84      resolution: {integrity: sha512-ezyLeFhRWXaWZbCbwXweP6kdCRO/ZuwHGPsQgWPO4DG7yyuIb2prrtp70RNS0FIDTLaxet+LPf09p9ySJqA8xQ==}\n+83    @esbuild/netbsd-x64@0.25.5:\n+84      resolution: {integrity: sha512-MJdex7s9yT8iqhykEjFjSHlvE1J/6tntwxgX7wEapQ4SSr0VYy/ctUvEBtO6nWn8wZT5ket5UtS1qjJsDHZyiA==}\n\n-86    @esbuild/openbsd-x64@0.25.4:\n-87      resolution: {integrity: sha512-2HH279cn+WuqWLGd0ohNWppYCoYbBzsThqOpBYR45Y6C4XCUL/Uy2cN05PDBptONdU4fYnEHx/tR/o6NF9/hTA==}\n+86    @esbuild/openbsd-x64@0.25.5:\n+87      resolution: {integrity: sha512-MSwDM/62UKFre1ldWCXJS/Qt8VMCpanpZdgTGjxMS6bMlYFu/NfxvqhC6nAMGTMXUWBwaUN62r2AFyqAAojjdQ==}\n\n-89    @esbuild/sunos-x64@0.25.4:\n-90      resolution: {integrity: sha512-5XWXO0UhJkftr/cY8EZ8z6frfyxvZp33nYkD5tZkVahhLixVVDZo3vc45YQsahPC5caFeO8/qduZnkJHrVWHmg==}\n+89    @esbuild/sunos-x64@0.25.5:\n+90      resolution: {integrity: sha512-LY8FKyXZ9vs4Sj55ecT5taCiX0ossVmpo0KncGIOH0D0gjBD+t24neDX0p6F/IUWAC2oqGrOnhsCfywYBdmBKg==}\n\n-92    @esbuild/win32-arm64@0.25.4:\n-93      resolution: {integrity: sha512-+2+qgrhJYrDPeMUYvXQWQtNC6+NQ1DGNjSrsUHx1/kmTIOxQ9qjxXbOR6c/2eAdjaxAoR7kS0VmibBjLfo3Zqg==}\n+92    @esbuild/win32-arm64@0.25.5:\n+93      resolution: {integrity: sha512-k1AGrAwCD17+CbqW6a3K04dsJLXA6CXNqMdU1cZRu2ljsVlsAmxv7UBbcA0DUUYj6xjyjuigHOzY18NKJDQAvg==}\n\n-95    @esbuild/win32-ia32@0.25.4:\n-96      resolution: {integrity: sha512-QQ42GBVxGuZCdbDOXs3dPdTehbaEYu7C03vDaG5bhXZ6L3D8UXJOtHRQqtvuHUXJmsUJqNjEKkd50Gc9IJlP2A==}\n+95    @esbuild/win32-ia32@0.25.5:\n+96      resolution: {integrity: sha512-wxSVeFZ7NldLaW38vdbvPbKek/LSUzRsdZ+iWI0wlzlNkNXUgB5Cmmmzm1jKUQjxnVEG2UIOaU67e+UHOJTOQw==}\n\n-98    @esbuild/win32-x64@0.25.4:\n-99      resolution: {integrity: sha512-VlbjPxmhDboCo9Wn9v1ZkSoPRH/7vJs5dM44O3oFS9DL+hPs14H+GOpVUszQfXxWLscTu5CnViopbld+OiNmSA==}\n+98    @esbuild/win32-x64@0.25.5:\n+99      resolution: {integrity: sha512-gXb4zZReM61Jxf8yCE5a1/ywZ4tfVXBV+mrb4k1aqXaghb/1PuzeglvbPHaqejp8cobE6Fzk0K9cxO62dvgd2g==}\n\n-101   esbuild@0.25.4:\n-102     resolution: {integrity: sha512-j6XptEHL+bmSq9Yv4PnGElvIBkb6fG5dKMFvSdeCJENkqvepwpKtox6y7zbDr+TZMF5dfunGdh81colcScnlXQ==}\n+101   esbuild@0.25.5:\n+102     resolution: {integrity: sha512-1sWzD9759h1FW2lsfKzW5SLg0oUB4uPnYlcEDlF5TDcnEDosTit2u4dZZTYeS4fwdz86Cklo0NP3wFNRCKd3DQ==}\n\n-104   @vitest/expect@3.1.4:\n-105     resolution: {integrity: sha512-vmdU/8sLea6eW+88i9wWfuEuAYZ+3Os4ol/LjE9PO21SfSgmIWD+I4dA4IEKf94+9/KvcCNAaJfky8kAEl8zjA==}\n+104   @vitest/expect@3.2.1:\n+105     resolution: {integrity: sha512-yKg43bKtvXV6xxtF6l6LFCzBSKTWcTqQHZdjRG1A7q51E21/nmIpdUYIfvkzId0zn8gtTHBIcdUPOAjv4IPreA==}\n\n-107   @vitest/runner@3.1.4:\n-108     resolution: {integrity: sha512-l3GxQn7Z6vYl03PMOWDEa2GXsLshZUXUOvvEBEyzWccrpTcFp+oJfV7RT2GEfKysx2+iTIUV9ylEj3U3YY2Kvw==}\n+107   @vitest/runner@3.2.1:\n+108     resolution: {integrity: sha512-JkIjojbOlY8at/r6/1uysCsH9377PsKRBvGZ/IvvzR3ZmXqO9MuwQ+ZpqKRrpyBTsae7UcNre+NvWTv18KiiEg==}\n\n-110   @vitest/snapshot@3.1.4:\n-111     resolution: {integrity: sha512-Aru2rKhet5s8nQxMRaw9KJOj4efOyPMJfvMqwIQFyfHp0FCVpIBOuYsTQU5ZJUlvGLcrTcGPiLveabE7N89pGQ==}\n+110   @vitest/snapshot@3.2.1:\n+111     resolution: {integrity: sha512-k1e11Doz5YVFYoza756hV5JdHsvPRYnVQfCg8ihljFJCFkFf9LtTGK9RJvpD/Z5VFG1NxTmqWPgQtWZlWiPIBg==}\n\n-113   @vitest/spy@3.1.4:\n-114     resolution: {integrity: sha512-8onuaSfBqvNOoYs5RzZdeavtsQasdd5qn9zKRMy7S/ETG+62NF4f1jbll9boWp/hSe8vLxhUIqw6IXnhTn20zg==}\n+113   @vitest/spy@3.2.1:\n+114     resolution: {integrity: sha512-Q9DifLnKHqVBek7Lv3SmSAi7nOkfPu17M+8uIVYAL99zqi0eJqEb6FA7mX9TR3wpP+MpZYzFW66MfNwuQbwZNQ==}\n\n-116   @vitest/utils@3.1.4:\n-117     resolution: {integrity: sha512-qd0Kbjtr2pMkbe7oJOy1yn9yhvpsQm//MT7YMcAUlGCcfJRKjzEAtrAMxNpnGkZaacM6SUJ1c6lTF+AIikVGbA==}\n+116   @vitest/utils@3.2.1:\n+117     resolution: {integrity: sha512-mjnNbkKknK8FrSvXcqEqnN4hNXAFF+W6Z4Py0SgtzSe6Oj4zTk8ApWPrKldiqxe9z5VR3WAggpTrngxObh2Knw==}\n\n-119   @vitest/pretty-format@3.1.4:\n-120     resolution: {integrity: sha512-FVUcZrHhbCX6bIr6xisks8mbZ+Snp7dzlNEhfq9QntJl4OLw0hAOCNyx1y4ESZb+s/GtEsuKD5YNjUDFvT+GDQ==}\n+119   @vitest/pretty-format@3.2.1:\n+120     resolution: {integrity: sha512-aU3BMtG1ybCmUv1WyALfY1Nz07aEhFlKftBraipLaXuM9lgSwRDvqzDVCioyHIo6gl5nJMgv2reOgXJlUN4qjw==}\n\n-122   chai@5.2.0:\n-123     resolution: {integrity: sha512-RHteO54+mk1DkuDkDlLZHZMnV5DanxHYKkDAPh9TmFTGv+UCm0SNSrl18rO/jbAiD3ReIE03Rp45GpAZtz5Tdw==}\n+122   chai@5.2.1:\n+123     resolution: {integrity: sha512-9Ctlw62Qp7XkX032rj5+fUkv2RQVZC39UJNK4g9uRWLGVjQFgj2yaMd1iBKWhQCd6i0Hu8Y1iBtYB4TqCAkBiA==}\n\n-125   tinypool@1.0.2:\n-126     resolution: {integrity: sha512-LDOBtlfRuTeWzvt8YahsLakmA+W63laRfd5ZBIoVoB1pEc4M7VZrMknrZhoFH7L0qD4fPKRiastQ5l5M2Mszuw==}\n+125   tinypool@1.1.1:\n+126     resolution: {integrity: sha512-eQ7fYKUqye/kTglQtsHSxs9R0DW+1+SBmTRt8bdI35ssJJFIJvJt56eW5CUChDBAQ/X+jhoGP5ymu/rMI5Xcnw==}\n\n-128   vitest@3.1.4:\n-129     resolution: {integrity: sha512-8zXw5ldR3qovu61XB397IKwBZZskfPC5Mcf8oewoOCC4RkhYMeUL/1O5OvIxoqBlfS5WQFVRno+dujR4op5d1g==}\n+128   vitest@3.2.1:\n+129     resolution: {integrity: sha512-gnpv0m9/yRXPIultXS21JL6BqorQn82/CNLhj+hMzNuKb6g4cYgbbsSbfGZ977sUy9dVU0iNzmpSRVuz2wXTFw==}\n\n     snapshots:\n\n@@ h3 -138,112 +138,112 @@ snapshots:\n\n       typescript@5.8.3:\n\n-141   @esbuild/aix-ppc64@0.25.4:\n+141   @esbuild/aix-ppc64@0.25.5:\n\n-143   @esbuild/android-arm@0.25.4:\n+143   @esbuild/android-arm@0.25.5:\n\n-145   @esbuild/android-arm64@0.25.4:\n+145   @esbuild/android-arm64@0.25.5:\n\n-147   @esbuild/android-x64@0.25.4:\n+147   @esbuild/android-x64@0.25.5:\n\n-149   @esbuild/darwin-arm64@0.25.4:\n+149   @esbuild/darwin-arm64@0.25.5:\n\n-151   @esbuild/darwin-x64@0.25.4:\n+151   @esbuild/darwin-x64@0.25.5:\n\n-153   @esbuild/freebsd-arm64@0.25.4:\n+153   @esbuild/freebsd-arm64@0.25.5:\n\n-155   @esbuild/freebsd-x64@0.25.4:\n+155   @esbuild/freebsd-x64@0.25.5:\n\n-157   @esbuild/linux-arm@0.25.4:\n+157   @esbuild/linux-arm@0.25.5:\n\n-159   @esbuild/linux-arm64@0.25.4:\n+159   @esbuild/linux-arm64@0.25.5:\n\n-161   @esbuild/linux-ia32@0.25.4:\n+161   @esbuild/linux-ia32@0.25.5:\n\n-163   @esbuild/linux-loong64@0.25.4:\n+163   @esbuild/linux-loong64@0.25.5:\n\n-165   @esbuild/linux-mips64el@0.25.4:\n+165   @esbuild/linux-mips64el@0.25.5:\n\n-167   @esbuild/linux-ppc64@0.25.4:\n+167   @esbuild/linux-ppc64@0.25.5:\n\n-169   @esbuild/linux-riscv64@0.25.4:\n+169   @esbuild/linux-riscv64@0.25.5:\n\n-171   @esbuild/linux-s390x@0.25.4:\n+171   @esbuild/linux-s390x@0.25.5:\n\n-173   @esbuild/linux-x64@0.25.4:\n+173   @esbuild/linux-x64@0.25.5:\n\n-175   @esbuild/netbsd-x64@0.25.4:\n+175   @esbuild/netbsd-x64@0.25.5:\n\n-177   @esbuild/openbsd-x64@0.25.4:\n+177   @esbuild/openbsd-x64@0.25.5:\n\n-179   @esbuild/sunos-x64@0.25.4:\n+179   @esbuild/sunos-x64@0.25.5:\n\n-181   @esbuild/win32-arm64@0.25.4:\n+181   @esbuild/win32-arm64@0.25.5:\n\n-183   @esbuild/win32-ia32@0.25.4:\n+183   @esbuild/win32-ia32@0.25.5:\n\n-185   @esbuild/win32-x64@0.25.4:\n+185   @esbuild/win32-x64@0.25.5:\n\n-187   esbuild@0.25.4:\n+187   esbuild@0.25.5:\n         dependencies:\n-189       @esbuild/aix-ppc64: 0.25.4\n-190       @esbuild/android-arm: 0.25.4\n-191       @esbuild/android-arm64: 0.25.4\n-192       @esbuild/android-x64: 0.25.4\n-193       @esbuild/darwin-arm64: 0.25.4\n-194       @esbuild/darwin-x64: 0.25.4\n-195       @esbuild/freebsd-arm64: 0.25.4\n-196       @esbuild/freebsd-x64: 0.25.4\n-197       @esbuild/linux-arm: 0.25.4\n-198       @esbuild/linux-arm64: 0.25.4\n-199       @esbuild/linux-ia32: 0.25.4\n-200       @esbuild/linux-loong64: 0.25.4\n-201       @esbuild/linux-mips64el: 0.25.4\n-202       @esbuild/linux-ppc64: 0.25.4\n-203       @esbuild/linux-riscv64: 0.25.4\n-204       @esbuild/linux-s390x: 0.25.4\n-205       @esbuild/linux-x64: 0.25.4\n-206       @esbuild/netbsd-x64: 0.25.4\n-207       @esbuild/openbsd-x64: 0.25.4\n-208       @esbuild/sunos-x64: 0.25.4\n-209       @esbuild/win32-arm64: 0.25.4\n-210       @esbuild/win32-ia32: 0.25.4\n-211       @esbuild/win32-x64: 0.25.4\n+189       @esbuild/aix-ppc64: 0.25.5\n+190       @esbuild/android-arm: 0.25.5\n+191       @esbuild/android-arm64: 0.25.5\n+192       @esbuild/android-x64: 0.25.5\n+193       @esbuild/darwin-arm64: 0.25.5\n+194       @esbuild/darwin-x64: 0.25.5\n+195       @esbuild/freebsd-arm64: 0.25.5\n+196       @esbuild/freebsd-x64: 0.25.5\n+197       @esbuild/linux-arm: 0.25.5\n+198       @esbuild/linux-arm64: 0.25.5\n+199       @esbuild/linux-ia32: 0.25.5\n+200       @esbuild/linux-loong64: 0.25.5\n+201       @esbuild/linux-mips64el: 0.25.5\n+202       @esbuild/linux-ppc64: 0.25.5\n+203       @esbuild/linux-riscv64: 0.25.5\n+204       @esbuild/linux-s390x: 0.25.5\n+205       @esbuild/linux-x64: 0.25.5\n+206       @esbuild/netbsd-x64: 0.25.5\n+207       @esbuild/openbsd-x64: 0.25.5\n+208       @esbuild/sunos-x64: 0.25.5\n+209       @esbuild/win32-arm64: 0.25.5\n+210       @esbuild/win32-ia32: 0.25.5\n+211       @esbuild/win32-x64: 0.25.5\n\n-213   @vitest/expect@3.1.4:\n+213   @vitest/expect@3.2.1:\n         dependencies:\n-215       chai: 5.2.0\n+215       chai: 5.2.1\n\n-217   @vitest/runner@3.1.4:\n+217   @vitest/runner@3.2.1:\n         dependencies:\n-219       @vitest/utils: 3.1.4\n+219       @vitest/utils: 3.2.1\n\n-221   @vitest/snapshot@3.1.4:\n+221   @vitest/snapshot@3.2.1:\n         dependencies:\n-223       @vitest/pretty-format: 3.1.4\n+223       @vitest/pretty-format: 3.2.1\n\n-225   @vitest/spy@3.1.4:\n+225   @vitest/spy@3.2.1:\n         dependencies:\n           tinyspy: 4.0.3\n\n-229   @vitest/utils@3.1.4:\n+229   @vitest/utils@3.2.1:\n         dependencies:\n           loupe: 3.1.4\n\n-233   @vitest/pretty-format@3.1.4:\n+233   @vitest/pretty-format@3.2.1:\n\n-235   chai@5.2.0:\n+235   chai@5.2.1:\n         dependencies:\n           assertion-error: 2.0.1\n           loupe: 3.1.4\n\n-240   tinypool@1.0.2:\n+240   tinypool@1.1.1:\n\n-242   vitest@3.1.4:\n+242   vitest@3.2.1:\n         dependencies:\n-244       @vitest/expect: 3.1.4\n-245       @vitest/runner: 3.1.4\n-246       @vitest/snapshot: 3.1.4\n-247       @vitest/spy: 3.1.4\n-248       esbuild: 0.25.4\n-249       tinypool: 1.0.2\n+244       @vitest/expect: 3.2.1\n+245       @vitest/runner: 3.2.1\n+246       @vitest/snapshot: 3.2.1\n+247       @vitest/spy: 3.2.1\n+248       esbuild: 0.25.5\n+249       tinypool: 1.1.1\n\n## scripts/release.sh\nmodified, mode 100644 → 100755\nfile made executable\n@@ h1 -1,5 +1,6 @@\n     #!/bin/sh\n     # Tags a release and pushes it; CI builds and deploys the tag.\n+3   set -eu\n     version=$(node -p \"require('./package.json').version\")\n     git tag \"v$version\"\n     git push origin \"v$version\"\n\n## src/config.ts\nmodified\n@@ h1 -1,7 +1,13 @@\n+1  import { parseCurrency, type CurrencyCode } from './currency.ts';\n+2  import { isLevel, type Level } from './log.ts';\n+3\n    export interface Config {\n    \treadonly port: number;\n    \treadonly databaseUrl: string;\n    \treadonly companyName: string;\n+8  \t/** The currency of an invoice that names none and whose customer has none. */\n+9  \treadonly defaultCurrency: CurrencyCode;\n+10 \treadonly logLevel: Level;\n    }\n\n    function required(name: string): string {\n@@ h2 -10,8 +16,16 @@ function required(name: string): string {\n    \treturn value;\n    }\n\n+19 function logLevel(): Level {\n+20 \tconst value = process.env['LOG_LEVEL'] ?? 'info';\n+21 \tif (!isLevel(value)) throw new Error(`LOG_LEVEL must be debug, info, warn or error, not ${value}.`);\n+22 \treturn value;\n+23 }\n+24\n    export const config: Config = {\n    \tport: Number(process.env['PORT'] ?? 8080),\n    \tdatabaseUrl: required('DATABASE_URL'),\n-16 \tcompanyName: process.env['COMPANY_NAME'] ?? 'Ledger Ltd'\n+28 \tcompanyName: process.env['COMPANY_NAME'] ?? 'Ledger Ltd',\n+29 \tdefaultCurrency: parseCurrency(process.env['DEFAULT_CURRENCY'] ?? 'EUR'),\n+30 \tlogLevel: logLevel()\n    };\n\n## src/currency.test.ts\nadded\n@@ h1 -0,0 +1,33 @@\n+1  import { describe, expect, it } from 'vitest';\n+2  import { minorUnits, parseCurrency, roundForTax, symbol } from './currency.ts';\n+3\n+4  describe('parseCurrency', () => {\n+5  \tit('reads a code in any case, with space around it', () => {\n+6  \t\texpect(parseCurrency(' eur ')).toBe('EUR');\n+7  \t\texpect(parseCurrency('jpy')).toBe('JPY');\n+8  \t});\n+9\n+10 \tit('refuses a code it does not know, naming the ones it does', () => {\n+11 \t\texpect(() => parseCurrency('XYZ')).toThrow(/Use one of EUR, GBP, USD, JPY, CHF, SEK, KWD/);\n+12 \t});\n+13 });\n+14\n+15 describe('minor units', () => {\n+16 \tit('knows currencies with none and with three', () => {\n+17 \t\texpect(minorUnits('JPY')).toBe(0);\n+18 \t\texpect(minorUnits('KWD')).toBe(3);\n+19 \t\texpect(symbol('GBP')).toBe('£');\n+20 \t});\n+21 });\n+22\n+23 describe('roundForTax', () => {\n+24 \tit('rounds half away from zero', () => {\n+25 \t\texpect(roundForTax(2.5, 'EUR')).toBe(3);\n+26 \t\texpect(roundForTax(-2.5, 'EUR')).toBe(-3);\n+27 \t});\n+28\n+29 \tit('rounds Swiss francs to five rappen', () => {\n+30 \t\texpect(roundForTax(1237, 'CHF')).toBe(1235);\n+31 \t\texpect(roundForTax(1238, 'CHF')).toBe(1240);\n+32 \t});\n+33 });\n\n## src/currency.ts\nadded\n@@ h1 -0,0 +1,48 @@\n+1  /**\n+2   * The currencies invoices can be written in, by ISO 4217 code: how many digits\n+3   * follow the decimal point, the symbol amounts are shown with, and the name.\n+4   */\n+5  export const CURRENCIES = {\n+6  \tEUR: { minorUnits: 2, symbol: '€', name: 'Euro' },\n+7  \tGBP: { minorUnits: 2, symbol: '£', name: 'Pound sterling' },\n+8  \tUSD: { minorUnits: 2, symbol: '$', name: 'US dollar' },\n+9  \tJPY: { minorUnits: 0, symbol: '¥', name: 'Japanese yen' },\n+10 \tCHF: { minorUnits: 2, symbol: 'CHF ', name: 'Swiss franc' },\n+11 \tSEK: { minorUnits: 2, symbol: 'kr ', name: 'Swedish krona' },\n+12 \tKWD: { minorUnits: 3, symbol: 'KD ', name: 'Kuwaiti dinar' }\n+13 } as const;\n+14\n+15 export type CurrencyCode = keyof typeof CURRENCIES;\n+16\n+17 export function isCurrencyCode(text: string): text is CurrencyCode {\n+18 \treturn Object.hasOwn(CURRENCIES, text);\n+19 }\n+20\n+21 /** A currency code as a person or a client wrote it: \" eur\" is EUR. */\n+22 export function parseCurrency(text: string): CurrencyCode {\n+23 \tconst code = text.trim().toUpperCase();\n+24 \tif (!isCurrencyCode(code)) {\n+25 \t\tthrow new RangeError(\n+26 \t\t\t`Unknown currency \"${text}\". Use one of ${Object.keys(CURRENCIES).join(', ')}.`\n+27 \t\t);\n+28 \t}\n+29 \treturn code;\n+30 }\n+31\n+32 export function minorUnits(code: CurrencyCode): number {\n+33 \treturn CURRENCIES[code].minorUnits;\n+34 }\n+35\n+36 export function symbol(code: CurrencyCode): string {\n+37 \treturn CURRENCIES[code].symbol;\n+38 }\n+39\n+40 /**\n+41  * Rounds an exact amount of minor units, such as a tax, the way the currency\n+42  * requires: half away from zero, except Swiss francs, which are rounded to the\n+43  * nearest five rappen.\n+44  */\n+45 export function roundForTax(exact: number, code: CurrencyCode): number {\n+46 \tif (code === 'CHF') return Math.round(exact / 5) * 5;\n+47 \treturn Math.sign(exact) * Math.round(Math.abs(exact));\n+48 }\n\n## src/format/amount.ts\nrenamed from src/format.ts (66% similar)\nfile renamed from src/format.ts\n@@ h1 -1,13 +1,17 @@\n-1   import type { Cents } from './money.ts';\n+1   import { minorUnits, symbol } from '../currency.ts';\n+2   import type { Money } from '../money.ts';\n\n-3   /** 123456 cents as \"1,234.56\". */\n-4   export function formatAmount(amount: Cents): string {\n-5   \tconst negative = amount < 0;\n-6   \tconst whole = Math.floor(Math.abs(amount) / 100);\n-7   \tconst rest = Math.abs(amount) % 100;\n+4   /** 123456 cents of EUR as \"€1,234.56\"; 1234 JPY as \"¥1,234\". */\n+5   export function formatAmount(amount: Money): string {\n+6   \tconst negative = amount.minor < 0;\n+7   \tconst digits = minorUnits(amount.currency);\n+8   \tconst scale = 10 ** digits;\n+9   \tconst whole = Math.floor(Math.abs(amount.minor) / scale);\n+10  \tconst rest = Math.abs(amount.minor) % scale;\n     \tconst grouped = String(whole).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');\n-9   \tconst text = `${grouped}.${String(rest).padStart(2, '0')}`;\n-10  \treturn negative ? `-${text}` : text;\n+12  \tconst text = digits === 0 ? grouped : `${grouped}.${String(rest).padStart(digits, '0')}`;\n+13  \tconst shown = `${symbol(amount.currency)}${text}`;\n+14  \treturn negative ? `-${shown}` : shown;\n     }\n\n     /** A date as \"15 Jan 2026\". */\n\n## src/generated/api-types.ts\nmodified\n@@ h1 -9,8 +9,8 @@ export interface InvoiceLineRequest {\n     \tdescription: string;\n     \t/** How many, which may be a fraction for hours. */\n     \tquantity: number;\n-12  \t/** The price of one, in cents. */\n-13  \tunit_price_cents: number;\n+12  \t/** The price of one, in the minor unit of the invoice's currency. */\n+13  \tunit_price_minor: number;\n     \t/** Which tax rate applies. */\n     \ttax_rate: 'standard' | 'reduced' | 'zero';\n     }\n@@ h2 -23,6 +23,8 @@ export interface CreateInvoiceRequest {\n     \tcustomer_id: string;\n     \t/** The date of issue, as YYYY-MM-DD. */\n     \tissued_on: string;\n+26  \t/** The invoice's currency; the customer's, or the default, when left out. */\n+27  \tcurrency: 'EUR' | 'GBP' | 'USD' | 'JPY' | 'CHF' | 'SEK' | 'KWD' | undefined;\n     \t/** What was sold, in order. */\n     \tlines: InvoiceLineRequest[];\n     }\n@@ h3 -33,9 +35,9 @@ export interface InvoiceLineResponse {\n     \tdescription: string;\n     \t/** How many, formatted. */\n     \tquantity: string;\n-36  \t/** The price of one, formatted. */\n+38  \t/** The price of one, formatted with its currency. */\n     \tunit_price: string;\n-38  \t/** Quantity times price, formatted. */\n+40  \t/** Quantity times price, formatted with its currency. */\n     \tnet: string;\n     \t/** The tax rate, as a percentage. */\n     \ttax_rate: string;\n@@ h4 -49,12 +51,16 @@ export interface InvoiceResponse {\n     \tcustomer_id: string;\n     \t/** The date of issue, as YYYY-MM-DD. */\n     \tissued_on: string;\n-52  \t/** The total before tax, formatted. */\n+54  \t/** The currency every amount is in. */\n+55  \tcurrency: 'EUR' | 'GBP' | 'USD' | 'JPY' | 'CHF' | 'SEK' | 'KWD';\n+56  \t/** The total before tax, formatted with its currency. */\n     \tnet: string;\n-54  \t/** The tax, formatted. */\n+58  \t/** The tax, formatted with its currency. */\n     \ttax: string;\n-56  \t/** The total with tax, formatted. */\n+60  \t/** The total with tax, formatted with its currency. */\n     \tgross: string;\n+62  \t/** The total with tax, in minor units, for machines. */\n+63  \tgross_minor: number;\n     \t/** What was sold, in order. */\n     \tlines: InvoiceLineResponse[];\n     }\n@@ h5 -75,4 +81,26 @@ export interface CustomerResponse {\n     \tname: string;\n     \t/** Where invoices are sent. */\n     \temail: string;\n+84  \t/** The currency new invoices for this customer are written in. */\n+85  \tpreferred_currency: 'EUR' | 'GBP' | 'USD' | 'JPY' | 'CHF' | 'SEK' | 'KWD' | undefined;\n+86  }\n+87\n+88  /** A currency invoices can be written in. */\n+89  export interface CurrencyResponse {\n+90  \t/** Its ISO 4217 code. */\n+91  \tcode: 'EUR' | 'GBP' | 'USD' | 'JPY' | 'CHF' | 'SEK' | 'KWD';\n+92  \t/** Its name in English. */\n+93  \tname: string;\n+94  \t/** The symbol amounts are shown with. */\n+95  \tsymbol: string;\n+96  \t/** How many digits follow the decimal point. */\n+97  \tminor_units: number;\n+98  }\n+99\n+100 /** The body of GET /currencies. */\n+101 export interface CurrencyListResponse {\n+102 \t/** Every currency, by code. */\n+103 \tcurrencies: CurrencyResponse[];\n+104 \t/** The currency used when none is given. */\n+105 \tdefault: 'EUR' | 'GBP' | 'USD' | 'JPY' | 'CHF' | 'SEK' | 'KWD';\n     }\n\n## src/invoice.test.ts\nmodified\n@@ h1 -1,20 +1,32 @@\n    import { describe, expect, it } from 'vitest';\n    import { totals, validate, type Invoice } from './invoice.ts';\n-3  import { cents } from './money.ts';\n+3  import { money } from './money.ts';\n+4\n+5  const eur = (minor: number) => money(minor, 'EUR');\n\n    const invoice: Invoice = {\n    \tid: 'INV-1001',\n    \tcustomerId: 'C-7',\n    \tissuedOn: '2026-01-15',\n+11 \tcurrency: 'EUR',\n    \tlines: [\n-10 \t\t{ description: 'Consulting', quantity: 2, unitPrice: cents(15000), taxRate: 'standard' },\n-11 \t\t{ description: 'Book', quantity: 1, unitPrice: cents(2000), taxRate: 'reduced' }\n+13 \t\t{ description: 'Consulting', quantity: 2, unitPrice: eur(15000), taxRate: 'standard' },\n+14 \t\t{ description: 'Book', quantity: 1, unitPrice: eur(2000), taxRate: 'reduced' }\n    \t]\n    };\n\n    describe('totals', () => {\n    \tit('adds the lines and their tax', () => {\n-17 \t\texpect(totals(invoice)).toEqual({ net: 32000, tax: 6100, gross: 38100 });\n+20 \t\texpect(totals(invoice)).toEqual({ net: eur(32000), tax: eur(6100), gross: eur(38100) });\n+21 \t});\n+22\n+23 \tit('totals an invoice in yen, which has no minor unit', () => {\n+24 \t\tconst yen: Invoice = {\n+25 \t\t\t...invoice,\n+26 \t\t\tcurrency: 'JPY',\n+27 \t\t\tlines: [{ description: 'Book', quantity: 3, unitPrice: money(1980, 'JPY'), taxRate: 'reduced' }]\n+28 \t\t};\n+29 \t\texpect(totals(yen).gross).toEqual(money(6237, 'JPY'));\n    \t});\n    });\n\n@@ h2 -26,4 +38,12 @@ describe('validate', () => {\n    \tit('wants at least one line', () => {\n    \t\texpect(validate({ ...invoice, lines: [] })).toEqual(['An invoice needs at least one line.']);\n    \t});\n+41\n+42 \tit('refuses a line in another currency', () => {\n+43 \t\tconst mixed: Invoice = {\n+44 \t\t\t...invoice,\n+45 \t\t\tlines: [{ description: 'Book', quantity: 1, unitPrice: money(2000, 'GBP'), taxRate: 'reduced' }]\n+46 \t\t};\n+47 \t\texpect(validate(mixed)).toEqual(['Line 1 is in GBP, not EUR.']);\n+48 \t});\n    });\n\n## src/invoice.ts\nmodified\n@@ h1 -1,11 +1,12 @@\n+1  import type { CurrencyCode } from './currency.ts';\n    import { log } from './log.ts';\n-2  import { cents, multiply, sum, type Cents } from './money.ts';\n+3  import { add, multiply, sum, zero, type Money } from './money.ts';\n    import { taxFor, type TaxRate } from './tax.ts';\n\n    export interface InvoiceLine {\n    \treadonly description: string;\n    \treadonly quantity: number;\n-8  \treadonly unitPrice: Cents;\n+9  \treadonly unitPrice: Money;\n    \treadonly taxRate: TaxRate;\n    }\n\n@@ h2 -13,25 +14,30 @@ export interface Invoice {\n    \treadonly id: string;\n    \treadonly customerId: string;\n    \treadonly issuedOn: string;\n+17 \t/** Every amount on the invoice is in this currency. */\n+18 \treadonly currency: CurrencyCode;\n    \treadonly lines: readonly InvoiceLine[];\n    }\n\n    export interface Totals {\n-20 \treadonly net: Cents;\n-21 \treadonly tax: Cents;\n-22 \treadonly gross: Cents;\n+23 \treadonly net: Money;\n+24 \treadonly tax: Money;\n+25 \treadonly gross: Money;\n    }\n\n-25 export function lineNet(line: InvoiceLine): Cents {\n+28 export function lineNet(line: InvoiceLine): Money {\n    \treturn multiply(line.unitPrice, line.quantity);\n    }\n\n    export function totals(invoice: Invoice): Totals {\n    \tconst nets = invoice.lines.map(lineNet);\n-31 \tconst net = sum(nets);\n-32 \tconst tax = sum(invoice.lines.map((line, i) => taxFor(nets[i] ?? cents(0), line.taxRate)));\n-33 \tconst gross = cents(net + tax);\n-34 \tlog(`totals for ${invoice.id}: ${gross}`);\n+34 \tconst net = sum(nets, invoice.currency);\n+35 \tconst tax = sum(\n+36 \t\tinvoice.lines.map((line, i) => taxFor(nets[i] ?? zero(invoice.currency), line.taxRate)),\n+37 \t\tinvoice.currency\n+38 \t);\n+39 \tconst gross = add(net, tax);\n+40 \tlog.debug('totals', { invoice: invoice.id, gross: gross.minor, currency: gross.currency });\n    \treturn { net, tax, gross };\n    }\n\n@@ h3 -41,6 +47,9 @@ export function validate(invoice: Invoice): string[] {\n    \tfor (const [i, line] of invoice.lines.entries()) {\n    \t\tif (line.quantity <= 0) problems.push(`Line ${i + 1} has no quantity.`);\n    \t\tif (line.description.trim() === '') problems.push(`Line ${i + 1} has no description.`);\n+50 \t\tif (line.unitPrice.currency !== invoice.currency) {\n+51 \t\t\tproblems.push(`Line ${i + 1} is in ${line.unitPrice.currency}, not ${invoice.currency}.`);\n+52 \t\t}\n    \t}\n    \treturn problems;\n    }\n\n## src/log.test.ts\nadded\n@@ h1 -0,0 +1,31 @@\n+1  import { describe, expect, it } from 'vitest';\n+2  import { createLogger } from './log.ts';\n+3\n+4  const at = () => new Date('2026-01-15T09:30:00Z');\n+5\n+6  describe('createLogger', () => {\n+7  \tit('writes one JSON object per line, with its fields', () => {\n+8  \t\tconst lines: string[] = [];\n+9  \t\tconst log = createLogger({ level: 'info', sink: { write: (l) => lines.push(l) }, now: at });\n+10 \t\tlog.info('saved invoice', { invoice: 'INV-1001', lines: 2 });\n+11 \t\texpect(lines.map((l) => JSON.parse(l))).toEqual([\n+12 \t\t\t{ time: '2026-01-15T09:30:00.000Z', level: 'info', message: 'saved invoice', invoice: 'INV-1001', lines: 2 }\n+13 \t\t]);\n+14 \t});\n+15\n+16 \tit('writes nothing below its level', () => {\n+17 \t\tconst lines: string[] = [];\n+18 \t\tconst log = createLogger({ level: 'warn', sink: { write: (l) => lines.push(l) }, now: at });\n+19 \t\tlog.debug('noise');\n+20 \t\tlog.info('noise');\n+21 \t\tlog.warn('kept');\n+22 \t\texpect(lines).toHaveLength(1);\n+23 \t});\n+24\n+25 \tit('adds the fields of `with` to every line', () => {\n+26 \t\tconst lines: string[] = [];\n+27 \t\tconst log = createLogger({ level: 'debug', sink: { write: (l) => lines.push(l) }, now: at });\n+28 \t\tlog.with({ request: 'r-1' }).debug('hello');\n+29 \t\texpect(JSON.parse(lines[0] ?? '{}')).toMatchObject({ request: 'r-1', message: 'hello' });\n+30 \t});\n+31 });\n\n## src/log.ts\nmodified\n@@ h1 -1,9 +1,59 @@\n-1  /** Writes a line to the console with the time it was written. */\n-2  export function log(message: string): void {\n-3  \tconsole.log(`[${new Date().toISOString()}] ${message}`);\n+1  import { config } from './config.ts';\n+2\n+3  /**\n+4   * Structured logging: one JSON object per line on standard error, so the\n+5   * platform's log collector can index the fields. Nothing below the configured\n+6   * level is written.\n+7   */\n+8  export type Level = 'debug' | 'info' | 'warn' | 'error';\n+9\n+10 const ORDER: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };\n+11\n+12 export type Fields = Readonly<Record<string, string | number | boolean | undefined>>;\n+13\n+14 export interface Logger {\n+15 \tdebug(message: string, fields?: Fields): void;\n+16 \tinfo(message: string, fields?: Fields): void;\n+17 \twarn(message: string, fields?: Fields): void;\n+18 \terror(message: string, fields?: Fields): void;\n+19 \t/** A logger that adds these fields to every line, such as the request id. */\n+20 \twith(fields: Fields): Logger;\n    }\n\n-6  /** Writes a warning to the console with the time it was written. */\n-7  export function warn(message: string): void {\n-8  \tconsole.warn(`[${new Date().toISOString()}] WARNING ${message}`);\n+23 /** Where lines go: standard error, or a test's array. */\n+24 export interface Sink {\n+25 \twrite(line: string): void;\n    }\n+27\n+28 const standardError: Sink = { write: (line) => process.stderr.write(`${line}\\n`) };\n+29\n+30 export interface LoggerOptions {\n+31 \treadonly level: Level;\n+32 \treadonly sink?: Sink;\n+33 \treadonly now?: () => Date;\n+34 \treadonly fields?: Fields;\n+35 }\n+36\n+37 export function isLevel(text: string): text is Level {\n+38 \treturn Object.hasOwn(ORDER, text);\n+39 }\n+40\n+41 export function createLogger(options: LoggerOptions): Logger {\n+42 \tconst sink = options.sink ?? standardError;\n+43 \tconst now = options.now ?? (() => new Date());\n+44 \tconst base = options.fields ?? {};\n+45 \tconst emit = (level: Level, message: string, fields: Fields = {}): void => {\n+46 \t\tif (ORDER[level] < ORDER[options.level]) return;\n+47 \t\tsink.write(JSON.stringify({ time: now().toISOString(), level, message, ...base, ...fields }));\n+48 \t};\n+49 \treturn {\n+50 \t\tdebug: (message, fields) => emit('debug', message, fields),\n+51 \t\tinfo: (message, fields) => emit('info', message, fields),\n+52 \t\twarn: (message, fields) => emit('warn', message, fields),\n+53 \t\terror: (message, fields) => emit('error', message, fields),\n+54 \t\twith: (fields) => createLogger({ ...options, fields: { ...base, ...fields } })\n+55 \t};\n+56 }\n+57\n+58 /** The process's logger, at the level the configuration gives. */\n+59 export const log: Logger = createLogger({ level: config.logLevel });\n\n## src/money.test.ts\nmodified\n@@ h1 -1,22 +1,34 @@\n    import { describe, expect, it } from 'vitest';\n-2  import { add, cents, multiply, percentOf, sum } from './money.ts';\n+2  import { add, CurrencyMismatch, inMajorUnits, money, multiply, percentOf, sum } from './money.ts';\n+3\n+4  const eur = (minor: number) => money(minor, 'EUR');\n\n    describe('money', () => {\n-5  \tit('refuses a fraction of a cent', () => {\n-6  \t\texpect(() => cents(1.5)).toThrow(RangeError);\n+7  \tit('refuses a fraction of a minor unit', () => {\n+8  \t\texpect(() => money(1.5, 'EUR')).toThrow(RangeError);\n    \t});\n\n-9  \tit('adds and sums', () => {\n-10 \t\texpect(add(cents(100), cents(250))).toBe(350);\n-11 \t\texpect(sum([cents(1), cents(2), cents(3)])).toBe(6);\n-12 \t\texpect(sum([])).toBe(0);\n+11 \tit('adds and sums in one currency', () => {\n+12 \t\texpect(add(eur(100), eur(250))).toEqual(eur(350));\n+13 \t\texpect(sum([eur(1), eur(2), eur(3)], 'EUR')).toEqual(eur(6));\n+14 \t\texpect(sum([], 'JPY')).toEqual(money(0, 'JPY'));\n    \t});\n\n-15 \tit('multiplies by a quantity, rounding to the cent', () => {\n-16 \t\texpect(multiply(cents(333), 1.5)).toBe(500);\n+17 \tit('never adds two currencies', () => {\n+18 \t\texpect(() => add(eur(100), money(100, 'GBP'))).toThrow(CurrencyMismatch);\n+19 \t});\n+20\n+21 \tit('multiplies by a quantity, rounding to the minor unit', () => {\n+22 \t\texpect(multiply(eur(333), 1.5)).toEqual(eur(500));\n    \t});\n\n    \tit('takes a percentage', () => {\n-20 \t\texpect(percentOf(cents(1999), 20)).toBe(400);\n+26 \t\texpect(percentOf(eur(1999), 20)).toEqual(eur(400));\n+27 \t});\n+28\n+29 \tit('gives major units for display', () => {\n+30 \t\texpect(inMajorUnits(eur(1050))).toBe(10.5);\n+31 \t\texpect(inMajorUnits(money(1050, 'JPY'))).toBe(1050);\n+32 \t\texpect(inMajorUnits(money(1050, 'KWD'))).toBe(1.05);\n    \t});\n    });\n\nMore follows. Call get_diff with \"report\": \"r_1\" and \"cursor\": \"v1-f17-l0-k1166br3\" for the next page.",
+				"refused": false
+			}
+		},
+		{
+			"tool": "get_diff",
+			"arguments": {
+				"report": "r_1",
+				"cursor": "v1-f17-l0-k1166br3"
+			},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nThe whole diff: files 18 to 31 of 31.\nEach changed line starts with the label assign takes for it: +<line> for an added line, -<line> for a deleted one; unchanged lines have no label. Hunks are headed \"@@ <hunk id> ...\". \"file\" labels the change to a file itself.\n\n## src/money.ts\nmodified\n@@ h1 -1,23 +1,54 @@\n-1  /** An amount of money in whole cents. Never a fraction of a cent. */\n-2  export type Cents = number & { readonly __cents: true };\n+1  import { minorUnits, type CurrencyCode } from './currency.ts';\n\n-4  export function cents(value: number): Cents {\n-5  \tif (!Number.isInteger(value)) throw new RangeError(`Not a whole number of cents: ${value}`);\n-6  \treturn value as Cents;\n+3  /**\n+4   * An amount of money in the minor unit of its currency (cents, pence, yen),\n+5   * never a fraction of one, with the currency it is in.\n+6   */\n+7  export interface Money {\n+8  \treadonly minor: number;\n+9  \treadonly currency: CurrencyCode;\n    }\n\n-9  export function add(a: Cents, b: Cents): Cents {\n-10 \treturn cents(a + b);\n+12 /** Amounts in two currencies were combined: a bug in the caller, never rounded away. */\n+13 export class CurrencyMismatch extends Error {\n+14 \tconstructor(\n+15 \t\treadonly left: CurrencyCode,\n+16 \t\treadonly right: CurrencyCode\n+17 \t) {\n+18 \t\tsuper(`Cannot combine ${left} with ${right}.`);\n+19 \t}\n    }\n\n-13 export function sum(amounts: readonly Cents[]): Cents {\n-14 \treturn amounts.reduce((total, amount) => add(total, amount), cents(0));\n+22 export function money(minor: number, currency: CurrencyCode): Money {\n+23 \tif (!Number.isInteger(minor)) {\n+24 \t\tthrow new RangeError(`Not a whole number of ${currency} minor units: ${minor}`);\n+25 \t}\n+26 \treturn { minor, currency };\n    }\n\n-17 export function multiply(amount: Cents, quantity: number): Cents {\n-18 \treturn cents(Math.round(amount * quantity));\n+29 export function zero(currency: CurrencyCode): Money {\n+30 \treturn money(0, currency);\n    }\n\n-21 export function percentOf(amount: Cents, percent: number): Cents {\n-22 \treturn cents(Math.round((amount * percent) / 100));\n+33 export function add(a: Money, b: Money): Money {\n+34 \tif (a.currency !== b.currency) throw new CurrencyMismatch(a.currency, b.currency);\n+35 \treturn money(a.minor + b.minor, a.currency);\n+36 }\n+37\n+38 /** The sum of amounts in one currency; zero of that currency for none. */\n+39 export function sum(amounts: readonly Money[], currency: CurrencyCode): Money {\n+40 \treturn amounts.reduce((total, amount) => add(total, amount), zero(currency));\n+41 }\n+42\n+43 export function multiply(amount: Money, quantity: number): Money {\n+44 \treturn money(Math.round(amount.minor * quantity), amount.currency);\n+45 }\n+46\n+47 export function percentOf(amount: Money, percent: number): Money {\n+48 \treturn money(Math.round((amount.minor * percent) / 100), amount.currency);\n+49 }\n+50\n+51 /** The amount in major units, as a number: 1050 cents is 10.5. For display only. */\n+52 export function inMajorUnits(amount: Money): number {\n+53 \treturn amount.minor / 10 ** minorUnits(amount.currency);\n    }\n\n## src/pdf/render.ts\nmodified\n@@ h1 -1,6 +1,7 @@\n    import { config } from '../config.ts';\n+2  import { CURRENCIES } from '../currency.ts';\n    import type { Customer } from '../customers.ts';\n-3  import { formatAmount, formatDate, formatQuantity } from '../format.ts';\n+4  import { formatAmount, formatDate, formatQuantity } from '../format/amount.ts';\n    import { lineNet, totals, type Invoice } from '../invoice.ts';\n    import { describeRate } from '../tax.ts';\n\n@@ h2 -12,6 +13,7 @@ export function renderInvoice(invoice: Invoice, customer: Customer): string[] {\n    \t\t`Invoice ${invoice.id}`,\n    \t\t`Issued ${formatDate(invoice.issuedOn)}`,\n    \t\t`To ${customer.name}`,\n+16 \t\t`Amounts in ${CURRENCIES[invoice.currency].name} (${invoice.currency})`,\n    \t\t'',\n    \t\t...invoice.lines.map(\n    \t\t\t(line) =>\n\n## src/server/app.ts\nmodified\n@@ h1 -1,19 +1,21 @@\n    import { config } from '../config.ts';\n-2  import { log, warn } from '../log.ts';\n+2  import { log } from '../log.ts';\n    import { connect } from '../store/connect.ts';\n+4  import { CustomerStore } from '../store/customers.ts';\n    import { InvoiceStore } from '../store/invoices.ts';\n    import { createRouter, listen } from './http.ts';\n-6  import { invoiceRoutes } from './routes.ts';\n+7  import { currencyRoutes, invoiceRoutes } from './routes.ts';\n\n    export async function start(): Promise<void> {\n    \tconst db = await connect(config.databaseUrl);\n    \tconst router = createRouter();\n-11 \tinvoiceRoutes(router, new InvoiceStore(db));\n+12 \tinvoiceRoutes(router, new InvoiceStore(db), new CustomerStore(db));\n+13 \tcurrencyRoutes(router);\n    \trouter.get('/health', async (_req, res) => res.json({ ok: true }));\n    \tconst server = await listen(router, config.port);\n-14 \tlog(`listening on port ${config.port}`);\n+16 \tlog.info('listening', { port: config.port, level: config.logLevel });\n    \tprocess.on('SIGTERM', () => {\n-16 \t\twarn('stopping on SIGTERM');\n+18 \t\tlog.warn('stopping', { signal: 'SIGTERM' });\n    \t\tserver.close();\n    \t});\n    }\n\n## src/server/routes.test.ts\nmodified\n@@ h1 -1,30 +1,61 @@\n    import { describe, expect, it } from 'vitest';\n-2  import { fakeStore, request } from '../test-helpers.ts';\n-3  import { invoiceRoutes } from './routes.ts';\n+2  import { fakeCustomers, fakeStore, request } from '../test-helpers.ts';\n+3  import { currencyRoutes, invoiceRoutes } from './routes.ts';\n\n    const body = {\n    \tid: 'INV-1001',\n    \tcustomer_id: 'C-7',\n    \tissued_on: '2026-01-15',\n-9  \tlines: [{ description: 'Consulting', quantity: 2, unit_price_cents: 15000, tax_rate: 'standard' }]\n+9  \tlines: [{ description: 'Consulting', quantity: 2, unit_price_minor: 15000, tax_rate: 'standard' }]\n    };\n\n+12 const routes = (router: Parameters<typeof invoiceRoutes>[0], store: Parameters<typeof invoiceRoutes>[1]) =>\n+13 \tinvoiceRoutes(router, store, fakeCustomers({ 'C-9': 'GBP' }));\n+14\n    describe('POST /invoices', () => {\n-13 \tit('creates an invoice and answers with its totals', async () => {\n-14 \t\tconst res = await request(invoiceRoutes, fakeStore(), 'POST', '/invoices', body);\n+16 \tit('creates an invoice in the default currency and answers with its totals', async () => {\n+17 \t\tconst res = await request(routes, fakeStore(), 'POST', '/invoices', body);\n    \t\texpect(res.status).toBe(201);\n-16 \t\texpect(res.body).toMatchObject({ net: '300.00', tax: '60.00', gross: '360.00' });\n+19 \t\texpect(res.body).toMatchObject({\n+20 \t\t\tcurrency: 'EUR',\n+21 \t\t\tnet: '€300.00',\n+22 \t\t\ttax: '€60.00',\n+23 \t\t\tgross: '€360.00',\n+24 \t\t\tgross_minor: 36000\n+25 \t\t});\n+26 \t});\n+27\n+28 \tit('takes the currency the request names', async () => {\n+29 \t\tconst res = await request(routes, fakeStore(), 'POST', '/invoices', { ...body, currency: 'jpy' });\n+30 \t\texpect(res.body).toMatchObject({ currency: 'JPY', gross: '¥36,000' });\n+31 \t});\n+32\n+33 \tit(\"takes the customer's currency when the request names none\", async () => {\n+34 \t\tconst res = await request(routes, fakeStore(), 'POST', '/invoices', { ...body, customer_id: 'C-9' });\n+35 \t\texpect(res.body).toMatchObject({ currency: 'GBP', gross: '£360.00' });\n+36 \t});\n+37\n+38 \tit('refuses a currency it does not know', async () => {\n+39 \t\tconst res = await request(routes, fakeStore(), 'POST', '/invoices', { ...body, currency: 'XYZ' });\n+40 \t\texpect(res.status).toBe(422);\n    \t});\n\n    \tit('refuses an invoice with no lines', async () => {\n-20 \t\tconst res = await request(invoiceRoutes, fakeStore(), 'POST', '/invoices', { ...body, lines: [] });\n+44 \t\tconst res = await request(routes, fakeStore(), 'POST', '/invoices', { ...body, lines: [] });\n    \t\texpect(res.status).toBe(422);\n    \t});\n    });\n\n    describe('GET /invoices/:id', () => {\n    \tit('answers 404 for an invoice that does not exist', async () => {\n-27 \t\tconst res = await request(invoiceRoutes, fakeStore(), 'GET', '/invoices/nope');\n+51 \t\tconst res = await request(routes, fakeStore(), 'GET', '/invoices/nope');\n    \t\texpect(res.status).toBe(404);\n    \t});\n    });\n+55\n+56 describe('GET /currencies', () => {\n+57 \tit('lists every currency and the default', async () => {\n+58 \t\tconst res = await request((router) => currencyRoutes(router), fakeStore(), 'GET', '/currencies');\n+59 \t\texpect(res.body).toMatchObject({ default: 'EUR' });\n+60 \t});\n+61 });\n\n## src/server/routes.ts\nmodified\n@@ h1 -1,61 +1,97 @@\n-1  import type { CreateInvoiceRequest, InvoiceResponse } from '../generated/api-types.ts';\n-2  import { formatAmount, formatQuantity } from '../format.ts';\n+1  import { config } from '../config.ts';\n+2  import { CURRENCIES, parseCurrency, type CurrencyCode } from '../currency.ts';\n+3  import { formatAmount, formatQuantity } from '../format/amount.ts';\n+4  import type {\n+5  \tCreateInvoiceRequest,\n+6  \tCurrencyListResponse,\n+7  \tInvoiceResponse\n+8  } from '../generated/api-types.ts';\n    import { lineNet, totals, validate, type Invoice } from '../invoice.ts';\n-4  import { log, warn } from '../log.ts';\n-5  import { cents } from '../money.ts';\n+10 import { log } from '../log.ts';\n+11 import { money } from '../money.ts';\n+12 import type { CustomerStore } from '../store/customers.ts';\n    import type { InvoiceStore } from '../store/invoices.ts';\n    import { describeRate } from '../tax.ts';\n    import type { Router } from './router.ts';\n\n-10 export function invoiceRoutes(router: Router, store: InvoiceStore): void {\n+17 export function invoiceRoutes(router: Router, store: InvoiceStore, customers: CustomerStore): void {\n    \trouter.get('/invoices/:id', async (req, res) => {\n    \t\tconst id = req.params['id'] ?? '';\n-13 \t\tlog(`GET /invoices/${id}`);\n+20 \t\tconst requestLog = log.with({ request: req.id });\n+21 \t\trequestLog.info('get invoice', { invoice: id });\n    \t\tconst invoice = await store.get(id);\n    \t\tif (invoice === undefined) return res.status(404).json({ error: 'There is no such invoice.' });\n    \t\treturn res.json(present(invoice));\n    \t});\n\n    \trouter.post('/invoices', async (req, res) => {\n+28 \t\tconst requestLog = log.with({ request: req.id });\n    \t\tconst body = req.body as CreateInvoiceRequest;\n+30 \t\tlet currency: CurrencyCode;\n+31 \t\ttry {\n+32 \t\t\tcurrency =\n+33 \t\t\t\tbody.currency === undefined\n+34 \t\t\t\t\t? ((await customers.preferredCurrency(body.customer_id)) ?? config.defaultCurrency)\n+35 \t\t\t\t\t: parseCurrency(body.currency);\n+36 \t\t} catch (error) {\n+37 \t\t\treturn res.status(422).json({ error: (error as Error).message });\n+38 \t\t}\n    \t\tconst invoice: Invoice = {\n    \t\t\tid: body.id,\n    \t\t\tcustomerId: body.customer_id,\n    \t\t\tissuedOn: body.issued_on,\n+43 \t\t\tcurrency,\n    \t\t\tlines: body.lines.map((line) => ({\n    \t\t\t\tdescription: line.description,\n    \t\t\t\tquantity: line.quantity,\n-28 \t\t\t\tunitPrice: cents(line.unit_price_cents),\n+47 \t\t\t\tunitPrice: money(line.unit_price_minor, currency),\n    \t\t\t\ttaxRate: line.tax_rate\n    \t\t\t}))\n    \t\t};\n    \t\tconst problems = validate(invoice);\n    \t\tif (problems.length > 0) {\n-34 \t\t\twarn(`refused invoice ${body.id}: ${problems.join('; ')}`);\n+53 \t\t\trequestLog.warn('refused invoice', { invoice: body.id, problems: problems.length });\n    \t\t\treturn res.status(422).json({ error: 'The invoice is not valid.', problems });\n    \t\t}\n    \t\tawait store.save(invoice);\n-38 \t\tlog(`created invoice ${invoice.id}`);\n+57 \t\trequestLog.info('created invoice', { invoice: invoice.id, currency });\n    \t\treturn res.status(201).json(present(invoice));\n    \t});\n\n    \trouter.get('/customers/:id/invoices', async (req, res) => {\n    \t\tconst id = req.params['id'] ?? '';\n-44 \t\tlog(`GET /customers/${id}/invoices`);\n+63 \t\tlog.with({ request: req.id }).info('list invoices', { customer: id });\n    \t\tconst invoices = await store.forCustomer(id);\n    \t\treturn res.json(invoices.map(present));\n    \t});\n    }\n\n+69 export function currencyRoutes(router: Router): void {\n+70 \trouter.get('/currencies', async (_req, res) => {\n+71 \t\tconst body: CurrencyListResponse = {\n+72 \t\t\tcurrencies: Object.entries(CURRENCIES).map(([code, c]) => ({\n+73 \t\t\t\tcode: code as CurrencyCode,\n+74 \t\t\t\tname: c.name,\n+75 \t\t\t\tsymbol: c.symbol.trim(),\n+76 \t\t\t\tminor_units: c.minorUnits\n+77 \t\t\t})),\n+78 \t\t\tdefault: config.defaultCurrency\n+79 \t\t};\n+80 \t\treturn res.json(body);\n+81 \t});\n+82 }\n+83\n    function present(invoice: Invoice): InvoiceResponse {\n    \tconst sums = totals(invoice);\n    \treturn {\n    \t\tid: invoice.id,\n    \t\tcustomer_id: invoice.customerId,\n    \t\tissued_on: invoice.issuedOn,\n+90 \t\tcurrency: invoice.currency,\n    \t\tnet: formatAmount(sums.net),\n    \t\ttax: formatAmount(sums.tax),\n    \t\tgross: formatAmount(sums.gross),\n+94 \t\tgross_minor: sums.gross.minor,\n    \t\tlines: invoice.lines.map((line) => ({\n    \t\t\tdescription: line.description,\n    \t\t\tquantity: formatQuantity(line.quantity),\n\n## src/store/customers.ts\nmodified\n@@ h1 -1,3 +1,4 @@\n+1  import type { CurrencyCode } from '../currency.ts';\n    import type { Customer } from '../customers.ts';\n    import type { Database } from './database.ts';\n\n@@ h2 -5,13 +6,26 @@ interface CustomerRow {\n    \tid: string;\n    \tname: string;\n    \temail: string;\n+9  \tpreferred_currency: CurrencyCode | null;\n    }\n\n    export class CustomerStore {\n    \tconstructor(private readonly db: Database) {}\n\n    \tasync get(id: string): Promise<Customer | undefined> {\n-14 \t\tconst row = await this.db.one<CustomerRow>('SELECT id, name, email FROM customers WHERE id = $1', [id]);\n+16 \t\tconst row = await this.db.one<CustomerRow>(\n+17 \t\t\t'SELECT id, name, email, preferred_currency FROM customers WHERE id = $1',\n+18 \t\t\t[id]\n+19 \t\t);\n    \t\treturn row === undefined ? undefined : { id: row.id, name: row.name, email: row.email };\n    \t}\n+22\n+23 \t/** The currency new invoices for the customer are written in, if they chose one. */\n+24 \tasync preferredCurrency(id: string): Promise<CurrencyCode | undefined> {\n+25 \t\tconst row = await this.db.one<CustomerRow>(\n+26 \t\t\t'SELECT preferred_currency FROM customers WHERE id = $1',\n+27 \t\t\t[id]\n+28 \t\t);\n+29 \t\treturn row?.preferred_currency ?? undefined;\n+30 \t}\n    }\n\n## src/store/invoices.ts\nmodified\n@@ h1 -1,12 +1,14 @@\n+1  import type { CurrencyCode } from '../currency.ts';\n    import type { Invoice, InvoiceLine } from '../invoice.ts';\n-2  import { log, warn } from '../log.ts';\n-3  import { cents } from '../money.ts';\n+3  import { log } from '../log.ts';\n+4  import { money } from '../money.ts';\n    import type { Database } from './database.ts';\n\n    interface InvoiceRow {\n    \tid: string;\n    \tcustomer_id: string;\n    \tissued_on: string;\n+11 \tcurrency: CurrencyCode;\n    }\n\n    interface LineRow {\n@@ h2 -14,7 +16,7 @@ interface LineRow {\n    \tposition: number;\n    \tdescription: string;\n    \tquantity: number;\n-17 \tunit_price_cents: number;\n+19 \tunit_price_minor: number;\n    \ttax_rate: 'standard' | 'reduced' | 'zero';\n    }\n\n@@ h3 -23,11 +25,11 @@ export class InvoiceStore {\n\n    \tasync get(id: string): Promise<Invoice | undefined> {\n    \t\tconst row = await this.db.one<InvoiceRow>(\n-26 \t\t\t'SELECT id, customer_id, issued_on FROM invoices WHERE id = $1',\n+28 \t\t\t'SELECT id, customer_id, issued_on, currency FROM invoices WHERE id = $1',\n    \t\t\t[id]\n    \t\t);\n    \t\tif (row === undefined) {\n-30 \t\t\twarn(`invoice ${id} not found`);\n+32 \t\t\tlog.info('invoice not found', { invoice: id });\n    \t\t\treturn undefined;\n    \t\t}\n    \t\treturn this.#withLines(row);\n@@ h4 -35,7 +37,7 @@ export class InvoiceStore {\n\n    \tasync forCustomer(customerId: string): Promise<Invoice[]> {\n    \t\tconst rows = await this.db.many<InvoiceRow>(\n-38 \t\t\t'SELECT id, customer_id, issued_on FROM invoices WHERE customer_id = $1 ORDER BY issued_on DESC',\n+40 \t\t\t'SELECT id, customer_id, issued_on, currency FROM invoices WHERE customer_id = $1 ORDER BY issued_on DESC',\n    \t\t\t[customerId]\n    \t\t);\n    \t\treturn Promise.all(rows.map((row) => this.#withLines(row)));\n@@ h5 -44,20 +46,20 @@ export class InvoiceStore {\n    \tasync save(invoice: Invoice): Promise<void> {\n    \t\tawait this.db.transaction(async (tx) => {\n    \t\t\tawait tx.run(\n-47 \t\t\t\t'INSERT INTO invoices (id, customer_id, issued_on) VALUES ($1, $2, $3) ' +\n-48 \t\t\t\t\t'ON CONFLICT (id) DO UPDATE SET customer_id = $2, issued_on = $3',\n-49 \t\t\t\t[invoice.id, invoice.customerId, invoice.issuedOn]\n+49 \t\t\t\t'INSERT INTO invoices (id, customer_id, issued_on, currency) VALUES ($1, $2, $3, $4) ' +\n+50 \t\t\t\t\t'ON CONFLICT (id) DO UPDATE SET customer_id = $2, issued_on = $3, currency = $4',\n+51 \t\t\t\t[invoice.id, invoice.customerId, invoice.issuedOn, invoice.currency]\n    \t\t\t);\n    \t\t\tawait tx.run('DELETE FROM invoice_lines WHERE invoice_id = $1', [invoice.id]);\n    \t\t\tfor (const [position, line] of invoice.lines.entries()) {\n    \t\t\t\tawait tx.run(\n-54 \t\t\t\t\t'INSERT INTO invoice_lines (invoice_id, position, description, quantity, unit_price_cents, tax_rate) ' +\n+56 \t\t\t\t\t'INSERT INTO invoice_lines (invoice_id, position, description, quantity, unit_price_minor, tax_rate) ' +\n    \t\t\t\t\t\t'VALUES ($1, $2, $3, $4, $5, $6)',\n-56 \t\t\t\t\t[invoice.id, position, line.description, line.quantity, line.unitPrice, line.taxRate]\n+58 \t\t\t\t\t[invoice.id, position, line.description, line.quantity, line.unitPrice.minor, line.taxRate]\n    \t\t\t\t);\n    \t\t\t}\n    \t\t});\n-60 \t\tlog(`saved invoice ${invoice.id} with ${invoice.lines.length} lines`);\n+62 \t\tlog.info('saved invoice', { invoice: invoice.id, lines: invoice.lines.length });\n    \t}\n\n    \tasync #withLines(row: InvoiceRow): Promise<Invoice> {\n@@ h6 -69,16 +71,17 @@ export class InvoiceStore {\n    \t\t\tid: row.id,\n    \t\t\tcustomerId: row.customer_id,\n    \t\t\tissuedOn: row.issued_on,\n-72 \t\t\tlines: lines.map(toLine)\n+74 \t\t\tcurrency: row.currency,\n+75 \t\t\tlines: lines.map((line) => toLine(line, row.currency))\n    \t\t};\n    \t}\n    }\n\n-77 function toLine(row: LineRow): InvoiceLine {\n+80 function toLine(row: LineRow, currency: CurrencyCode): InvoiceLine {\n    \treturn {\n    \t\tdescription: row.description,\n    \t\tquantity: row.quantity,\n-81 \t\tunitPrice: cents(row.unit_price_cents),\n+84 \t\tunitPrice: money(row.unit_price_minor, currency),\n    \t\ttaxRate: row.tax_rate\n    \t};\n    }\n\n## src/store/migrations/004-invoice-currency.sql\nadded\n@@ h1 -0,0 +1,9 @@\n+1 -- Invoices get a currency. Every invoice written before now was in euros.\n+2 ALTER TABLE invoices ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'EUR';\n+3 ALTER TABLE invoices ALTER COLUMN currency DROP DEFAULT;\n+4\n+5 -- Prices are in the minor unit of the invoice's currency, which is no longer always cents.\n+6 ALTER TABLE invoice_lines RENAME COLUMN unit_price_cents TO unit_price_minor;\n+7\n+8 -- A customer may choose the currency their invoices are written in.\n+9 ALTER TABLE customers ADD COLUMN preferred_currency CHAR(3);\n\n## src/tax.test.ts\nmodified\n@@ h1 -1,13 +1,17 @@\n    import { expect, it } from 'vitest';\n-2  import { cents } from './money.ts';\n+2  import { money } from './money.ts';\n    import { describeRate, taxFor } from './tax.ts';\n\n    it('takes the standard rate', () => {\n-6  \texpect(taxFor(cents(1000), 'standard')).toBe(200);\n+6  \texpect(taxFor(money(1000, 'EUR'), 'standard')).toEqual(money(200, 'EUR'));\n    });\n\n    it('takes nothing at the zero rate', () => {\n-10 \texpect(taxFor(cents(1000), 'zero')).toBe(0);\n+10 \texpect(taxFor(money(1000, 'EUR'), 'zero')).toEqual(money(0, 'EUR'));\n+11 });\n+12\n+13 it('rounds Swiss tax to five rappen', () => {\n+14 \texpect(taxFor(money(1234, 'CHF'), 'reduced')).toEqual(money(60, 'CHF'));\n    });\n\n    it('describes a rate', () => {\n\n## src/tax.ts\nmodified\n@@ h1 -1,11 +1,14 @@\n-1  import { percentOf, type Cents } from './money.ts';\n+1  import { roundForTax } from './currency.ts';\n+2  import { money, type Money } from './money.ts';\n\n    export type TaxRate = 'standard' | 'reduced' | 'zero';\n\n    const PERCENT: Record<TaxRate, number> = { standard: 20, reduced: 5, zero: 0 };\n\n-7  export function taxFor(net: Cents, rate: TaxRate): Cents {\n-8  \treturn percentOf(net, PERCENT[rate]);\n+8  /** The tax on a net amount, rounded as the amount's currency requires. */\n+9  export function taxFor(net: Money, rate: TaxRate): Money {\n+10 \tconst exact = (net.minor * PERCENT[rate]) / 100;\n+11 \treturn money(roundForTax(exact, net.currency), net.currency);\n    }\n\n    export function describeRate(rate: TaxRate): string {\n\n## src/test-helpers.ts\nmodified\n@@ h1 -1,4 +1,6 @@\n    import type { Invoice } from './invoice.ts';\n+2  import type { CurrencyCode } from './currency.ts';\n+3  import type { CustomerStore } from './store/customers.ts';\n    import type { InvoiceStore } from './store/invoices.ts';\n    import type { Router } from './server/router.ts';\n\n@@ h2 -14,6 +16,13 @@ export function fakeStore(): InvoiceStore {\n    \t} as unknown as InvoiceStore;\n    }\n\n+19 /** A customer store that knows only each customer's preferred currency. */\n+20 export function fakeCustomers(preferred: Readonly<Record<string, CurrencyCode>>): CustomerStore {\n+21 \treturn {\n+22 \t\tpreferredCurrency: async (id: string) => preferred[id]\n+23 \t} as unknown as CustomerStore;\n+24 }\n+25\n    /** Sends one request through the routes `install` sets up, and gives the answer. */\n    export async function request(\n    \tinstall: (router: Router, store: InvoiceStore) => void,\n\n## tests/__snapshots__/pdf.test.ts.snap\nmodified\n@@ h1 -6,13 +6,32 @@ exports[`lays out an invoice 1`] = `\n      \"Invoice INV-1001\",\n      \"Issued 15 Jan 2026\",\n      \"To Ada Lovelace Ltd\",\n+9    \"Amounts in Euro (EUR)\",\n      \"\",\n-10   \"Consulting  2 x 150.00  20%  300.00\",\n-11   \"Travel  1 x 42.50  0%  42.50\",\n-12   \"Book  1 x 20.00  5%  20.00\",\n+11   \"Consulting  2 x €150.00  20%  €300.00\",\n+12   \"Travel  1 x €42.50  0%  €42.50\",\n+13   \"Book  1 x €20.00  5%  €20.00\",\n      \"\",\n-14   \"Net    362.50\",\n-15   \"Tax    61.00\",\n-16   \"Total  423.50\",\n+15   \"Net    €362.50\",\n+16   \"Tax    €61.00\",\n+17   \"Total  €423.50\",\n+18 ]\n+19 `;\n+20\n+21 exports[`lays out an invoice in yen, with no minor unit 1`] = `\n+22 [\n+23   \"Ledger Ltd\",\n+24   \"Invoice INV-1001\",\n+25   \"Issued 15 Jan 2026\",\n+26   \"To Ada Lovelace Ltd\",\n+27   \"Amounts in Japanese yen (JPY)\",\n+28   \"\",\n+29   \"Consulting  2 x ¥24,000  20%  ¥48,000\",\n+30   \"Travel  1 x ¥6,800  0%  ¥6,800\",\n+31   \"Book  1 x ¥3,200  5%  ¥3,200\",\n+32   \"\",\n+33   \"Net    ¥58,000\",\n+34   \"Tax    ¥9,760\",\n+35   \"Total  ¥67,760\",\n    ]\n    `;\n\n## tests/pdf.test.ts\nmodified\n@@ h1 -1,22 +1,28 @@\n    import { expect, it } from 'vitest';\n-2  import { cents } from '../src/money.ts';\n+2  import type { CurrencyCode } from '../src/currency.ts';\n+3  import { money } from '../src/money.ts';\n    import { renderInvoice } from '../src/pdf/render.ts';\n\n    const customer = { id: 'C-7', name: 'Ada Lovelace Ltd', email: 'accounts@example.com' };\n\n+8  function invoiceIn(currency: CurrencyCode, prices: readonly [number, number, number]) {\n+9  \treturn {\n+10 \t\tid: 'INV-1001',\n+11 \t\tcustomerId: 'C-7',\n+12 \t\tissuedOn: '2026-01-15',\n+13 \t\tcurrency,\n+14 \t\tlines: [\n+15 \t\t\t{ description: 'Consulting', quantity: 2, unitPrice: money(prices[0], currency), taxRate: 'standard' as const },\n+16 \t\t\t{ description: 'Travel', quantity: 1, unitPrice: money(prices[1], currency), taxRate: 'zero' as const },\n+17 \t\t\t{ description: 'Book', quantity: 1, unitPrice: money(prices[2], currency), taxRate: 'reduced' as const }\n+18 \t\t]\n+19 \t};\n+20 }\n+21\n    it('lays out an invoice', () => {\n-8  \tconst lines = renderInvoice(\n-9  \t\t{\n-10 \t\t\tid: 'INV-1001',\n-11 \t\t\tcustomerId: 'C-7',\n-12 \t\t\tissuedOn: '2026-01-15',\n-13 \t\t\tlines: [\n-14 \t\t\t\t{ description: 'Consulting', quantity: 2, unitPrice: cents(15000), taxRate: 'standard' },\n-15 \t\t\t\t{ description: 'Travel', quantity: 1, unitPrice: cents(4250), taxRate: 'zero' },\n-16 \t\t\t\t{ description: 'Book', quantity: 1, unitPrice: cents(2000), taxRate: 'reduced' }\n-17 \t\t\t]\n-18 \t\t},\n-19 \t\tcustomer\n-20 \t);\n-21 \texpect(lines).toMatchSnapshot();\n+23 \texpect(renderInvoice(invoiceIn('EUR', [15000, 4250, 2000]), customer)).toMatchSnapshot();\n+24 });\n+25\n+26 it('lays out an invoice in yen, with no minor unit', () => {\n+27 \texpect(renderInvoice(invoiceIn('JPY', [24000, 6800, 3200]), customer)).toMatchSnapshot();\n    });\n\n## tests/smoke.test.ts\nadded\n@@ h1 -0,0 +1,18 @@\n+1  import { expect, it } from 'vitest';\n+2  import { fakeStore, request } from '../src/test-helpers.ts';\n+3  import type { Router } from '../src/server/router.ts';\n+4\n+5  // Not a test of any one feature: the service answers at all, and its health\n+6  // check says so, which the deploy pipeline waits for.\n+7  it('answers its health check', async () => {\n+8  \tconst health = (router: Router) => {\n+9  \t\trouter.get('/health', async (_req, res) => res.json({ ok: true }));\n+10 \t};\n+11 \tconst res = await request(health, fakeStore(), 'GET', '/health');\n+12 \texpect(res).toEqual({ status: 200, body: { ok: true } });\n+13 });\n+14\n+15 it('answers 404 for a path it does not know', async () => {\n+16 \tconst res = await request(() => undefined, fakeStore(), 'GET', '/nowhere');\n+17 \texpect(res.status).toBe(404);\n+18 });\n\nThat was the last page.",
+				"refused": false
+			}
+		},
+		{
+			"tool": "upsert_sections",
+			"arguments": {
+				"report": "r_1",
+				"version": 1,
+				"sections": [
+					{
+						"id": "money",
+						"title": "Amounts carry a currency",
+						"summary": "Start with the supported currency table, code normalization, and minor-unit arithmetic. Check mixed-currency addition and the rounding rules in `src/currency.ts +45..+47`, including how Swiss rounding handles negative ties."
+					},
+					{
+						"id": "invoice",
+						"title": "Invoice totals and tax use the invoice currency",
+						"summary": "Invoices carry one currency, reject lines in another, and calculate the net and tax in that currency. Check the per-line tax calculation in `src/tax.ts +8..+11` and the yen total and mixed-currency validation tests."
+					},
+					{
+						"id": "storage",
+						"title": "Existing invoices migrate to EUR",
+						"summary": "Migration 004 assigns EUR to historical invoices, removes the temporary default, renames the price column, and adds an optional customer preference. Follow the store queries and row conversion to verify that writes and reads preserve the invoice currency and minor-unit amount."
+					},
+					{
+						"id": "api",
+						"title": "The API selects and exposes invoice currency",
+						"summary": "Invoice creation uses the request currency, then the customer preference, then `DEFAULT_CURRENCY`. Review the input field rename, the formatted totals and raw `gross_minor`, and `GET /currencies`. Check whether a failure reading the customer preference should return 422 (`src/server/routes.ts +30..+38`) and whether the OpenAPI response schemas cover the fields the routes return."
+					},
+					{
+						"id": "display",
+						"title": "PDFs show currency symbols and precision",
+						"summary": "The formatter uses each currency’s fractional digits and symbol. The EUR and JPY snapshots show how the PDF identifies the currency and displays line amounts and totals."
+					},
+					{
+						"id": "logging",
+						"title": "Logs become structured JSON",
+						"summary": "The logger filters by severity and writes JSON lines to stderr. Callers attach fields such as request and invoice IDs. Review startup first. `src/log.ts +59` reads config during module initialization, and `src/config.ts +2` imports the logger module to validate `LOG_LEVEL`. This cycle can cause an initialization error."
+					},
+					{
+						"id": "release",
+						"title": "Release tooling and the logo change",
+						"summary": "Review the executable bit and shell error handling in the release script, the Vitest upgrade, and the binary logo replacement."
+					},
+					{
+						"id": "smoke",
+						"title": "Smoke tests exercise health and unknown paths",
+						"summary": "The tests cover a health response and an unknown route through the request helper. The health test installs its own handler in `tests/smoke.test.ts +8..+11`, so check whether that provides the intended coverage of server startup."
+					}
+				]
+			},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n8 sections, in reading order:\n- money: \"Amounts carry a currency\", 0 change lines\n- invoice: \"Invoice totals and tax use the invoice currency\", 0 change lines\n- storage: \"Existing invoices migrate to EUR\", 0 change lines\n- api: \"The API selects and exposes invoice currency\", 0 change lines\n- display: \"PDFs show currency symbols and precision\", 0 change lines\n- logging: \"Logs become structured JSON\", 0 change lines\n- release: \"Release tooling and the logo change\", 0 change lines\n- smoke: \"Smoke tests exercise health and unknown paths\", 0 change lines\nNext: put change lines into the sections with assign (718 change lines not sorted yet).",
+				"refused": false
+			}
+		},
+		{
+			"tool": "assign",
+			"arguments": {
+				"report": "r_1",
+				"version": 1,
+				"items": [
+					{
+						"section": "money",
+						"file": "src/currency.ts"
+					},
+					{
+						"section": "money",
+						"file": "src/currency.test.ts",
+						"role": "test"
+					},
+					{
+						"section": "money",
+						"file": "src/money.ts"
+					},
+					{
+						"section": "money",
+						"file": "src/money.test.ts",
+						"role": "test"
+					},
+					{
+						"section": "invoice",
+						"file": "src/invoice.ts"
+					},
+					{
+						"section": "invoice",
+						"file": "src/invoice.test.ts",
+						"role": "test"
+					},
+					{
+						"section": "invoice",
+						"file": "src/tax.ts"
+					},
+					{
+						"section": "invoice",
+						"file": "src/tax.test.ts",
+						"role": "test"
+					},
+					{
+						"section": "storage",
+						"file": "src/store/customers.ts"
+					},
+					{
+						"section": "storage",
+						"file": "src/store/invoices.ts"
+					},
+					{
+						"section": "storage",
+						"file": "src/store/migrations/004-invoice-currency.sql"
+					},
+					{
+						"section": "api",
+						"file": "api/openapi.yaml"
+					},
+					{
+						"section": "api",
+						"file": "docs/currencies.md"
+					},
+					{
+						"section": "api",
+						"file": "src/server/routes.test.ts",
+						"role": "test"
+					},
+					{
+						"section": "api",
+						"file": "src/test-helpers.ts",
+						"role": "test"
+					},
+					{
+						"section": "display",
+						"file": "src/format/amount.ts"
+					},
+					{
+						"section": "display",
+						"file": "src/pdf/render.ts"
+					},
+					{
+						"section": "display",
+						"file": "tests/pdf.test.ts",
+						"role": "test"
+					},
+					{
+						"section": "display",
+						"file": "tests/__snapshots__/pdf.test.ts.snap",
+						"role": "snapshot"
+					},
+					{
+						"section": "logging",
+						"file": "src/log.ts"
+					},
+					{
+						"section": "logging",
+						"file": "src/log.test.ts",
+						"role": "test"
+					},
+					{
+						"section": "release",
+						"file": "scripts/release.sh"
+					},
+					{
+						"section": "release",
+						"file": "assets/logo.png"
+					},
+					{
+						"section": "smoke",
+						"file": "tests/smoke.test.ts",
+						"role": "test"
+					},
+					{
+						"file": "README.md",
+						"section": "api",
+						"lines": "-11..-12,+11..+19,-16"
+					},
+					{
+						"file": "README.md",
+						"section": "logging",
+						"lines": "+20..+24"
+					},
+					{
+						"file": "src/config.ts",
+						"section": "api",
+						"lines": "+1,+8..+9,-16,+28..+30"
+					},
+					{
+						"file": "src/config.ts",
+						"section": "logging",
+						"lines": "+2..+3,+10,+19..+24"
+					},
+					{
+						"file": "src/server/app.ts",
+						"section": "api",
+						"lines": "+4,-6,+7,-11,+12..+13"
+					},
+					{
+						"file": "src/server/app.ts",
+						"section": "logging",
+						"lines": "-2,+2,-14,+16,-16,+18"
+					},
+					{
+						"file": "src/server/routes.ts",
+						"section": "api",
+						"lines": "-1..-2,+1..+8,-5,+11..+12,-10,+17,+30..+38,+43,-28,+47,+69..+83,+90,+94"
+					},
+					{
+						"file": "src/server/routes.ts",
+						"section": "logging",
+						"lines": "-4,+10,-13,+20..+21,+28,-34,+53,-38,+57,-44,+63"
+					},
+					{
+						"file": "package.json",
+						"section": "api",
+						"lines": "-8,+8..+9"
+					},
+					{
+						"file": "package.json",
+						"section": "release",
+						"lines": "-12,+13"
+					}
+				]
+			},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nAll 34 items were applied.\nItem 0: took 48 change lines into section \"money\".\nItem 1: took 33 change lines into section \"money\", with role test.\nItem 2: took 57 change lines into section \"money\".\nItem 3: took 32 change lines into section \"money\", with role test.\nItem 4: took 29 change lines into section \"invoice\".\nItem 5: took 28 change lines into section \"invoice\", with role test.\nItem 6: took 9 change lines into section \"invoice\".\nItem 7: took 10 change lines into section \"invoice\", with role test.\nItem 8: took 16 change lines into section \"storage\".\nItem 9: took 33 change lines into section \"storage\".\nItem 10: took 9 change lines into section \"storage\".\nItem 11: took 12 change lines into section \"api\".\nItem 12: took 37 change lines into section \"api\".\nItem 13: took 47 change lines into section \"api\", with role test.\nItem 14: took 9 change lines into section \"api\", with role test.\nItem 15: took 21 change lines into section \"display\".\nItem 16: took 4 change lines into section \"display\".\nItem 17: took 36 change lines into section \"display\", with role test.\nItem 18: took 31 change lines into section \"display\", with role snapshot.\nItem 19: took 62 change lines into section \"logging\".\nItem 20: took 31 change lines into section \"logging\", with role test.\nItem 21: took 2 change lines into section \"release\".\nItem 22: took 1 change line into section \"release\".\nItem 23: took 18 change lines into section \"smoke\", with role test.\nItem 24: took 9 change lines into section \"api\".\nItem 25: took 5 change lines into section \"logging\".\nItem 26: took 7 change lines into section \"api\".\nItem 27: took 9 change lines into section \"logging\".\nItem 28: took 6 change lines into section \"api\".\nItem 29: took 6 change lines into section \"logging\".\nItem 30: took 44 change lines into section \"api\".\nItem 31: took 12 change lines into section \"logging\".\nItem 32: took 3 change lines into section \"api\".\nItem 33: took 2 change lines into section \"release\".\n\nNothing is left to sort: every change line is in a section or ignored. Next: get_coverage, for warnings and what is still to write.",
+				"refused": false
+			}
+		},
+		{
+			"tool": "get_coverage",
+			"arguments": {
+				"report": "r_1"
+			},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n1,026 change lines in 31 files: 718 in sections, 308 ignored, 0 not sorted yet.\nSections: money 170, invoice 76, storage 58, api 174, display 92, logging 125, release 5, smoke 18.\n\nNothing is left to sort: every change line is in a section or ignored.\n\nWarnings (4):\n- README.md h1: the adjacent changed lines -16,+17..+24 are split between section \"api\" and section \"logging\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n- src/config.ts h1: the adjacent changed lines +1..+3 are split between section \"api\" and section \"logging\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n- src/config.ts h1: the adjacent changed lines +8..+10 are split between section \"api\" and section \"logging\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n- src/server/routes.ts h1: the adjacent changed lines -4..-5,+10..+12 are split between section \"logging\" and section \"api\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n\nNext: write the overview with set_overview. Then the report is ready for the person to review.",
+				"refused": false
+			}
+		},
+		{
+			"tool": "assign",
+			"arguments": {
+				"report": "r_1",
+				"version": 1,
+				"items": [
+					{
+						"file": "README.md",
+						"lines": "-16,+17..+24",
+						"section": "api"
+					},
+					{
+						"file": "src/config.ts",
+						"lines": "+1..+3,+8..+10",
+						"section": "api"
+					},
+					{
+						"file": "src/server/routes.ts",
+						"lines": "-4..-5,+10..+12",
+						"section": "api"
+					}
+				]
+			},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nAll 3 items were applied.\nItem 0: took 9 change lines into section \"api\".\nItem 1: took 6 change lines into section \"api\".\nItem 2: took 5 change lines into section \"api\".\n\nNothing is left to sort: every change line is in a section or ignored. Next: get_coverage, for warnings and what is still to write.",
+				"refused": false
+			}
+		},
+		{
+			"tool": "upsert_sections",
+			"arguments": {
+				"report": "r_1",
+				"version": 1,
+				"sections": [
+					{
+						"id": "logging",
+						"references": [
+							{
+								"file": "README.md",
+								"lines": "+13,+21..+24"
+							},
+							{
+								"file": "src/config.ts",
+								"lines": "+2,+10,+30"
+							},
+							{
+								"file": "src/server/routes.ts",
+								"lines": "-4,+10"
+							},
+							{
+								"file": "src/invoice.ts",
+								"lines": "-34,+40"
+							},
+							{
+								"file": "src/store/invoices.ts",
+								"lines": "-2,+3,-30,+32,-60,+62"
+							}
+						]
+					}
+				]
+			},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n8 sections, in reading order:\n- money: \"Amounts carry a currency\", 170 change lines\n- invoice: \"Invoice totals and tax use the invoice currency\", 76 change lines\n- storage: \"Existing invoices migrate to EUR\", 58 change lines\n- api: \"The API selects and exposes invoice currency\", 184 change lines\n- display: \"PDFs show currency symbols and precision\", 92 change lines\n- logging: \"Logs become structured JSON\", 115 change lines, 18 change lines cross-referenced\n- release: \"Release tooling and the logo change\", 5 change lines\n- smoke: \"Smoke tests exercise health and unknown paths\", 18 change lines\nEvery change line is sorted.",
+				"refused": false
+			}
+		},
+		{
+			"tool": "get_coverage",
+			"arguments": {
+				"report": "r_1"
+			},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n1,026 change lines in 31 files: 718 in sections, 308 ignored, 0 not sorted yet.\nSections: money 170, invoice 76, storage 58, api 184, display 92, logging 115, release 5, smoke 18.\n\nNothing is left to sort: every change line is in a section or ignored.\n\nNext: write the overview with set_overview. Then the report is ready for the person to review.",
+				"refused": false
+			}
+		},
+		{
+			"tool": "set_overview",
+			"arguments": {
+				"report": "r_1",
+				"version": 1,
+				"markdown": "Ledger adds support for invoices in seven currencies. Amounts carry a currency and whole minor units, and invoice tax uses currency-specific rounding. The migration marks historical invoices as EUR. The API resolves the currency for new invoices and exposes the supported choices, and PDFs show the currency and its formatting.\n\nThe diff also introduces JSON logging, adjusts release tooling, replaces the logo, and adds health and unknown-route smoke tests. For startup, check the import cycle between `src/config.ts +2` and `src/log.ts +1` and the logger initialization at `src/log.ts +59`."
+			},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nThe overview is saved (592 characters); the person sees it above the sections. Calling set_overview again replaces it.\nEvery change line is sorted. get_coverage says whether anything else is left to write.",
+				"refused": false
+			}
+		},
+		{
+			"tool": "create_report",
+			"arguments": {},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nThis source already had this report open, and nothing has changed since its last version; nothing you sorted was lost.\n31 files changed, 756 lines added and 267 removed: 1,026 change lines, 0 not sorted yet.\nIgnored automatically, so the person need not review them: pnpm-lock.yaml (Lockfile), src/generated/api-types.ts (Marked as generated in .gitattributes). Leave them, or move them into a section with assign and \"lines\" if they need a look.\nGive the person this address to open it in their browser: http://127.0.0.1:<port>/diffs/r_1?entry=<code> (it opens the report once, within two minutes; call create_report again for a new one). It shows your sorting as you go.\nNext: call get_manifest with \"report\": \"r_1\".",
+				"refused": false
+			}
+		}
+	],
+	"finalMessage": "[Open your diff delver review](http://127.0.0.1:<port>/diffs/r_1?entry=<code>). The entry link is single-use and expires in two minutes. All 31 changed files are accounted for.\n\n1. Amounts carry a currency\n2. Invoice totals and tax use the invoice currency\n3. Existing invoices migrate to EUR\n4. The API selects and exposes invoice currency\n5. PDFs show currency symbols and precision\n6. Logs become structured JSON\n7. Release tooling and the logo change\n8. Smoke tests exercise health and unknown paths\n\nDiff delver automatically skipped `pnpm-lock.yaml` as a lockfile and `src/generated/api-types.ts` because `.gitattributes` marks it as generated.\n\nIf you check one thing first, start with the circular import between the logger and configuration. It may prevent the server from starting.",
+	"finalState": [
+		{
+			"id": "r_1",
+			"source": "Uncommitted changes",
+			"version": 1,
+			"overview": "Ledger adds support for invoices in seven currencies. Amounts carry a currency and whole minor units, and invoice tax uses currency-specific rounding. The migration marks historical invoices as EUR. The API resolves the currency for new invoices and exposes the supported choices, and PDFs show the currency and its formatting.\n\nThe diff also introduces JSON logging, adjusts release tooling, replaces the logo, and adds health and unknown-route smoke tests. For startup, check the import cycle between `src/config.ts +2` and `src/log.ts +1` and the logger initialization at `src/log.ts +59`.",
+			"sections": [
+				{
+					"id": "money",
+					"title": "Amounts carry a currency",
+					"summary": "Start with the supported currency table, code normalization, and minor-unit arithmetic. Check mixed-currency addition and the rounding rules in `src/currency.ts +45..+47`, including how Swiss rounding handles negative ties.",
+					"references": []
+				},
+				{
+					"id": "invoice",
+					"title": "Invoice totals and tax use the invoice currency",
+					"summary": "Invoices carry one currency, reject lines in another, and calculate the net and tax in that currency. Check the per-line tax calculation in `src/tax.ts +8..+11` and the yen total and mixed-currency validation tests.",
+					"references": []
+				},
+				{
+					"id": "storage",
+					"title": "Existing invoices migrate to EUR",
+					"summary": "Migration 004 assigns EUR to historical invoices, removes the temporary default, renames the price column, and adds an optional customer preference. Follow the store queries and row conversion to verify that writes and reads preserve the invoice currency and minor-unit amount.",
+					"references": []
+				},
+				{
+					"id": "api",
+					"title": "The API selects and exposes invoice currency",
+					"summary": "Invoice creation uses the request currency, then the customer preference, then `DEFAULT_CURRENCY`. Review the input field rename, the formatted totals and raw `gross_minor`, and `GET /currencies`. Check whether a failure reading the customer preference should return 422 (`src/server/routes.ts +30..+38`) and whether the OpenAPI response schemas cover the fields the routes return.",
+					"references": []
+				},
+				{
+					"id": "display",
+					"title": "PDFs show currency symbols and precision",
+					"summary": "The formatter uses each currency’s fractional digits and symbol. The EUR and JPY snapshots show how the PDF identifies the currency and displays line amounts and totals.",
+					"references": []
+				},
+				{
+					"id": "logging",
+					"title": "Logs become structured JSON",
+					"summary": "The logger filters by severity and writes JSON lines to stderr. Callers attach fields such as request and invoice IDs. Review startup first. `src/log.ts +59` reads config during module initialization, and `src/config.ts +2` imports the logger module to validate `LOG_LEVEL`. This cycle can cause an initialization error.",
+					"references": [
+						"README.md +13",
+						"README.md +21..+24",
+						"src/config.ts +2",
+						"src/config.ts +10",
+						"src/config.ts +30",
+						"src/invoice.ts -34",
+						"src/invoice.ts +40",
+						"src/server/routes.ts -4",
+						"src/server/routes.ts +10",
+						"src/store/invoices.ts -2",
+						"src/store/invoices.ts -30",
+						"src/store/invoices.ts -60",
+						"src/store/invoices.ts +3",
+						"src/store/invoices.ts +32",
+						"src/store/invoices.ts +62"
+					]
+				},
+				{
+					"id": "release",
+					"title": "Release tooling and the logo change",
+					"summary": "Review the executable bit and shell error handling in the release script, the Vitest upgrade, and the binary logo replacement.",
+					"references": []
+				},
+				{
+					"id": "smoke",
+					"title": "Smoke tests exercise health and unknown paths",
+					"summary": "The tests cover a health response and an unknown route through the request helper. The health test installs its own handler in `tests/smoke.test.ts +8..+11`, so check whether that provides the intended coverage of server startup.",
+					"references": []
+				}
+			],
+			"placements": [
+				"README.md -11..-12 section:api code",
+				"README.md -16 section:api code",
+				"README.md +11..+13 section:api code",
+				"README.md +17..+24 section:api code",
+				"api/openapi.yaml -4 section:api code",
+				"api/openapi.yaml -23 section:api code",
+				"api/openapi.yaml -27 section:api code",
+				"api/openapi.yaml +4 section:api code",
+				"api/openapi.yaml +19..+21 section:api code",
+				"api/openapi.yaml +24..+25 section:api code",
+				"api/openapi.yaml +28 section:api code",
+				"api/openapi.yaml +32 section:api code",
+				"api/openapi.yaml +41 section:api code",
+				"assets/logo.png file section:release code",
+				"docs/currencies.md +1..+37 section:api code",
+				"package.json -8 section:api code",
+				"package.json -12 section:release code",
+				"package.json +8..+9 section:api code",
+				"package.json +13 section:release code",
+				"pnpm-lock.yaml -15..-16 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -32..-33 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -35..-36 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -38..-39 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -41..-42 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -44..-45 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -47..-48 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -50..-51 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -53..-54 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -56..-57 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -59..-60 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -62..-63 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -65..-66 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -68..-69 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -71..-72 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -74..-75 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -77..-78 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -80..-81 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -83..-84 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -86..-87 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -89..-90 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -92..-93 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -95..-96 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -98..-99 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -101..-102 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -104..-105 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -107..-108 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -110..-111 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -113..-114 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -116..-117 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -119..-120 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -122..-123 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -125..-126 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -128..-129 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -141 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -143 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -145 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -147 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -149 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -151 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -153 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -155 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -157 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -159 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -161 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -163 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -165 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -167 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -169 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -171 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -173 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -175 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -177 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -179 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -181 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -183 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -185 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -187 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -189..-211 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -213 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -215 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -217 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -219 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -221 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -223 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -225 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -229 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -233 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -235 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -240 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -242 ignored:rule:lockfile code",
+				"pnpm-lock.yaml -244..-249 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +15..+16 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +32..+33 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +35..+36 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +38..+39 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +41..+42 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +44..+45 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +47..+48 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +50..+51 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +53..+54 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +56..+57 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +59..+60 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +62..+63 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +65..+66 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +68..+69 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +71..+72 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +74..+75 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +77..+78 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +80..+81 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +83..+84 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +86..+87 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +89..+90 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +92..+93 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +95..+96 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +98..+99 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +101..+102 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +104..+105 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +107..+108 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +110..+111 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +113..+114 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +116..+117 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +119..+120 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +122..+123 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +125..+126 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +128..+129 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +141 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +143 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +145 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +147 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +149 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +151 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +153 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +155 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +157 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +159 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +161 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +163 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +165 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +167 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +169 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +171 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +173 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +175 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +177 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +179 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +181 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +183 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +185 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +187 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +189..+211 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +213 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +215 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +217 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +219 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +221 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +223 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +225 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +229 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +233 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +235 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +240 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +242 ignored:rule:lockfile code",
+				"pnpm-lock.yaml +244..+249 ignored:rule:lockfile code",
+				"scripts/release.sh file section:release code",
+				"scripts/release.sh +3 section:release code",
+				"src/config.ts -16 section:api code",
+				"src/config.ts +1..+3 section:api code",
+				"src/config.ts +8..+10 section:api code",
+				"src/config.ts +19..+24 section:logging code",
+				"src/config.ts +28..+30 section:api code",
+				"src/currency.test.ts +1..+33 section:money test",
+				"src/currency.ts +1..+48 section:money code",
+				"src/format/amount.ts file section:display code",
+				"src/format/amount.ts -1 section:display code",
+				"src/format/amount.ts -3..-7 section:display code",
+				"src/format/amount.ts -9..-10 section:display code",
+				"src/format/amount.ts +1..+2 section:display code",
+				"src/format/amount.ts +4..+10 section:display code",
+				"src/format/amount.ts +12..+14 section:display code",
+				"src/generated/api-types.ts -12..-13 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts -36 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts -38 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts -52 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts -54 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts -56 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts +12..+13 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts +26..+27 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts +38 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts +40 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts +54..+56 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts +58 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts +60 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts +62..+63 ignored:rule:linguist-generated code",
+				"src/generated/api-types.ts +84..+105 ignored:rule:linguist-generated code",
+				"src/invoice.test.ts -3 section:invoice test",
+				"src/invoice.test.ts -10..-11 section:invoice test",
+				"src/invoice.test.ts -17 section:invoice test",
+				"src/invoice.test.ts +3..+5 section:invoice test",
+				"src/invoice.test.ts +11 section:invoice test",
+				"src/invoice.test.ts +13..+14 section:invoice test",
+				"src/invoice.test.ts +20..+29 section:invoice test",
+				"src/invoice.test.ts +41..+48 section:invoice test",
+				"src/invoice.ts -2 section:invoice code",
+				"src/invoice.ts -8 section:invoice code",
+				"src/invoice.ts -20..-22 section:invoice code",
+				"src/invoice.ts -25 section:invoice code",
+				"src/invoice.ts -31..-34 section:invoice code",
+				"src/invoice.ts +1 section:invoice code",
+				"src/invoice.ts +3 section:invoice code",
+				"src/invoice.ts +9 section:invoice code",
+				"src/invoice.ts +17..+18 section:invoice code",
+				"src/invoice.ts +23..+25 section:invoice code",
+				"src/invoice.ts +28 section:invoice code",
+				"src/invoice.ts +34..+40 section:invoice code",
+				"src/invoice.ts +50..+52 section:invoice code",
+				"src/log.test.ts +1..+31 section:logging test",
+				"src/log.ts -1..-3 section:logging code",
+				"src/log.ts -6..-8 section:logging code",
+				"src/log.ts +1..+20 section:logging code",
+				"src/log.ts +23..+25 section:logging code",
+				"src/log.ts +27..+59 section:logging code",
+				"src/money.test.ts -2 section:money test",
+				"src/money.test.ts -5..-6 section:money test",
+				"src/money.test.ts -9..-12 section:money test",
+				"src/money.test.ts -15..-16 section:money test",
+				"src/money.test.ts -20 section:money test",
+				"src/money.test.ts +2..+4 section:money test",
+				"src/money.test.ts +7..+8 section:money test",
+				"src/money.test.ts +11..+14 section:money test",
+				"src/money.test.ts +17..+22 section:money test",
+				"src/money.test.ts +26..+32 section:money test",
+				"src/money.ts -1..-2 section:money code",
+				"src/money.ts -4..-6 section:money code",
+				"src/money.ts -9..-10 section:money code",
+				"src/money.ts -13..-14 section:money code",
+				"src/money.ts -17..-18 section:money code",
+				"src/money.ts -21..-22 section:money code",
+				"src/money.ts +1 section:money code",
+				"src/money.ts +3..+9 section:money code",
+				"src/money.ts +12..+19 section:money code",
+				"src/money.ts +22..+26 section:money code",
+				"src/money.ts +29..+30 section:money code",
+				"src/money.ts +33..+53 section:money code",
+				"src/pdf/render.ts -3 section:display code",
+				"src/pdf/render.ts +2 section:display code",
+				"src/pdf/render.ts +4 section:display code",
+				"src/pdf/render.ts +16 section:display code",
+				"src/server/app.ts -2 section:logging code",
+				"src/server/app.ts -6 section:api code",
+				"src/server/app.ts -11 section:api code",
+				"src/server/app.ts -14 section:logging code",
+				"src/server/app.ts -16 section:logging code",
+				"src/server/app.ts +2 section:logging code",
+				"src/server/app.ts +4 section:api code",
+				"src/server/app.ts +7 section:api code",
+				"src/server/app.ts +12..+13 section:api code",
+				"src/server/app.ts +16 section:logging code",
+				"src/server/app.ts +18 section:logging code",
+				"src/server/routes.test.ts -2..-3 section:api test",
+				"src/server/routes.test.ts -9 section:api test",
+				"src/server/routes.test.ts -13..-14 section:api test",
+				"src/server/routes.test.ts -16 section:api test",
+				"src/server/routes.test.ts -20 section:api test",
+				"src/server/routes.test.ts -27 section:api test",
+				"src/server/routes.test.ts +2..+3 section:api test",
+				"src/server/routes.test.ts +9 section:api test",
+				"src/server/routes.test.ts +12..+14 section:api test",
+				"src/server/routes.test.ts +16..+17 section:api test",
+				"src/server/routes.test.ts +19..+40 section:api test",
+				"src/server/routes.test.ts +44 section:api test",
+				"src/server/routes.test.ts +51 section:api test",
+				"src/server/routes.test.ts +55..+61 section:api test",
+				"src/server/routes.ts -1..-2 section:api code",
+				"src/server/routes.ts -4..-5 section:api code",
+				"src/server/routes.ts -10 section:api code",
+				"src/server/routes.ts -13 section:logging code",
+				"src/server/routes.ts -28 section:api code",
+				"src/server/routes.ts -34 section:logging code",
+				"src/server/routes.ts -38 section:logging code",
+				"src/server/routes.ts -44 section:logging code",
+				"src/server/routes.ts +1..+8 section:api code",
+				"src/server/routes.ts +10..+12 section:api code",
+				"src/server/routes.ts +17 section:api code",
+				"src/server/routes.ts +20..+21 section:logging code",
+				"src/server/routes.ts +28 section:logging code",
+				"src/server/routes.ts +30..+38 section:api code",
+				"src/server/routes.ts +43 section:api code",
+				"src/server/routes.ts +47 section:api code",
+				"src/server/routes.ts +53 section:logging code",
+				"src/server/routes.ts +57 section:logging code",
+				"src/server/routes.ts +63 section:logging code",
+				"src/server/routes.ts +69..+83 section:api code",
+				"src/server/routes.ts +90 section:api code",
+				"src/server/routes.ts +94 section:api code",
+				"src/store/customers.ts -14 section:storage code",
+				"src/store/customers.ts +1 section:storage code",
+				"src/store/customers.ts +9 section:storage code",
+				"src/store/customers.ts +16..+19 section:storage code",
+				"src/store/customers.ts +22..+30 section:storage code",
+				"src/store/invoices.ts -2..-3 section:storage code",
+				"src/store/invoices.ts -17 section:storage code",
+				"src/store/invoices.ts -26 section:storage code",
+				"src/store/invoices.ts -30 section:storage code",
+				"src/store/invoices.ts -38 section:storage code",
+				"src/store/invoices.ts -47..-49 section:storage code",
+				"src/store/invoices.ts -54 section:storage code",
+				"src/store/invoices.ts -56 section:storage code",
+				"src/store/invoices.ts -60 section:storage code",
+				"src/store/invoices.ts -72 section:storage code",
+				"src/store/invoices.ts -77 section:storage code",
+				"src/store/invoices.ts -81 section:storage code",
+				"src/store/invoices.ts +1 section:storage code",
+				"src/store/invoices.ts +3..+4 section:storage code",
+				"src/store/invoices.ts +11 section:storage code",
+				"src/store/invoices.ts +19 section:storage code",
+				"src/store/invoices.ts +28 section:storage code",
+				"src/store/invoices.ts +32 section:storage code",
+				"src/store/invoices.ts +40 section:storage code",
+				"src/store/invoices.ts +49..+51 section:storage code",
+				"src/store/invoices.ts +56 section:storage code",
+				"src/store/invoices.ts +58 section:storage code",
+				"src/store/invoices.ts +62 section:storage code",
+				"src/store/invoices.ts +74..+75 section:storage code",
+				"src/store/invoices.ts +80 section:storage code",
+				"src/store/invoices.ts +84 section:storage code",
+				"src/store/migrations/004-invoice-currency.sql +1..+9 section:storage code",
+				"src/tax.test.ts -2 section:invoice test",
+				"src/tax.test.ts -6 section:invoice test",
+				"src/tax.test.ts -10 section:invoice test",
+				"src/tax.test.ts +2 section:invoice test",
+				"src/tax.test.ts +6 section:invoice test",
+				"src/tax.test.ts +10..+14 section:invoice test",
+				"src/tax.ts -1 section:invoice code",
+				"src/tax.ts -7..-8 section:invoice code",
+				"src/tax.ts +1..+2 section:invoice code",
+				"src/tax.ts +8..+11 section:invoice code",
+				"src/test-helpers.ts +2..+3 section:api test",
+				"src/test-helpers.ts +19..+25 section:api test",
+				"tests/__snapshots__/pdf.test.ts.snap -10..-12 section:display snapshot",
+				"tests/__snapshots__/pdf.test.ts.snap -14..-16 section:display snapshot",
+				"tests/__snapshots__/pdf.test.ts.snap +9 section:display snapshot",
+				"tests/__snapshots__/pdf.test.ts.snap +11..+13 section:display snapshot",
+				"tests/__snapshots__/pdf.test.ts.snap +15..+35 section:display snapshot",
+				"tests/pdf.test.ts -2 section:display test",
+				"tests/pdf.test.ts -8..-21 section:display test",
+				"tests/pdf.test.ts +2..+3 section:display test",
+				"tests/pdf.test.ts +8..+21 section:display test",
+				"tests/pdf.test.ts +23..+27 section:display test",
+				"tests/smoke.test.ts +1..+18 section:smoke test"
+			]
+		}
+	],
+	"summary": {
+		"fullCoverage": true,
+		"sections": 8,
+		"callsByTool": {
+			"create_report": 2,
+			"get_manifest": 1,
+			"get_diff": 2,
+			"upsert_sections": 2,
+			"assign": 2,
+			"get_coverage": 2,
+			"set_overview": 1
+		},
+		"refusals": [],
+		"forbidden": [],
+		"commands": [
+			"shell: /usr/bin/zsh -lc 'git status --short'",
+			"shell: /usr/bin/zsh -lc 'cat <trial>/home/.codex/skills/diff-delver/SKILL.md'"
+		],
+		"wallSeconds": 67,
+		"turns": 1,
+		"tokens": {
+			"input": 373217,
+			"output": 2367,
+			"cacheRead": 330112,
+			"cacheWrite": 0
+		}
+	}
+}
