@@ -43,6 +43,8 @@
 		"test:journeys": "pnpm build && playwright test",
 		"journeys:update": "node scripts/journeys.ts update",
 		"journeys:repeat": "node scripts/journeys.ts repeat",
+		"release:package": "node scripts/release-package.ts",
+		"release:check": "node scripts/release-check.ts",
 		"fixtures:capture": "node scripts/capture-diff-fixtures.ts",
 		"fixtures:old-database": "node scripts/capture-old-database.ts",
 		"bd": "node scripts/bd.ts"
