@@ -13,6 +13,7 @@ import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.ti
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { parseCodeVersion } from '#lib/core/code-version.tiny.ts';
 import { parseFileCount } from '#lib/core/file-count.tiny.ts';
+import { parseFileMode } from '#lib/core/file-mode.tiny.ts';
 import { parseEntryCode } from '#lib/core/entry-code.tiny.ts';
 import { parseByteSize } from '#lib/core/byte-size.tiny.ts';
 import { parseLineCount } from '#lib/core/line-count.tiny.ts';
@@ -273,6 +274,14 @@ const PartSchema = z.object({
 	removed: lineCount,
 	/** What the change to the file itself stands for, when it is in this part: "made executable". */
 	fileUnit: message.nullable(),
+	/** A change to the file's mode or kind, when it is in this part: 100644 to 100755, "made executable". */
+	modeChange: z
+		.object({
+			from: parsed(z.string(), parseFileMode),
+			to: parsed(z.string(), parseFileMode),
+			words: message
+		})
+		.nullable(),
 	ignored: z.array(IgnoreReasonSchema),
 	tally: TallySchema,
 	/** How many rows its lines take when drawn, hidden lines aside. */

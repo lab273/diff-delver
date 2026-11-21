@@ -109,17 +109,24 @@ describe('the frame', () => {
 		]);
 		const parts = (state: AssignmentState) =>
 			frameOf(run, state, NOTHING, 'sections', [id('alpha')]).groups.flatMap((g) =>
-				g.parts.map((p) => [named(g.key), p.change, p.fileUnit, p.tally.units])
+				g.parts.map((p) => [
+					named(g.key),
+					p.change,
+					p.fileUnit,
+					p.modeChange === undefined ? undefined : `${p.modeChange.from} ${p.modeChange.to}`,
+					p.tally.units
+				])
 			);
+		// The change of mode is said on its own, beside the words, so it is not missed.
 		expect(parts(initialState(run))).toEqual([
-			['uncategorised', 'changed, made executable', 'made executable', 3]
+			['uncategorised', 'changed', 'made executable', '100644 100755', 3]
 		]);
 		const apart = assign(run, initialState(run), [
 			{ file: 'run.sh', lines: 'file', section: 'alpha' }
 		]).state;
 		expect(parts(apart)).toEqual([
-			['section:alpha', 'made executable', 'made executable', 1],
-			['uncategorised', 'changed', undefined, 2]
+			['section:alpha', '', 'made executable', '100644 100755', 1],
+			['uncategorised', 'changed', undefined, undefined, 2]
 		]);
 	});
 

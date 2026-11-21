@@ -13,7 +13,13 @@
  */
 import type { AgentMarkdown } from '../agent-markdown.tiny.ts';
 import type { Diff, DiffFile } from '../diff/diff.ts';
-import { describeFileChange, describeFileLines, describeFileUnit } from '../diff/file-unit.ts';
+import {
+	describeFileChange,
+	describeFileLines,
+	describeFileUnit,
+	modeChangeOf,
+	type ModeChange
+} from '../diff/file-unit.ts';
 import { ignoreRuleName } from '../diff/path-rules.ts';
 import {
 	fileSlices,
@@ -96,6 +102,11 @@ export interface PartSummary {
 	readonly removed: LineCount;
 	/** What the change to the file itself stands for, when it is in this part: "made executable". */
 	readonly fileUnit: ReviewerMessage | undefined;
+	/**
+	 * A change to the file's mode or kind, when it is in this part, such as being
+	 * made executable: shown so it cannot be missed.
+	 */
+	readonly modeChange: ModeChange | undefined;
 	/** In Ignored: why, each reason once. Empty elsewhere. */
 	readonly ignored: readonly IgnoreReason[];
 	readonly tally: PartTally;
@@ -234,9 +245,10 @@ function hasLinesAnywhere(file: DiffFile): boolean {
 function changeOf(slice: Slice, file: DiffFile, hasLines: boolean): ReviewerMessage {
 	// Only what waits in this part: a file's lines and the change to the file itself may be apart.
 	if (slice.fileUnit === undefined) return describeFileLines(file.file);
+	// A change of mode or kind is shown on its own, beside these words (`modeChange`).
 	return hasLines || !hasLinesAnywhere(file)
-		? describeFileChange(file.file)
-		: describeFileUnit(file.file);
+		? describeFileChange(file.file, { withMode: false })
+		: describeFileUnit(file.file, { withMode: false });
 }
 
 /**
@@ -263,6 +275,7 @@ export function fileParts(
 			added: lineCountOf(counted.added),
 			removed: lineCountOf(counted.removed),
 			fileUnit: slice.fileUnit === undefined ? undefined : describeFileUnit(file.file),
+			modeChange: slice.fileUnit === undefined ? undefined : modeChangeOf(file.file),
 			ignored: counted.ignored,
 			tally: counted.tally,
 			rows: lineCountOf(counted.rows),

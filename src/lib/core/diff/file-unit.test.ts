@@ -8,7 +8,7 @@ import { assign } from './assign.ts';
 import { coverage, describeWarning } from './coverage.ts';
 import { parseDiffTreeOutput } from './diff-tree-output.ts';
 import { makeDiff, type Diff, type DiffFile } from './diff.ts';
-import { describeFileChange, describeFileUnit } from './file-unit.ts';
+import { describeFileChange, describeFileUnit, modeChangeOf } from './file-unit.ts';
 import { sectionView, testsSeparateView, type GroupKey } from './slices.ts';
 import { parseSectionId } from '../section-id.tiny.ts';
 import { initialState } from './state.ts';
@@ -196,6 +196,28 @@ describe('the file-level unit', () => {
 		if (words !== undefined) expect(describeFileUnit(file.file)).toBe(words);
 		expect(describeFileChange(file.file)).toBe(listed);
 	});
+
+	it.each([
+		['madeExecutableWithEdits', '100644 100755 made executable', 'changed', ''],
+		['noLongerExecutable', '100755 100644 no longer executable', 'changed', ''],
+		['becameLink', '100644 120000 became a link', '', ''],
+		['modeOnly', '100644 100755 made executable', '', ''],
+		['renamedWithEdits', undefined, 'changed, renamed from src/old.ts', 'renamed from src/old.ts'],
+		['addedExecutable', undefined, 'added', undefined]
+	] as const)(
+		'%s: the change of mode on its own, and the words without it',
+		(name, mode, listed, unitWords) => {
+			const file = only(diffOf(cases[name])).file;
+			const change = modeChangeOf(file);
+			expect(change === undefined ? undefined : `${change.from} ${change.to} ${change.words}`).toBe(
+				mode
+			);
+			expect(describeFileChange(file, { withMode: false })).toBe(listed);
+			if (unitWords !== undefined) {
+				expect(describeFileUnit(file, { withMode: false })).toBe(unitWords);
+			}
+		}
+	);
 
 	const diff = diffOf(cases.madeExecutableWithEdits, cases.binary, cases.renamedWithEdits);
 	const run = path('run.sh');

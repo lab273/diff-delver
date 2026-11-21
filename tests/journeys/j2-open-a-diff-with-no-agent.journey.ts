@@ -138,7 +138,10 @@ test.describe('J2 Open a diff with no agent', () => {
 			journey.within(renamed).byText('renamed from src/old-name.ts', { exact: true })
 		);
 		const script = journey.byRole('article', { name: 'scripts/build.sh' });
-		await journey.expectVisible(journey.within(script).byText('made executable', { exact: true }));
+		// A change of mode is marked so it cannot be missed, with the modes git gives.
+		await journey.expectVisible(
+			journey.within(script).byText('Made executable 100644 to 100755', { exact: true })
+		);
 		await journey.activate(
 			journey.within(renamed).byRole('checkbox', { name: 'Reviewed: src/new-name.ts' }),
 			'Space'

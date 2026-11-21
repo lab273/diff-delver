@@ -224,6 +224,7 @@ export function partView(part: PartSummary): PartView {
 		added: part.added,
 		removed: part.removed,
 		fileUnit: part.fileUnit ?? null,
+		modeChange: part.modeChange ?? null,
 		ignored: [...part.ignored],
 		tally: part.tally,
 		rows: part.rows,

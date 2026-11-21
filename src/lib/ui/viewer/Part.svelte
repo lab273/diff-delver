@@ -158,6 +158,14 @@
 			</button>
 		</h3>
 		<span class="change">{part.change}</span>
+		{#if part.modeChange !== null}
+			<span class="mode">
+				{capitalised(part.modeChange.words)}
+				<span class="modes">
+					<code>{part.modeChange.from}</code> to <code>{part.modeChange.to}</code>
+				</span>
+			</span>
+		{/if}
 		{#if part.of > 1}
 			<span class="chip" aria-hidden="true">Part {part.position} of {part.of}</span>
 		{/if}
@@ -267,8 +275,9 @@
 				</div>
 			{/if}
 			{#if part.fileUnit !== null && part.added + part.removed > 0}
-				<p class="file-change">
-					{capitalised(part.fileUnit)}
+				<p class="file-change" class:mode-change={part.modeChange !== null}>
+					{capitalised(part.fileUnit)}{#if part.modeChange !== null}: its mode changed from
+						<code>{part.modeChange.from}</code> to <code>{part.modeChange.to}</code>.{/if}
 				</p>
 			{/if}
 			{#if part.content === 'submodule'}
@@ -502,6 +511,37 @@
 	.file-change {
 		font-weight: 700;
 		border-bottom: 1px solid var(--color-border);
+	}
+
+	/* A change of mode or kind is easy to miss and can matter a great deal. */
+	.file-change.mode-change {
+		background: var(--color-attention-background);
+		border-bottom-color: var(--color-attention-border);
+	}
+
+	.file-change code {
+		font-family: var(--font-code);
+		font-size: 0.8125rem;
+	}
+
+	.mode {
+		display: inline-flex;
+		align-items: baseline;
+		gap: 0.4rem;
+		padding: 0.05rem 0.5rem;
+		border: 1px solid var(--color-attention-border);
+		border-radius: 999px;
+		background: var(--color-attention-background);
+		font-size: 0.75rem;
+		font-weight: 700;
+	}
+
+	.modes {
+		font-weight: 400;
+	}
+
+	.modes code {
+		font-family: var(--font-code);
 	}
 
 	.about {

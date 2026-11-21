@@ -89,6 +89,32 @@ function describeItself(change: FileItselfChange): string {
 	}
 }
 
+/** A change to a file's mode or kind, as git writes the modes, and in plain words. */
+export interface ModeChange {
+	readonly from: FileMode;
+	readonly to: FileMode;
+	/** "made executable", "no longer executable", "became a link". */
+	readonly words: ReviewerMessage;
+}
+
+/**
+ * The change to a file's mode or kind, when it has one: what a reviewer must
+ * not miss, since its lines cannot show it. Undefined for an added or deleted
+ * file, whose mode is part of it.
+ */
+export function modeChangeOf(file: FileDiff): ModeChange | undefined {
+	for (const change of fileItselfChanges(file)) {
+		if (change.kind === 'mode') {
+			return {
+				from: change.from,
+				to: change.to,
+				words: reviewerMessage(describeMode(change.from, change.to))
+			};
+		}
+	}
+	return undefined;
+}
+
 /** Whether a file's content changed: its text has lines, or it is not text. */
 function contentChanged(file: FileDiff): boolean {
 	const content = file.content;
@@ -118,9 +144,14 @@ export function describeFileLines(file: FileDiff): ReviewerMessage {
  * How a file changed, as a list of files says it: "changed", "added",
  * "renamed from src/old.ts", "changed, renamed from src/old.ts", "changed,
  * made executable", "became a link", "added, binary file". A file whose name or
- * mode changed says "changed" first when its content changed too.
+ * mode changed says "changed" first when its content changed too. With
+ * `withMode: false` it leaves out a change of mode or kind, for a place that
+ * shows that on its own (`modeChangeOf`), and may then be empty.
  */
-export function describeFileChange(file: FileDiff): ReviewerMessage {
+export function describeFileChange(
+	file: FileDiff,
+	options: { readonly withMode?: boolean } = {}
+): ReviewerMessage {
 	const parts: string[] = [];
 	switch (file.status) {
 		case 'added':
@@ -139,7 +170,9 @@ export function describeFileChange(file: FileDiff): ReviewerMessage {
 		case 'type-changed':
 			break;
 	}
-	for (const change of fileItselfChanges(file)) parts.push(describeItself(change));
+	for (const change of fileItselfChanges(file)) {
+		if (change.kind !== 'mode' || options.withMode !== false) parts.push(describeItself(change));
+	}
 	switch (file.content.kind) {
 		case 'binary':
 			parts.push('binary file');
@@ -158,17 +191,28 @@ export function describeFileChange(file: FileDiff): ReviewerMessage {
  * shown and ticked. Beside changed lines it is what changed about the file
  * itself ("made executable", "renamed from src/old.ts"); for a file whose
  * change has no lines it is the whole change ("changed, binary file",
- * "added, empty file", "renamed from src/old.ts").
+ * "added, empty file", "renamed from src/old.ts"). `withMode: false` leaves
+ * out a change of mode or kind, as `describeFileChange` does.
  */
-export function describeFileUnit(file: FileDiff): ReviewerMessage {
+export function describeFileUnit(
+	file: FileDiff,
+	options: { readonly withMode?: boolean } = {}
+): ReviewerMessage {
 	const content = file.content;
 	const hasLines = content.kind === 'text' && content.hunks.length > 0;
-	if (hasLines) return reviewerMessage(fileItselfChanges(file).map(describeItself).join(', '));
+	if (hasLines) {
+		return reviewerMessage(
+			fileItselfChanges(file)
+				.filter((change) => change.kind !== 'mode' || options.withMode !== false)
+				.map(describeItself)
+				.join(', ')
+		);
+	}
 	const empty =
 		content.kind === 'text' &&
 		fileItselfChanges(file).length === 0 &&
 		(file.status === 'added' || file.status === 'deleted');
 	return empty
-		? reviewerMessage(`${describeFileChange(file)}, empty file`)
-		: describeFileChange(file);
+		? reviewerMessage(`${describeFileChange(file, options)}, empty file`)
+		: describeFileChange(file, options);
 }

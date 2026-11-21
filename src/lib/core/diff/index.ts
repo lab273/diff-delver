@@ -89,12 +89,13 @@ export { parseDiffTreeOutput } from './diff-tree-output.ts';
 // Change units.
 export type { ChangeRun, Diff, DiffFile, DuplicateFilePath, SideLines } from './diff.ts';
 export { changedLines, makeDiff } from './diff.ts';
-export type { FileItselfChange } from './file-unit.ts';
+export type { FileItselfChange, ModeChange } from './file-unit.ts';
 export {
 	describeFileChange,
 	describeFileUnit,
 	fileItselfChanges,
-	hasFileUnit
+	hasFileUnit,
+	modeChangeOf
 } from './file-unit.ts';
 
 // Buckets, roles and the rules that guess them.
