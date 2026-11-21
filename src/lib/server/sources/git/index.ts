@@ -14,8 +14,6 @@
 export { commitsSince } from './commits-since.ts';
 export type { LocalRepository, RepositoryOptions } from './local-repository.ts';
 export { locateRepository, storeIdFor } from './local-repository.ts';
-export type { RepositoryOnDisk } from './repository-on-disk.ts';
-export { repositoryOnDisk } from './repository-on-disk.ts';
 export type { GitSnapshot } from './snapshot-git-source.ts';
 export { snapshotGitSource } from './snapshot-git-source.ts';
 export { sourceHasChanges } from './source-has-changes.ts';

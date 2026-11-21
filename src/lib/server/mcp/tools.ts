@@ -15,9 +15,8 @@
  * delete a report, read anything outside the report's snapshot, or write to the
  * reviewed repository.
  */
-import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
-import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import type { BrowserAsk } from '#lib/core/cli/browser-offer.ts';
 import {
@@ -79,7 +78,6 @@ import {
 	type OpenOutcome,
 	type ReportService
 } from '../reports/index.ts';
-import { repositoryOnDisk } from '../sources/git/index.ts';
 import { listSnapshotPaths, readSnapshotLinesWithin, snapshotEntry } from '../store/index.ts';
 import { describeByteSize } from '#lib/core/viewer/words.ts';
 import { parseByteSize, type ByteSize } from '#lib/core/byte-size.tiny.ts';
@@ -125,6 +123,8 @@ interface ToolDefinition<S extends z.ZodObject> {
 	readonly readOnly: boolean;
 	/** One short example call, shown with a refusal of the arguments. */
 	readonly example: string;
+	/** Fields the tool does not take that an agent may still send, each with why, said when one is sent. */
+	readonly notTaken?: Readonly<Record<string, string>>;
 	readonly run: (input: z.output<S>, context: ToolContext) => Promise<Result<string, string>>;
 }
 
@@ -144,7 +144,8 @@ function tool<S extends z.ZodObject>(definition: ToolDefinition<S>): Tool {
 							definition.name,
 							definition.schema,
 							parsed.error,
-							definition.example
+							definition.example,
+							definition.notTaken
 						)
 					),
 					refused: true
@@ -268,13 +269,17 @@ const createReport = tool({
 	name: 'create_report',
 	title: 'Open a diff for review',
 	description: [
-		'Start here. Opens a diff of a git repository as a report that a person reviews in their browser, and that you sort into sections for them: diff delver reads the diff itself, and you only label it.',
+		'Start here. Opens a diff of the git repository you were started in as a report that a person reviews in their browser, and that you sort into sections for them: diff delver reads the diff itself, and you only label it. It opens no other repository: for another, the person starts you there, or runs diff-delver there themselves.',
 		'"source" says which diff: "working-tree" (every uncommitted change, untracked files included), "staged", a commit such as "HEAD" or "abc1234", or a range such as "main...feature-x" (the branch compared with where it left main). Leave it out to get what the person would most likely review: the uncommitted changes if there are any, otherwise the branch compared with the main branch; when several are likely, the answer lists them and you call again with one.',
 		'Calling it again for the same source returns the same report, brought up to date with the files as they are now, so it is safe to repeat; a source whose last report was closed gets a new one.',
 		"The answer gives the report id, an address to give the person, the diff's size and what was ignored automatically (lockfiles, generated and vendored files). Next, call get_manifest with the report id."
 	].join('\n\n'),
 	readOnly: false,
 	example: '{ "source": "working-tree" }',
+	notTaken: {
+		directory:
+			'create_report opens only the repository you were started in, and takes no folder. For another repository, tell the person: they can start you in that repository, or run diff-delver there themselves.'
+	},
 	schema: z.strictObject({
 		source: z
 			.string()
@@ -282,17 +287,10 @@ const createReport = tool({
 			.optional()
 			.describe(
 				'Which diff: "working-tree", "staged", a commit ("HEAD", "abc1234") or a range ("main...feature-x"). Leave it out for the most likely one.'
-			),
-		directory: z
-			.string()
-			.max(4096)
-			.optional()
-			.describe(
-				'The repository, as a folder in it. Leave it out for the folder you were started in. Another repository is opened only if the person has opened it with diff delver themselves. A relative path is taken from the folder you were started in.'
 			)
 	}),
 	run: async (input, context) => {
-		const directory = await directoryFor(input.directory, context);
+		const directory = directoryFor(context);
 		if (!directory.ok) return directory;
 		if (input.source === undefined) {
 			const started = await context.service.start(directory.value);
@@ -345,55 +343,17 @@ const createReport = tool({
 });
 
 /**
- * The folder `create_report` opens. Left out, the folder the agent was started
- * in, which the person chose. Given, it is the agent's choice, and opening it
- * runs git there with that repository's own config, which can name commands git
- * runs (a clean filter, run by `git add`); so it is opened only when it is in
- * the repository the agent was started in, or in one the person has opened
- * with diff delver in this data folder. Which repository a folder is in is
- * found from the files alone (`repositoryOnDisk`), so nothing runs in a folder
- * that is refused; and an accepted one is opened from the top of that
- * repository, not from the folder named, so git finds the repository that
- * was checked, never one in a folder below it.
+ * The folder `create_report` opens: the one the agent was started in, which
+ * the shim names in its header and the agent cannot set. No argument names a
+ * folder, because opening one runs git there with that repository's own
+ * config, which can name commands git runs (a clean filter, run by `git add`).
  */
-async function directoryFor(
-	given: string | undefined,
-	context: ToolContext
-): Promise<Result<AbsolutePath, string>> {
-	const startedIn = context.directory;
-	if (given === undefined) {
-		return startedIn === undefined
-			? err(
-					'diff delver was not told which folder you work in. Give "directory": the absolute path of a folder in the repository.'
-				)
-			: ok(startedIn);
-	}
-	if (!isAbsolute(given) && startedIn === undefined) {
-		return err(
-			`${quotedAgentText(given, 120)} is a relative path, and diff delver was not told which folder you work in. Give the absolute path of a folder in the repository.`
-		);
-	}
-	const path = parseAbsolutePath(resolve(startedIn ?? '/', given));
-	if (!path.ok) {
-		return err(
-			`${quotedAgentText(given, 120)} cannot be read as a folder. Give the absolute path of a folder in the repository.`
-		);
-	}
-	const found = await repositoryOnDisk(path.value);
-	if (found !== undefined) {
-		const home = startedIn === undefined ? undefined : await repositoryOnDisk(startedIn);
-		if (home?.commonDir === found.commonDir) return ok(found.top);
-		const opened = context.service.hasReportOfRepository(found.commonDir);
-		if (!opened.ok) return err(describeForAgent(opened.error));
-		if (opened.value) return ok(found.top);
-	}
-	return err(
-		[
-			`${quotedAgentText(given, 120)} was not opened, and nothing was run there: it is not in the repository you were started in, nor in one the person has opened with diff delver.`,
-			"diff delver opens a repository for an agent only where the person started the agent, or where they have opened it with diff delver themselves, because opening it runs git with that repository's own settings.",
-			'Tell the person: to have it reviewed, they can run diff-delver once in that folder themselves, and then you can call create_report with it again. Or leave "directory" out to open the repository you were started in.'
-		].join(' ')
-	);
+function directoryFor(context: ToolContext): Result<AbsolutePath, string> {
+	return context.directory === undefined
+		? err(
+				'diff delver was not told which folder you were started in, so it cannot open a repository. Start diff-delver mcp from a folder in the repository to review.'
+			)
+		: ok(context.directory);
 }
 
 async function opened(outcome: OpenOutcome, context: ToolContext): Promise<Result<string, string>> {

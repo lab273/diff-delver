@@ -2,7 +2,8 @@
  * What was wrong with a tool call's arguments, in terms of the call: Zod's own
  * issues, turned into sentences an agent can act on, naming the field by its
  * place (`items[2].lines`), what it should be, and the fields an object takes.
- * Zod's raw messages never reach the agent.
+ * Zod's raw messages never reach the agent. A field a tool does not take but
+ * an agent may still send can have a sentence of its own, saying why.
  */
 import { z } from 'zod';
 import { textForAgent, type TextForAgent } from '#lib/core/text-for-agent.tiny.ts';
@@ -101,15 +102,25 @@ export function describeInputProblems(
 	tool: string,
 	schema: z.ZodType,
 	error: z.ZodError,
-	example: string
+	example: string,
+	notTaken: Readonly<Record<string, string>> = {}
 ): TextForAgent {
 	const issues = error.issues.slice(0, MAX_PROBLEMS).map((issue) => describeIssue(issue, schema));
 	const more = error.issues.length - issues.length;
+	const why = error.issues.flatMap((issue) =>
+		issue.code === 'unrecognized_keys' && issue.path.length === 0
+			? issue.keys.flatMap((key) => {
+					const said = Object.hasOwn(notTaken, key) ? notTaken[key] : undefined;
+					return said === undefined ? [] : [said];
+				})
+			: []
+	);
 	return textForAgent(
 		[
 			`The call to ${tool} was refused before anything was read or changed:`,
 			...issues.map((i) => `- ${i}`),
 			...(more > 0 ? [`- and ${String(more)} more problems like these.`] : []),
+			...why,
 			`For example: ${example}`
 		].join('\n')
 	);

@@ -13,7 +13,7 @@
 		{
 			"name": "create_report",
 			"title": "Open a diff for review",
-			"description": "Start here. Opens a diff of a git repository as a report that a person reviews in their browser, and that you sort into sections for them: diff delver reads the diff itself, and you only label it.\n\n\"source\" says which diff: \"working-tree\" (every uncommitted change, untracked files included), \"staged\", a commit such as \"HEAD\" or \"abc1234\", or a range such as \"main...feature-x\" (the branch compared with where it left main). Leave it out to get what the person would most likely review: the uncommitted changes if there are any, otherwise the branch compared with the main branch; when several are likely, the answer lists them and you call again with one.\n\nCalling it again for the same source returns the same report, brought up to date with the files as they are now, so it is safe to repeat; a source whose last report was closed gets a new one.\n\nThe answer gives the report id, an address to give the person, the diff's size and what was ignored automatically (lockfiles, generated and vendored files). Next, call get_manifest with the report id.",
+			"description": "Start here. Opens a diff of the git repository you were started in as a report that a person reviews in their browser, and that you sort into sections for them: diff delver reads the diff itself, and you only label it. It opens no other repository: for another, the person starts you there, or runs diff-delver there themselves.\n\n\"source\" says which diff: \"working-tree\" (every uncommitted change, untracked files included), \"staged\", a commit such as \"HEAD\" or \"abc1234\", or a range such as \"main...feature-x\" (the branch compared with where it left main). Leave it out to get what the person would most likely review: the uncommitted changes if there are any, otherwise the branch compared with the main branch; when several are likely, the answer lists them and you call again with one.\n\nCalling it again for the same source returns the same report, brought up to date with the files as they are now, so it is safe to repeat; a source whose last report was closed gets a new one.\n\nThe answer gives the report id, an address to give the person, the diff's size and what was ignored automatically (lockfiles, generated and vendored files). Next, call get_manifest with the report id.",
 			"inputSchema": {
 				"type": "object",
 				"properties": {
@@ -21,11 +21,6 @@
 						"description": "Which diff: \"working-tree\", \"staged\", a commit (\"HEAD\", \"abc1234\") or a range (\"main...feature-x\"). Leave it out for the most likely one.",
 						"type": "string",
 						"maxLength": 500
-					},
-					"directory": {
-						"description": "The repository, as a folder in it. Leave it out for the folder you were started in. Another repository is opened only if the person has opened it with diff delver themselves. A relative path is taken from the folder you were started in.",
-						"type": "string",
-						"maxLength": 4096
 					}
 				},
 				"additionalProperties": false

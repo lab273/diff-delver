@@ -6,7 +6,7 @@
  * stopped when its test finishes.
  */
 import { execFile } from 'node:child_process';
-import { access, cp, readFile, symlink } from 'node:fs/promises';
+import { access, cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
@@ -552,87 +552,141 @@ describe('the agent interface, through the stdio shim', () => {
 		expect(session.stderr()).toBe('');
 	});
 
-	it('opens a folder an agent names only in its own repository or one the person opened, running nothing anywhere else', async () => {
+	it('opens only the repository it was started in: no argument makes git run anywhere else', async () => {
 		const agent = await shopAgent();
 		const { session, data, who } = agent;
 		const marker = join(await tempDirectory(), 'marker');
-		// A repository whose own config runs a command whenever git adds a file to an index.
-		const evil = await emptyRepo();
-		await evil.write('.gitattributes', '* filter=evil\n');
-		await evil.write('a.txt', 'one\n');
-		await evil.commit('first');
-		await evil.git('config', 'filter.evil.clean', `touch '${marker}'; cat`);
-		await evil.write('a.txt', 'two\n');
-		// The same inside the agent's own repository, as a repository of its own, and a link to it.
-		const nested = GitRepo.open(absolutePath(join(agent.repo.dir, 'vendor', 'nested')));
-		await cp(evil.dir, nested.dir, { recursive: true });
-		await symlink(evil.dir, join(agent.repo.dir, 'link-out'));
 		const markerExists = () =>
 			access(marker).then(
 				() => true,
 				() => false
 			);
+		const evilFilter = `touch '${marker}'; cat`;
+		// A repository whose own config runs a command whenever git adds a file to an index.
+		const evil = await emptyRepo();
+		await evil.write('.gitattributes', '* filter=evil\n');
+		await evil.write('a.txt', 'one\n');
+		await evil.commit('first');
+		await evil.git('config', 'filter.evil.clean', evilFilter);
+		await evil.write('a.txt', 'two\n');
+		// A folder that passes for a linked worktree of the agent's own repository: its .git
+		// names a git directory the agent wrote, whose commondir is the repository's own, and
+		// whose config.worktree, which git reads with extensions.worktreeConfig, runs the command.
+		await agent.repo.git('config', 'core.repositoryformatversion', '1');
+		await agent.repo.git('config', 'extensions.worktreeConfig', 'true');
+		const fake = GitRepo.open(absolutePath(join(await tempDirectory(), 'fake')));
+		const fakeGit = join(await tempDirectory(), 'fake-git');
+		await mkdir(fakeGit, { recursive: true });
+		await writeFile(join(fakeGit, 'HEAD'), 'ref: refs/heads/main\n');
+		await writeFile(join(fakeGit, 'commondir'), `${join(agent.repo.dir, '.git')}\n`);
+		await writeFile(join(fakeGit, 'gitdir'), `${join(fake.dir, '.git')}\n`);
+		await writeFile(join(fakeGit, 'config.worktree'), `[filter "evil"]\n\tclean = ${evilFilter}\n`);
+		await fake.write('.git', `gitdir: ${fakeGit}\n`);
+		await fake.write('.gitattributes', '* filter=evil\n');
+		await fake.write('a.txt', 'one\n');
+		// Both traps work: git run in either folder runs the command.
+		for (const trap of [evil, fake]) {
+			await trap.git('hash-object', '--path=a.txt', 'a.txt');
+			expect(await markerExists(), trap.dir).toBe(true);
+			await rm(marker);
+		}
+		// The same inside the agent's own repository, as a repository of its own, and a link out.
+		const nested = GitRepo.open(absolutePath(join(agent.repo.dir, 'vendor', 'nested')));
+		await cp(evil.dir, nested.dir, { recursive: true });
+		await symlink(evil.dir, join(agent.repo.dir, 'link-out'));
+		await symlink(fake.dir, join(agent.repo.dir, 'link-fake'));
 
 		const own = reportIn(await session.call('create_report', {}));
-		for (const directory of [
+		const folders = [
 			evil.dir,
 			join(evil.dir, '.git'),
+			fake.dir,
+			fakeGit,
 			nested.dir,
 			'vendor/nested',
 			'link-out',
-			`../${basename(evil.dir)}`,
-			join(agent.repo.dir, '..', basename(evil.dir))
-		]) {
+			'link-fake',
+			`../${basename(evil.dir)}`
+		];
+		for (const directory of folders) {
 			const answer = await session.call('create_report', { directory, source: 'working-tree' });
 			expect(answer.refused, directory).toBe(true);
-			expect(answer.text).toMatch(
-				/was not opened, and nothing was run there: it is not in the repository you were started in, nor in one the person has opened with diff delver\..*Tell the person: to have it reviewed, they can run diff-delver once in that folder themselves/
+			expect(answer.text).toContain('The call has a field this tool does not take: "directory".');
+			expect(answer.text).toContain(
+				'create_report opens only the repository you were started in, and takes no folder. For another repository, tell the person: they can start you in that repository, or run diff-delver there themselves.'
 			);
 		}
-		// No other call an agent can make runs anything there either.
-		for (const [tool, args] of [
-			['get_file', { report: own, path: join(evil.dir, 'a.txt') }],
-			['get_file', { report: own, path: '../link-out/a.txt' }],
-			['get_diff', { report: own, files: [join(evil.dir, 'a.txt')] }],
-			[
-				'assign',
-				{
-					report: own,
-					version: 1,
-					items: [{ file: join(evil.dir, 'a.txt'), section: 'ignored', reason: 'x' }]
-				}
-			],
-			[
-				'upsert_sections',
-				{
-					report: own,
-					version: 1,
-					sections: [
-						{ id: 'x', title: 'x', references: [{ file: join(evil.dir, 'a.txt'), lines: '+1' }] }
-					]
-				}
-			],
+		// Nor does a source, a path, a cursor or any other argument.
+		const sources = folders.flatMap((f) => [
+			f,
+			`${f}...HEAD`,
+			`HEAD...${f}`,
+			`--git-dir=${f}`,
+			`-C${f}`,
+			`--work-tree=${f}`
+		]);
+		const calls: (readonly [string, Record<string, unknown>])[] = [
+			...sources.map((source) => ['create_report', { source }] as const),
+			...folders.flatMap((f) => [
+				['get_file', { report: own, path: join(f, 'a.txt') }] as const,
+				['get_file', { report: own, path: f }] as const,
+				['get_diff', { report: own, files: [join(f, 'a.txt')], cursor: f }] as const,
+				['get_manifest', { report: own, cursor: f }] as const,
+				[
+					'assign',
+					{
+						report: own,
+						version: 1,
+						items: [{ file: join(f, 'a.txt'), section: 'ignored', reason: 'x' }]
+					}
+				] as const,
+				[
+					'upsert_sections',
+					{
+						report: own,
+						version: 1,
+						sections: [
+							{ id: 'x', title: 'x', references: [{ file: join(f, 'a.txt'), lines: '+1' }] }
+						]
+					}
+				] as const,
+				['get_manifest', { report: f }] as const
+			]),
+			['get_file', { report: own, path: 'link-out/a.txt' }],
+			['get_file', { report: own, path: 'link-fake/a.txt' }],
 			['list_reports', { include_closed: true }],
-			['get_manifest', { report: own }],
 			['get_coverage', { report: own }]
-		] as const) {
-			await session.call(tool, args);
-		}
+		];
+		for (const [tool, args] of calls) await session.call(tool, args);
 		expect(await markerExists()).toBe(false);
 
-		// A folder inside the agent's own repository opens it, from its top.
-		const inside = await session.call('create_report', { directory: 'src' });
-		expect(reportIn(inside)).toBe(own);
-
-		// Once the person has opened the repository themselves, the agent may open it too.
+		// Another repository the person opened in the same data folder: its stored diff can be
+		// read, but nothing an agent calls runs git in its working folder, even once it changed.
 		await run(['--no-open', '--data-directory', data], evil.dir, who);
 		expect(await markerExists()).toBe(true);
-		const theirs = await session.call('create_report', {
-			directory: evil.dir,
-			source: 'working-tree'
-		});
-		expect(theirs.refused, theirs.text).toBe(false);
-		expect(reportIn(theirs)).not.toBe(own);
+		await rm(marker);
+		await evil.write('a.txt', 'three\n');
+		const listing = await session.call('list_reports', {});
+		const theirs = [...listing.text.matchAll(/^- (r_\w+): /gm)]
+			.map((m) => m[1] ?? '')
+			.find((id) => id !== own);
+		expect(theirs, listing.text).toBeDefined();
+		const report = theirs ?? '';
+		for (const [tool, args] of [
+			['get_manifest', { report }],
+			['get_diff', { report }],
+			['get_file', { report, path: 'a.txt' }],
+			['get_coverage', { report }],
+			['set_overview', { report, version: 1, markdown: 'x' }],
+			['upsert_sections', { report, version: 1, sections: [{ id: 'x', title: 'x' }] }],
+			['assign', { report, version: 1, items: [{ file: 'a.txt', section: 'x' }] }],
+			['create_report', { source: 'working-tree' }],
+			['create_report', {}]
+		] as const) {
+			const answer = await session.call(tool, args);
+			if (tool === 'get_file') expect(answer.text).toMatch(/1 {2}two$/);
+		}
+		expect(await markerExists()).toBe(false);
 	});
 
 	it('writes what a repository holds so that none of it can add a line to an answer', async () => {

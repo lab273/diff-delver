@@ -8,13 +8,13 @@
  *
  * The stdio shim says two things about the agent's side in headers:
  * `X-Diff-Delver-Directory`, the folder it was started in (percent-encoded,
- * since a header is ASCII), which `create_report` opens when not told another;
+ * since a header is ASCII), the only folder `create_report` opens;
  * and `X-Diff-Delver-Open-Browser`: `yes` when a report this message makes
  * may be opened in the person's browser, `already` when one was opened for the
  * shim's session before (`BrowserOffer`: one window per session). When it
  * opens a window, the answer says so in `X-Diff-Delver-Opened: yes`, so the
  * shim offers no more. A client that speaks HTTP MCP itself sends neither
- * header, and gives `create_report` a directory.
+ * header, and opens no repository.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
