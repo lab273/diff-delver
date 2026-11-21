@@ -125,7 +125,7 @@ them out of Ignored into the API section, saying why.
 
 ## Found about the page
 
-Replaying what the agents produced in journeys found three problems with the
+Replaying what the agents produced in journeys found four problems with the
 page itself, none of which a scripted categorisation had shown:
 
 - Following a group's link in the Groups list focused the heading, which only
