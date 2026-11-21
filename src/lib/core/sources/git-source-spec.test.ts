@@ -113,7 +113,7 @@ describe('describeGitSource', () => {
 		);
 	});
 
-	it('gives the size for a chooser', () => {
+	it('gives the size for the start page’s choice', () => {
 		expect(describeGitSourceWithSize(parsed('working-tree'), fileCountOf(12))).toBe(
 			'Uncommitted changes (12 files)'
 		);

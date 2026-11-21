@@ -1,7 +1,7 @@
 <!--
-	What the command opens when it cannot open one diff straight away: a short
-	chooser when several changes could be reviewed, why there is nothing to
-	review here, or why what was asked for could not be opened, with what to do
+	The start page: what the command opens when it cannot open one diff straight
+	away. It shows the start page's choice, a short list when several changes
+	could be reviewed, or why there is nothing to review here, or why what was asked for could not be opened, with what to do
 	instead. It never opens anything by itself.
 -->
 <script lang="ts">
@@ -17,7 +17,7 @@
 
 	let { data }: PageProps = $props();
 
-	/** The page that chooses commits or a branch in this folder. */
+	/** The choose page for this folder. */
 	const chooseQuery = $derived(new URLSearchParams({ directory: data.directory }).toString());
 	let opening = $state(false);
 	let problem = $state('');

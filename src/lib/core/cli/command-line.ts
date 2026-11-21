@@ -16,7 +16,7 @@ export type Command =
 	| { readonly kind: 'start' }
 	/** One source, as `parseGitSourceSpec` reads it. */
 	| { readonly kind: 'open'; readonly source: GitSourceSpec }
-	/** The page that chooses commits or a whole branch of this folder's repository to review. */
+	/** The choose page: commits or a whole branch of this folder's repository to review. */
 	| { readonly kind: 'choose' }
 	/** The daemon, in the foreground, until it is stopped. */
 	| { readonly kind: 'serve' }

@@ -41,7 +41,7 @@ function remote(name: string): RemoteName {
 	return parsed.value;
 }
 
-describe('the chooser’s words', () => {
+describe('the choose page’s words', () => {
 	it('says a moment exactly, in UTC', () => {
 		expect(describeExactTime(time('2026-01-05T07:03:00Z'))).toBe('5 January 2026, 07:03 UTC');
 		expect(describeExactTime(time('2025-12-31T23:59:00Z'))).toBe('31 December 2025, 23:59 UTC');

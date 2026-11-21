@@ -1,7 +1,8 @@
 /**
- * A repository's history, for choosing commits or a branch to review (DESIGN
- * 3.1): its branches, a branch's commits a page at a time with their sizes, the
- * size of the diff a run of them makes, and when the repository last fetched.
+ * A repository's history, for the choose page, where a person picks commits or
+ * a branch to review (DESIGN 3.1): its branches, a branch's commits a page at a
+ * time with their sizes, the size of the diff a run of them makes, and when
+ * the repository last fetched.
  *
  * Everything here only reads the repository, through `gitIn`, and never the
  * network. Nothing reads the whole history: branches are listed by one
@@ -42,7 +43,7 @@ export const BRANCHES_SHOWN = 30;
 /** How many commits a page of a branch's list holds. */
 export const COMMITS_PER_PAGE = 50;
 
-/** One branch, as the chooser lists it. */
+/** One branch, as the choose page lists it. */
 export interface BranchSummary {
 	readonly ref: BranchRef;
 	readonly commit: CommitId;

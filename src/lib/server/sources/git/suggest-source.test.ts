@@ -24,7 +24,7 @@ async function suggestion(dir: AbsolutePath, who?: Reviewer): Promise<SourceSugg
 	return value(result).suggestion;
 }
 
-/** What a chooser would show: each description with the source it opens. */
+/** What the start page's choice would show: each description with the source it opens. */
 function shown(s: SourceSuggestion): unknown {
 	switch (s.kind) {
 		case 'one':

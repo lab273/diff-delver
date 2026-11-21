@@ -223,7 +223,7 @@ export function suggestView(
 	}
 }
 
-/** The chooser's view of a repository: its branches and when it last fetched. */
+/** The choose page's view of a repository: its branches and when it last fetched. */
 export function historyView(found: RepositoryBranches, now: Timestamp): HistoryView {
 	const { branches } = found;
 	return {

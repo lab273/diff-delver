@@ -9,7 +9,7 @@ import { describeReportError } from '#lib/server/reports/report-error.ts';
 import type { RequestHandler } from './$types';
 
 /**
- * What could be opened in a folder, without opening anything, for the chooser;
+ * What could be opened in a folder, without opening anything, for the start page's choice;
  * with `asked`, also why that source could not be opened, if it cannot, or
  * whether it has anything to review.
  */

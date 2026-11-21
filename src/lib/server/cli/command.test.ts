@@ -178,7 +178,7 @@ describe('the diff-delver command', () => {
 		expect(addressIn(mistyped.stdout).pathname).toBe('/start');
 		expect(addressIn(mistyped.stdout).searchParams.get('asked')).toBe('mian...HEAD');
 
-		// The page that chooses commits or a branch, for this repository.
+		// The choose page, for this repository.
 		const choose = await run(['choose', '--no-open', '--data-directory', data], repo.dir, who);
 		expect(choose.code).toBe(0);
 		expect(choose.stdout).toMatch(

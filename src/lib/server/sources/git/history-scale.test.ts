@@ -1,5 +1,5 @@
 /**
- * What the page that chooses commits asks of the report service, at the size
+ * What the choose page asks of the report service, at the size
  * the design allows for: a repository of 100,000 commits and 3,000 branches.
  * Listing the branches, a page of commits at the top or deep in the history,
  * of the main branch or of another, and the size of a run, should each take a

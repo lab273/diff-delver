@@ -1,5 +1,6 @@
 /**
- * The words of the page that chooses commits or a branch to review (DESIGN
+ * The words of the choose page, where a person picks commits or a branch to
+ * review (DESIGN
  * 8.5): when something happened, exactly, and how long ago; how far a branch
  * has gone from the main branch; and when the repository last fetched.
  *

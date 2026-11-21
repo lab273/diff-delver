@@ -124,7 +124,7 @@ export const UpdateViewSchema = z.object({
 });
 export type UpdateView = z.output<typeof UpdateViewSchema>;
 
-/** Something to open, as a chooser offers it. */
+/** Something to open, as the start page's choice offers it. */
 export const CandidateSchema = z.object({
 	source,
 	/** In plain words, with its size: "Uncommitted changes (12 files)". */
@@ -671,7 +671,7 @@ export type EntryCodeResponse = z.output<typeof EntryCodeSchema>;
 export const StoppingSchema = z.object({ stopping: z.literal(true) });
 export type Stopping = z.output<typeof StoppingSchema>;
 
-// ── Choosing commits or a branch ─────────────────────────────────────────────
+// ── The choose page: commits or a branch ─────────────────────────────────────
 
 const commitId = parsed(z.string(), parseCommitId);
 const branchRef = parsed(z.string(), parseBranchRef);

@@ -1,7 +1,7 @@
 <!--
-	Choosing what to review in one repository (DESIGN 3.1): its branches, the
-	chosen branch's commits newest first with their sizes and times, a run of
-	them to tick, or the whole branch compared with the main branch; and when
+	The choose page: choosing what to review in one repository (DESIGN 3.1):
+	its branches, the chosen branch's commits newest first with their sizes
+	and times, a run of them to tick, or the whole branch compared with the main branch; and when
 	the repository last fetched, with a button that asks its remote whether it
 	has moved on. It opens nothing until the person presses a button, and
 	never writes to the repository.

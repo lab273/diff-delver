@@ -198,7 +198,7 @@ export function describeFileCount(files: FileCount): string {
 }
 
 /**
- * The source and its size, for a chooser: "Uncommitted changes (12 files)". With
+ * The source and its size, for the start page's choice: "Uncommitted changes (12 files)". With
  * no size, when it could not be counted, the source alone.
  */
 export function describeGitSourceWithSize(

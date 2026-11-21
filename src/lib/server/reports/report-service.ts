@@ -318,7 +318,7 @@ export type StartOutcome =
 	  }
 	| {
 			readonly kind: 'choose';
-			/** The repository's folder name, for the chooser's heading. */
+			/** The repository's folder name, for the heading of the start page's choice. */
 			readonly repository: ReviewerMessage;
 			readonly candidates: readonly SourceCandidate[];
 	  }
@@ -543,7 +543,7 @@ function heldKey(store: StoreId, snapshot: SnapshotId): string {
 	return `${store}/${snapshot}`;
 }
 
-/** A repository as the chooser shows it. */
+/** A repository as the choose page shows it. */
 export interface RepositoryBranches {
 	/** Its folder's name. */
 	readonly repository: ReviewerMessage;
@@ -803,7 +803,7 @@ export class ReportService {
 
 	/**
 	 * What the no-argument start would offer in `directory`, without opening
-	 * anything: for the chooser page, which may be reloaded.
+	 * anything: for the start page and its choice, which may be reloaded.
 	 */
 	async suggest(directory: AbsolutePath): Promise<Result<SuggestedSource, ReportError>> {
 		return suggestSource(directory, this.#repository);
@@ -832,7 +832,7 @@ export class ReportService {
 	}
 
 	/**
-	 * What the page that chooses commits or a branch shows of the repository at
+	 * What the choose page shows of the repository at
 	 * `directory`: its branches (with `find`, those whose name holds it), and
 	 * when it last fetched. Only reads the repository.
 	 */

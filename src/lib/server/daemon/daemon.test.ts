@@ -120,7 +120,7 @@ describe('the daemon', () => {
 			kind: 'nothing',
 			candidates: [{ source: 'HEAD', description: 'The last commit (1 file)' }]
 		});
-		// A source that cannot be opened: the chooser is told why, in plain words.
+		// A source that cannot be opened: the start page is told why, in plain words.
 		const mistyped = value(await client.suggest(repo.dir, 'mian...HEAD'));
 		expect(mistyped.asked?.problem).toMatch(/mian/);
 		expect(value(await client.suggest(repo.dir, 'staged')).asked).toEqual({

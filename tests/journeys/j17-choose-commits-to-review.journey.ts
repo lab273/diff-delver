@@ -1,6 +1,6 @@
 import { expect, test } from '../support/journey.ts';
 
-// J17 Choose commits to review: `diff-delver choose` opens the chooser for a
+// J17 Choose commits to review: `diff-delver choose` opens the choose page for a
 // repository, with its branches and the checked-out one's commits, each with
 // its size and when it was made, and when the repository last fetched. A run
 // of commits is ticked with the keyboard (ticking a second takes in every

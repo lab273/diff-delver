@@ -13,7 +13,7 @@
  *
  * When uncommitted changes win, the branch comparison is offered as well. When
  * more than one main branch is plausible (`main` and `master` both exist) the
- * candidates are returned for a chooser. When nothing is plausible, the reason
+ * candidates are returned for the start page's choice. When nothing is plausible, the reason
  * is given with the last commit as a candidate.
  */
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
@@ -42,7 +42,7 @@ import {
 import { firstParent, headCommit, resolveCommit } from './resolve.ts';
 import { workingTreeStatus } from './working-tree-status.ts';
 
-/** One thing that could be reviewed, for a chooser. */
+/** One thing that could be reviewed, for the start page's choice. */
 export interface SourceCandidate {
 	readonly spec: GitSourceSpec;
 	/** In plain words, with its size: "Uncommitted changes (12 files)". */

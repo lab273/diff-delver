@@ -1,5 +1,5 @@
 /**
- * The chooser's routes against a real daemon, through the typed client: a
+ * The choose page's routes against a real daemon, through the typed client: a
  * repository's branches and when it last fetched, a branch's commits a page at
  * a time, the size of a run, asking the remote, and opening what was chosen;
  * and what each says when it cannot.
@@ -16,7 +16,7 @@ import { emptyRepo, tempDirectory } from '../../../../tests/support/fixture-repo
 import { listingsAround } from '../../../../tests/support/directory-listing.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
 
-describe('the chooser’s routes', () => {
+describe('the choose page’s routes', () => {
 	it('list branches and commits, measure a run, ask the remote and open the run, writing nothing', async () => {
 		const server = join(await tempDirectory(), 'server.git');
 		const repo = await emptyRepo();

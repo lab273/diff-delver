@@ -26,14 +26,14 @@ export interface CommandOutcome {
 	readonly exitCode: 0 | 1;
 }
 
-/** The page that explains a folder: the chooser, or why there is nothing, or not a repository. */
+/** The start page, which explains a folder: its choice of what to review, or why there is nothing, or not a repository. */
 export function startPage(directory: AbsolutePath, asked?: GitSourceSpec): string {
 	const query = new URLSearchParams({ directory });
 	if (asked !== undefined) query.set('asked', formatGitSourceSpec(asked));
 	return `/start?${query.toString()}`;
 }
 
-/** The page that chooses commits or a branch to review in a folder. */
+/** The choose page, where a person picks commits or a branch to review in a folder. */
 export function choosePage(directory: AbsolutePath): string {
 	return `/choose?${new URLSearchParams({ directory }).toString()}`;
 }
@@ -164,7 +164,7 @@ export async function openOutcome(
 	return described(opened.value, directory, source);
 }
 
-/** `diff-delver choose`: the page that chooses commits or a branch, once the folder is known to be a repository. */
+/** `diff-delver choose`: the choose page, once the folder is known to be a repository. */
 export async function chooseOutcome(
 	client: ApiClient,
 	directory: AbsolutePath,
