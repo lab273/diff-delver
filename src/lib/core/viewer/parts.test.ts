@@ -6,6 +6,8 @@ import {
 	syntheticDiff
 } from '../../../../tests/support/synthetic-diff.ts';
 import { assign } from '../diff/assign.ts';
+import { makeDiff, type Diff } from '../diff/diff.ts';
+import { parseDiffTreeOutput } from '../diff/diff-tree-output.ts';
 import { autoIgnore } from '../diff/auto-ignore.ts';
 import { groupKeyId, type GroupKey, type ViewKind } from '../diff/slices.ts';
 import { initialState, type AssignmentState } from '../diff/state.ts';
@@ -35,6 +37,15 @@ const diff = syntheticDiff([
 		]
 	}
 ]);
+
+/** A diff from git's raw output and patch, as `git diff-tree` writes them. */
+function rawDiff(raw: string, patch: string): Diff {
+	const files = parseDiffTreeOutput(new TextEncoder().encode(`${raw}\0${patch}`));
+	if (!files.ok) throw new Error(JSON.stringify(files.error));
+	const diff = makeDiff(files.value);
+	if (!diff.ok) throw new Error('duplicate path');
+	return diff.value;
+}
 
 function named(key: GroupKey): string {
 	return groupKeyId(key);
@@ -127,6 +138,23 @@ describe('the frame', () => {
 		expect(parts(apart)).toEqual([
 			['section:alpha', '', 'made executable', '100644 100755', 1],
 			['uncategorised', 'changed', undefined, undefined, 2]
+		]);
+	});
+
+	it('says a change that is only one of mode once, beside the two modes', () => {
+		const notes = rawDiff(
+			':100664 100644 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222 M\0notes.txt\0',
+			'diff --git a/notes.txt b/notes.txt\nold mode 100664\nnew mode 100644\nindex 1111111..2222222\n--- a/notes.txt\n+++ b/notes.txt\n@@ -1 +1 @@\n-before\n+after\n'
+		);
+		const [part] = frameOf(notes, initialState(notes), NOTHING, 'sections', []).groups.flatMap(
+			(g) => g.parts
+		);
+		// The page says "Mode changed 100664 to 100644" and "Its mode changed from 100664 to 100644.",
+		// so neither the file-level unit's words nor the badge's repeat the modes.
+		expect([part?.change, part?.fileUnit, part?.modeChange?.words]).toEqual([
+			'changed',
+			'',
+			'mode changed'
 		]);
 	});
 

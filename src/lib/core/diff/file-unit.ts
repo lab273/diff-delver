@@ -68,13 +68,32 @@ const KIND_NAMES: Readonly<Record<FileModeKind, string>> = {
 	other: 'a special file'
 };
 
-/** A change of mode or kind in plain words: "made executable", "became a link". */
-function describeMode(from: FileMode, to: FileMode): string {
-	const was = fileModeKind(from);
-	const is = fileModeKind(to);
+/**
+ * A mode's kind as a reviewer sees it: a file mode git no longer writes, such
+ * as the legacy `100664`, is still a file, executable when anyone may run it.
+ */
+function shownKind(mode: FileMode): FileModeKind {
+	const kind = fileModeKind(mode);
+	if (kind !== 'other' || !/^100[0-7]{3}$/.test(mode)) return kind;
+	return /[1357]/.test(mode.slice(3)) ? 'executable' : 'regular';
+}
+
+/** Whether a change of mode is only that: the file is the same kind of thing before and after. */
+function sameKind(from: FileMode, to: FileMode): boolean {
+	return shownKind(from) === shownKind(to);
+}
+
+/**
+ * A change of mode or kind in plain words: "made executable", "became a link".
+ * With `modes: false`, a change that is only one of mode is "mode changed",
+ * for a place that shows the two modes beside the words.
+ */
+function describeMode(from: FileMode, to: FileMode, modes = true): string {
+	const was = shownKind(from);
+	const is = shownKind(to);
 	if (was === 'regular' && is === 'executable') return 'made executable';
 	if (was === 'executable' && is === 'regular') return 'no longer executable';
-	if (was === is) return `its mode changed from ${from} to ${to}`;
+	if (sameKind(from, to)) return modes ? `its mode changed from ${from} to ${to}` : 'mode changed';
 	return `became ${KIND_NAMES[is]}`;
 }
 
@@ -93,8 +112,14 @@ function describeItself(change: FileItselfChange): string {
 export interface ModeChange {
 	readonly from: FileMode;
 	readonly to: FileMode;
-	/** "made executable", "no longer executable", "became a link". */
+	/**
+	 * "made executable", "no longer executable", "became a link", or "mode
+	 * changed" when the file is the same kind of thing before and after; never
+	 * the modes themselves, which are shown beside the words.
+	 */
 	readonly words: ReviewerMessage;
+	/** Whether the file became another kind of thing (made executable, became a link), not only its mode changed. */
+	readonly kindChanged: boolean;
 }
 
 /**
@@ -108,7 +133,8 @@ export function modeChangeOf(file: FileDiff): ModeChange | undefined {
 			return {
 				from: change.from,
 				to: change.to,
-				words: reviewerMessage(describeMode(change.from, change.to))
+				words: reviewerMessage(describeMode(change.from, change.to, false)),
+				kindChanged: !sameKind(change.from, change.to)
 			};
 		}
 	}

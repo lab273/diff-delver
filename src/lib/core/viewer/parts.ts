@@ -13,6 +13,7 @@
  */
 import type { AgentMarkdown } from '../agent-markdown.tiny.ts';
 import type { Diff, DiffFile } from '../diff/diff.ts';
+import type { FileDiff } from '../diff/file-diff.ts';
 import {
 	describeFileChange,
 	describeFileLines,
@@ -100,7 +101,12 @@ export interface PartSummary {
 	/** The lines this part adds and removes. */
 	readonly added: LineCount;
 	readonly removed: LineCount;
-	/** What the change to the file itself stands for, when it is in this part: "made executable". */
+	/**
+	 * What the change to the file itself stands for, when it is in this part:
+	 * "made executable", "renamed from src/old.ts". When the file's mode changed,
+	 * the two modes are in `modeChange`, so a change that is only one of mode is
+	 * not said here and this may be empty.
+	 */
 	readonly fileUnit: ReviewerMessage | undefined;
 	/**
 	 * A change to the file's mode or kind, when it is in this part, such as being
@@ -251,6 +257,14 @@ function changeOf(slice: Slice, file: DiffFile, hasLines: boolean): ReviewerMess
 		: describeFileUnit(file.file, { withMode: false });
 }
 
+/** The file-level unit in words, leaving out what `modeChangeOf` says beside the two modes. */
+function fileUnitWords(file: FileDiff): ReviewerMessage {
+	const mode = modeChangeOf(file);
+	if (mode === undefined) return describeFileUnit(file);
+	const words = [describeFileUnit(file, { withMode: false }), mode.kindChanged ? mode.words : ''];
+	return reviewerMessage(words.filter((w) => w !== '').join(', '));
+}
+
 /**
  * One file's parts in `view`, in reading order: the sections in the order
  * given, then the others as the views order them.
@@ -274,7 +288,7 @@ export function fileParts(
 			change: changeOf(slice, file, hasLines),
 			added: lineCountOf(counted.added),
 			removed: lineCountOf(counted.removed),
-			fileUnit: slice.fileUnit === undefined ? undefined : describeFileUnit(file.file),
+			fileUnit: slice.fileUnit === undefined ? undefined : fileUnitWords(file.file),
 			modeChange: slice.fileUnit === undefined ? undefined : modeChangeOf(file.file),
 			ignored: counted.ignored,
 			tally: counted.tally,

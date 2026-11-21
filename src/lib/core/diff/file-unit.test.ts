@@ -147,6 +147,26 @@ const cases = {
 		'similarity index 100%\nrename from before.txt\nrename to after.txt\n'
 	),
 	modeOnly: change('M', ['100644', '100755'], ['tool.sh'], 'old mode 100644\nnew mode 100755\n'),
+	// A mode git no longer writes, still a file: only the mode changed, not what the file is.
+	legacyModeWithEdits: change(
+		'M',
+		['100664', '100644'],
+		['notes.txt'],
+		'old mode 100664\nnew mode 100644\nindex a..b\n',
+		HUNK
+	),
+	legacyModeOnly: change(
+		'M',
+		['100664', '100644'],
+		['notes.txt'],
+		'old mode 100664\nnew mode 100644\n'
+	),
+	legacyModeToExecutable: change(
+		'M',
+		['100664', '100755'],
+		['notes.txt'],
+		'old mode 100664\nnew mode 100755\n'
+	),
 	binary: change(
 		'M',
 		['100644', '100644'],
@@ -170,6 +190,13 @@ describe('the file-level unit', () => {
 		['madeExecutableWithEdits', true, true, 'made executable', 'changed, made executable'],
 		['noLongerExecutable', true, true, 'no longer executable', 'changed, no longer executable'],
 		['becameLink', true, true, 'became a link', 'became a link'],
+		[
+			'legacyModeWithEdits',
+			true,
+			true,
+			'its mode changed from 100664 to 100644',
+			'changed, its mode changed from 100664 to 100644'
+		],
 		// No lines: the unit is the whole change.
 		[
 			'becameSubmodule',
@@ -180,6 +207,14 @@ describe('the file-level unit', () => {
 		],
 		['pureRename', false, true, 'renamed from before.txt', 'renamed from before.txt'],
 		['modeOnly', false, true, 'made executable', 'made executable'],
+		[
+			'legacyModeOnly',
+			false,
+			true,
+			'its mode changed from 100664 to 100644',
+			'its mode changed from 100664 to 100644'
+		],
+		['legacyModeToExecutable', false, true, 'made executable', 'made executable'],
 		['binary', false, true, 'changed, binary file', 'changed, binary file'],
 		['emptyAdded', false, true, 'added, empty file', 'added'],
 		// Lines only: being added or deleted, or a new file's mode, is not a change to the file itself.
@@ -202,6 +237,9 @@ describe('the file-level unit', () => {
 		['noLongerExecutable', '100755 100644 no longer executable', 'changed', ''],
 		['becameLink', '100644 120000 became a link', '', ''],
 		['modeOnly', '100644 100755 made executable', '', ''],
+		// Only the mode changed: the words do not repeat the modes shown beside them.
+		['legacyModeWithEdits', '100664 100644 mode changed', 'changed', ''],
+		['legacyModeOnly', '100664 100644 mode changed', '', ''],
 		['renamedWithEdits', undefined, 'changed, renamed from src/old.ts', 'renamed from src/old.ts'],
 		['addedExecutable', undefined, 'added', undefined]
 	] as const)(

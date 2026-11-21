@@ -157,7 +157,9 @@
 				</span>
 			</button>
 		</h3>
-		<span class="change">{part.change}</span>
+		{#if part.change !== ''}
+			<span class="change">{part.change}</span>
+		{/if}
 		{#if part.modeChange !== null}
 			<span class="mode">
 				{capitalised(part.modeChange.words)}
@@ -276,8 +278,12 @@
 			{/if}
 			{#if part.fileUnit !== null && part.added + part.removed > 0}
 				<p class="file-change" class:mode-change={part.modeChange !== null}>
-					{capitalised(part.fileUnit)}{#if part.modeChange !== null}: its mode changed from
-						<code>{part.modeChange.from}</code> to <code>{part.modeChange.to}</code>.{/if}
+					{#if part.modeChange === null}
+						{capitalised(part.fileUnit)}
+					{:else}
+						{part.fileUnit === '' ? 'Its' : `${capitalised(part.fileUnit)}: its`} mode changed from
+						<code>{part.modeChange.from}</code> to <code>{part.modeChange.to}</code>.
+					{/if}
 				</p>
 			{/if}
 			{#if part.content === 'submodule'}
