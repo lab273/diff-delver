@@ -30,6 +30,9 @@
 	import type { Layout } from '#lib/core/settings.ts';
 	import type { Mark } from '#lib/core/search/marks.ts';
 	import { ROWS_PER_CHUNK } from '#lib/core/viewer/chunks.ts';
+	import CommentEditor from './CommentEditor.svelte';
+	import type { LineNumber } from '#lib/core/line-number.tiny.ts';
+	import type { Side } from '#lib/core/side.tiny.ts';
 	import type { PartMarks } from './search.svelte.ts';
 
 	let {
@@ -42,7 +45,9 @@
 		colours,
 		busy,
 		layout,
-		marks
+		marks,
+		oncommentsaved,
+		canComment
 	}: {
 		viewer: Viewer;
 		at: PartIndex;
@@ -60,6 +65,8 @@
 		ongo: (group: GroupKeyView) => void;
 		/** A search's matches in the part, to mark; undefined when it has none. */
 		marks: PartMarks | undefined;
+		oncommentsaved: () => void;
+		canComment: boolean;
 	} = $props();
 
 	/** The current search match's place, when it is in this part. */
@@ -236,7 +243,44 @@
 	function isElsewhere(line: ShownLineView): boolean {
 		return line.kind !== 'context' && line.home.kind === 'elsewhere';
 	}
+	let commenting = $state(false);
+	let commentSaved = $state(false);
+	let commentButton = $state<HTMLButtonElement>();
+	let editor = $state<{ choose: (side: Side, line: LineNumber) => Promise<void> }>();
+	let table: HTMLTableElement;
+
+	async function startComment(): Promise<void> {
+		commentSaved = false;
+		commenting = true;
+		await tick();
+		table.querySelector<HTMLButtonElement>('.pick-line')?.focus();
+	}
+
+	async function stopComment(saved: boolean): Promise<void> {
+		commenting = false;
+		commentSaved = saved;
+		if (saved) oncommentsaved();
+		await tick();
+		commentButton?.focus();
+	}
 </script>
+
+{#snippet lineNumber(side: Side, line: LineNumber | undefined)}
+	{#if line !== undefined}
+		{#if canComment && commenting}
+			<button
+				type="button"
+				class="pick-line"
+				aria-label="Comment on line {line} {side === 'old' ? 'before' : 'after'}"
+				onclick={() => editor?.choose(side, line)}
+			>
+				{line}
+			</button>
+		{:else}
+			{line}
+		{/if}
+	{/if}
+{/snippet}
 
 {#snippet row(line: ShownLineView)}
 	<tr
@@ -245,8 +289,12 @@
 		class:fresh={isFresh(line)}
 		data-current-match={holdsCurrent(line) ? '' : undefined}
 	>
-		<td class="number">{line.kind === 'added' ? '' : line.old}</td>
-		<td class="number">{line.kind === 'deleted' ? '' : line.new}</td>
+		<td class="number">
+			{@render lineNumber('old', line.kind === 'added' ? undefined : line.old)}
+		</td>
+		<td class="number">
+			{@render lineNumber('new', line.kind === 'deleted' ? undefined : line.new)}
+		</td>
 		{#if hasFresh}
 			<td class="badge">
 				{#if isFresh(line)}<span class="new">
@@ -290,8 +338,12 @@
 		class:fresh={isFresh(removed) || isFresh(added)}
 		data-current-match={holdsCurrent(added) || holdsCurrent(removed) ? '' : undefined}
 	>
-		<td class="number">{removed.kind === 'deleted' ? removed.old : ''}</td>
-		<td class="number">{added.kind === 'added' ? added.new : ''}</td>
+		<td class="number">
+			{@render lineNumber('old', removed.kind === 'deleted' ? removed.old : undefined)}
+		</td>
+		<td class="number">
+			{@render lineNumber('new', added.kind === 'added' ? added.new : undefined)}
+		</td>
 		{#if hasFresh}
 			<td class="badge">
 				{#if isFresh(removed) || isFresh(added)}<span class="new">
@@ -385,15 +437,16 @@
 	{@const kind = line === undefined ? 'empty' : quiet ? 'context' : line.kind}
 	{@const cellClass = `cell-${kind}${line !== undefined && isElsewhere(line) ? ' cell-elsewhere' : ''}${line !== undefined && isFresh(line) ? ' cell-fresh' : ''}`}
 	<td class="number {cellClass}" class:side-start={side === 'new'}>
-		{line === undefined
-			? ''
-			: side === 'old'
-				? line.kind === 'added'
-					? ''
-					: line.old
-				: line.kind === 'deleted'
-					? ''
-					: line.new}
+		{@render lineNumber(
+			side,
+			side === 'old'
+				? line?.kind === 'added'
+					? undefined
+					: line?.old
+				: line?.kind === 'deleted'
+					? undefined
+					: line?.new
+		)}
 	</td>
 	{#if hasFresh}
 		<td class="badge {cellClass}">
@@ -461,7 +514,7 @@
 		<tr class="pair opened">
 			{#each ['old', 'new'] as side (side)}
 				<td class="number cell-context" class:side-start={side === 'new'}>
-					{side === 'old' ? line.old : line.new}
+					{@render lineNumber(side === 'old' ? 'old' : 'new', side === 'old' ? line.old : line.new)}
 				</td>
 				{#if hasFresh}<td class="badge cell-context"></td>{/if}
 				<td class="marker cell-context"></td>
@@ -479,8 +532,8 @@
 		</tr>
 	{:else}
 		<tr class="context opened" data-current-match={holdsCurrent(line) ? '' : undefined}>
-			<td class="number">{line.old}</td>
-			<td class="number">{line.new}</td>
+			<td class="number">{@render lineNumber('old', line.old)}</td>
+			<td class="number">{@render lineNumber('new', line.new)}</td>
 			{#if hasFresh}<td class="badge"></td>{/if}
 			<td class="marker"></td>
 			<td
@@ -496,7 +549,27 @@
 	{/if}
 {/snippet}
 
+{#if canComment}
+	{#if commenting}
+		<CommentEditor
+			bind:this={editor}
+			{viewer}
+			{path}
+			onclose={() => stopComment(false)}
+			onsaved={() => stopComment(true)}
+		/>
+	{:else}
+		<div class="comment-action">
+			<button type="button" bind:this={commentButton} onclick={startComment}>
+				Comment on lines
+			</button>
+			{#if commentSaved}<span role="status">Draft comment saved.</span>{/if}
+		</div>
+	{/if}
+{/if}
+
 <table
+	bind:this={table}
 	class="lines"
 	class:split
 	aria-label="{split ? 'Lines side by side' : 'Lines'} of {shownPath(path)}"
@@ -666,6 +739,18 @@
 </table>
 
 <style>
+	.comment-action {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.3rem 0.65rem;
+	}
+	.pick-line {
+		padding: 0 0.2rem;
+		font: inherit;
+		line-height: 1rem;
+	}
+
 	.lines {
 		width: 100%;
 		font-variant-ligatures: none;

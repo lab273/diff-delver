@@ -525,6 +525,8 @@ export function statusOf(error: ReportError): number {
 		case 'DatabaseBusy':
 			return 409;
 		case 'SectionsRefused':
+		case 'InvalidCommentRange':
+		case 'InvalidCommentBody':
 		case 'FileNotInDiff':
 		case 'NothingToMark':
 		case 'PathIsDirectory':

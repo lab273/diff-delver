@@ -15,6 +15,10 @@ import { err, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import {
 	ApiErrorBodySchema,
+	DraftCommentSchema,
+	DraftCommentsSchema,
+	type DraftCommentView,
+	type AddDraftComment,
 	ChangeCheckSchema,
 	CommitsSchema,
 	HistorySchema,
@@ -328,6 +332,17 @@ export class ApiClient {
 			last: String(lines.last)
 		});
 		return this.#call('GET', `/api/diffs/${id}/lines?${query.toString()}`, LinesSchema);
+	}
+
+	draftComments(id: ReportId): Promise<Result<DraftCommentView[], ApiError>> {
+		return this.#call('GET', `/api/diffs/${id}/comments`, DraftCommentsSchema);
+	}
+
+	addDraftComment(
+		id: ReportId,
+		request: AddDraftComment
+	): Promise<Result<DraftCommentView, ApiError>> {
+		return this.#call('POST', `/api/diffs/${id}/comments`, DraftCommentSchema, request);
 	}
 
 	/** Marks a part, a file or a group of the version the page shows as reviewed, or not. */

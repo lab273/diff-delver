@@ -52,6 +52,8 @@ export function describeForAgent(error: ReportError): TextForAgent {
 		case 'PathIsDirectory':
 		case 'PathIsSubmodule':
 		case 'FileIsBinary':
+		case 'InvalidCommentRange':
+		case 'InvalidCommentBody':
 		case 'FileNotInDiff':
 		case 'NothingToMark':
 		case 'MalformedRawListing':

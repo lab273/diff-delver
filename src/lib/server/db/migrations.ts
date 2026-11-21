@@ -295,6 +295,22 @@ CREATE TABLE commit_runs (
 	newest_subject TEXT NOT NULL
 ) STRICT;
 `
+	},
+	{
+		version: schemaVersionOf(9),
+		name: 'private draft comments on lines of a revision',
+		sql: `
+CREATE TABLE draft_comments (
+	id INTEGER PRIMARY KEY,
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new')),
+	first_line INTEGER NOT NULL CHECK (first_line >= 1),
+	last_line INTEGER NOT NULL CHECK (last_line >= first_line),
+	body TEXT NOT NULL CHECK (body <> '')
+) STRICT;
+CREATE INDEX draft_comments_by_revision ON draft_comments (revision_id);
+`
 	}
 ];
 

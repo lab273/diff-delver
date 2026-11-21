@@ -24,6 +24,7 @@
 	import { nextShown, previousShown } from '#lib/core/viewer/reading-order.ts';
 	import { parsePartIndex, type PartIndex } from '#lib/core/part-index.tiny.ts';
 	import FileList from '#lib/ui/viewer/FileList.svelte';
+	import DraftComments from '#lib/ui/viewer/DraftComments.svelte';
 	import Part from '#lib/ui/viewer/Part.svelte';
 	import TickRefused from '#lib/ui/viewer/TickRefused.svelte';
 	import ProgressBar from '#lib/ui/viewer/ProgressBar.svelte';
@@ -842,6 +843,7 @@
 		if (reviewed === units) return `Everything reviewed: ${describeChanges(units)}`;
 		return `${formatCount(reviewed)} of ${describeChanges(units)} reviewed`;
 	}
+	let commentChanges = $state(0);
 </script>
 
 <svelte:head>
@@ -1116,6 +1118,10 @@
 					onoption={setSearchOption}
 				/>
 			{/if}
+			{#key summary.id}
+				<DraftComments id={summary.id} version={summary.version} changes={commentChanges} />
+			{/key}
+
 			<!-- A new version is a new viewer: its parts are drawn afresh, never reused. -->
 			{#key viewer}
 				<!-- Each view is made once and then only hidden, so going back and forth
@@ -1187,6 +1193,8 @@
 										{viewer}
 										{state}
 										{previousVersion}
+										canComment={summary.state.kind === 'open'}
+										oncommentsaved={() => (commentChanges += 1)}
 										ontick={tickPart}
 										ongo={goTo}
 										onshownewer={showNewer}

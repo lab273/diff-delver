@@ -84,6 +84,12 @@ import {
 import type { AgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { overviewOf, setOverview as storeOverview } from '../db/tables/overviews.ts';
 import { referenceRowsFor, replaceReferenceRows } from '../db/tables/section-references.ts';
+import {
+	MAX_COMMENT_LENGTH,
+	type CommentAnchor,
+	type DraftComment
+} from '#lib/core/review/draft-comment.ts';
+import { draftCommentsOf, insertDraftComment } from '../db/tables/draft-comments.ts';
 import { markReviewed, type ReviewTarget } from '#lib/core/review/mark-reviewed.ts';
 import { reviewProgress, unitProgressOf, type Progress } from '#lib/core/review/progress.ts';
 import { NO_MARKS, type ReviewedMarks } from '#lib/core/review/reviewed-marks.ts';
@@ -1356,6 +1362,52 @@ export class ReportService {
 		const snapshot = await this.#snapshotOf(shown.value.report, shown.value.revision);
 		if (!snapshot.ok) return snapshot;
 		return readSnapshotLines(snapshot.value, side, path, first, last);
+	}
+
+	/** Reads the one private draft, including comments anchored to earlier versions. */
+	draftComments(id: ReportId): Result<readonly DraftComment[], ReportError> {
+		return this.#db.read((q) => andThen(current(q, id), () => draftCommentsOf(q, id)));
+	}
+
+	/** Saves on the version the reviewer saw, at the exact path in that side's tree. */
+	async addDraftComment(
+		id: ReportId,
+		seen: RevisionNumber,
+		anchor: CommentAnchor,
+		body: string
+	): Promise<Result<DraftComment, ReportError>> {
+		if (body.trim() === '' || body.length > MAX_COMMENT_LENGTH) {
+			return err({ kind: 'InvalidCommentBody' });
+		}
+		if (anchor.last < anchor.first) return err({ kind: 'InvalidCommentRange' });
+		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
+		if (!found.ok) return found;
+		const content = await this.#contentOf(found.value.report, found.value.revision);
+		if (!content.ok) return content;
+		const { snapshot, diff, revision } = content.value;
+		const file = diff.byPath.get(anchor.path);
+		const side = file?.file[anchor.side];
+		if (file?.file.content.kind !== 'text' || side === undefined) {
+			return err({ kind: 'InvalidCommentRange' });
+		}
+		// Only the file's size is needed: the snapshot preserves the selected text.
+		const read = await readSnapshotLines(snapshot, anchor.side, side.path, FIRST_LINE, FIRST_LINE);
+		if (!read.ok) return read;
+		if (anchor.last > read.value.lineCount) return err({ kind: 'InvalidCommentRange' });
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), (now): Result<DraftComment, ReportError> => {
+				if (now.revision.id !== revision.id) {
+					return err({ kind: 'RevisionChangedWhileSaving', report: id });
+				}
+				return andThen(
+					insertDraftComment(q, revision.id, seen, { ...anchor, path: side.path }, body),
+					(saved) => {
+						touchReport(q, id, this.#clock.now());
+						return ok(saved);
+					}
+				);
+			})
+		);
 	}
 
 	/**

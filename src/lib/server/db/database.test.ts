@@ -170,6 +170,11 @@ describe('the database', () => {
 				version: 8,
 				name: 'how many commits a run of commits is, and the subjects of its oldest and newest',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 9,
+				name: 'private draft comments on lines of a revision',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -233,6 +238,7 @@ describe('the database', () => {
 			overviews: [],
 			section_references: [],
 			commit_runs: [],
+			draft_comments: [],
 			revision_updates: [],
 			revisions_to_check: [{ revision_id: 'v_1' }]
 		});
@@ -395,6 +401,9 @@ describe('the database', () => {
 			// In the reviewer's words, not the database's.
 			expect(advice(table)).not.toMatch(/table|column|_/);
 		}
+		expect(advice('draft_comments')).toMatch(
+			/Restore the database from a backup to recover the draft comments/
+		);
 		const ofNone: TableName[] = ['schema_migrations', 'unreferenced_snapshots'];
 		for (const table of ofNone) {
 			expect(advice(table)).not.toMatch(/Delete/);

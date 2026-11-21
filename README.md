@@ -148,6 +148,7 @@ diff delver keeps your Delves and ticks in one folder of its own,
   branch from a page.
 - Reading a diff: code coloured by language, one column or side by side, white-space
   changes hidden, unchanged lines opened, search.
+- Saving private draft comments on either side of a diff, including unchanged lines.
 - Ticking files and sections as reviewed, with progress, across restarts.
 - Updating a Delve when the code changes, keeping sections and ticks.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex
@@ -157,7 +158,7 @@ Not built yet:
 
 - The agent's summaries, overview and cross-references between sections are stored
   but not shown on the page yet.
-- Comments on lines, and copying a finished review to the clipboard.
+- Submitting a review and copying it to the clipboard.
 - Pull requests as a source, and visual diffs.
 - A setup command and an installable Claude Code plugin. For now you add the MCP
   server and the skill yourself, as above.

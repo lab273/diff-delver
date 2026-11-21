@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { ApiClient, describeApiError } from '#lib/api/client.ts';
-import type { PartQuery } from '#lib/api/schemas.ts';
+import type { AddDraftComment, PartQuery } from '#lib/api/schemas.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseRevisionNumber, type RevisionNumber } from '#lib/core/revision-number.tiny.ts';
@@ -337,5 +337,70 @@ describe('the viewer’s routes', () => {
 		const now = value(await client.loadDiff(id));
 		const fresh = now.groups.flatMap((g) => g.parts).find((p) => p.path === 'src/new.ts');
 		expect(fresh?.tally).toEqual({ units: 1, reviewed: 0, fresh: 1, unmarked: 0 });
+	});
+});
+
+describe('private draft comments', () => {
+	it('keeps comments on either side and on the version they were made on', async () => {
+		const repo = await useFixture(viewed);
+		const daemon = await testDaemon();
+		const client = clientOf(daemon);
+		const started = value(await client.start({ directory: repo.dir }));
+		if (started.kind !== 'opened') throw new Error(started.kind);
+		const id = started.diff.id;
+		expect(value(await client.draftComments(id))).toEqual([]);
+
+		const request: AddDraftComment = {
+			version: revision(1),
+			anchor: {
+				path: path('src/long.ts'),
+				side: 'new',
+				first: lineNumberOf(14),
+				last: lineNumberOf(16)
+			},
+			body: 'Can these three unchanged lines be simplified?'
+		};
+		const after = value(await client.addDraftComment(id, request));
+		expect(after).toMatchObject(request);
+		const before = value(
+			await client.addDraftComment(id, {
+				...request,
+				anchor: { ...request.anchor, side: 'old', first: lineNumberOf(60), last: lineNumberOf(60) },
+				body: 'Keep the original last line.'
+			})
+		);
+		expect(before.anchor.side).toBe('old');
+		const refused = [
+			{ ...request.anchor, last: lineNumberOf(60) },
+			{ ...request.anchor, first: lineNumberOf(17) },
+			{ ...request.anchor, path: path('logo.png') },
+			{ ...request.anchor, path: path('src/new.ts'), side: 'old' }
+		] satisfies (typeof after.anchor)[];
+		for (const anchor of refused) {
+			expect(await client.addDraftComment(id, { ...request, anchor })).toMatchObject({
+				ok: false,
+				error: { status: 422, reason: 'InvalidCommentRange' }
+			});
+		}
+		expect(await client.addDraftComment(id, { ...request, body: '  \n' })).toMatchObject({
+			ok: false,
+			error: { status: 400 }
+		});
+		expect(value(await client.loadDiff(id)).summary.progress).toEqual(started.diff.progress);
+
+		await repo.write('src/new.ts', 'export const n = 2;\n');
+		expect(value(await client.updateDiff(id)).kind).toBe('updated');
+		expect(await client.addDraftComment(id, request)).toMatchObject({
+			ok: false,
+			error: { status: 409, reason: 'VersionOutOfDate' }
+		});
+		const reopened = clientOf(daemon);
+		expect(value(await reopened.draftComments(id))).toEqual([after, before]);
+		value(await reopened.closeDiff(id));
+		expect(value(await reopened.draftComments(id))).toEqual([after, before]);
+		expect(await reopened.addDraftComment(id, { ...request, version: revision(2) })).toMatchObject({
+			ok: false,
+			error: { status: 409, reason: 'ReportClosed' }
+		});
 	});
 });

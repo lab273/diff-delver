@@ -1,3 +1,4 @@
+import { MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
 /**
  * Everything the report service can fail with, each with a message for the
  * reviewer that says what happened and what to do next.
@@ -140,6 +141,8 @@ export type ReportError =
 	| SnapshotGone
 	| SectionsRefused
 	| PartNotFound
+	| { readonly kind: 'InvalidCommentRange' }
+	| { readonly kind: 'InvalidCommentBody' }
 	| PathNotFound
 	| PathIsDirectory
 	| PathIsSubmodule
@@ -196,6 +199,12 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 			);
 		case 'StoredStateMismatch':
 			return describeStoredStateMismatch(error);
+		case 'InvalidCommentRange':
+			return reviewerMessage(
+				'Those lines are unavailable on that side of this file. Choose a range from the lines in the diff.'
+			);
+		case 'InvalidCommentBody':
+			return reviewerMessage(`Write a comment of up to ${String(MAX_COMMENT_LENGTH)} characters.`);
 		case 'PartNotFound':
 			return reviewerMessage(
 				`This part of ${shownRepoPath(error.path)} is not where the page showed it any more: the Delve was sorted again since. Reload the page to see where it is now.`

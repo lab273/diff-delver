@@ -31,7 +31,9 @@
 		previousVersion,
 		ontick,
 		ongo,
-		onshownewer
+		onshownewer,
+		oncommentsaved,
+		canComment
 	}: {
 		viewer: Viewer;
 		state: PartState;
@@ -40,6 +42,8 @@
 		ongo: (path: EscapedPath, group: GroupKeyView) => void;
 		/** Shows the diff's newer version, when a tick was refused for being behind it. */
 		onshownewer: () => void;
+		oncommentsaved: () => void;
+		canComment: boolean;
 	} = $props();
 
 	const at = $derived(state.index);
@@ -335,6 +339,8 @@
 						<p class="about plain">{plainText(state.plain)}</p>
 					{/if}
 					<PartLines
+						{oncommentsaved}
+						{canComment}
 						{viewer}
 						{at}
 						blocks={lines.blocks}

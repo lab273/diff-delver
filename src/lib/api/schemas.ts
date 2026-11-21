@@ -9,6 +9,7 @@
  * have the same keys.
  */
 import { z } from 'zod';
+import { MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { parseCodeVersion } from '#lib/core/code-version.tiny.ts';
@@ -801,3 +802,25 @@ export const ApiErrorBodySchema = z.object({
 	})
 });
 export type ApiErrorBody = z.output<typeof ApiErrorBodySchema>;
+
+const commentRange = z.strictObject({
+	path: escapedPath,
+	side: z.enum(['old', 'new']),
+	first: lineNumber,
+	last: lineNumber
+});
+const commentBody = z
+	.string()
+	.max(MAX_COMMENT_LENGTH, 'the comment is too long')
+	.refine((body) => body.trim() !== '', 'write a comment before saving');
+
+export const AddDraftCommentSchema = z.strictObject({
+	version,
+	anchor: commentRange,
+	body: commentBody
+});
+export type AddDraftComment = z.infer<typeof AddDraftCommentSchema>;
+
+export const DraftCommentSchema = AddDraftCommentSchema.extend({ id: z.number().int().positive() });
+export const DraftCommentsSchema = z.array(DraftCommentSchema);
+export type DraftCommentView = z.infer<typeof DraftCommentSchema>;

@@ -22,7 +22,8 @@ export type TableName =
 	| 'settings'
 	| 'overviews'
 	| 'section_references'
-	| 'commit_runs';
+	| 'commit_runs'
+	| 'draft_comments';
 
 /**
  * The file could not be opened or made (a missing folder, no permission, a full
@@ -181,6 +182,8 @@ function tableInWords(table: TableName): string {
 			return 'the agent’s overview of a Delve';
 		case 'section_references':
 			return 'which lines a Delve’s sections point to in other sections';
+		case 'draft_comments':
+			return 'a Delve’s draft comments';
 		case 'commit_runs':
 			return 'which commits a diff of several commits is named after';
 	}
@@ -202,6 +205,8 @@ function storedRowAdvice(table: TableName): string {
 		case 'section_references':
 		case 'commit_runs':
 			return 'Delete that Delve from the list of Delves, where it shows as damaged, or restore the database from a backup.';
+		case 'draft_comments':
+			return 'Restore the database from a backup to recover the draft comments.';
 		case 'settings':
 			return 'Change any setting on a Delve’s page, which stores it again.';
 		case 'schema_migrations':

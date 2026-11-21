@@ -134,6 +134,11 @@ predicate (`v is T`, `asserts v is T`), since either can forge a tiny type. The
 `src/lib/core/result.ts`.
 Comments cannot switch lint rules off (`noInlineConfig`); fix the code instead.
 
+Draft comments go through the viewer's `comments` HTTP route and the report
+service. Each row belongs to the revision that supplied its snapshot, with
+the path bytes, side and line range in that tree. The service checks the
+current version again in the transaction that saves the comment.
+
 ## How we work
 
 - **Straight to `main`.** No feature branches and no pull requests. Work lands as

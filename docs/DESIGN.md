@@ -454,7 +454,9 @@ newer revision, so it may have been addressed) or **resolved**. The reviewer
 resolves it or replies, and that action is part of the current review.
 
 Drafts are private. No MCP tool returns an unsubmitted review, so an agent never
-acts on half-written comments.
+acts on half-written comments. For now, saved comments stay at their original
+file, side and line range when a Delve is updated. The draft lists them with
+the version they were written on.
 
 ### 6.4 History
 
