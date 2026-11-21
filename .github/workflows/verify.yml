@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# bash with -e and pipefail, so a failing command in a pipeline fails its step.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: verify-${{ github.event.after || github.sha }}
   cancel-in-progress: false
@@ -71,7 +76,11 @@ jobs:
 
       - name: Find the Playwright version
         id: playwright
-        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+        # Assigned first, so a failure fails the step instead of giving an empty version.
+        run: |
+          version=$(pnpm exec playwright --version | awk '{print $2}')
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Cache the Playwright browser
         id: playwright-cache

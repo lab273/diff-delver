@@ -1,7 +1,10 @@
 /**
- * The release workflow's first job (`.github/workflows/release.yml`, README
- * "Releasing"): checks what the person who started it typed, before any work
- * is done. Every problem found is said, each with what to do.
+ * The release workflow's checks of what the person who started it typed
+ * (`.github/workflows/release.yml`, README "Releasing"): run by its first job,
+ * before any work is done, and again by the releasing job just before it
+ * creates the release, since that job can be re-run on its own long after the
+ * first check, when other releases may have been made. Every problem found is
+ * said, each with what to do.
  *
  *   node scripts/release-preflight.ts
  *
@@ -10,9 +13,13 @@
  *   EXPECTED_COMMIT  the start of the id of the commit the person means to release
  *   COMMIT           the commit the run is on (GITHUB_SHA)
  *   REF              the branch or tag the run was started on (GITHUB_REF)
+ *   STAGE            `before-tests` in the first job, `before-release` in the
+ *                    releasing job
  *   TAGS_FILE        a file listing the repository's tags, one per line
- *   RELEASES_FILE    a file listing the tags of the repository's releases, drafts
- *                    included, one per line
+ *   RELEASES_FILE    a file listing the tags of the repository's releases, one
+ *                    per line (`release-names.sh` writes both). GitHub lists
+ *                    drafts only to a job that may write, so only the check
+ *                    before the release sees them.
  *   GITHUB_OUTPUT    when set, `version` and `tag` are written to it, once
  *                    every check has passed
  *
@@ -34,7 +41,11 @@ import { err, ok, type Result } from '../src/lib/core/result.ts';
 /** Releases are made from this branch only. */
 export const RELEASE_BRANCH = 'refs/heads/main';
 
+/** Which check this is: the first job's, or the releasing job's, just before it creates the release. */
+export type PreflightStage = 'before-tests' | 'before-release';
+
 export interface PreflightInput {
+	readonly stage: PreflightStage;
 	readonly version: string;
 	readonly expectedCommit: string;
 	readonly commit: string;
@@ -54,6 +65,7 @@ export type PreflightProblem =
 	| { readonly kind: 'NotNewer'; readonly version: ReleaseVersion; readonly newest: ReleaseVersion }
 	| { readonly kind: 'TagExists'; readonly tag: ReleaseTag }
 	| { readonly kind: 'ReleaseExists'; readonly tag: ReleaseTag }
+	| { readonly kind: 'NameTaken'; readonly tag: ReleaseTag }
 	| { readonly kind: 'InvalidExpectedCommit'; readonly text: string }
 	| { readonly kind: 'UnexpectedCommit'; readonly expected: string; readonly commit: string };
 
@@ -69,7 +81,9 @@ export function describeProblem(problem: PreflightProblem): string {
 		case 'TagExists':
 			return `A tag named ${problem.tag} already exists, so that version cannot be released again. Give a later version and start the release again; if the tag was made by mistake, delete it on GitHub first.`;
 		case 'ReleaseExists':
-			return `A release for ${problem.tag} already exists (perhaps a draft). Give a later version and start the release again, or delete that release on GitHub first if it was made by mistake.`;
+			return `A release for ${problem.tag} already exists. Give a later version and start the release again, or delete that release and its tag on GitHub first if it was made by mistake.`;
+		case 'NameTaken':
+			return `A release or a tag named ${problem.tag} already exists, perhaps as a draft, which only this last check can see, or left by an earlier attempt of this run. Nothing was released. Look at the releases and tags on GitHub: if that release was made by mistake or is incomplete, delete the release and the tag ${problem.tag}, then start the release again; otherwise start it again with a later version.`;
 		case 'InvalidExpectedCommit':
 			return `"${problem.text}" is not the start of a commit id. Copy at least the first 7 characters of the commit you mean to release from main's history on GitHub, and start the release again.`;
 		case 'UnexpectedCommit':
@@ -99,12 +113,21 @@ export function preflight(input: PreflightInput): Result<Approved, readonly Pref
 		return err(problems);
 	}
 	const tag = releaseTag(version.value);
-	if (input.tags.includes(tag)) problems.push({ kind: 'TagExists', tag });
-	if (input.releases.includes(tag)) problems.push({ kind: 'ReleaseExists', tag });
-	const released = [...input.tags, ...input.releases]
+	const tagged = input.tags.includes(tag);
+	const released = input.releases.includes(tag);
+	switch (input.stage) {
+		case 'before-tests':
+			if (tagged) problems.push({ kind: 'TagExists', tag });
+			if (released) problems.push({ kind: 'ReleaseExists', tag });
+			break;
+		case 'before-release':
+			if (tagged || released) problems.push({ kind: 'NameTaken', tag });
+			break;
+	}
+	const versions = [...input.tags, ...input.releases]
 		.map(releaseOfTag)
 		.filter((found) => found !== undefined);
-	const newest = released.reduce<ReleaseVersion | undefined>(
+	const newest = versions.reduce<ReleaseVersion | undefined>(
 		(best, found) => (best === undefined || compareReleases(found, best) > 0 ? found : best),
 		undefined
 	);
@@ -129,7 +152,15 @@ async function lines(path: string | undefined): Promise<readonly string[]> {
 
 async function main(): Promise<number> {
 	const env = process.env;
+	const stage = env['STAGE'];
+	if (stage !== 'before-tests' && stage !== 'before-release') {
+		process.stdout.write(
+			`::error title=The release was refused::The release workflow ran its checks with STAGE set to "${stage ?? ''}", not before-tests or before-release. The workflow file is wrong; nothing was released.\n`
+		);
+		return 1;
+	}
 	const input: PreflightInput = {
+		stage,
 		version: env['RELEASE_VERSION'] ?? '',
 		expectedCommit: env['EXPECTED_COMMIT'] ?? '',
 		commit: env['COMMIT'] ?? '',

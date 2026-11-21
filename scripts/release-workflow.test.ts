@@ -1,7 +1,8 @@
 /**
  * The rules for releasing (README, "How we work" and "Releasing"), held to: the
  * release workflow runs only when started by hand, packs only after every test
- * passed, lets only its last job write, and never touches npm; nothing else in
+ * passed, lets only its last job write, checks everything again just before it
+ * creates the release, runs its steps in bash with pipefail, and never touches npm; nothing else in
  * the repository makes a release or a tag; and the package stays private. Also
  * the release's first checks (`release-preflight.ts`), run as the workflow
  * runs them.
@@ -59,6 +60,16 @@ function jobs(text: string): ReadonlyMap<string, string> {
 	return found;
 }
 
+/** A job's steps, each as its lines, in order. */
+function steps(body: string): readonly string[] {
+	const found: string[][] = [];
+	for (const line of body.split('\n')) {
+		if (/^ {6}- /.test(line)) found.push([line]);
+		else if (/^ {8}/.test(line)) found.at(-1)?.push(line);
+	}
+	return found.map((step) => step.join('\n'));
+}
+
 /** The workflow without its comments, so a rule is not met or broken by a comment. */
 function code(text: string): string {
 	return text
@@ -105,9 +116,49 @@ describe('the release workflow', () => {
 		}
 	});
 
+	it('checks everything again, from the same scripts, just before it creates the release', async () => {
+		const found = jobs(code(await workflow('release.yml')));
+		const first = steps(found.get('check') ?? '');
+		const last = steps(found.get('release') ?? '');
+		const firstCheck = first.findIndex((step) =>
+			step.includes('node scripts/release-preflight.ts')
+		);
+		expect(first[firstCheck - 1]).toMatch(/run: scripts\/release-names\.sh$/);
+		expect(first[firstCheck]).toMatch(/STAGE: before-tests\n/);
+
+		// A re-run of the releasing job alone repeats none of the first job, so
+		// the check right before creating the release is the one that counts.
+		const creates = last.findIndex((step) => step.includes('gh release create'));
+		expect(creates).toBeGreaterThan(1);
+		expect(last.filter((step) => step.includes('gh release create'))).toHaveLength(1);
+		expect(last[creates - 1]).toMatch(/run: node scripts\/release-preflight\.ts$/);
+		expect(last[creates - 1]).toMatch(/STAGE: before-release\n/);
+		expect(last[creates - 1]).toMatch(/RELEASE_VERSION: \$\{\{ inputs\.version \}\}\n/);
+		expect(last[creates - 1]).toMatch(/EXPECTED_COMMIT: \$\{\{ inputs\.commit \}\}\n/);
+		expect(last[creates - 2]).toMatch(/run: scripts\/release-names\.sh$/);
+		expect(last[creates]).toMatch(/--latest\b/);
+	});
+
+	it('runs every step in bash, so a failing command in a pipeline fails its step', async () => {
+		for (const name of ['release.yml', 'verify.yml']) {
+			const text = code(await workflow(name));
+			expect(text, name).toMatch(/^defaults:\n {2}run:\n {4}shell: bash$/m);
+			expect(text, name).not.toMatch(/^\s+shell:(?! bash$)/m);
+		}
+	});
+
+	it('says what to do when the releasing job fails after it began creating the release', async () => {
+		const last = steps(jobs(code(await workflow('release.yml'))).get('release') ?? '');
+		const said = last.at(-1) ?? '';
+		expect(said).toMatch(/if: failure\(\) && steps\.create\.outcome != 'skipped'\n/);
+		expect(said).toContain('delete the release and the tag $TAG on GitHub');
+		expect(last.find((step) => step.includes('gh release create'))).toMatch(/id: create\n/);
+	});
+
 	it('gives no permission to the workflow, and lets only the releasing job write', async () => {
 		const text = code(await workflow('release.yml'));
 		expect(text).toMatch(/^permissions: \{\}$/m);
+		expect(text).not.toMatch(/write-all/);
 		for (const [name, body] of jobs(text)) {
 			const permissions = /^ {4}permissions:\n((?: {6}.+\n?)+)/m.exec(body)?.[1]?.trim();
 			expect(permissions, `job ${name}`).toBe(
@@ -126,7 +177,9 @@ describe('the release workflow', () => {
 		expect(names.toSorted()).toEqual(['release.yml', 'verify.yml']);
 		for (const name of names.filter((other) => other !== 'release.yml')) {
 			const text = code(await workflow(name));
-			expect(text, name).not.toMatch(/gh release|releases|git tag|git push|contents: write/);
+			expect(text, name).not.toMatch(
+				/gh release|releases|git tag|git push|contents: write|write-all/
+			);
 			for (const rule of PUBLISHING) expect(text, name).not.toMatch(rule);
 		}
 	});
@@ -142,6 +195,7 @@ describe('the package', () => {
 });
 
 const fine: PreflightInput = {
+	stage: 'before-tests',
 	version: '0.3.0',
 	expectedCommit: 'abc1234',
 	commit: 'abc1234def5678abc1234def5678abc1234def56',
@@ -176,6 +230,26 @@ describe("the release's first checks", () => {
 		]);
 	});
 
+	it('before the release, refuse a name taken by a release, a draft or a tag, and a version a newer release passed', () => {
+		const last: PreflightInput = { ...fine, stage: 'before-release' };
+		expect(preflight(last).ok).toBe(true);
+		expect(problemsOf({ ...last, releases: [...fine.releases, 'v0.3.0'] })).toEqual(['NameTaken']);
+		expect(problemsOf({ ...last, tags: [...fine.tags, 'v0.3.0'] })).toEqual(['NameTaken']);
+		expect(problemsOf({ ...last, version: '0.2.0' })).toEqual(['NameTaken']);
+		// A re-run of a run for 0.3.0 after 0.4.0 was released.
+		expect(
+			problemsOf({
+				...last,
+				tags: [...fine.tags, 'v0.4.0'],
+				releases: [...fine.releases, 'v0.4.0']
+			})
+		).toEqual(['NotNewer']);
+		const taken = preflight({ ...last, releases: [...fine.releases, 'v0.3.0'] });
+		expect(taken.ok ? [] : taken.error.map(describeProblem)).toEqual([
+			'A release or a tag named v0.3.0 already exists, perhaps as a draft, which only this last check can see, or left by an earlier attempt of this run. Nothing was released. Look at the releases and tags on GitHub: if that release was made by mistake or is incomplete, delete the release and the tag v0.3.0, then start the release again; otherwise start it again with a later version.'
+		]);
+	});
+
 	it('refuse a run on another branch, or on a commit other than the one expected', () => {
 		expect(problemsOf({ ...fine, ref: 'refs/heads/feature' })).toEqual(['NotMain']);
 		expect(problemsOf({ ...fine, ref: 'refs/tags/v0.3.0' })).toEqual(['NotMain']);
@@ -207,6 +281,7 @@ describe("the release's first checks", () => {
 		await writeFile(output, '');
 		const env = {
 			PATH: process.env['PATH'] ?? '',
+			STAGE: 'before-tests',
 			RELEASE_VERSION: '0.3.0',
 			EXPECTED_COMMIT: 'abc1234',
 			COMMIT: fine.commit,
@@ -221,23 +296,58 @@ describe("the release's first checks", () => {
 		expect(await readFile(output, 'utf8')).toBe('version=0.3.0\ntag=v0.3.0\n');
 
 		await writeFile(output, '');
-		const refused = await new Promise<{ code: number; stdout: string }>((done) => {
-			execFile(
-				process.execPath,
-				[script],
-				{ env: { ...env, RELEASE_VERSION: '0.2.0' } },
-				(error, stdout) => {
-					done({
-						code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1,
-						stdout
-					});
-				}
-			);
-		});
+		const refused = await exitOf(process.execPath, [script], { ...env, RELEASE_VERSION: '0.2.0' });
 		expect(refused.code).toBe(1);
 		expect(refused.stdout).toContain(
 			'::error title=The release was refused::A tag named v0.2.0 already exists'
 		);
 		expect(await readFile(output, 'utf8')).toBe('');
 	});
+
+	it('refuse to run without being told which check they are', async () => {
+		const script = join(import.meta.dirname, 'release-preflight.ts');
+		const refused = await exitOf(process.execPath, [script], {
+			PATH: process.env['PATH'] ?? '',
+			RELEASE_VERSION: '0.3.0'
+		});
+		expect(refused.code).toBe(1);
+		expect(refused.stdout).toContain('not before-tests or before-release');
+	});
 });
+
+describe('listing the names a release could clash with', () => {
+	it('fails when the tags cannot be listed, rather than finding none', async () => {
+		// A repository with no remote called origin: git ls-remote fails.
+		const folder = await tempDirectory();
+		await run('git', ['init', '--quiet', folder]);
+		const tags = join(folder, 'tags.txt');
+		const listed = await exitOf(
+			join(import.meta.dirname, 'release-names.sh'),
+			[],
+			{
+				PATH: process.env['PATH'] ?? '',
+				HOME: folder,
+				GIT_CONFIG_NOSYSTEM: '1',
+				TAGS_FILE: tags,
+				RELEASES_FILE: join(folder, 'releases.txt')
+			},
+			folder
+		);
+		expect(listed.code).not.toBe(0);
+		await expect(readFile(tags, 'utf8')).rejects.toThrow();
+	});
+});
+
+/** Runs a program to its end, giving its exit code and what it printed, whether or not it failed. */
+function exitOf(
+	program: string,
+	args: readonly string[],
+	env: NodeJS.ProcessEnv,
+	cwd?: string
+): Promise<{ code: number; stdout: string }> {
+	return new Promise((done) => {
+		execFile(program, args, { env, ...(cwd === undefined ? {} : { cwd }) }, (error, stdout) => {
+			done({ code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1, stdout });
+		});
+	});
+}

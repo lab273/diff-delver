@@ -20,6 +20,11 @@ on:
 
 permissions: {}
 
+# bash with -e and pipefail, so a failing command in a pipeline fails its step.
+defaults:
+  run:
+    shell: bash
+
 # One release at a time; a second waits rather than racing the first for a version.
 concurrency:
   group: release
@@ -44,18 +49,21 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # With read permission only, GitHub lists no drafts here; the releasing
+      # job, which may write, sees them.
       - name: List the tags and releases there are
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          git ls-remote --tags --refs origin | sed 's|.*refs/tags/||' > "$RUNNER_TEMP/tags.txt"
-          gh release list --limit 1000 --json tagName --jq '.[].tagName' > "$RUNNER_TEMP/releases.txt"
+          TAGS_FILE: ${{ runner.temp }}/tags.txt
+          RELEASES_FILE: ${{ runner.temp }}/releases.txt
+        run: scripts/release-names.sh
 
       # The checks and their messages are in the script; its tests are next to it.
       - id: check
         name: Check the version and the commit
         env:
+          STAGE: before-tests
           RELEASE_VERSION: ${{ inputs.version }}
           EXPECTED_COMMIT: ${{ inputs.commit }}
           COMMIT: ${{ github.sha }}
@@ -161,6 +169,17 @@ jobs:
       VERSION: ${{ needs.check.outputs.version }}
       COMMIT: ${{ github.sha }}
     steps:
+      # For the checks' scripts. The token that may write is not kept in the
+      # checkout: listing the tags of this public repository needs none.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
       - uses: actions/download-artifact@v8
         with:
           name: release
@@ -170,20 +189,31 @@ jobs:
         working-directory: release
         run: sha256sum -c diff-delver.tgz.sha256
 
-      # Checked again here, since the first check: a tag or release made
-      # meanwhile is never overwritten.
-      - name: Check the version is still free
-        run: |
-          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then
-            echo "::error title=The release was refused::A tag named $TAG was made while this run was testing. Start the release again with a later version."
-            exit 1
-          fi
-          if gh release view "$TAG" > /dev/null 2>&1; then
-            echo "::error title=The release was refused::A release for $TAG was made while this run was testing. Start the release again with a later version."
-            exit 1
-          fi
+      # Every first check again, from the same script, just before releasing:
+      # this job can be re-run on its own ("Re-run failed jobs") long after the
+      # first check, so the version must still be after the newest release and
+      # tag, and its name free. With write permission, drafts are listed too.
+      - name: List the tags and releases there are now
+        env:
+          TAGS_FILE: ${{ runner.temp }}/tags.txt
+          RELEASES_FILE: ${{ runner.temp }}/releases.txt
+        run: scripts/release-names.sh
 
-      - name: Create the release
+      - name: Check the version and the commit again
+        env:
+          STAGE: before-release
+          RELEASE_VERSION: ${{ inputs.version }}
+          EXPECTED_COMMIT: ${{ inputs.commit }}
+          REF: ${{ github.ref }}
+          TAGS_FILE: ${{ runner.temp }}/tags.txt
+          RELEASES_FILE: ${{ runner.temp }}/releases.txt
+        run: node scripts/release-preflight.ts
+
+      # Latest, explicitly: the check just above found this version after every
+      # release and tag, and the concurrency group lets no other run release
+      # meanwhile, so it is the newest. Saying so does not rely on a default.
+      - id: create
+        name: Create the release
         run: |
           gh release create "$TAG" \
             --target "$COMMIT" \
@@ -199,3 +229,10 @@ jobs:
           cd "$RUNNER_TEMP/released"
           sha256sum -c diff-delver.tgz.sha256
           echo "Released diff delver $VERSION: https://github.com/$GH_REPO/releases/tag/$TAG"
+
+      # Only when creating the release began and this job then failed: a
+      # release or its tag may exist, and starting again is refused while it does.
+      - name: Say what to do with what was made
+        if: failure() && steps.create.outcome != 'skipped'
+        run: |
+          echo "::error title=The release may be incomplete::Creating the release $TAG began, then this job failed, so the release or its tag may already exist. Open https://github.com/$GH_REPO/releases/tag/$TAG. If the release is whole, with its notes and both files, diff-delver.tgz and diff-delver.tgz.sha256, keep it. If not, delete the release and the tag $TAG on GitHub, then start the release again."
