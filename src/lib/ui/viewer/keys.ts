@@ -17,6 +17,7 @@ export type KeyAction =
 	| 'whole-file'
 	| 'only-unreviewed'
 	| 'side-by-side'
+	| 'white-space'
 	| 'help';
 
 /** Each shortcut, as the help lists it. */
@@ -44,6 +45,11 @@ export const SHORTCUTS: readonly {
 		keys: ['s'],
 		does: 'Show changes side by side, or in one column',
 		action: 'side-by-side'
+	},
+	{
+		keys: ['w'],
+		does: 'Hide changes that only change white space, or show them',
+		action: 'white-space'
 	},
 	{ keys: ['?'], does: 'Show these shortcuts', action: 'help' }
 ];

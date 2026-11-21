@@ -121,6 +121,36 @@ const PAIRS_AFTER = {
 	at35: ['export const price35 = 350;', 'export const price35b = 355;']
 } as const;
 
+/**
+ * `tools/total.ts` in the reading repository, for hiding white-space changes:
+ * a function re-indented with tabs, with one real change among the lines,
+ * and further down a line whose only change is a CRLF ending.
+ */
+const TOTAL_BEFORE: readonly string[] = [
+	'export function total(items: number[]): number {',
+	'  let sum = 0;',
+	'  for (const item of items) {',
+	'    sum += item;',
+	'  }',
+	'  return sum;',
+	'}',
+	...Array.from({ length: 12 }, (_, i) => `// Note ${String(i + 1)} on totals.`),
+	"export const label = 'Total';",
+	'// The end.'
+];
+const TOTAL_AFTER: readonly string[] = [
+	'export function total(items: number[]): number {',
+	'\tlet sum = 0;',
+	'\tfor (const item of items) {',
+	'\t\tsum += item;',
+	'\t}',
+	'\treturn Math.round(sum);',
+	'}',
+	...Array.from({ length: 12 }, (_, i) => `// Note ${String(i + 1)} on totals.`),
+	"export const label = 'Total';\r",
+	'// The end.'
+];
+
 /** The checkout as the shop's uncommitted changes leave it: the summary says when a code was used. */
 export const CHECKOUT_CHANGED = CHECKOUT.flatMap((line, i) =>
 	i === 19
@@ -336,7 +366,9 @@ export const JOURNEY_REPOSITORIES = {
 			)
 		);
 		await repo.write('src/pairs.ts', pairs(PAIRS_BEFORE));
+		await repo.write('tools/total.ts', lines(...TOTAL_BEFORE));
 		await repo.commit('Start');
+		await repo.write('tools/total.ts', TOTAL_AFTER.join('\n') + '\n');
 		await repo.write('src/pairs.ts', pairs(PAIRS_AFTER));
 		await repo.write('src/lexer.ts', lexer('A number is a word, and keeps its digits.'));
 		await repo.write(

@@ -25,6 +25,7 @@
 	import { EXPANSION_STEP, type Direction } from '#lib/core/viewer/expansion.ts';
 	import { countOf } from '#lib/core/viewer/words.ts';
 	import { sideBySide, type LineSide, type SideRow } from '#lib/core/viewer/side-by-side.ts';
+	import type { Quieted } from '#lib/core/viewer/white-space.ts';
 	import type { Layout } from '#lib/core/settings.ts';
 
 	let {
@@ -66,7 +67,27 @@
 	const sideColumns = $derived(hasFresh ? 4 : 3);
 	const columns = $derived(split ? sideColumns * 2 : hasFresh ? 5 : 4);
 
-	function sideOf(line: ShownLineView): LineSide {
+	/** A line drawn, or a white-space change drawn as one unchanged line (`core/viewer/white-space.ts`). */
+	type Drawn = Quieted<ShownLineView>;
+
+	/** Each hunk's rows side by side, worked out once rather than for each chunk drawn. */
+	const PAIRED = new WeakMap<readonly Drawn[], readonly SideRow<Drawn>[]>();
+	function pairedRows(shown: readonly Drawn[]): readonly SideRow<Drawn>[] {
+		const kept = PAIRED.get(shown);
+		if (kept !== undefined) return kept;
+		const rows = sideBySide(shown, sideOf);
+		PAIRED.set(shown, rows);
+		return rows;
+	}
+
+	/** The line a drawn row stands for, to say where it belongs: a white-space change's removed line. */
+	function lineOf(item: Drawn): ShownLineView {
+		return item.kind === 'line' ? item.line : item.removed;
+	}
+
+	function sideOf(item: Drawn): LineSide {
+		if (item.kind === 'quiet') return 'both';
+		const line = item.line;
 		switch (line.kind) {
 			case 'context':
 				return 'both';
@@ -78,12 +99,16 @@
 	}
 
 	/** The lines that start a run of another group's changes, with that group, to say where once. */
-	function notesOf(shown: readonly ShownLineView[]): ReadonlyMap<ShownLineView, GroupKeyView> {
-		const notes = new SvelteMap<ShownLineView, GroupKeyView>();
-		for (const [i, line] of shown.entries()) {
+	const NOTES = new WeakMap<readonly Drawn[], ReadonlyMap<Drawn, GroupKeyView>>();
+	function notesOf(shown: readonly Drawn[]): ReadonlyMap<Drawn, GroupKeyView> {
+		const kept = NOTES.get(shown);
+		if (kept !== undefined) return kept;
+		const notes = new SvelteMap<Drawn, GroupKeyView>();
+		for (const [i, item] of shown.entries()) {
 			const group = startsElsewhere(shown, i);
-			if (group !== undefined) notes.set(line, group);
+			if (group !== undefined) notes.set(item, group);
 		}
+		NOTES.set(shown, notes);
 		return notes;
 	}
 
@@ -92,11 +117,13 @@
 	}
 
 	/** A run of changes that belong to another group starts here: say where, once. */
-	function startsElsewhere(lines: readonly ShownLineView[], i: number): GroupKeyView | undefined {
-		const line = lines[i];
-		if (line === undefined || line.kind === 'context' || line.home.kind !== 'elsewhere')
-			return undefined;
-		const before = lines[i - 1];
+	function startsElsewhere(items: readonly Drawn[], i: number): GroupKeyView | undefined {
+		const item = items[i];
+		if (item === undefined) return undefined;
+		const line = lineOf(item);
+		if (line.kind === 'context' || line.home.kind !== 'elsewhere') return undefined;
+		const previous = items[i - 1];
+		const before = previous === undefined ? undefined : lineOf(previous);
 		if (
 			before !== undefined &&
 			before.kind !== 'context' &&
@@ -204,6 +231,27 @@
 	{/if}
 {/snippet}
 
+{#snippet quietRow(removed: ShownLineView, added: ShownLineView)}
+	<!-- A change of white space only, hidden: drawn as the unchanged line it now is. -->
+	<tr
+		class="context quiet"
+		class:elsewhere={isElsewhere(added)}
+		class:fresh={isFresh(removed) || isFresh(added)}
+	>
+		<td class="number">{removed.kind === 'deleted' ? removed.old : ''}</td>
+		<td class="number">{added.kind === 'added' ? added.new : ''}</td>
+		{#if hasFresh}
+			<td class="badge">
+				{#if isFresh(removed) || isFresh(added)}<span class="new">
+						new<span class="visually-hidden"> since version {previousVersion}</span>
+					</span>{/if}
+			</td>
+		{/if}
+		<td class="marker"><span class="visually-hidden">White space changed</span></td>
+		<td class="code" use:drawLine={{ text: added.text, changed: false, runs: runsOf(added) }}></td>
+	</tr>
+{/snippet}
+
 {#snippet where(elsewhere: GroupKeyView)}
 	<tr class="note">
 		<td colspan={columns} class="where">
@@ -228,9 +276,9 @@
 	</tr>
 {/snippet}
 
-{#snippet lines(shown: readonly ShownLineView[], key: string)}
+{#snippet lines(shown: readonly Drawn[], key: string)}
 	{#if split}
-		{@const rows = sideBySide(shown, sideOf)}
+		{@const rows = pairedRows(shown)}
 		{@const notes = notesOf(shown)}
 		{#each chunksOf(rows.length) as chunk (chunk.first)}
 			{#if chunk.first === 0 || drawn.has(`${key}:${String(chunk.first)}`)}
@@ -248,10 +296,14 @@
 	{:else}
 		{#each chunksOf(shown.length) as chunk (chunk.first)}
 			{#if chunk.first === 0 || drawn.has(`${key}:${String(chunk.first)}`)}
-				{#each shown.slice(chunk.first, chunk.end) as line, k (k)}
+				{#each shown.slice(chunk.first, chunk.end) as item, k (k)}
 					{@const elsewhere = startsElsewhere(shown, chunk.first + k)}
 					{#if elsewhere !== undefined}{@render where(elsewhere)}{/if}
-					{@render row(line)}
+					{#if item.kind === 'quiet'}
+						{@render quietRow(item.removed, item.added)}
+					{:else}
+						{@render row(item.line)}
+					{/if}
 				{/each}
 			{:else}
 				{@render pending(`${key}:${String(chunk.first)}`, chunk.end - chunk.first)}
@@ -260,8 +312,17 @@
 	{/if}
 {/snippet}
 
-{#snippet cell(line: ShownLineView | undefined, side: 'old' | 'new')}
-	{@const kind = line === undefined ? 'empty' : line.kind}
+{#snippet cell(item: Drawn | undefined, side: 'old' | 'new')}
+	{@const quiet = item?.kind === 'quiet'}
+	{@const line =
+		item === undefined
+			? undefined
+			: item.kind === 'line'
+				? item.line
+				: side === 'old'
+					? item.removed
+					: item.added}
+	{@const kind = line === undefined ? 'empty' : quiet ? 'context' : line.kind}
 	{@const cellClass = `cell-${kind}${line !== undefined && isElsewhere(line) ? ' cell-elsewhere' : ''}${line !== undefined && isFresh(line) ? ' cell-fresh' : ''}`}
 	<td class="number {cellClass}" class:side-start={side === 'new'}>
 		{line === undefined
@@ -282,7 +343,11 @@
 		</td>
 	{/if}
 	<td class="marker {cellClass}">
-		{#if line?.kind === 'added'}<span aria-hidden="true">+</span><span class="visually-hidden">
+		{#if quiet}<span class="visually-hidden">
+				White space changed
+			</span>{:else if line?.kind === 'added'}<span aria-hidden="true">+</span><span
+				class="visually-hidden"
+			>
 				Added
 			</span>{:else if line?.kind === 'deleted'}<span aria-hidden="true">−</span><span
 				class="visually-hidden"
@@ -295,23 +360,35 @@
 	{:else}
 		<td
 			class="code {cellClass}"
-			use:drawLine={{ text: line.text, changed: line.kind !== 'context', runs: runsOf(line) }}
+			use:drawLine={{
+				text: line.text,
+				changed: !quiet && line.kind !== 'context',
+				runs: runsOf(line)
+			}}
 		></td>
 	{/if}
 {/snippet}
 
-{#snippet pairRow(pair: SideRow<ShownLineView>)}
+{#snippet pairRow(pair: SideRow<Drawn>)}
+	{@const oldLine =
+		pair.old === undefined
+			? undefined
+			: pair.old.kind === 'line'
+				? pair.old.line
+				: pair.old.removed}
+	{@const newLine =
+		pair.new === undefined ? undefined : pair.new.kind === 'line' ? pair.new.line : pair.new.added}
 	<tr class="pair">
 		{@render cell(pair.old, 'old')}
 		{@render cell(pair.new, 'new')}
 	</tr>
-	{#if pair.old?.noNewlineAtEnd === true || pair.new?.noNewlineAtEnd === true}
+	{#if oldLine?.noNewlineAtEnd === true || newLine?.noNewlineAtEnd === true}
 		<tr class="note">
 			<td colspan={sideColumns} class="eof">
-				{pair.old?.noNewlineAtEnd === true ? 'No newline at end of file' : ''}
+				{oldLine?.noNewlineAtEnd === true ? 'No newline at end of file' : ''}
 			</td>
 			<td colspan={sideColumns} class="eof side-start">
-				{pair.new?.noNewlineAtEnd === true ? 'No newline at end of file' : ''}
+				{newLine?.noNewlineAtEnd === true ? 'No newline at end of file' : ''}
 			</td>
 		</tr>
 	{/if}
@@ -447,7 +524,35 @@
 				{/if}
 				{#each block.bottom as line (line.new)}{@render opened(line)}{/each}
 			{:else if block.kind === 'hunk'}
-				{@render lines(block.lines, String(b))}
+				{@const shown = viewer.drawnLines(block)}
+				{#if shown.some((d) => d.kind === 'quiet') && !shown.some((d) => d.kind === 'line' && d.line.kind !== 'context')}
+					{@const hidden = shown.filter((d) => d.kind === 'quiet').length * 2}
+					<tr class="hidden white-space">
+						<td colspan={columns}>
+							<div class="hidden-row">
+								<span class="hidden-count">
+									Only white space changed here: {countOf(hidden, 'change', 'changes')} hidden
+								</span>
+								<button
+									type="button"
+									class="open"
+									onclick={async () => {
+										block.showWhiteSpace = true;
+										// The button goes with what it showed; focus stays in the part, on its name.
+										await tick();
+										document.getElementById(`part-${String(at)}-toggle`)?.focus();
+									}}
+								>
+									Show them<span class="visually-hidden">
+										: {countOf(hidden, 'white-space change', 'white-space changes')}
+									</span>
+								</button>
+							</div>
+						</td>
+					</tr>
+				{:else}
+					{@render lines(shown, String(b))}
+				{/if}
 			{:else}
 				{@const changed = block.lines.filter((l) => l.kind !== 'context').length}
 				<tr class="hidden">
@@ -481,7 +586,7 @@
 						</div>
 					</td>
 				</tr>
-				{#if block.shown}{@render lines(block.lines, String(b))}{/if}
+				{#if block.shown}{@render lines(viewer.drawnLines(block), String(b))}{/if}
 			{/if}
 		{/each}
 	</tbody>

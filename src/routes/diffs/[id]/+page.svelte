@@ -231,7 +231,7 @@
 			? new Viewer(
 					data.loaded.value,
 					untrack(() => onlyWaiting),
-					untrack(() => settings.colours)
+					untrack(() => settings)
 				)
 			: undefined
 	);
@@ -287,6 +287,7 @@
 		});
 		if (viewer !== undefined) {
 			viewer.colouring = settings.colours;
+			viewer.hideWhiteSpace = settings.hideWhiteSpace;
 			viewer.announcement = said;
 		}
 		const saved = await pageClient().changeSetting(change);
@@ -303,6 +304,15 @@
 					? 'Changes are shown side by side: before on the left, after on the right.'
 					: 'Changes will be shown side by side when the window is wider; it is too narrow now.'
 				: 'Changes are shown in one column.'
+		);
+	}
+
+	function setHideWhiteSpace(hide: boolean): void {
+		void changeSetting(
+			{ name: 'hide-white-space', value: hide },
+			hide
+				? 'Changes that only change white space are drawn as unchanged lines. They are still counted, and marking a file reviewed covers them.'
+				: 'Changes that only change white space are shown.'
 		);
 	}
 
@@ -511,6 +521,9 @@
 				return;
 			case 'only-unreviewed':
 				setOnlyWaiting(!onlyWaiting);
+				return;
+			case 'white-space':
+				setHideWhiteSpace(!settings.hideWhiteSpace);
 				return;
 			case 'side-by-side':
 				setLayout(settings.layout === 'side-by-side' ? 'unified' : 'side-by-side');
@@ -775,6 +788,15 @@
 						The window is too narrow for two sides, so changes are in one column.
 					</p>
 				{/if}
+				<button
+					type="button"
+					aria-pressed={settings.hideWhiteSpace}
+					onclick={() => {
+						setHideWhiteSpace(!settings.hideWhiteSpace);
+					}}
+				>
+					Hide white-space changes <kbd aria-hidden="true">w</kbd>
+				</button>
 				<button
 					type="button"
 					aria-pressed={settings.colours}

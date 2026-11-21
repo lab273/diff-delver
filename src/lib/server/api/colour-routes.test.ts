@@ -106,11 +106,17 @@ describe('the person’s settings', () => {
 		const first = await testDaemon({ dataDirectory });
 		try {
 			const client = clientOf(first);
-			expect(value(await client.readSettings())).toEqual({ colours: true, layout: 'unified' });
+			expect(value(await client.readSettings())).toEqual({
+				colours: true,
+				layout: 'unified',
+				hideWhiteSpace: false
+			});
 			value(await client.changeSetting({ name: 'colours', value: false }));
+			value(await client.changeSetting({ name: 'hide-white-space', value: true }));
 			expect(value(await client.changeSetting({ name: 'layout', value: 'side-by-side' }))).toEqual({
 				colours: false,
-				layout: 'side-by-side'
+				layout: 'side-by-side',
+				hideWhiteSpace: true
 			});
 		} finally {
 			await first.stop();
@@ -119,7 +125,8 @@ describe('the person’s settings', () => {
 		try {
 			expect(value(await clientOf(second).readSettings())).toEqual({
 				colours: false,
-				layout: 'side-by-side'
+				layout: 'side-by-side',
+				hideWhiteSpace: true
 			});
 		} finally {
 			await second.stop();

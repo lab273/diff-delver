@@ -51,13 +51,18 @@ import {
 	shownParts
 } from '#lib/core/viewer/reading-order.ts';
 import { partIndexOf, type PartIndex } from '#lib/core/part-index.tiny.ts';
-import { describeChanges, formatCount } from '#lib/core/viewer/words.ts';
+import { countOf, describeChanges, formatCount } from '#lib/core/viewer/words.ts';
 import { pageClient } from '#lib/ui/client.ts';
 import { SvelteMap } from 'svelte/reactivity';
 import type { ColourRun } from '#lib/core/highlight/colour-run.ts';
-import type { Layout } from '#lib/core/settings.ts';
+import type { Layout, ViewSettings } from '#lib/core/settings.ts';
 import { spansOf } from '#lib/core/viewer/line-spans.ts';
 import { couldBeColoured } from '#lib/core/highlight/language.ts';
+import {
+	quietWhiteSpace,
+	type LineForWhiteSpace,
+	type Quieted
+} from '#lib/core/viewer/white-space.ts';
 import { AskedLines, COLOUR_REQUESTS_AT_ONCE, PART_REQUESTS_AT_ONCE, Turns } from './requests.ts';
 
 /** How many parts are drawn at first, and how many more after each frame. */
@@ -86,7 +91,13 @@ export type BlockState =
 			busy: boolean;
 			problem: string;
 	  }
-	| { readonly kind: 'hunk'; readonly heading: LineText; readonly lines: readonly ShownLineView[] }
+	| {
+			readonly kind: 'hunk';
+			readonly heading: LineText;
+			readonly lines: readonly ShownLineView[];
+			/** Its white-space changes shown although the person hides them elsewhere. */
+			showWhiteSpace: boolean;
+	  }
 	| {
 			readonly kind: 'elsewhere';
 			readonly groups: readonly GroupKeyView[];
@@ -109,6 +120,37 @@ export interface LineColours {
 
 /** Why a part's file is shown plain although colours were asked for, when it is worth saying. */
 export type PlainBecause = 'large' | 'minified' | 'failed';
+
+/**
+ * Each hunk's lines as drawn, with white space shown and hidden, worked out
+ * once: a hunk of 80,000 rows is drawn a chunk at a time, and each chunk would
+ * otherwise work them out again.
+ */
+const DRAWN = new WeakMap<
+	readonly ShownLineView[],
+	{
+		readonly plain?: readonly Quieted<ShownLineView>[];
+		readonly quiet?: readonly Quieted<ShownLineView>[];
+	}
+>();
+
+/** What the white-space rule needs of a line: its kind, text and group. */
+function forWhiteSpace(line: ShownLineView): LineForWhiteSpace {
+	return {
+		kind: line.kind,
+		text: line.text,
+		group: line.kind === 'context' || line.home.kind === 'here' ? '' : groupKeyId(line.home.group)
+	};
+}
+
+/** How many of a part's own changes the lines drawn show as unchanged lines. */
+export function hiddenIn(drawn: readonly Quieted<ShownLineView>[]): number {
+	return (
+		drawn.filter(
+			(d) => d.kind === 'quiet' && d.removed.kind !== 'context' && d.removed.home.kind === 'here'
+		).length * 2
+	);
+}
 
 /** Puts the colours of one side's lines that came where the page draws them from. */
 function putColours(into: LineColours['old'], side: SideColoursView): void {
@@ -310,6 +352,8 @@ export class Viewer {
 	announcement = $state('');
 	/** Why the last tick of a file or a group did not happen; a part's is the part's own. */
 	refused = $state<Refusal>();
+	/** Whether changes that only change white space are drawn as unchanged lines; the person's setting. */
+	hideWhiteSpace = $state(false);
 	/** Whether code is coloured by language; the person's setting. */
 	colouring = $state(true);
 	/**
@@ -332,9 +376,10 @@ export class Viewer {
 	/** How many ticks have been answered, so a slower refresh never undoes a newer tick. */
 	#ticks = 0;
 
-	constructor(page: DiffPage, onlyWaiting: boolean, colouring: boolean) {
+	constructor(page: DiffPage, onlyWaiting: boolean, settings: ViewSettings) {
 		this.summary = $state.raw(page.summary);
-		this.colouring = colouring;
+		this.colouring = settings.colours;
+		this.hideWhiteSpace = settings.hideWhiteSpace;
 		this.onlyWaiting = $state(onlyWaiting);
 		this.id = page.summary.id;
 		this.version = page.summary.version;
@@ -496,7 +541,7 @@ export class Viewer {
 					case 'hidden':
 						return { ...block, top: [], bottom: [], busy: false, problem: '' };
 					case 'hunk':
-						return block;
+						return { ...block, showWhiteSpace: false };
 					case 'elsewhere':
 						return { ...block, shown: false };
 				}
@@ -575,6 +620,43 @@ export class Viewer {
 		}));
 		if (direction === 'up') hidden.bottom = [...lines, ...hidden.bottom];
 		else hidden.top = [...hidden.top, ...lines];
+	}
+
+	/** A hunk's lines as drawn: with the white-space changes as unchanged lines, when they are hidden. */
+	drawnLines(
+		block: Extract<BlockState, { kind: 'hunk' | 'elsewhere' }>
+	): readonly Quieted<ShownLineView>[] {
+		const quiet = this.hideWhiteSpace && !(block.kind === 'hunk' && block.showWhiteSpace);
+		const kept = DRAWN.get(block.lines);
+		const found = quiet ? kept?.quiet : kept?.plain;
+		if (found !== undefined) return found;
+		const made = quiet
+			? quietWhiteSpace(block.lines, forWhiteSpace)
+			: block.lines.map((line): Quieted<ShownLineView> => ({ kind: 'line', line }));
+		DRAWN.set(block.lines, { ...kept, [quiet ? 'quiet' : 'plain']: made });
+		return made;
+	}
+
+	/**
+	 * How many of a part's own changes are drawn as unchanged lines because
+	 * they only change white space: the page says so, and that a tick covers them.
+	 */
+	hiddenWhiteSpace(at: PartIndex): number {
+		const state = this.parts[at];
+		if (!this.hideWhiteSpace || state?.lines.kind !== 'loaded') return 0;
+		let hidden = 0;
+		for (const block of state.lines.blocks) {
+			if (block.kind !== 'hunk') continue;
+			hidden += hiddenIn(this.drawnLines(block));
+		}
+		return hidden;
+	}
+
+	/** Shows a part's white-space changes as changes again, in every hunk. */
+	showWhiteSpace(at: PartIndex): void {
+		const state = this.parts[at];
+		if (state?.lines.kind !== 'loaded') return;
+		for (const block of state.lines.blocks) if (block.kind === 'hunk') block.showWhiteSpace = true;
 	}
 
 	/** Whether every unchanged line of a part is open: the whole file is shown. */
@@ -766,7 +848,12 @@ export class Viewer {
 					: target.group.name;
 		const overall = this.overall;
 		const progress = `${formatCount(overall.reviewed)} of ${describeChanges(overall.units)} reviewed.`;
-		const said = `${what} ${reviewed ? 'marked as reviewed' : 'no longer marked as reviewed'}. ${progress}`;
+		const hidden = target.kind === 'part' ? this.hiddenWhiteSpace(target.at) : 0;
+		const including =
+			hidden > 0
+				? ` That includes ${countOf(hidden, 'change', 'changes')} to white space that ${hidden === 1 ? 'is' : 'are'} not shown.`
+				: '';
+		const said = `${what} ${reviewed ? 'marked as reviewed' : 'no longer marked as reviewed'}.${including} ${progress}`;
 		if (allDone) return `${said} Everything is reviewed.`;
 		if (finished !== undefined) return `${said} ${finished.name} is all reviewed.`;
 		return said;

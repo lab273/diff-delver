@@ -45,6 +45,8 @@
 	const part = $derived(state.part);
 	const ignored = $derived(part.group.kind === 'ignored');
 	const reviewed = $derived(done(part.tally));
+	/** How many of its changes only change white space and are drawn as unchanged lines. */
+	const hiddenWhiteSpace = $derived(viewer.hiddenWhiteSpace(at));
 	const large = $derived(viewer.isLarge(state));
 	const groupName = $derived(viewer.groupOfPart(at)?.name ?? '');
 	/** Its path as a person is shown it, in what is read out. */
@@ -188,7 +190,12 @@
 					aria-label="Reviewed: {shown}{part.of > 1 ? ` in ${groupName}` : ''}"
 					checked={reviewed}
 					indeterminate={partly(part.tally)}
-					aria-describedby={state.busy ? `part-${String(at)}-saving` : undefined}
+					aria-describedby={[
+						state.busy ? `part-${String(at)}-saving` : '',
+						hiddenWhiteSpace > 0 && state.open ? `part-${String(at)}-white-space` : ''
+					]
+						.filter((id) => id !== '')
+						.join(' ') || undefined}
 					onchange={async (event) => {
 						const box = event.currentTarget;
 						// Never disabled while the tick is saved, so focus stays on it; a press
@@ -225,6 +232,26 @@
 						: 'them'} changed in this version, so {part.tally.unmarked === 1 ? 'it is' : 'they are'} worth
 					reading again.
 				</p>
+			{/if}
+			{#if hiddenWhiteSpace > 0}
+				<div class="white-space">
+					<p id="part-{at}-white-space">
+						{countOf(hiddenWhiteSpace, 'change', 'changes')} here only {hiddenWhiteSpace === 1
+							? 'changes'
+							: 'change'} white space, so {hiddenWhiteSpace === 1 ? 'it is' : 'they are'} drawn as unchanged
+						lines. Marking this file as reviewed covers {hiddenWhiteSpace === 1 ? 'it' : 'them'} too.
+					</p>
+					<button
+						type="button"
+						onclick={() => {
+							viewer.showWhiteSpace(at);
+							// The button goes with what it showed; focus stays in the part, on its name.
+							document.getElementById(`part-${String(at)}-toggle`)?.focus();
+						}}
+					>
+						Show them<span class="visually-hidden">: {shown}</span>
+					</button>
+				</div>
 			{/if}
 			{#if part.fileUnit !== null && part.added + part.removed > 0}
 				<p class="file-change">
@@ -436,6 +463,26 @@
 	.unmarked {
 		background: var(--color-attention-background);
 		border-bottom: 1px solid var(--color-attention-border);
+	}
+
+	.white-space {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.25rem 0.75rem;
+		padding: 0.4rem 0.75rem;
+		font-size: 0.875rem;
+		background: var(--color-info-background);
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.white-space p {
+		margin: 0;
+	}
+
+	.white-space button {
+		font-size: 0.75rem;
+		padding: 0.1rem 0.6rem;
 	}
 
 	.file-change {

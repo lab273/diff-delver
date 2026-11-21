@@ -20,7 +20,11 @@ const row = z.discriminatedUnion('name', [
 		name: z.literal('colours'),
 		value: z.enum(['on', 'off']).transform((v) => v === 'on')
 	}),
-	z.object({ name: z.literal('layout'), value: z.enum(['unified', 'side-by-side']) })
+	z.object({ name: z.literal('layout'), value: z.enum(['unified', 'side-by-side']) }),
+	z.object({
+		name: z.literal('hide-white-space'),
+		value: z.enum(['on', 'off']).transform((v) => v === 'on')
+	})
 ]);
 
 /** The settings as stored: the defaults, with every row's change. */
@@ -34,6 +38,7 @@ export function readSettings(q: Queries): Result<ViewSettings, StoredRowInvalid>
 function stored(change: SettingChange): string {
 	switch (change.name) {
 		case 'colours':
+		case 'hide-white-space':
 			return change.value ? 'on' : 'off';
 		case 'layout':
 			return change.value;

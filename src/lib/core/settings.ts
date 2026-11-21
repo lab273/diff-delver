@@ -13,14 +13,21 @@ export interface ViewSettings {
 	/** Code coloured by language, or plain. */
 	readonly colours: boolean;
 	readonly layout: Layout;
+	/** Changes that only change white space drawn as unchanged lines, or shown as changes. */
+	readonly hideWhiteSpace: boolean;
 }
 
-export const DEFAULT_SETTINGS: ViewSettings = { colours: true, layout: 'unified' };
+export const DEFAULT_SETTINGS: ViewSettings = {
+	colours: true,
+	layout: 'unified',
+	hideWhiteSpace: false
+};
 
 /** One setting changed: its name and its new value. */
 export type SettingChange =
 	| { readonly name: 'colours'; readonly value: boolean }
-	| { readonly name: 'layout'; readonly value: Layout };
+	| { readonly name: 'layout'; readonly value: Layout }
+	| { readonly name: 'hide-white-space'; readonly value: boolean };
 
 /** The settings with one changed. */
 export function withSetting(settings: ViewSettings, change: SettingChange): ViewSettings {
@@ -29,5 +36,7 @@ export function withSetting(settings: ViewSettings, change: SettingChange): View
 			return { ...settings, colours: change.value };
 		case 'layout':
 			return { ...settings, layout: change.value };
+		case 'hide-white-space':
+			return { ...settings, hideWhiteSpace: change.value };
 	}
 }

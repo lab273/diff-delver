@@ -17,6 +17,7 @@ describe('the diff page’s shortcuts', () => {
 		expect(shortcutOf(press('k'))).toBe('previous-part');
 		expect(shortcutOf(press('r'))).toBe('toggle-reviewed');
 		expect(shortcutOf(press('s'))).toBe('side-by-side');
+		expect(shortcutOf(press('w'))).toBe('white-space');
 		expect(shortcutOf(press('?'))).toBe('help');
 		expect(shortcutOf(press('x'))).toBeUndefined();
 		// On a checkbox a letter types nothing, so the shortcut works there too.
