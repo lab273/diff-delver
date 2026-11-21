@@ -267,7 +267,7 @@ export function describeWarning(warning: CoverageWarning): TextForAgent {
 function warningText(warning: CoverageWarning): string {
 	switch (warning.kind) {
 		case 'EmptySection':
-			return `Section "${warning.section}" has nothing in it. Assign lines to it, or remove it.`;
+			return `Section "${warning.section}" has nothing in it. Assign lines to it, or remove it with upsert_sections ("remove": ["${warning.section}"]).`;
 		case 'OversizedSection':
 			return `Section "${warning.section}" has ${warning.units} changed lines, more than ${warning.limit}. Consider splitting it so each part can be reviewed in one sitting.`;
 		case 'SplitChangeRun':
