@@ -2,8 +2,9 @@
  * A line of a file as the page draws it (DESIGN 8.3): its text in pieces, so
  * that what cannot be seen, or could fool the eye, is shown for what it is.
  *
- * - A tab is kept as a tab, marked so it can be told from spaces.
- * - White space at the end of a changed line is marked, as git marks it.
+ * - On a changed line, a tab is kept as a tab but marked, so it can be told
+ *   from spaces, and white space at the end is marked, as git marks it. An
+ *   unchanged line's are left alone, so the marks draw the eye to the change.
  * - A carriage return at the end, from a file with CRLF line endings, is shown
  *   as `\r`, so a change of line endings is not a change of nothing.
  * - Control characters, and characters that change how text is drawn without
@@ -34,13 +35,13 @@ function escapeOf(character: string): string {
 }
 
 /**
- * The pieces of a line. `markTrailing` marks white space at its end, for a
- * changed line; a context line's is left alone, as git leaves it.
+ * The pieces of a line. `changed` marks its tabs and the white space at its
+ * end; an unchanged line's are left alone, as git leaves them.
  */
-export function linePieces(text: LineText, markTrailing: boolean): readonly LinePiece[] {
+export function linePieces(text: LineText, changed: boolean): readonly LinePiece[] {
 	const pieces: LinePiece[] = [];
 	let end = text.length;
-	if (markTrailing) {
+	if (changed) {
 		let at = text.endsWith('\r') ? text.length - 1 : text.length;
 		while (at > 0 && (text.charAt(at - 1) === ' ' || text.charAt(at - 1) === '\t')) at -= 1;
 		end = at;
@@ -62,10 +63,10 @@ export function linePieces(text: LineText, markTrailing: boolean): readonly Line
 			} else pieces.push({ kind: 'trailing', text: character });
 			continue;
 		}
-		if (character === '\t') {
+		if (character === '\t' && changed) {
 			flush();
 			pieces.push({ kind: 'tab' });
-		} else if (HIDDEN.test(character)) {
+		} else if (character !== '\t' && HIDDEN.test(character)) {
 			flush();
 			pieces.push({ kind: 'escape', shown: escapeOf(character), character });
 		} else plain += character;

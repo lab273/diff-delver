@@ -40,8 +40,8 @@ describe('a line in pieces', () => {
 			{ kind: 'trailing', text: '  ' },
 			{ kind: 'escape', shown: '\\r', character: '\r' }
 		]);
-		// A context line's trailing white space is left alone.
-		expect(linePieces(text('a  '), false)).toEqual([{ kind: 'text', text: 'a  ' }]);
+		// A context line's tabs and trailing white space are left alone.
+		expect(linePieces(text('\ta  '), false)).toEqual([{ kind: 'text', text: '\ta  ' }]);
 	});
 
 	it('shows what cannot be seen, or turns text round, by its code', () => {

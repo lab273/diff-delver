@@ -1,10 +1,12 @@
 import { expect, test } from '../support/journey.ts';
 
-// J0 First run, as far as the first build step goes: the empty home page with
-// the one command to run, the command opening a repository's uncommitted
-// changes, and home listing them.
+// J0 First run, as far as this build step goes: the empty home page with the
+// one command to run, the command opening a repository's uncommitted changes,
+// reading a file, opening the unchanged lines around a change, ticking each
+// file with the keyboard and "next unread" until everything is reviewed, and
+// home showing it so.
 test.describe('J0 First run', () => {
-	test('a newcomer runs one command in a repository and reads the diff it opens', async ({
+	test('a newcomer runs one command in a repository and reviews the whole diff it opens', async ({
 		journey
 	}) => {
 		// The address `diff-delver serve` prints, before anything has been opened.
@@ -27,7 +29,7 @@ test.describe('J0 First run', () => {
 		const shop = await journey.repository('shop');
 		const run = await journey.command([], shop);
 		expect(run.output).toContain(
-			'Uncommitted changes in shop: 3 files changed, 11 lines added and 3 removed.'
+			'Uncommitted changes in shop: 4 files changed, 13 lines added and 4 removed.'
 		);
 		await journey.open(run.address);
 		expect(await journey.address()).toBe('/diffs/r_1');
@@ -38,18 +40,82 @@ test.describe('J0 First run', () => {
 			journey.byRole('status'),
 			'No changes in the repository since you opened it.'
 		);
-		const notSorted = journey.byRole('region', { name: /Not sorted yet/ });
-		await journey.expectVisible(journey.within(notSorted).byText('src/discount.ts'));
-		await journey.expectVisible(journey.within(notSorted).byText('src/cart.ts'));
-		// A new file only adds lines: its size says so and nothing more, as GitHub's does.
-		const added = await journey.textOf(
-			journey.nth(journey.within(notSorted).byRole('listitem'), 2)
+		// The overview: how far the review has got, every group, and one way to start.
+		const review = journey.byRole('complementary', { name: 'Your review' });
+		await journey.expectText(review, 'Not started: 14 changes to review');
+		await journey.expectText(review, '3 changes ignored, not counted');
+		const groups = journey.within(review).byRole('navigation', { name: 'Groups' });
+		await journey.expectText(groups, 'Not sorted yet');
+		await journey.expectText(groups, 'Ignored');
+		const notSorted = journey.byRole('region', { name: 'Not sorted yet' });
+		await journey.expectVisible(
+			journey.within(notSorted).byRole('button', { name: 'src/cart.ts', exact: true })
 		);
-		expect(added).toMatch(/^src\/discount\.ts\s+added\s+\+5\s+added$/);
-		const ignored = journey.byRole('region', { name: /Ignored/ });
-		await journey.expectVisible(journey.within(ignored).byText('pnpm-lock.yaml'));
+		const ignored = journey.byRole('region', { name: 'Ignored' });
 		await journey.expectVisible(journey.within(ignored).byText('Lockfile'));
 		await journey.step('The uncommitted changes');
+
+		// One obvious action: it goes to the first file to read and shows its lines.
+		await journey.activate(journey.byRole('button', { name: /^Start reviewing/ }));
+		const cart = journey.byRole('article', { name: 'src/cart.ts' });
+		await journey.expectFocused(
+			journey.within(cart).byRole('button', { name: 'src/cart.ts', exact: true })
+		);
+		await journey.expectVisible(
+			journey.within(cart).byText("import { discount } from './discount.ts';")
+		);
+		await journey.step('Reading a file');
+
+		// The shortcuts are listed, and Escape puts the list away again.
+		await journey.press('?');
+		const shortcuts = journey.byRole('dialog', { name: 'Keyboard shortcuts' });
+		await journey.expectVisible(shortcuts);
+		await journey.expectText(shortcuts, 'Go to the next file you have not reviewed');
+		await journey.step('The keyboard shortcuts');
+		await journey.press('Escape');
+		await journey.expectHidden(shortcuts);
+
+		// r marks the file reviewed and puts it away; n goes to the next one to read.
+		await journey.press('r');
+		await journey.expectState(
+			journey.within(cart).byRole('checkbox', { name: 'Reviewed: src/cart.ts' }),
+			{ checked: true }
+		);
+		await journey.expectText(review, '6 of 14 changes reviewed');
+		await journey.press('n');
+		const checkout = journey.byRole('article', { name: 'src/checkout.ts' });
+		await journey.expectFocused(
+			journey.within(checkout).byRole('button', { name: 'src/checkout.ts', exact: true })
+		);
+		await journey.expectVisible(journey.within(checkout).byText('16 unchanged lines'));
+
+		// The lines above the change, a step at a time, then the whole file, then only the change again.
+		await journey.activate(
+			journey.within(checkout).byRole('button', { name: 'Show all 16 unchanged lines above' })
+		);
+		await journey.expectVisible(journey.within(checkout).byText('export interface Order {'));
+		await journey.activate(
+			journey.within(checkout).byRole('button', { name: 'Show the whole file: src/checkout.ts' })
+		);
+		await journey.expectVisible(journey.within(checkout).byText('// End of checkout.'));
+		await journey.step('The whole file');
+		await journey.activate(
+			journey.within(checkout).byRole('button', { name: 'Show only the changes: src/checkout.ts' })
+		);
+		await journey.expectHidden(journey.within(checkout).byText('// End of checkout.'));
+		await journey.expectVisible(journey.within(checkout).byText('16 unchanged lines'));
+
+		await journey.press('r');
+		await journey.press('n');
+		const discount = journey.byRole('article', { name: 'src/discount.ts' });
+		await journey.expectFocused(
+			journey.within(discount).byRole('button', { name: 'src/discount.ts', exact: true })
+		);
+		await journey.press('r');
+		// The last one: the page says everything is reviewed, and moves there.
+		await journey.expectFocused(journey.byRole('heading', { name: 'Everything is reviewed' }));
+		await journey.expectText(review, 'Everything reviewed: 14 changes');
+		await journey.step('Everything is reviewed');
 
 		await journey.activate(journey.byRole('link', { name: 'See all your diffs' }));
 		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your diffs' }));
@@ -59,7 +125,7 @@ test.describe('J0 First run', () => {
 		);
 		await journey.expectText(listed, 'shop');
 		await journey.expectText(listed, 'Last active just now');
-		await journey.expectText(listed, 'Not started: 11 changes to review');
-		await journey.step('Home lists the diff');
+		await journey.expectText(listed, 'Everything reviewed: 14 changes');
+		await journey.step('Home lists the diff as reviewed');
 	});
 });

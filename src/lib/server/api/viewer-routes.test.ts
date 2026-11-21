@@ -54,7 +54,6 @@ describe('the viewer’s routes', () => {
 		expect(
 			page.groups.map((g) => [g.key.kind, g.parts.map((p) => [p.path, p.change, p.tally.units])])
 		).toEqual([
-			['ignored', [['pnpm-lock.yaml', 'changed', 2]]],
 			[
 				'uncategorised',
 				[
@@ -62,7 +61,8 @@ describe('the viewer’s routes', () => {
 					['src/long.ts', 'changed', 3],
 					['src/new.ts', 'added', 1]
 				]
-			]
+			],
+			['ignored', [['pnpm-lock.yaml', 'changed', 2]]]
 		]);
 		expect(page.files.map((f) => [f.path, f.tally.units, f.ignored])).toEqual([
 			['logo.png', 1, 0],

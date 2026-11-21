@@ -1,0 +1,158 @@
+<!--
+	The by-file view (DESIGN 8.2): every file of the diff once, in path order,
+	with how it changed, its size, how far its review has got, the groups its
+	parts are in (each a way to that part), and a tick for the whole file. The
+	direct answer to "is every file accounted for".
+-->
+<script lang="ts">
+	import type { FileView, GroupKeyView } from '#lib/api/schemas.ts';
+	import { describeTally } from '#lib/core/viewer/words.ts';
+	import DiffSize from '#lib/ui/DiffSize.svelte';
+	import { done, type Viewer } from './viewer.svelte.ts';
+
+	let {
+		viewer,
+		ontick,
+		ongo
+	}: {
+		viewer: Viewer;
+		ontick: (file: FileView, reviewed: boolean) => Promise<void>;
+		ongo: (path: string, group: GroupKeyView) => void;
+	} = $props();
+
+	const shown = $derived(
+		viewer.files.filter((f) => !viewer.onlyWaiting || (f.tally.units > 0 && !done(f.tally)))
+	);
+</script>
+
+<section class="by-file" aria-labelledby="by-file-heading">
+	<h2 id="by-file-heading" tabindex="-1">
+		Every file <span class="count">
+			{viewer.files.length === 1 ? '1 file' : `${viewer.files.length} files`}
+		</span>
+	</h2>
+	<p class="explain">Each file once, with where its changes are. Ticking a file marks all of it.</p>
+	{#if shown.length === 0}
+		<p class="explain">Every file is reviewed.</p>
+	{:else}
+		<ul class="files">
+			{#each shown as file (file.path)}
+				<li>
+					<span class="path">{file.path}</span>
+					<span class="change">{file.change}</span>
+					{#each file.parts as group, i (i)}
+						<a
+							class="chip"
+							href="#{viewer.groupWithKey(group)?.anchor ?? ''}"
+							aria-label="Go to {file.path} in {viewer.groupWithKey(group)?.name ??
+								'another group'}"
+							onclick={(event) => {
+								event.preventDefault();
+								ongo(file.path, group);
+							}}
+						>
+							{viewer.groupWithKey(group)?.name ?? 'another group'}
+						</a>
+					{/each}
+					<span class="size"><DiffSize added={file.added} removed={file.removed} /></span>
+					{#if file.tally.units === 0}
+						<span class="tally">Ignored, not counted</span>
+					{:else}
+						{#if !done(file.tally)}<span class="tally">{describeTally(file.tally)}</span>{/if}
+						<label class="tick">
+							<input
+								type="checkbox"
+								aria-label="Reviewed: {file.path}"
+								checked={done(file.tally)}
+								onchange={async (event) => {
+									const box = event.currentTarget;
+									await ontick(file, box.checked);
+									box.checked = done(
+										viewer.files.find((f) => f.path === file.path)?.tally ?? file.tally
+									);
+								}}
+							/>
+							Reviewed
+						</label>
+					{/if}
+				</li>
+			{/each}
+		</ul>
+	{/if}
+</section>
+
+<style>
+	h2 {
+		font-size: 1.125rem;
+		margin: 0 0 0.25rem;
+	}
+
+	.count {
+		color: var(--color-muted);
+		font-weight: 400;
+		font-size: 0.875rem;
+		margin-left: 0.5rem;
+	}
+
+	.explain {
+		margin: 0 0 0.5rem;
+		color: var(--color-muted);
+		font-size: 0.875rem;
+	}
+
+	.files {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		border: 1px solid var(--color-border);
+		border-radius: 6px;
+	}
+
+	li {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.25rem 0.75rem;
+		padding: 0.4rem 0.75rem;
+		font-size: 0.875rem;
+	}
+
+	li + li {
+		border-top: 1px solid var(--color-border);
+	}
+
+	.path {
+		font-family: var(--font-code);
+		font-weight: 700;
+		overflow-wrap: anywhere;
+	}
+
+	.change,
+	.tally {
+		color: var(--color-muted);
+	}
+
+	.chip {
+		border: 1px solid var(--color-border);
+		border-radius: 2rem;
+		padding: 0 0.5rem;
+		font-size: 0.75rem;
+	}
+
+	.size {
+		margin-left: auto;
+	}
+
+	.tick {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-weight: 700;
+	}
+
+	.tick input {
+		width: 1rem;
+		height: 1rem;
+		margin: 0;
+	}
+</style>

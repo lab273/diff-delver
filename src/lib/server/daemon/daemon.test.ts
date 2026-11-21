@@ -76,10 +76,10 @@ describe('the daemon', () => {
 		expect(page.directory).toBe(repo.dir);
 		expect(page.sorted).toBe(false);
 		expect(page.groups.map((g) => [g.key.kind, g.parts.map((p) => p.path)])).toEqual([
-			['ignored', ['package-lock.json']],
-			['uncategorised', ['src/a.ts', 'src/b.ts']]
+			['uncategorised', ['src/a.ts', 'src/b.ts']],
+			['ignored', ['package-lock.json']]
 		]);
-		expect(page.groups[0]?.parts[0]?.ignored).toEqual([{ kind: 'stated', text: 'Lockfile' }]);
+		expect(page.groups[1]?.parts[0]?.ignored).toEqual([{ kind: 'stated', text: 'Lockfile' }]);
 
 		const id = page.summary.id;
 		expect(value(await client.checkForChanges(id))).toEqual({ kind: 'unchanged' });

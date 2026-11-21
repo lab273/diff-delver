@@ -57,8 +57,8 @@ describe('sectionView', () => {
 			['section:beta', ['src/app.ts: h1[ceeeooc] h2[coc]'], 3],
 			['section:alpha', ['src/app.test.ts: h1[oooo]', 'src/app.ts: h1[coooeec]'], 7],
 			['section:empty', [], 0],
-			['ignored', [], 0],
-			['uncategorised', ['assets/logo.png: (file)'], 1]
+			['uncategorised', ['assets/logo.png: (file)'], 1],
+			['ignored', [], 0]
 		]);
 	});
 
@@ -96,8 +96,8 @@ describe('testsSeparateView', () => {
 		expect(outline(testsSeparateView(diff, state, [section('alpha')]))).toEqual([
 			['section:alpha', ['src/app.ts: h1[coooooc]'], 5],
 			['tests:alpha', ['src/app.test.ts: h1[oooo]', 'src/app.ts: h2[coc]'], 5],
-			['ignored', [], 0],
-			['uncategorised', ['assets/logo.png: (file)'], 1]
+			['uncategorised', ['assets/logo.png: (file)'], 1],
+			['ignored', [], 0]
 		]);
 		expect(JSON.stringify(outline(sectionView(diff, state)))).toBe(before);
 	});

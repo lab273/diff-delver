@@ -1,45 +1,76 @@
-import { expect, test } from '../support/journey.ts';
+import { CHECKOUT_CHANGED, expect, test } from '../support/journey.ts';
 
-// J8 The diff changes mid-review, as far as the pages go before the viewer:
-// the page says when the files have changed and changes nothing until asked;
-// Update brings the diff up to date and says what it did, and the file list
-// marks what is new; running the command again does the same, and a page left
-// open says it is out of date. When the changes are committed, the page keeps
-// showing the diff and offers the commit; a closed diff can be reopened.
+/** The checkout edited once more, two lines above the change already reviewed. */
+const CHECKOUT_EDITED_AGAIN = CHECKOUT_CHANGED.map((line, i) =>
+	i === 17 ? "\tconst items = count === 1 ? 'one item' : `${count} items`;" : line
+);
+
+// J8 The diff changes mid-review: the reviewer ticks two files, edits one of
+// them close to what they ticked, and updates. The new lines are marked new,
+// the tick near them was taken off and the page says why, the tick far away
+// was kept, and "Only what I have not reviewed" shows what is left. A tick
+// sent from a page that is behind changes nothing and says so. When the
+// changes are committed, the page keeps the diff and offers the commit; a
+// closed diff can be reopened.
 test.describe('J8 The diff changes mid-review', () => {
-	test('the diff is brought up to date on request, from the page or the command', async ({
-		journey
-	}) => {
+	test('ticks carry over an update unless something close to them changed', async ({ journey }) => {
 		const shop = await journey.repository('shop');
 		const first = await journey.command([], shop);
 		await journey.open(first.address);
 		const status = journey.byRole('status');
 		await journey.expectText(status, 'No changes in the repository since you opened it.');
+		const review = journey.byRole('complementary', { name: 'Your review' });
 
-		// The reviewer edits a file and comes back: the page says so and waits to be asked.
-		await journey.editFile(
-			shop,
-			'src/price.ts',
-			'export const price = (cents: number) => Math.round(cents) / 100;\n'
-		);
+		const cartTick = journey.byRole('checkbox', { name: 'Reviewed: src/cart.ts' });
+		const checkoutTick = journey.byRole('checkbox', { name: 'Reviewed: src/checkout.ts' });
+		await journey.activate(cartTick, 'Space');
+		await journey.expectState(cartTick, { checked: true });
+		await journey.activate(checkoutTick, 'Space');
+		await journey.expectState(checkoutTick, { checked: true });
+		await journey.expectText(review, '9 of 14 changes reviewed');
+
+		// The reviewer edits the checkout close to the change they ticked, and comes back.
+		await journey.editFile(shop, 'src/checkout.ts', `${CHECKOUT_EDITED_AGAIN.join('\n')}\n`);
 		await journey.returnToPage();
 		const changed = journey.byRole('region', { name: 'Your files have changed' });
 		await journey.expectText(changed, 'Update to see the 1 file that changed as they are now.');
-		await journey.expectText(journey.byRole('heading', { level: 1 }), 'Uncommitted changes');
 		await journey.step('The files have changed');
 
 		await journey.activate(journey.within(changed).byRole('button', { name: 'Update' }));
 		const updated = journey.byRole('region', { name: 'Updated to version 2 just now' });
-		await journey.expectText(updated, '1 file changed: 2 changes new to review.');
 		await journey.expectFocused(
 			journey.byRole('heading', { name: 'Updated to version 2 just now' })
 		);
 		await journey.expectText(status, 'No changes in the repository since this version was taken.');
-		const notSorted = journey.byRole('region', { name: /Not sorted yet/ });
-		await journey.expectVisible(journey.within(notSorted).byText('2 new changes since version 1'));
-		await journey.step('Updated to the files as they are now');
+		await journey.expectText(updated, '1 file changed: 2 changes new to review.');
+		// Far from the edit, the cart keeps its tick; the checkout's was taken off, and it says why.
+		await journey.expectState(cartTick, { checked: true });
+		await journey.expectState(checkoutTick, { checked: false });
+		const checkout = journey.byRole('article', { name: 'src/checkout.ts' });
+		await journey.expectText(
+			checkout,
+			'You had marked 2 changes here as reviewed. They are unmarked now because lines close to them changed in this version'
+		);
+		await journey.expectText(checkout, '2 new');
+		await journey.expectText(review, '7 of 16 changes reviewed');
+		await journey.tabTo(
+			journey.within(checkout).byRole('button', { name: 'src/checkout.ts', exact: true })
+		);
+		await journey.step('Updated: new lines marked and a tick taken off');
 
-		// Another edit, and the command run again: it updates, and says what it did.
+		// Only what is left: the cart, reviewed, is put out of the way.
+		await journey.press('u');
+		await journey.expectState(journey.byRole('button', { name: 'Only what I have not reviewed' }), {
+			pressed: true
+		});
+		await journey.expectHidden(journey.byRole('article', { name: 'src/cart.ts' }));
+		await journey.expectVisible(checkout);
+		await journey.expectVisible(journey.byRole('article', { name: 'src/discount.ts' }));
+		await journey.step('Only what is left to review');
+		await journey.press('u');
+
+		// The command updates the diff while the page is left on version 2: a tick
+		// sent from it changes nothing, and the page says so and offers the new version.
 		await journey.editFile(
 			shop,
 			'src/discount.ts',
@@ -47,20 +78,27 @@ test.describe('J8 The diff changes mid-review', () => {
 		);
 		const again = await journey.command([], shop);
 		expect(again.output).toContain(
-			'Uncommitted changes in shop, updated to your files as they are now (version 3). 1 file changed:'
+			'Uncommitted changes in shop, updated to your files as they are now (version 3).'
 		);
-		// The page left open notices when the reviewer comes back to it.
-		await journey.returnToPage();
+		const discountTick = journey.byRole('checkbox', { name: 'Reviewed: src/discount.ts' });
+		await journey.activate(discountTick, 'Space');
+		const discount = journey.byRole('article', { name: 'src/discount.ts' });
+		await journey.expectText(
+			journey.within(discount).byRole('alert'),
+			'Nothing was marked. This diff was updated to version 3 after you last looked at it'
+		);
+		await journey.expectState(discountTick, { checked: false });
 		const newer = journey.byRole('region', { name: 'This diff has a newer version' });
 		await journey.expectText(newer, 'It was updated to version 3 while this page was open');
-		await journey.step('A newer version is waiting');
+		await journey.step('A tick from a page that is behind');
 
-		await journey.open(again.address);
-		await journey.expectVisible(
-			journey.byRole('region', { name: 'Updated to version 3 just now' })
+		// Where the tick was refused, the way to the new version is at hand.
+		await journey.activate(
+			journey.within(discount).byRole('button', { name: 'Show the new version' })
 		);
-		await journey.expectText(status, 'No changes in the repository since this version was taken.');
-		await journey.step('The command updated it');
+		await journey.expectFocused(
+			journey.byRole('heading', { name: 'Updated to version 3 just now' })
+		);
 
 		// The changes are committed: the page keeps the diff and offers the commit.
 		await journey.commitAll(shop, 'Round prices and add discounts');
@@ -72,7 +110,6 @@ test.describe('J8 The diff changes mid-review', () => {
 				.within(nothing)
 				.byRole('button', { name: /^Review commit [0-9a-f]{7}, “Round prices and add discounts”$/ })
 		);
-		await journey.expectVisible(journey.within(notSorted).byText('src/price.ts'));
 		await journey.step('Nothing is left to review');
 
 		await journey.activate(journey.within(nothing).byRole('button', { name: 'Close this diff' }));

@@ -1,0 +1,424 @@
+<!--
+	One part's lines, as GitHub draws a unified diff: a table with the line
+	numbers of both sides, a + or − beside each changed line so colour is never
+	the only sign, its code, and between hunks the unchanged lines that are
+	hidden, with what opens them. Changes that belong to another group are muted
+	and say where they are; lines new since the previous version say so.
+-->
+<script lang="ts">
+	import type { GroupKeyView, ShownLineView } from '#lib/api/schemas.ts';
+	import type { BlockState, Viewer } from './viewer.svelte.ts';
+	import { hiddenCount, nextStep } from './viewer.svelte.ts';
+	import { drawLine } from './draw-line.ts';
+	import { countOf } from '#lib/core/viewer/words.ts';
+
+	let {
+		viewer,
+		at,
+		blocks,
+		path,
+		previousVersion,
+		ongo
+	}: {
+		viewer: Viewer;
+		at: number;
+		blocks: BlockState[];
+		path: string;
+		/** The version before this one, for "new since version 1"; null for a first version. */
+		previousVersion: number | null;
+		/** Goes to the part of this file in another group. */
+		ongo: (group: GroupKeyView) => void;
+	} = $props();
+
+	const hasFresh = $derived(
+		blocks.some(
+			(b) =>
+				b.kind === 'hunk' &&
+				b.lines.some((l) => l.kind !== 'context' && l.home.kind === 'here' && l.home.fresh)
+		)
+	);
+	const columns = $derived(hasFresh ? 5 : 4);
+
+	function name(group: GroupKeyView): string {
+		return viewer.groupWithKey(group)?.name ?? 'another group';
+	}
+
+	/** A run of changes that belong to another group starts here: say where, once. */
+	function startsElsewhere(lines: readonly ShownLineView[], i: number): GroupKeyView | undefined {
+		const line = lines[i];
+		if (line === undefined || line.kind === 'context' || line.home.kind !== 'elsewhere')
+			return undefined;
+		const before = lines[i - 1];
+		if (
+			before !== undefined &&
+			before.kind !== 'context' &&
+			before.home.kind === 'elsewhere' &&
+			JSON.stringify(before.home.group) === JSON.stringify(line.home.group)
+		)
+			return undefined;
+		return line.home.group;
+	}
+
+	function isFresh(line: ShownLineView): boolean {
+		return line.kind !== 'context' && line.home.kind === 'here' && line.home.fresh;
+	}
+
+	function isElsewhere(line: ShownLineView): boolean {
+		return line.kind !== 'context' && line.home.kind === 'elsewhere';
+	}
+</script>
+
+{#snippet row(line: ShownLineView)}
+	<tr class={line.kind} class:elsewhere={isElsewhere(line)} class:fresh={isFresh(line)}>
+		<td class="number">{line.kind === 'added' ? '' : line.old}</td>
+		<td class="number">{line.kind === 'deleted' ? '' : line.new}</td>
+		{#if hasFresh}
+			<td class="badge">
+				{#if isFresh(line)}<span class="new">
+						new<span class="visually-hidden"> since version {previousVersion}</span>
+					</span>{/if}
+			</td>
+		{/if}
+		<td class="marker">
+			{#if line.kind === 'added'}<span aria-hidden="true">+</span><span class="visually-hidden">
+					Added
+				</span>{:else if line.kind === 'deleted'}<span aria-hidden="true">−</span><span
+					class="visually-hidden"
+				>
+					Removed
+				</span>{/if}
+		</td>
+		<td class="code" use:drawLine={{ text: line.text, changed: line.kind !== 'context' }}></td>
+	</tr>
+	{#if line.noNewlineAtEnd}
+		<tr class="note">
+			<td class="number"></td>
+			<td class="number"></td>
+			<td colspan={columns - 2} class="eof">No newline at end of file</td>
+		</tr>
+	{/if}
+{/snippet}
+
+{#snippet lines(shown: readonly ShownLineView[])}
+	{#each shown as line, i (i)}
+		{@const elsewhere = startsElsewhere(shown, i)}
+		{#if elsewhere !== undefined}
+			<tr class="note">
+				<td colspan={columns} class="where">
+					Shown in <a
+						href="#{viewer.groupWithKey(elsewhere)?.anchor ?? ''}"
+						aria-label="Go to {path} in {name(elsewhere)}"
+						onclick={(event) => {
+							event.preventDefault();
+							ongo(elsewhere);
+						}}
+					>
+						{name(elsewhere)}
+					</a>
+				</td>
+			</tr>
+		{/if}
+		{@render row(line)}
+	{/each}
+{/snippet}
+
+{#snippet opened(line: { old: number; new: number; text: ShownLineView['text'] })}
+	<tr class="context opened">
+		<td class="number">{line.old}</td>
+		<td class="number">{line.new}</td>
+		{#if hasFresh}<td class="badge"></td>{/if}
+		<td class="marker"></td>
+		<td class="code" use:drawLine={{ text: line.text, changed: false }}></td>
+	</tr>
+{/snippet}
+
+<table class="lines" aria-label="Lines of {path}">
+	<colgroup>
+		<col class="number-column" />
+		<col class="number-column" />
+		{#if hasFresh}<col class="badge-column" />{/if}
+		<col class="marker-column" />
+		<col />
+	</colgroup>
+	<thead class="visually-hidden">
+		<tr>
+			<th scope="col">Line before</th>
+			<th scope="col">Line after</th>
+			{#if hasFresh}<th scope="col">New</th>{/if}
+			<th scope="col">Change</th>
+			<th scope="col">Code</th>
+		</tr>
+	</thead>
+	<tbody>
+		{#each blocks as block, b (b)}
+			{#if block.kind === 'hidden'}
+				{@const left = hiddenCount(block)}
+				{@const isTop = b === 0}
+				{@const isEnd = b === blocks.length - 1}
+				{#each block.top as line (line.new)}{@render opened(line)}{/each}
+				{#if left > 0}
+					{@const down = nextStep(block, 'down')}
+					{@const up = nextStep(block, 'up')}
+					{@const heading = blocks[b + 1]?.kind === 'hunk' ? blocks[b + 1] : undefined}
+					<tr class="hidden">
+						<td colspan={columns}>
+							<div class="hidden-row">
+								<span class="hidden-count">
+									{countOf(left, 'unchanged line', 'unchanged lines')}
+								</span>
+								{#if !isTop && down !== undefined && left > 20}
+									<button
+										type="button"
+										class="open"
+										disabled={block.busy}
+										aria-label="Show unchanged lines {down.first} to {down.last}"
+										onclick={() => viewer.openLines(at, b, 'down')}
+									>
+										↓ 20 more
+									</button>
+								{/if}
+								{#if !isEnd && up !== undefined && left > 20}
+									<button
+										type="button"
+										class="open"
+										disabled={block.busy}
+										aria-label="Show unchanged lines {up.first} to {up.last}"
+										onclick={() => viewer.openLines(at, b, 'up')}
+									>
+										↑ 20 more
+									</button>
+								{/if}
+								<button
+									type="button"
+									class="open"
+									disabled={block.busy}
+									aria-label="Show all {countOf(left, 'unchanged line', 'unchanged lines')}{isTop
+										? ' above'
+										: isEnd
+											? ' below'
+											: ''}"
+									onclick={() => viewer.openLines(at, b, 'all')}
+								>
+									Show all
+								</button>
+								{#if heading !== undefined && heading.kind === 'hunk' && heading.heading !== ''}
+									<code class="heading" use:drawLine={{ text: heading.heading, changed: false }}
+									></code>
+								{/if}
+							</div>
+							{#if block.problem !== ''}<p class="problem" role="alert">{block.problem}</p>{/if}
+						</td>
+					</tr>
+				{/if}
+				{#each block.bottom as line (line.new)}{@render opened(line)}{/each}
+			{:else if block.kind === 'hunk'}
+				{@render lines(block.lines)}
+			{:else}
+				{@const changed = block.lines.filter((l) => l.kind !== 'context').length}
+				<tr class="hidden">
+					<td colspan={columns}>
+						<div class="hidden-row">
+							<span class="hidden-count">
+								{countOf(changed, 'changed line', 'changed lines')} here {changed === 1
+									? 'is'
+									: 'are'} shown in
+								{#each block.groups as group, g (g)}{g > 0 ? ', ' : ''}<a
+										href="#{viewer.groupWithKey(group)?.anchor ?? ''}"
+										aria-label="Go to {path} in {name(group)}"
+										onclick={(event) => {
+											event.preventDefault();
+											ongo(group);
+										}}
+									>
+										{name(group)}
+									</a>{/each}
+							</span>
+							<button
+								type="button"
+								class="open"
+								aria-expanded={block.shown}
+								onclick={() => {
+									block.shown = !block.shown;
+								}}
+							>
+								{block.shown ? 'Hide them here' : 'Show them here'}
+							</button>
+						</div>
+					</td>
+				</tr>
+				{#if block.shown}{@render lines(block.lines)}{/if}
+			{/if}
+		{/each}
+	</tbody>
+</table>
+
+<style>
+	.lines {
+		width: 100%;
+		font-variant-ligatures: none;
+		font-feature-settings:
+			'calt' 0,
+			'liga' 0;
+		border-collapse: collapse;
+		table-layout: fixed;
+		font-family: var(--font-code);
+		font-size: 0.8125rem;
+		line-height: 1.25rem;
+	}
+
+	.number-column {
+		width: 3.5rem;
+	}
+
+	.badge-column {
+		width: 2.75rem;
+	}
+
+	.marker-column {
+		width: 1.5rem;
+	}
+
+	td {
+		padding: 0;
+		vertical-align: top;
+	}
+
+	.number {
+		width: 3.5rem;
+		padding: 0 0.5rem;
+		text-align: right;
+		color: var(--color-muted);
+		user-select: none;
+	}
+
+	.badge {
+		width: 2.5rem;
+		text-align: center;
+	}
+
+	.new {
+		font-family: var(--font-body);
+		font-size: 0.6875rem;
+		font-weight: 700;
+		color: var(--color-accent);
+		border: 1px solid var(--color-accent);
+		border-radius: 1rem;
+		padding: 0 0.3rem;
+		line-height: 1rem;
+	}
+
+	.marker {
+		width: 1.5rem;
+		text-align: center;
+		user-select: none;
+	}
+
+	.code {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		tab-size: 4;
+		padding-right: 0.75rem;
+	}
+
+	.added {
+		background: var(--color-diff-added);
+	}
+
+	.added .number,
+	.added .marker {
+		background: var(--color-diff-added-gutter);
+		color: var(--color-text);
+	}
+
+	.deleted {
+		background: var(--color-diff-removed);
+	}
+
+	.deleted .number,
+	.deleted .marker {
+		background: var(--color-diff-removed-gutter);
+		color: var(--color-text);
+	}
+
+	.elsewhere,
+	.elsewhere .number,
+	.elsewhere .marker {
+		background: var(--color-subtle);
+		color: var(--color-muted);
+	}
+
+	.fresh .badge {
+		box-shadow: inset 3px 0 0 var(--color-accent);
+	}
+
+	.note td {
+		font-family: var(--font-body);
+		font-size: 0.75rem;
+		color: var(--color-muted);
+	}
+
+	.where {
+		padding: 0.1rem 0.75rem;
+		background: var(--color-subtle);
+	}
+
+	.eof {
+		font-style: italic;
+	}
+
+	.hidden td {
+		background: var(--color-info-background);
+		font-family: var(--font-body);
+		font-size: 0.8125rem;
+		color: var(--color-muted);
+	}
+
+	.hidden-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.25rem 0.75rem;
+		padding: 0.2rem 0.75rem;
+	}
+
+	.open {
+		padding: 0 0.5rem;
+		font-size: 0.75rem;
+	}
+
+	.heading {
+		font-size: 0.75rem;
+		color: var(--color-text);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+
+	.problem {
+		margin: 0;
+		padding: 0.2rem 0.75rem;
+		color: var(--color-removed);
+	}
+	.code :global(.tab) {
+		position: relative;
+	}
+
+	.code :global(.tab)::before {
+		content: '»';
+		position: absolute;
+		left: 0;
+		color: var(--color-muted);
+		opacity: 0.6;
+	}
+
+	.code :global(.trailing) {
+		background: var(--color-danger-background);
+		box-shadow: inset 0 -2px 0 var(--color-removed);
+	}
+
+	.lines :global(.escape) {
+		border: 1px solid var(--color-border);
+		border-radius: 3px;
+		padding: 0 1px;
+		color: var(--color-muted);
+	}
+</style>

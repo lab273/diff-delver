@@ -9,6 +9,11 @@
 	--color-focus: #0969da;
 	--color-added: #1a7f37;
 	--color-removed: #d1242f;
+	/* A unified diff's rows and their line numbers, as GitHub colours them. */
+	--color-diff-added: #e6ffec;
+	--color-diff-added-gutter: #ccffd8;
+	--color-diff-removed: #ffebe9;
+	--color-diff-removed-gutter: #ffd7d5;
 	--color-attention-background: #fff8c5;
 	--color-attention-border: #d4a72c;
 	--color-danger-background: #ffebe9;
@@ -20,6 +25,10 @@
 	--color-button-hover: #eff2f5;
 	--color-danger-button: #cf222e;
 	--color-on-danger-button: #ffffff;
+	--color-primary-button: #1f883d;
+	--color-primary-button-hover: #1c8139;
+	--color-on-primary-button: #ffffff;
+	--color-selected-button: #ddf4ff;
 	/*
 	 * Only the fonts bundled with the app (src/routes/+layout.svelte imports them),
 	 * so text looks the same on every machine and the journey screenshots are
@@ -40,6 +49,10 @@
 		--color-focus: #1f6feb;
 		--color-added: #3fb950;
 		--color-removed: #f85149;
+		--color-diff-added: #2ea04326;
+		--color-diff-added-gutter: #3fb9504d;
+		--color-diff-removed: #f851491a;
+		--color-diff-removed-gutter: #f851494d;
 		--color-attention-background: #bb800926;
 		--color-attention-border: #bb800966;
 		--color-danger-background: #f8514926;
@@ -51,6 +64,10 @@
 		--color-button-hover: #262c36;
 		--color-danger-button: #da3633;
 		--color-on-danger-button: #ffffff;
+		--color-primary-button: #238636;
+		--color-primary-button-hover: #29903b;
+		--color-on-primary-button: #ffffff;
+		--color-selected-button: #388bfd26;
 	}
 }
 

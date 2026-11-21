@@ -52,18 +52,18 @@ describe('the frame', () => {
 		const state = autoIgnore(diff, initialState(diff)).state;
 		const frame = frameOf(diff, state, NOTHING, 'sections', []);
 		expect(shape(frame)).toEqual([
-			['ignored', [['pnpm-lock.yaml', 'added', 3, 0, '1/1']]],
 			[
 				'uncategorised',
 				[
 					['assets/logo.png', 'changed, binary file', 0, 0, '1/1'],
 					['src/app.ts', 'changed', 4, 2, '1/1']
 				]
-			]
+			],
+			['ignored', [['pnpm-lock.yaml', 'added', 3, 0, '1/1']]]
 		]);
-		expect(frame.groups[0]?.parts[0]?.ignored).toEqual([{ kind: 'stated', text: 'Lockfile' }]);
+		expect(frame.groups[1]?.parts[0]?.ignored).toEqual([{ kind: 'stated', text: 'Lockfile' }]);
 		// The image is one change, the change to the file itself.
-		expect(frame.groups[1]?.parts[0]?.fileUnit).toBe('changed, binary file');
+		expect(frame.groups[0]?.parts[0]?.fileUnit).toBe('changed, binary file');
 		expect(frame.overall.units).toBe(7);
 		expect(frame.ignored.units).toBe(3);
 		expect(frame.files.map((f) => [f.file.file.path, f.tally.units, f.ignored])).toEqual([
@@ -83,17 +83,17 @@ describe('the frame', () => {
 			['section:alpha', [['src/app.ts', 'changed', 1, 2, '1/2']]],
 			// A section is listed even when nothing is in it.
 			['section:empty', []],
-			['ignored', [['assets/logo.png', 'changed, binary file', 0, 0, '1/1']]],
 			[
 				'uncategorised',
 				[
 					['pnpm-lock.yaml', 'added', 3, 0, '1/1'],
 					['src/app.ts', 'changed', 3, 0, '2/2']
 				]
-			]
+			],
+			['ignored', [['assets/logo.png', 'changed, binary file', 0, 0, '1/1']]]
 		]);
 		expect(frame.groups[0]?.parts[0]?.others.map(named)).toEqual(['uncategorised']);
-		expect(frame.groups[2]?.parts[0]?.ignored).toEqual([
+		expect(frame.groups[3]?.parts[0]?.ignored).toEqual([
 			{ kind: 'agent', reason: 'Re-exported by the build' }
 		]);
 	});

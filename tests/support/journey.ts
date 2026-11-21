@@ -40,6 +40,7 @@
  * playwright.config.ts, fonts come only from the app, and the page's clock is
  * fixed here.
  */
+import type { ConsoleMessage } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -77,6 +78,8 @@ export { expect };
 
 /** The time the page's clock, and the daemon's, show for the whole journey. */
 export { JOURNEY_TIME };
+/** The shop's checkout as its uncommitted changes leave it, for a journey that edits it again. */
+export { CHECKOUT_CHANGED } from './journey-world.ts';
 
 /** The only font families text may be drawn in: the ones bundled with the app. */
 const BUNDLED_FONTS: readonly string[] = ['Inter', 'JetBrains Mono'];
@@ -575,6 +578,26 @@ async function checkScreenshot(
 	);
 }
 
+/**
+ * The browser's own note that the app's API refused a request (4xx), such as a
+ * tick sent for a version the diff has moved on from. The app expects such an
+ * answer and says it in place, so it is not an error of the page; anything
+ * else in the console, a 5xx from the API included, still is.
+ */
+function isExpectedRefusal(message: ConsoleMessage): boolean {
+	let path: string;
+	try {
+		path = new URL(message.location().url).pathname;
+	} catch {
+		return false;
+	}
+	return (
+		/^Failed to load resource: the server responded with a status of 4\d\d\b/.test(
+			message.text()
+		) && path.startsWith('/api/')
+	);
+}
+
 /** How a journey's steps treat their screenshots. */
 export interface JourneyOptions {
 	/**
@@ -613,7 +636,8 @@ export async function startJourney(
 	// The app may copy to the clipboard, as a person lets it, and the journey read it back.
 	await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
 	page.on('console', (message) => {
-		if (message.type() === 'error') browserErrors.push(`console error: ${message.text()}`);
+		if (message.type() !== 'error' || isExpectedRefusal(message)) return;
+		browserErrors.push(`console error: ${message.text()}`);
 	});
 	page.on('pageerror', (error) => {
 		browserErrors.push(`uncaught error: ${error.message}`);

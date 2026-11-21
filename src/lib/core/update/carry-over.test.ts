@@ -507,8 +507,8 @@ describe('carry-over', () => {
 			g.parts.map((p) => [g.key.kind, p.file.file.path, p.tally.fresh])
 		);
 		expect(listed).toEqual([
-			['ignored', 'pnpm-lock.yaml', 1],
-			['uncategorised', 'app.ts', 2]
+			['uncategorised', 'app.ts', 2],
+			['ignored', 'pnpm-lock.yaml', 1]
 		]);
 	});
 

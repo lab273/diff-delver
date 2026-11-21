@@ -53,9 +53,63 @@ function root(): string {
 
 const lines = (...text: readonly string[]): string => `${text.join('\n')}\n`;
 
+/** The shop's checkout, 40 lines long: long enough to have unchanged lines to open. */
+const CHECKOUT = [
+	"import { total } from './cart.ts';",
+	'',
+	'export interface Order {',
+	'\treadonly items: readonly number[];',
+	'\treadonly code?: string;',
+	'\treadonly address: string;',
+	'}',
+	'',
+	'export function validate(order: Order): string[] {',
+	'\tconst problems: string[] = [];',
+	"\tif (order.items.length === 0) problems.push('The basket is empty.');",
+	"\tif (order.address.trim() === '') problems.push('There is no address.');",
+	'\treturn problems;',
+	'}',
+	'',
+	'export function summary(order: Order): string {',
+	'\tconst count = order.items.length;',
+	"\tconst items = count === 1 ? '1 item' : `${count} items`;",
+	'\tconst sum = total(order.items, order.code);',
+	'\treturn `${items}, ${sum.toFixed(2)}`;',
+	'}',
+	'',
+	'export function receipt(order: Order): string[] {',
+	'\treturn [',
+	"\t\t'Thank you for your order.',",
+	'\t\tsummary(order),',
+	'\t\t`Sent to ${order.address}`',
+	'\t];',
+	'}',
+	'',
+	'export function canPay(order: Order): boolean {',
+	'\treturn validate(order).length === 0;',
+	'}',
+	'',
+	'export function pay(order: Order): string[] {',
+	'\tif (!canPay(order)) return validate(order);',
+	"\tconsole.log('Paying', summary(order));",
+	'\treturn receipt(order);',
+	'}',
+	'// End of checkout.'
+];
+
+/** The checkout as the shop's uncommitted changes leave it: the summary says when a code was used. */
+export const CHECKOUT_CHANGED = CHECKOUT.flatMap((line, i) =>
+	i === 19
+		? [
+				"\tconst saved = order.code === undefined ? '' : ` with ${order.code}`;",
+				'\treturn `${items}, ${sum.toFixed(2)}${saved}`;'
+			]
+		: [line]
+);
+
 /** The repositories a journey can ask for, by name. */
 export const JOURNEY_REPOSITORIES = {
-	/** A committed shop, with uncommitted changes: an edit, a new file and a lockfile. */
+	/** A committed shop, with uncommitted changes: two edits, one in a longer file, a new file and a lockfile. */
 	shop: defineFixture('shop', async (repo) => {
 		await repo.write('README.md', lines('# Shop', '', 'A small shop.'));
 		await repo.write(
@@ -70,7 +124,9 @@ export const JOURNEY_REPOSITORIES = {
 		);
 		await repo.write('src/price.ts', lines('export const price = (cents: number) => cents / 100;'));
 		await repo.write('pnpm-lock.yaml', lines("lockfileVersion: '9.0'", 'packages: {}'));
+		await repo.write('src/checkout.ts', lines(...CHECKOUT));
 		await repo.commit('A small shop');
+		await repo.write('src/checkout.ts', lines(...CHECKOUT_CHANGED));
 		await repo.write(
 			'src/cart.ts',
 			lines(
@@ -120,6 +176,55 @@ export const JOURNEY_REPOSITORIES = {
 		await repo.git('checkout', '--quiet', '-b', 'discounts');
 		await repo.write('src/discount.ts', lines('export const rate = 0.1;'));
 		await repo.commit('Add the discount rate');
+	}),
+
+	/**
+	 * Every awkward kind of change, uncommitted: a file renamed and one made
+	 * executable with nothing else changed, a binary image changed, a file with
+	 * tabs, trailing spaces, CRLF endings, a control character, a character that
+	 * turns text round, markup, a very long line and no newline at the end, a
+	 * generated data file too large to draw at once, a new file whose name is not
+	 * valid UTF-8, and a lockfile.
+	 */
+	assorted: defineFixture('assorted', async (repo) => {
+		await repo.write('src/old-name.ts', lines('export const name = "moved";'));
+		await repo.write('scripts/build.sh', lines('#!/bin/sh', 'echo building'));
+		await repo.write('assets/logo.png', new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3]));
+		await repo.write('notes/odd.txt', lines('A note.', 'Nothing odd yet.'));
+		await repo.write('package-lock.json', lines('{ "lockfileVersion": 3 }'));
+		await repo.commit('Start');
+		await repo.move('src/old-name.ts', 'src/new-name.ts');
+		await repo.setExecutable('scripts/build.sh', true);
+		await repo.write(
+			'assets/logo.png',
+			new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 9, 8, 7, 6, 5, 4, 3, 2, 1])
+		);
+		await repo.write(
+			'notes/odd.txt',
+			[
+				'A note.\r',
+				'\tIndented with a tab, and two spaces after it.  \r',
+				'<b>Not bold</b> &amp; not an entity, a bell \u0007 and \u202Ereversed\u202C text.\r',
+				`A very long line: ${Array.from({ length: 40 }, (_, i) => `word${String(i + 1)}`).join(' ')}.\r`,
+				'No newline after this line.'
+			].join('\n')
+		);
+		await repo.write(
+			'data/prices.csv',
+			lines(
+				'sku,price',
+				...Array.from({ length: 900 }, (_, i) => `item-${String(i + 1)},${String(i % 97)}.99`)
+			)
+		);
+		await repo.writeRaw(
+			new Uint8Array([
+				...new TextEncoder().encode('notes/caf'),
+				0xe9,
+				...new TextEncoder().encode('.txt')
+			]),
+			lines('Saved by an editor that wrote its name in Latin-1.')
+		);
+		await repo.write('package-lock.json', lines('{ "lockfileVersion": 3, "packages": {} }'));
 	}),
 
 	/** On main, with nothing uncommitted and no other branch: nothing new to review. */

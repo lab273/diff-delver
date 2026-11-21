@@ -76,9 +76,10 @@ export interface Group {
 }
 
 /**
- * Every group of a view in reading order: the sections in the order given (then
- * any others the state uses, in file order), in the tests-separate view the
- * non-empty test groups in the same order, then Ignored and Uncategorised.
+ * Every group of a view in reading order (DESIGN 8.2): the sections in the order
+ * given (then any others the state uses, in file order), in the tests-separate
+ * view the non-empty test groups in the same order, then Uncategorised, which
+ * still needs reading, and last Ignored, which does not.
  * Sections are listed even when empty; test groups only when not.
  */
 export interface View {
@@ -143,7 +144,7 @@ interface Building {
 /**
  * Groups in reading order (see `View`): the sections in the order given, then
  * any others in the order they come in `items`, then the test groups in the
- * same section order, then Ignored and Uncategorised. `items` in file order
+ * same section order, then Uncategorised and Ignored. `items` in file order
  * gives the order the views show.
  */
 export function inReadingOrder<T>(
@@ -170,9 +171,9 @@ export function inReadingOrder<T>(
 				return sectionOrder.get(key.section) ?? 0;
 			case 'tests':
 				return sectionOrder.size + (sectionOrder.get(key.section) ?? 0);
-			case 'ignored':
-				return 2 * sectionOrder.size;
 			case 'uncategorised':
+				return 2 * sectionOrder.size;
+			case 'ignored':
 				return 2 * sectionOrder.size + 1;
 		}
 	};
