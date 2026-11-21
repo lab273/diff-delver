@@ -127,7 +127,10 @@ Commands:
 - `diff-delver setup` connects the MCP server and the skill to the coding agents
   it finds on the machine and says what it did. One command, run once.
 - `diff-delver mcp` is what agents launch. It starts the daemon if needed and
-  proxies stdio MCP to `/mcp`. Clients that speak HTTP MCP can connect directly.
+  proxies stdio MCP to `/mcp`, telling the daemon which folder it was started in.
+  `/mcp` keeps no session, so when the daemon stops or is replaced the shim finds
+  or starts it again and sends the message again; the agent never notices. Clients
+  that speak HTTP MCP can connect directly.
 - `diff-delver serve` runs the daemon in the foreground.
 
 ### 3.1 Every source becomes two git trees
@@ -446,19 +449,19 @@ Reading:
 
 | Tool | Purpose |
 |---|---|
-| `create_report(source, title?)` | Snapshot a source and return the report id, URL, file counts and what was auto-ignored. Calling it again for the same source returns the existing report. |
+| `create_report(source?)` | Snapshot a source of the repository the agent was started in and return the report id, an address for the person, file counts and what was auto-ignored. Calling it again for the same source returns the same report, brought up to date. With no source it opens what the no-argument command would, or lists the choices. |
 | `list_reports()` | Find reports to resume. |
-| `get_manifest(report)` | Every file with status, line counts, hunk ids, guessed role and current buckets. Small; read first. |
+| `get_manifest(report, cursor?)` | A summary, the sections in reading order, then every file with status, line counts, hunk ids, guessed role and current buckets, paged. Read first. |
 | `get_diff(report, files?, only_uncategorised?, cursor?)` | The diff as labelled text (`+40`, `-38`, hunk ids), paged by size. |
-| `get_file(report, path, side, range?)` | Any file from either tree, for context. |
+| `get_file(report, path, side?, lines?)` | Lines of any file from either tree, for context, a thousand at a time; a folder's path (`.` for the root) lists what is in it. No file larger than 8 MiB is read. |
 
 Writing:
 
 | Tool | Purpose |
 |---|---|
-| `set_overview(report, markdown)` | What the change does, in reading order. |
-| `upsert_sections(report, sections[])` | Create, retitle, summarise and reorder sections, and set each section's cross-references to lines that live elsewhere. |
-| `assign(report, items[])` | Put change lines in a section or in `ignored` (with a reason), and optionally set a role. An item names a file, a glob, hunk ids or line ranges. Returns what was accepted, what was rejected and how many lines remain. |
+| `set_overview(report, version, markdown)` | What the change does, in reading order. |
+| `upsert_sections(report, version, sections[], order?, remove?)` | Create, retitle, summarise and reorder sections, set each section's cross-references to lines that live elsewhere, and remove sections that hold nothing. A report has at most 50 sections. All or nothing. |
+| `assign(report, version, items[])` | Put change lines in a section or in `ignored` (with a reason), and optionally set a role. An item names a file, a glob, hunk ids or line ranges. Returns what each item took, what it moved out of another place, what was rejected and how many lines remain. |
 | `get_coverage(report)` | What is still uncategorised, plus warnings: empty sections, oversized sections, split change runs, tests with no section. |
 | `add_notes(report, notes[])` | Labelled agent notes on line ranges. |
 
@@ -498,6 +501,40 @@ shown with its odd bytes escaped, and the agent addresses it in that escaped for
 The report is a draft until `get_coverage` shows nothing uncategorised. The UI can
 be opened at any time and shows the draft state.
 
+**Versions.** Every reading answer starts with the report and its version, and
+every write carries the version the agent read. A write on a version that is no
+longer the newest is refused, saying the diff changed and to read the manifest
+again, so an agent never sorts lines it has not seen. Paging cursors carry the
+version too.
+
+**Which repository.** `create_report` takes no folder. It opens the repository of
+the folder the agent was started in, which `diff-delver mcp` names to the daemon
+and the agent cannot change. An agent never makes diff delver run git anywhere
+else. For another repository, the person starts the agent there, or runs
+`diff-delver` there themselves. Reports already in the data folder can be read and
+sorted from their stored snapshots, which runs nothing in their working folders.
+
+**Answers.** The reader is a model that has read nothing else, so every answer
+says what happened and what to do next, and every refusal says what was wrong with
+the call, in terms of the call, and what to send instead. No answer is longer than
+about 60,000 characters whatever the diff's size: the manifest and the diff come in
+pages with a cursor that names a place in the whole diff, so sorting between pages
+never skips a file, and every list stops short of the page and says how many more
+there are, so the cursor and the next step are never the part cut off. Text from
+the repository or from an agent that an answer repeats (paths, titles, reasons,
+code) is escaped or quoted so it stays on its line and cannot pass for diff
+delver's own words; characters that cannot be seen or that turn text round are
+written as escapes, as on the page.
+
+**Sent twice.** Agents retry, and the shim sends a message again when the daemon
+was replaced, so every write sent twice is harmless and answers as a success.
+
+**The browser.** When an agent first creates a report, diff delver opens it in the
+person's browser, as the command does, at most one window for a session of
+`diff-delver mcp` (none when it was started with `--no-open`). Every `create_report`
+answer also carries an address of its own, which works once, within two minutes;
+calling `create_report` again gives a fresh one.
+
 ### 7.2 Reviewer requests
 
 From any line range, file or section the reviewer can ask the agent something.
@@ -516,8 +553,10 @@ the agent to call again.
 
 ### 7.3 The skill
 
-`skills/diff-delver/SKILL.md`, in the Agent Skills format, also packaged as a
-Claude Code plugin together with the MCP configuration. Outline:
+`skills/diff-delver/SKILL.md`, in the Agent Skills format. Its one copy lives in
+the Claude Code plugin (`plugins/claude-code/`), which packages it together with the
+MCP configuration; `skills/diff-delver` is a link to it. It describes only the tools
+that exist, and grows with them. Outline:
 
 1. Work out the source from the user's request and call `create_report`. Give the
    user the URL straight away.
@@ -695,7 +734,18 @@ The quoted code is inserted by the server from the snapshot.
 - Agent Markdown is sanitised. Raw HTML is not rendered.
 - Diff content is untrusted input to the agent. The skill says to treat it as data.
 - Human-only state (reviewed marks, comments, flags, the review) has no MCP write
-  path.
+  path. An agent cannot close or delete a report either.
+- `/mcp` accepts the token only in `Authorization`, never the cookie, so no page in
+  the person's browser can reach it.
+- The daemon runs git in the repository being opened with that repository's own
+  settings, as the person's own git does there, so opening it can run commands those
+  settings name, such as a clean filter. For the command, that is the folder the
+  person ran it in. For an agent, it is only the folder the agent was started in,
+  never one the agent names. An agent that can write that repository's git settings
+  can therefore have commands run when a report is opened. That is accepted for now:
+  such an agent can already have them run by the person's own git.
+- An agent reads files only from the snapshot, never from the working folder, and
+  never one larger than 8 MiB.
 
 ### 9.1 Disk usage
 
@@ -757,6 +807,11 @@ says how journeys are tested.
 | J14 | Agent notes | hide all notes, dismiss one, promote one into the review |
 | J15 | Disk space | see what each report and snapshot takes, delete a report and see the space freed |
 | J16 | Reading and finding | read code coloured by language or plain, in one column or side by side, with white-space changes hidden, and search the whole diff, moving from match to match |
+
+The agent interface is also tried with real coding agents. Recorded sessions of
+Claude Code and Codex sorting fixture diffs through the MCP server are kept in the
+repository; the tests replay them, and what a replay leaves on the page is checked
+like a journey, with committed screenshots. The README says how trials are run.
 
 ## 11. Build order
 
