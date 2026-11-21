@@ -73,7 +73,7 @@ import yaml from 'shiki/langs/yaml.mjs';
 import { characterCount } from '#lib/core/character-count.tiny.ts';
 import type { ColourRun, TokenKind } from '#lib/core/highlight/colour-run.ts';
 import type { Language } from '#lib/core/highlight/language.ts';
-import { LONGEST_LINE_TO_COLOUR } from '#lib/core/highlight/limits.ts';
+import { LONGEST_LINE_TO_COLOUR, longestLineToColour } from '#lib/core/highlight/limits.ts';
 import type { LineText } from '#lib/core/line-text.tiny.ts';
 
 /** The grammar of each language `languageOf` names, with the grammars it embeds. */
@@ -132,12 +132,28 @@ const KINDS: ReadonlyMap<string, TokenKind> = new Map<string, TokenKind>([
 /**
  * How long one slice of colouring may take, about, before the daemon turns to
  * other work: each slice is made longer or shorter to keep near it, so the
- * daemon keeps answering while a large file is coloured. Where the slices
+ * daemon keeps answering while a large file is coloured. A slice also ends
+ * once it holds `MOST_SLICE_CHARACTERS`, so a run of long lines after short
+ * ones cannot make one slice long: with the limit on a line's length, no
+ * slice holds more than two lines' worth of the slowest kind. Where the slices
  * fall changes nothing in the colours.
  */
 const SLICE_MS = 10;
 const FIRST_SLICE_LINES = 16;
 const MOST_SLICE_LINES = 2_000;
+const MOST_SLICE_CHARACTERS = LONGEST_LINE_TO_COLOUR;
+
+/** How many of the lines from `first` the next slice takes: `size` at most, and at least one. */
+export function sliceLength(lines: readonly LineText[], first: number, size: number): number {
+	let characters = 0;
+	let taken = 0;
+	for (const line of lines.slice(first, first + size)) {
+		taken += 1;
+		characters += line.length;
+		if (characters >= MOST_SLICE_CHARACTERS) break;
+	}
+	return taken;
+}
 
 let shared: Promise<HighlighterCore> | undefined;
 
@@ -202,6 +218,7 @@ export async function colourLines(
 	const shiki = await highlighter();
 	// Each list ends with the language itself, after the grammars it embeds.
 	const grammar = GRAMMARS[language].at(-1)?.name ?? language;
+	const longest = longestLineToColour(language);
 	const coloured: (readonly ColourRun[])[] = [];
 	let state: GrammarState | undefined;
 	let size = FIRST_SLICE_LINES;
@@ -209,12 +226,13 @@ export async function colourLines(
 		if (first > 0) await nextTurn();
 		const started = performance.now();
 		const slice = lines
-			.slice(first, first + size)
+			.slice(first, first + sliceLength(lines, first, size))
 			.map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line));
 		const tokens = shiki.codeToTokensBase(slice.join('\n'), {
 			lang: grammar,
 			theme: THEME,
-			tokenizeMaxLineLength: LONGEST_LINE_TO_COLOUR,
+			// Shiki leaves a line of this length or more plain.
+			tokenizeMaxLineLength: longest + 1,
 			// No limit on time: a line is coloured whole however long it takes.
 			tokenizeTimeLimit: 0,
 			...(state === undefined ? {} : { grammarState: state })
