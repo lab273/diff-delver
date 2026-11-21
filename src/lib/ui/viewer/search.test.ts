@@ -290,6 +290,20 @@ describe('searching within the diff on its page', () => {
 		again.held.failing = false;
 		expect(await steps(again.viewer, [true])).toEqual(['4 b.ts findme b 0']);
 	});
+	it('does nothing once a newer version has taken the search over while a move waited', async () => {
+		const { viewer, search, held } = await opened();
+		await searchFor(viewer, 'findme');
+		expect(await steps(viewer, [true, true, true])).toContain("3 a.ts findme'; 18");
+		const before = { current: viewer.current, match: where(viewer, search.current) };
+		// The move waits for b.ts's lines; meanwhile a newer version takes over.
+		held.hold();
+		const moving = search.step(true);
+		await held.arrived;
+		search.handOver();
+		held.release();
+		expect(await moving).toBeUndefined();
+		expect({ current: viewer.current, match: where(viewer, search.current) }).toEqual(before);
+	});
 	it('puts back the white space it showed on the very hunk it showed it in, and on no other', async () => {
 		const { viewer, search } = await opened({ hideWhiteSpace: true });
 		viewer.hideWhiteSpace = true;

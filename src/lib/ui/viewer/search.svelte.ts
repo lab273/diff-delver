@@ -135,6 +135,8 @@ export class DiffSearch {
 	/** Bumped for each search sent, so an answer to an older one is dropped. */
 	#asked = 0;
 	#pause: ReturnType<typeof setTimeout> | undefined;
+	/** A newer version's viewer has taken this search over: a move under way does nothing. */
+	#handedOver = false;
 
 	constructor(
 		viewer: Viewer,
@@ -159,6 +161,7 @@ export class DiffSearch {
 	handOver(): CarriedSearch {
 		clearTimeout(this.#pause);
 		this.#asked += 1;
+		this.#handedOver = true;
 		return { open: this.open, text: this.text };
 	}
 
@@ -349,14 +352,20 @@ export class DiffSearch {
 		return counts;
 	}
 
+	/** Whether a move begun with `found` must stop: the search changed, or was handed over. */
+	#outdated(found: Found): boolean {
+		return found !== this.found || this.#handedOver;
+	}
+
 	/**
 	 * The next match, or the previous, from the one the person is on, or from
 	 * the part they are on; past the last it goes round to the first. The part
-	 * it is in has its lines fetched first, when the page lacks them.
+	 * it is in has its lines fetched first, when the page lacks them. Nothing,
+	 * when the search changed or was handed over while they came.
 	 */
 	async step(forward: boolean): Promise<CurrentMatch | undefined> {
 		const found = this.found;
-		if (found.kind !== 'found') return undefined;
+		if (found.kind !== 'found' || this.#outdated(found)) return undefined;
 		this.problem = '';
 		const viewer = this.#viewer;
 		const count = viewer.parts.length;
@@ -368,7 +377,7 @@ export class DiffSearch {
 			const at = partIndexOf(((raw % count) + count) % count);
 			if (!this.counts(at) || this.matchesIn(at) === 0) continue;
 			const places = await this.#loadedPlaces(at);
-			if (found !== this.found) return undefined;
+			if (this.#outdated(found)) return undefined;
 			// Its lines could not be read: say so, rather than pass over its matches unseen.
 			const state = viewer.parts[at];
 			if (state?.lines.kind === 'failed') {

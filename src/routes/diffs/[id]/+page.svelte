@@ -596,14 +596,15 @@
 	 * Scrolls the current match to the middle of the screen once it is drawn,
 	 * and keeps it there while what is above it settles: parts coming near the
 	 * screen are laid out and their lines come, which moves everything below.
+	 * Nothing, once a newer version's viewer has replaced the one moved in.
 	 */
-	async function showMatch(match: CurrentMatch): Promise<void> {
-		if (viewer === undefined) return;
-		const shown = viewer;
+	async function showMatch(shown: Viewer, match: CurrentMatch): Promise<void> {
+		if (viewer !== shown) return;
 		// The search has the part's lines already: one turn draws them, and another
 		// the chunk of a long hunk that holds the match.
 		await tick();
 		await tick();
+		if (viewer !== shown) return;
 		const element =
 			match.place.kind === 'path'
 				? document.getElementById(`part-${String(match.at)}-name`)
@@ -663,27 +664,30 @@
 		return searchMoves;
 	}
 
+	/** Moves to the next match, or the previous; nothing once a newer version replaces the viewer. */
 	async function moveToMatch(forward: boolean): Promise<void> {
 		if (viewer === undefined) return;
-		const search = viewer.search;
+		const shown = viewer;
+		const search = shown.search;
 		// Enter pressed before the search that typing started: search now.
 		const found = search.found;
 		if (search.text !== '' && (found.kind !== 'found' || found.text !== search.text)) {
 			await search.search();
 		}
-		if (search.found.kind !== 'found') return;
+		if (viewer !== shown || search.found.kind !== 'found') return;
 		if (search.totals.matches === 0) {
-			viewer.announcement = 'No matches.';
+			shown.announcement = 'No matches.';
 			return;
 		}
 		beforeSearch ??= { ...readerPlace(), byFile };
 		const moved = await search.step(forward);
-		if (moved === undefined) return;
+		// The part numbers of an older version are not this one's: show nothing.
+		if (moved === undefined || viewer !== shown) return;
 		if (byFile) {
 			byFile = false;
 			remember();
 		}
-		await showMatch(moved);
+		await showMatch(shown, moved);
 	}
 
 	function setSearchOption(
