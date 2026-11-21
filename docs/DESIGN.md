@@ -756,6 +756,7 @@ says how journeys are tested.
 | J13 | Visual changes | compare a changed image in each mode and see a snapshot image beside its test |
 | J14 | Agent notes | hide all notes, dismiss one, promote one into the review |
 | J15 | Disk space | see what each report and snapshot takes, delete a report and see the space freed |
+| J16 | Reading and finding | read code coloured by language or plain, in one column or side by side, with white-space changes hidden, and search the whole diff, moving from match to match |
 
 ## 11. Build order
 
