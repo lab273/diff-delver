@@ -1039,10 +1039,13 @@ export class ReportService {
 	}
 
 	/**
-	 * The colours of lines of a file of the revision numbered `version`, by
-	 * language (DESIGN 8.3): for each side, the lines asked for, coloured as
-	 * part of the whole file, or why that side is shown plain. A side the file
-	 * does not have, or that no line was asked of, is undefined.
+	 * The colours of lines of the file at `path` in the revision numbered
+	 * `version`, by language (DESIGN 8.3): for each side, the lines asked for,
+	 * coloured as part of the whole file, or why that side is shown plain. Each
+	 * side is read at its own path, so a renamed or copied file's old side is
+	 * its old file, in that file's language. A side the file does not have, or
+	 * that no line was asked of, is undefined; a path not in the diff is
+	 * `FileNotInDiff`.
 	 */
 	async readColours(
 		id: ReportId,
@@ -1052,18 +1055,22 @@ export class ReportService {
 	): Promise<Result<PartColours, ReportError>> {
 		const shown = this.#db.read((q) => asOf(q, id, version));
 		if (!shown.ok) return shown;
-		const snapshot = await this.#snapshotOf(shown.value.report, shown.value.revision);
-		if (!snapshot.ok) return snapshot;
+		const content = await this.#contentOf(shown.value.report, shown.value.revision);
+		if (!content.ok) return content;
+		const { snapshot, diff } = content.value;
+		const inDiff = diff.byPath.get(path);
+		if (inDiff === undefined) return err({ kind: 'FileNotInDiff', path });
 		const side = async (which: Side): Promise<Result<SideColours | undefined, ReportError>> => {
 			const spans = wanted[which];
-			if (spans.length === 0) return ok(undefined);
-			const file = await readSnapshotFile(snapshot.value, which, path);
+			const at = inDiff.file[which]?.path;
+			if (spans.length === 0 || at === undefined) return ok(undefined);
+			const file = await readSnapshotFile(snapshot, which, at);
 			if (!file.ok) return file.error.kind === 'PathNotFound' ? ok(undefined) : file;
 			if (file.value.binary) return ok({ kind: 'plain', reason: 'binary' });
 			const lines = linesOf(file.value.bytes);
 			const colours = await this.#colours.colours(
 				file.value.blob,
-				languageOf(path, lines[0]),
+				languageOf(at, lines[0]),
 				file.value.size,
 				lines
 			);

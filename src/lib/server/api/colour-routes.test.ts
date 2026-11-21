@@ -36,6 +36,37 @@ const coloured = defineFixture('colour-routes', async (repo) => {
 	await repo.write('bin/tool', '#!/bin/sh\necho new\n');
 });
 
+const BODY = Array.from({ length: 12 }, (_, i) => `export const v${String(i)} = "${String(i)}";`);
+const OTHER = Array.from(
+	{ length: 12 },
+	(_, i) => `export let other${String(i)} = [${String(i)}];`
+);
+
+/** Files that moved: each side is read at its own path and coloured in its own language. */
+const moved = defineFixture('colour-routes-moved', async (repo) => {
+	await repo.write('old/a.ts', [...BODY, ''].join('\n'));
+	await repo.write('copy/source.ts', [...OTHER, ''].join('\n'));
+	await repo.write(
+		'script.py',
+		['def f():', '    return "x"', ...BODY.map((l) => `# ${l}`), ''].join('\n')
+	);
+	await repo.commit('base');
+	await repo.remove('old/a.ts');
+	const edited = [...BODY];
+	edited[5] = 'export const v5 = "changed";';
+	await repo.write('new/b.ts', [...edited, ''].join('\n'));
+	// A copy is found when its source changes too.
+	const copied = [...OTHER];
+	copied[5] = 'export let other5 = ["changed"];';
+	await repo.write('copy/target.ts', [...copied, ''].join('\n'));
+	await repo.write('copy/source.ts', [...OTHER, 'export const more = 1;', ''].join('\n'));
+	await repo.remove('script.py');
+	await repo.write(
+		'script.ts',
+		['def f():', '    return "y"', ...BODY.map((l) => `# ${l}`), ''].join('\n')
+	);
+});
+
 const lines = (...numbers: number[]) => spansOf(numbers.map(lineNumberOf));
 const version = value(parseRevisionNumber(1));
 const path = (text: string) => escapedRepoPath(value(parseRepoPath(text)));
@@ -94,6 +125,83 @@ describe('colouring code', () => {
 				await client.readColours(id, { version, path: path('min.js'), old: [], new: lines(1) })
 			);
 			expect(minified.new).toEqual({ kind: 'plain', reason: 'minified' });
+		} finally {
+			await daemon.stop();
+		}
+	});
+});
+
+describe('colouring a file that moved', () => {
+	it('colours the removed lines of a renamed or copied file from its old path, in that path’s language', async () => {
+		const repo = await useFixture(moved);
+		const daemon = await testDaemon();
+		try {
+			const client = clientOf(daemon);
+			const started = value(await client.start({ directory: repo.dir }));
+			if (started.kind !== 'opened') throw new Error(started.kind);
+			const id = started.diff.id;
+			const frame = value(await client.loadDiff(id));
+			const change = new Map(frame.files.map((f) => [String(f.path), String(f.change)]));
+			expect(change.get('new/b.ts')).toContain('renamed from old/a.ts');
+			expect(change.get('copy/target.ts')).toContain('copied from copy/source.ts');
+			expect(change.get('script.ts')).toContain('renamed from script.py');
+
+			for (const target of ['new/b.ts', 'copy/target.ts']) {
+				const read = value(
+					await client.readColours(id, {
+						version,
+						path: path(target),
+						old: lines(6),
+						new: lines(6)
+					})
+				);
+				if (read.old?.kind !== 'coloured') throw new Error(`${target}: old side not coloured`);
+				expect(read.old.lines[0]?.runs.map((r) => r.kind)).toContain('keyword');
+			}
+
+			// script.py became script.ts: the old side is Python, so `def` is a keyword
+			// and `#` starts a comment; the new side is TypeScript, where neither is.
+			const script = value(
+				await client.readColours(id, {
+					version,
+					path: path('script.ts'),
+					old: lines(1, 3),
+					new: lines(1, 3)
+				})
+			);
+			if (script.old?.kind !== 'coloured' || script.new?.kind !== 'coloured') {
+				throw new Error('not coloured');
+			}
+			expect(script.old.lines.find((l) => l.number === 1)?.runs[0]).toEqual({
+				start: 0,
+				length: 3,
+				kind: 'keyword'
+			});
+			expect(script.old.lines.find((l) => l.number === 3)?.runs.map((r) => r.kind)).toEqual([
+				'comment'
+			]);
+			expect(script.new.lines.find((l) => l.number === 3)?.runs.map((r) => r.kind)).not.toEqual([
+				'comment'
+			]);
+		} finally {
+			await daemon.stop();
+		}
+	});
+
+	it('answers that a path not in the diff is not in it', async () => {
+		const repo = await useFixture(moved);
+		const daemon = await testDaemon();
+		try {
+			const client = clientOf(daemon);
+			const started = value(await client.start({ directory: repo.dir }));
+			if (started.kind !== 'opened') throw new Error(started.kind);
+			const read = await client.readColours(started.diff.id, {
+				version,
+				path: path('old/a.ts'),
+				old: lines(1),
+				new: []
+			});
+			expect(read.ok).toBe(false);
 		} finally {
 			await daemon.stop();
 		}
