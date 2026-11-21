@@ -167,5 +167,31 @@ test.describe('J16 Reading and finding', () => {
 			journey.byRole('button', { name: 'tools/workflow.yml', exact: true })
 		);
 		await journey.step('The search closed');
+
+		// Side by side, with white-space changes hidden, matches are marked on both
+		// sides, and moving to one brings it to the middle of the screen.
+		await journey.press('s');
+		await journey.press('w');
+		await journey.press('/');
+		await journey.type('sum');
+		await journey.expectText(found, '6 matches in 1 file. Press Enter to go to the first.');
+		await journey.press('Enter');
+		await journey.expectText(found, '1 of 6 matches in 1 file');
+		await journey.expectInView(
+			journey.nth(journey.within(total).byText('let sum = 0;', { exact: false }), 1)
+		);
+		await journey.press('Shift+Enter');
+		await journey.expectText(found, '6 of 6 matches in 1 file');
+		await journey.expectInView(journey.within(total).byText('Math.round', { exact: false }));
+		await journey.step('A search side by side');
+		// A match far up the page, on the side before the change, is brought into view.
+		await journey.press('Escape');
+		await journey.press('/');
+		await journey.type('Numbers are words');
+		await journey.expectText(found, '1 match in 1 file. Press Enter to go to the first.');
+		await journey.press('Enter');
+		await journey.expectText(found, '1 of 1 match in 1 file');
+		await journey.expectInView(journey.within(lexer).byText('Numbers are words', { exact: false }));
+		await journey.step('A removed line matched side by side');
 	});
 });

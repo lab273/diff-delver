@@ -420,10 +420,12 @@
 	{:else}
 		<td
 			class="code {cellClass}"
+			data-current-match={holdsCurrent(line) ? '' : undefined}
 			use:drawLine={{
 				text: line.text,
 				changed: !quiet && line.kind !== 'context',
-				runs: runsOf(line)
+				runs: runsOf(line),
+				marks: marksOn(line)
 			}}
 		></td>
 	{/if}
