@@ -24,6 +24,12 @@ import {
 	LinesSchema,
 	MarkedSchema,
 	PartLinesSchema,
+	ColoursSchema,
+	SettingsSchema,
+	type SettingsView,
+	type SettingChangeRequest,
+	type ColoursQuery,
+	type ColoursView,
 	OpenResponseSchema,
 	StartResponseSchema,
 	StateChangeSchema,
@@ -54,6 +60,7 @@ import {
 } from './schemas.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { groupKeyId } from '#lib/core/group-key-id.tiny.ts';
+import { writeSpans } from '#lib/core/viewer/line-spans.ts';
 
 export type ApiError =
 	/** The daemon answered with an error: its message says what happened and what to do. */
@@ -234,6 +241,27 @@ export class ApiClient {
 			path: part.path
 		});
 		return this.#call('GET', `/api/diffs/${id}/part?${query.toString()}`, PartLinesSchema);
+	}
+
+	/** How the person likes diffs shown. */
+	readSettings(): Promise<Result<SettingsView, ApiError>> {
+		return this.#call('GET', '/api/settings', SettingsSchema);
+	}
+
+	/** Changes one setting; gives the settings as they now are. */
+	changeSetting(change: SettingChangeRequest): Promise<Result<SettingsView, ApiError>> {
+		return this.#call('POST', '/api/settings', SettingsSchema, change);
+	}
+
+	/** The colours of lines of each side of a file, of the version the page shows. */
+	readColours(id: ReportId, colours: ColoursQuery): Promise<Result<ColoursView, ApiError>> {
+		const query = new URLSearchParams({
+			version: String(colours.version),
+			path: colours.path,
+			old: writeSpans(colours.old),
+			new: writeSpans(colours.new)
+		});
+		return this.#call('GET', `/api/diffs/${id}/colours?${query.toString()}`, ColoursSchema);
 	}
 
 	/** Lines of one side of a file, of the version the page shows, for unchanged lines a part opens. */

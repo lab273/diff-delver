@@ -11,7 +11,7 @@
 	import { shownPath } from '#lib/core/shown-path.tiny.ts';
 	import type { PartIndex } from '#lib/core/part-index.tiny.ts';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
-	import type { BlockState, OpenLine, Viewer } from './viewer.svelte.ts';
+	import type { BlockState, LineColours, OpenLine, Viewer } from './viewer.svelte.ts';
 	import { hiddenCount, nextStep } from './viewer.svelte.ts';
 	import { drawLine } from './draw-line.ts';
 	import { tick } from 'svelte';
@@ -26,11 +26,17 @@
 		blocks,
 		path,
 		previousVersion,
-		ongo
+		ongo,
+		colours,
+		busy
 	}: {
 		viewer: Viewer;
 		at: PartIndex;
 		blocks: BlockState[];
+		/** The colours of its lines that have come; undefined to draw them plain. */
+		colours: LineColours | undefined;
+		/** Whether colours are on their way: the lines say they are busy until they come. */
+		busy: boolean;
 		path: EscapedPath;
 		/** The version before this one, for "new since version 1"; null for a first version. */
 		previousVersion: RevisionNumber | null;
@@ -112,6 +118,19 @@
 		};
 	}
 
+	/** A line's colours: a removed line's from the old side, any other's from the new; none for muted lines. */
+	function runsOf(line: ShownLineView) {
+		if (colours === undefined) return undefined;
+		switch (line.kind) {
+			case 'context':
+				return colours.new.get(line.new);
+			case 'deleted':
+				return line.home.kind === 'here' ? colours.old.get(line.old) : undefined;
+			case 'added':
+				return line.home.kind === 'here' ? colours.new.get(line.new) : undefined;
+		}
+	}
+
 	function isElsewhere(line: ShownLineView): boolean {
 		return line.kind !== 'context' && line.home.kind === 'elsewhere';
 	}
@@ -137,7 +156,10 @@
 					Removed
 				</span>{/if}
 		</td>
-		<td class="code" use:drawLine={{ text: line.text, changed: line.kind !== 'context' }}></td>
+		<td
+			class="code"
+			use:drawLine={{ text: line.text, changed: line.kind !== 'context', runs: runsOf(line) }}
+		></td>
 	</tr>
 	{#if line.noNewlineAtEnd}
 		<tr class="note">
@@ -186,11 +208,14 @@
 		<td class="number">{line.new}</td>
 		{#if hasFresh}<td class="badge"></td>{/if}
 		<td class="marker"></td>
-		<td class="code" use:drawLine={{ text: line.text, changed: false }}></td>
+		<td
+			class="code"
+			use:drawLine={{ text: line.text, changed: false, runs: colours?.new.get(line.new) }}
+		></td>
 	</tr>
 {/snippet}
 
-<table class="lines" aria-label="Lines of {shownPath(path)}">
+<table class="lines" aria-label="Lines of {shownPath(path)}" aria-busy={busy}>
 	<colgroup>
 		<col class="number-column" />
 		<col class="number-column" />
@@ -464,6 +489,32 @@
 	.code :global(.trailing) {
 		background: var(--color-danger-background);
 		box-shadow: inset 0 -2px 0 var(--color-removed);
+	}
+
+	/* Code coloured by language; comments are in italics too, so they stand apart without colour. */
+	.code :global(.code-keyword) {
+		color: var(--color-code-keyword);
+	}
+
+	.code :global(.code-string) {
+		color: var(--color-code-string);
+	}
+
+	.code :global(.code-comment) {
+		color: var(--color-code-comment);
+		font-style: italic;
+	}
+
+	.code :global(.code-function) {
+		color: var(--color-code-function);
+	}
+
+	.code :global(.code-constant) {
+		color: var(--color-code-constant);
+	}
+
+	.code :global(.code-parameter) {
+		color: var(--color-code-parameter);
 	}
 
 	.lines :global(.escape) {

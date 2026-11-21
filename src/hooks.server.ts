@@ -9,14 +9,14 @@
  * context of its own for the machine's data folder, with no token, for working
  * on the pages.
  */
-import { dev } from '$app/env';
 import type { Handle, HandleServerError } from '@sveltejs/kit/hooks';
 import { daemonOnPort } from '#lib/server/daemon/context.ts';
-import { developmentDaemon } from '#lib/server/daemon/development.ts';
 
 export const handle: Handle = async ({ event, resolve }) => {
-	const daemon = dev
-		? await developmentDaemon()
+	// Imported only in development, so the app's build carries no daemon of its own:
+	// the daemon is the command's, which serves the app.
+	const daemon = import.meta.env.DEV
+		? await (await import('#lib/server/daemon/development.ts')).developmentDaemon()
 		: daemonOnPort(event.platform?.req.socket.localPort);
 	if (daemon === undefined) {
 		return new Response(

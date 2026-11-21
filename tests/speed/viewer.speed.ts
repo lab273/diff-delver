@@ -149,6 +149,18 @@ test('a diff of 2,000 files and 200,000 changed lines opens and moves at once', 
 			performance.now() - opening,
 			1_500
 		);
+		// Its colours, which come after it is readable, never before.
+		await page.waitForFunction(
+			() => document.querySelector('#part-0 td.code span[class^="code-"]') !== null,
+			undefined,
+			{ polling: 'raf' }
+		);
+		record(
+			testInfo,
+			'time to coloured code on the first screen, 2,000 files',
+			performance.now() - opening,
+			2_500
+		);
 		await expect(page.getByRole('complementary', { name: 'Your review' })).toContainText(
 			'Not started: 200,000 changes to review'
 		);

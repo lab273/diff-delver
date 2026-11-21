@@ -10,7 +10,9 @@
  *     });
  *
  * One `step` call does everything that must hold on every screen, so a journey
- * cannot leave part of it out (README, "Checking the experience"):
+ * cannot leave part of it out (README, "Checking the experience"). It first
+ * waits until the page has finished what it said it was doing (nothing marked
+ * `aria-busy="true"`, as lines are while their colours come), then checks:
  *
  * - in the light and the dark colour scheme, a screenshot of the viewport, what a
  *   person sees at that moment, compared exactly with the committed one
@@ -744,6 +746,18 @@ export async function startJourney(
 		await page.locator('html[data-ready]').waitFor({ state: 'attached' });
 	};
 
+	/**
+	 * Waits until nothing on the page says it is busy (`aria-busy="true"`), as
+	 * lines do while their colours are on their way, so a step's screenshot
+	 * never depends on how soon something arrived.
+	 */
+	const notBusy = async (): Promise<void> => {
+		await expect(
+			page.locator('[aria-busy="true"]'),
+			'the page should finish what it is doing'
+		).toHaveCount(0);
+	};
+
 	const isFocused = (target: Target): Promise<boolean> =>
 		locatorOf(target).evaluate((element) => element === document.activeElement);
 
@@ -832,6 +846,7 @@ export async function startJourney(
 			const label = `Step ${String(number)}, "${name}"`;
 			await base.step(label, async () => {
 				await ready();
+				await notBusy();
 				const problems: string[] = [];
 				// Fonts and characters in both schemes: a theme can change the font too.
 				const fontProblems = new Map<string, Theme[]>();

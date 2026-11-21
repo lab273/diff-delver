@@ -6,7 +6,8 @@ import { expect, test } from '../support/journey.ts';
 // with every awkward kind of change, all under "Not sorted yet": a rename and a
 // file made executable shown and ticked, odd characters shown for what they
 // are, a binary file and a large one, the lockfile ignored with its reason,
-// and the by-file view with every file once.
+// and the by-file view with every file once; then code to read, coloured by
+// language, with its marks over the colours, and plain when asked.
 test.describe('J2 Open a diff with no agent', () => {
 	test('the command opens the branch, offers a choice, or says there is nothing new', async ({
 		journey
@@ -184,5 +185,33 @@ test.describe('J2 Open a diff with no agent', () => {
 			{ checked: true }
 		);
 		await journey.step('Every file once');
+
+		// Code is coloured by language, each file as a whole: a line deep inside a
+		// comment is coloured as a comment though the line that opens it is hidden.
+		const reading = await journey.repository('reading');
+		await journey.open((await journey.command([], reading)).address);
+		const lexer = journey.byRole('article', { name: 'src/lexer.ts' });
+		await journey.expectVisible(journey.within(lexer).byText('8 unchanged lines'));
+		await journey.expectVisible(
+			journey.within(lexer).byText(' *   4. A number is a word, and keeps its digits.')
+		);
+		await journey.expectVisible(journey.byRole('article', { name: 'app/models.py' }));
+		await journey.step('Code coloured by language');
+
+		// Rust and CSS too; and the marks for a tab, white space at the end, a CRLF
+		// ending and a character that cannot be seen are drawn over the colours.
+		for (let n = 0; n < 4; n += 1) await journey.press('j');
+		const marks = journey.byRole('article', { name: 'src/marks.ts' });
+		await journey.expectFocused(journey.byRole('button', { name: 'src/marks.ts', exact: true }));
+		await journey.expectVisible(journey.within(marks).byText('\\u200B'));
+		await journey.step('Marks over colours');
+
+		// Colours can be switched off, for every diff; the code is then plain.
+		const colours = journey.byRole('button', { name: 'Colour the code' });
+		await journey.activate(colours);
+		await journey.expectState(colours, { pressed: false });
+		await journey.step('Code shown plain');
+		await journey.activate(colours);
+		await journey.expectState(colours, { pressed: true });
 	});
 });

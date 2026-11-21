@@ -38,6 +38,7 @@
 		type GroupInfo,
 		type TickTarget
 	} from '#lib/ui/viewer/viewer.svelte.ts';
+	import { withSetting, type SettingChange } from '#lib/core/settings.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -220,14 +221,37 @@
 	/** Whether the by-file view has been shown yet: it is made only when first asked for. */
 	let fileListMade = $state(startByFile);
 	let onlyWaiting = $state(startOnlyWaiting);
+	/** How the person likes diffs shown, remembered by diff delver for every diff. */
+	let settings = $state(untrack(() => data.settings));
 	const viewer = $derived(
 		data.loaded.ok
 			? new Viewer(
 					data.loaded.value,
-					untrack(() => onlyWaiting)
+					untrack(() => onlyWaiting),
+					untrack(() => settings.colours)
 				)
 			: undefined
 	);
+
+	/** Changes a setting on the page at once, and has diff delver remember it for every diff. */
+	async function changeSetting(change: SettingChange, said: string): Promise<void> {
+		settings = withSetting(settings, change);
+		if (viewer !== undefined) {
+			viewer.colouring = settings.colours;
+			viewer.announcement = said;
+		}
+		const saved = await pageClient().changeSetting(change);
+		if (!saved.ok && viewer !== undefined) {
+			viewer.announcement = `${said} It could not be remembered for next time: ${describeApiError(saved.error)}`;
+		}
+	}
+
+	function setColours(colours: boolean): void {
+		void changeSetting(
+			{ name: 'colours', value: colours },
+			colours ? 'Code is coloured by language.' : 'Code is shown plain.'
+		);
+	}
 	let helpOpen = $state(false);
 	/** Whether the section view shows any part, with the filter as it is. */
 	const anyShown = $derived(viewer?.parts.some((p) => viewer.shows(p.index)) ?? false);
@@ -662,6 +686,15 @@
 					}}
 				>
 					Only what I have not reviewed
+				</button>
+				<button
+					type="button"
+					aria-pressed={settings.colours}
+					onclick={() => {
+						setColours(!settings.colours);
+					}}
+				>
+					Colour the code
 				</button>
 				<button type="button" class="quiet" onclick={() => (helpOpen = true)}>
 					Keyboard shortcuts <kbd aria-hidden="true">?</kbd>

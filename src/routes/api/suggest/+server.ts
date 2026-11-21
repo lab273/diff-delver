@@ -5,7 +5,7 @@ import {
 	parseGitSourceSpec
 } from '#lib/core/sources/git-source-spec.ts';
 import { badRequest, serviceFailure, suggestView } from '#lib/server/api/present.ts';
-import { describeReportError } from '#lib/server/reports/index.ts';
+import { describeReportError } from '#lib/server/reports/report-error.ts';
 import type { RequestHandler } from './$types';
 
 /**

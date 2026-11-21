@@ -15,7 +15,14 @@
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import PartLines from './PartLines.svelte';
 	import TickRefused from './TickRefused.svelte';
-	import { done, partly, showTally, type PartState, type Viewer } from './viewer.svelte.ts';
+	import {
+		done,
+		partly,
+		showTally,
+		type PartState,
+		type PlainBecause,
+		type Viewer
+	} from './viewer.svelte.ts';
 
 	let {
 		viewer,
@@ -48,6 +55,25 @@
 	$effect(() => {
 		if (state.near && state.open && !large && state.lines.kind === 'waiting') void viewer.load(at);
 	});
+
+	// Its code is coloured once its lines are shown, and again for lines opened
+	// later, while the person wants colours.
+	$effect(() => {
+		if (viewer.colouring && state.near && state.open && state.lines.kind === 'loaded') {
+			void viewer.colour(at);
+		}
+	});
+
+	function plainText(because: PlainBecause): string {
+		switch (because) {
+			case 'large':
+				return 'Not coloured: this file is too large to colour.';
+			case 'minified':
+				return 'Not coloured: its lines are too long to colour.';
+			case 'failed':
+				return 'Not coloured: its colours could not be worked out.';
+		}
+	}
 
 	function sizesText(sizes: NonNullable<PartLinesView['sizes']>): string {
 		if (sizes.old !== null && sizes.new !== null) {
@@ -250,10 +276,15 @@
 							</button>
 						</div>
 					{/if}
+					{#if viewer.colouring && state.plain !== undefined}
+						<p class="about plain">{plainText(state.plain)}</p>
+					{/if}
 					<PartLines
 						{viewer}
 						{at}
 						blocks={lines.blocks}
+						colours={viewer.colouring ? state.colours : undefined}
+						busy={state.colouring > 0}
 						path={part.path}
 						{previousVersion}
 						ongo={(group: GroupKeyView) => {
@@ -413,6 +444,12 @@
 
 	.about {
 		color: var(--color-muted);
+	}
+
+	.plain {
+		padding: 0.25rem 0.75rem;
+		font-size: 0.75rem;
+		border-bottom: 1px solid var(--color-border);
 	}
 
 	.body > button {

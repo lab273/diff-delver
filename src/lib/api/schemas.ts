@@ -26,6 +26,9 @@ import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { ok, err, type Result } from '#lib/core/result.ts';
 import { parseGroupText } from '#lib/core/viewer/group-text.ts';
+import { readSpans } from '#lib/core/viewer/line-spans.ts';
+import { parseCharacterCount } from '#lib/core/character-count.tiny.ts';
+import { TOKEN_KINDS } from '#lib/core/highlight/colour-run.ts';
 import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 import { parseSectionTitle } from '#lib/core/section-title.tiny.ts';
@@ -441,6 +444,59 @@ export const LinesSchema = z.object({
 	lineCount
 });
 export type LinesView = z.output<typeof LinesSchema>;
+
+/** GET and POST /api/settings: how the person likes diffs shown (`core/settings.ts`). */
+export const SettingsSchema = z.object({ colours: z.boolean() });
+export type SettingsView = z.output<typeof SettingsSchema>;
+
+/** POST /api/settings: one setting changed. */
+export const SettingChangeSchema = z.discriminatedUnion('name', [
+	z.object({ name: z.literal('colours'), value: z.boolean() })
+]);
+export type SettingChangeRequest = z.output<typeof SettingChangeSchema>;
+
+/** Runs of lines as an address writes them: `1-20,40-60` (`line-spans.ts`). */
+const spansInQuery = parsed(z.string(), readSpans);
+
+/**
+ * GET /api/diffs/:id/colours?version=N&path=P&old=1-20&new=1-3,9: the colours
+ * of lines of each side of a file, of the version the page shows (DESIGN 8.3).
+ */
+export const ColoursQuerySchema = z.object({
+	version: inQuery(parseRevisionNumber),
+	path: escapedPath,
+	old: spansInQuery.default([]),
+	new: spansInQuery.default([])
+});
+export type ColoursQuery = z.output<typeof ColoursQuerySchema>;
+
+const characters = parsed(z.number(), parseCharacterCount);
+
+const SideColoursSchema = z
+	.discriminatedUnion('kind', [
+		z.object({
+			kind: z.literal('coloured'),
+			/** The lines asked for that have any colour, each with its runs: start, length and kind. */
+			lines: z.array(
+				z.object({
+					number: lineNumber,
+					runs: z.array(
+						z.object({ start: characters, length: characters, kind: z.enum(TOKEN_KINDS) })
+					)
+				})
+			)
+		}),
+		/** Shown plain, and why: a language diff delver does not colour, too large, minified, binary, or failed. */
+		z.object({
+			kind: z.literal('plain'),
+			reason: z.enum(['language', 'large', 'minified', 'binary', 'failed'])
+		})
+	])
+	.nullable();
+export type SideColoursView = z.output<typeof SideColoursSchema>;
+
+export const ColoursSchema = z.object({ old: SideColoursSchema, new: SideColoursSchema });
+export type ColoursView = z.output<typeof ColoursSchema>;
 
 /**
  * GET /api/diffs/:id/changes?seen=N: whether the diff has a newer version than

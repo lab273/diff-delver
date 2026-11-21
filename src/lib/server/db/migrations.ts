@@ -238,6 +238,18 @@ CREATE TABLE unmarked_units (
 	CHECK (side = 'file' OR (first_line >= 1 AND last_line >= first_line))
 ) STRICT, WITHOUT ROWID;
 `
+	},
+	{
+		version: schemaVersionOf(6),
+		name: 'how the person likes diffs shown',
+		sql: `
+-- One row per setting the person has changed, such as code coloured or plain;
+-- a setting with no row has its default (core/settings.ts).
+CREATE TABLE settings (
+	name TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+) STRICT;
+`
 	}
 ];
 

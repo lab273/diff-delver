@@ -9,6 +9,11 @@
  * opened, and unchanged lines a step at a time, so a diff of 2,000 files opens
  * as fast as a small one. A very large part waits behind "Show this large
  * change" until asked.
+ *
+ * Code is coloured by language when the person wants it: once a part's lines
+ * are shown, the colours of the lines it shows are asked for, a few parts at a
+ * time, and drawn when they come; until then the lines are plain, in the same
+ * place. Lines opened later are coloured the same way.
  */
 import { describeApiError, type ApiError } from '#lib/api/client.ts';
 import type {
@@ -20,6 +25,7 @@ import type {
 	PartLines,
 	PartView,
 	ShownLineView,
+	SideColoursView,
 	TallyView,
 	ViewName
 } from '#lib/api/schemas.ts';
@@ -48,7 +54,10 @@ import { partIndexOf, type PartIndex } from '#lib/core/part-index.tiny.ts';
 import { describeChanges, formatCount } from '#lib/core/viewer/words.ts';
 import { pageClient } from '#lib/ui/client.ts';
 import { SvelteMap } from 'svelte/reactivity';
-import { PART_REQUESTS_AT_ONCE } from './requests.ts';
+import type { ColourRun } from '#lib/core/highlight/colour-run.ts';
+import { spansOf } from '#lib/core/viewer/line-spans.ts';
+import { couldBeColoured } from '#lib/core/highlight/language.ts';
+import { AskedLines, COLOUR_REQUESTS_AT_ONCE, PART_REQUESTS_AT_ONCE, Turns } from './requests.ts';
 
 /** How many parts are drawn at first, and how many more after each frame. */
 export const FIRST_BATCH = 40;
@@ -91,6 +100,54 @@ export type LinesState =
 	| { readonly kind: 'failed'; readonly message: string }
 	| { readonly kind: 'loaded'; readonly blocks: BlockState[]; readonly sizes: PartLines['sizes'] };
 
+/** The colours of a part's lines that have come, by side and line number. */
+export interface LineColours {
+	readonly old: SvelteMap<number, readonly ColourRun[]>;
+	readonly new: SvelteMap<number, readonly ColourRun[]>;
+}
+
+/** Why a part's file is shown plain although colours were asked for, when it is worth saying. */
+export type PlainBecause = 'large' | 'minified' | 'failed';
+
+/** Puts the colours of one side's lines that came where the page draws them from. */
+function putColours(into: LineColours['old'], side: SideColoursView): void {
+	if (side?.kind !== 'coloured') return;
+	for (const line of side.lines) into.set(line.number, line.runs);
+}
+
+/**
+ * The lines a part's blocks show, by the side whose colours they take: a
+ * removed line its old line, an added, unchanged or opened line its new one.
+ * Changes of another group are shown muted, so they are not coloured.
+ */
+export function shownLineNumbers(blocks: readonly BlockState[]): {
+	readonly old: readonly LineNumber[];
+	readonly new: readonly LineNumber[];
+} {
+	const old: LineNumber[] = [];
+	const now: LineNumber[] = [];
+	for (const block of blocks) {
+		if (block.kind === 'hidden') {
+			for (const line of [...block.top, ...block.bottom]) now.push(line.new);
+			continue;
+		}
+		for (const line of block.lines) {
+			switch (line.kind) {
+				case 'context':
+					now.push(line.new);
+					break;
+				case 'deleted':
+					if (line.home.kind === 'here') old.push(line.old);
+					break;
+				case 'added':
+					if (line.home.kind === 'here') now.push(line.new);
+					break;
+			}
+		}
+	}
+	return { old, new: now };
+}
+
 export interface PartState {
 	/** Its place in reading order, which its element's id uses. */
 	readonly index: PartIndex;
@@ -109,6 +166,12 @@ export interface PartState {
 	problem: string;
 	/** The tick was refused because the diff has a newer version than the page shows. */
 	behind: boolean;
+	/** The colours of its lines that have come. */
+	colours: LineColours;
+	/** How many requests for its colours are under way: while any is, its lines say they are busy. */
+	colouring: number;
+	/** Why it is shown plain although colours were asked for, if it is worth saying. */
+	plain: PlainBecause | undefined;
 }
 
 export interface GroupInfo {
@@ -246,6 +309,8 @@ export class Viewer {
 	announcement = $state('');
 	/** Why the last tick of a file or a group did not happen; a part's is the part's own. */
 	refused = $state<Refusal>();
+	/** Whether code is coloured by language; the person's setting. */
+	colouring = $state(true);
 
 	/** Where each part is; fixed for the viewer's life, so not reactive. */
 	readonly #byKey: ReadonlyMap<string, PartIndex>;
@@ -253,13 +318,17 @@ export class Viewer {
 	/** Where each file is in the by-file list. */
 	readonly #fileAt: ReadonlyMap<EscapedPath, number>;
 	/** Parts' lines being fetched, and those waiting their turn (`PART_REQUESTS_AT_ONCE`). */
-	#fetching = 0;
-	readonly #waitingTurns: (() => void)[] = [];
+	readonly #lineTurns = new Turns(PART_REQUESTS_AT_ONCE);
+	/** Parts' colours being fetched, and those waiting their turn. */
+	readonly #colourTurns = new Turns(COLOUR_REQUESTS_AT_ONCE);
+	/** Which lines' colours each part has asked for, so none is asked for twice. */
+	readonly #askedColours = new AskedLines();
 	/** How many ticks have been answered, so a slower refresh never undoes a newer tick. */
 	#ticks = 0;
 
-	constructor(page: DiffPage, onlyWaiting: boolean) {
+	constructor(page: DiffPage, onlyWaiting: boolean, colouring: boolean) {
 		this.summary = $state.raw(page.summary);
+		this.colouring = colouring;
 		this.onlyWaiting = $state(onlyWaiting);
 		this.id = page.summary.id;
 		this.version = page.summary.version;
@@ -292,7 +361,10 @@ export class Viewer {
 					lines: { kind: 'waiting' },
 					busy: false,
 					problem: '',
-					behind: false
+					behind: false,
+					colours: { old: new SvelteMap(), new: new SvelteMap() },
+					colouring: 0,
+					plain: undefined
 				});
 			}
 		}
@@ -394,7 +466,7 @@ export class Viewer {
 			return;
 		}
 		state.lines = { kind: 'loading' };
-		const release = await this.#turn();
+		const release = await this.#lineTurns.take();
 		let read: Awaited<ReturnType<ReturnType<typeof pageClient>['readPart']>>;
 		try {
 			read = await pageClient().readPart(this.id, {
@@ -426,18 +498,44 @@ export class Viewer {
 		};
 	}
 
-	/** Waits for a turn to fetch a part's lines; the function it gives ends the turn. */
-	async #turn(): Promise<() => void> {
-		if (this.#fetching >= PART_REQUESTS_AT_ONCE) {
-			await new Promise<void>((resolve) => {
-				this.#waitingTurns.push(resolve);
-			});
+	/**
+	 * Asks for the colours of the lines a part shows that it has not asked for
+	 * yet, when code is coloured, and draws them when they come. Lines are plain
+	 * until then, and stay plain if the colours cannot be had.
+	 */
+	async colour(at: PartIndex): Promise<void> {
+		const state = this.parts[at];
+		if (!this.colouring || state?.lines.kind !== 'loaded' || state.lines.sizes !== null) return;
+		if (!couldBeColoured(state.part.path)) return;
+		const shown = shownLineNumbers(state.lines.blocks);
+		const { old, new: now } = this.#askedColours.ask(at, shown.old, shown.new);
+		if (old.length === 0 && now.length === 0) return;
+		state.colouring += 1;
+		try {
+			await this.#lineTurns.idle();
+			const release = await this.#colourTurns.take();
+			let read: Awaited<ReturnType<ReturnType<typeof pageClient>['readColours']>>;
+			try {
+				read = await pageClient().readColours(this.id, {
+					version: this.version,
+					path: state.part.path,
+					old: spansOf(old.map(lineNumberOf)),
+					new: spansOf(now.map(lineNumberOf))
+				});
+			} finally {
+				release();
+			}
+			if (!read.ok) return;
+			putColours(state.colours.old, read.value.old);
+			putColours(state.colours.new, read.value.new);
+			for (const side of [read.value.new, read.value.old]) {
+				if (side?.kind === 'plain' && side.reason !== 'language' && side.reason !== 'binary') {
+					state.plain = side.reason;
+				}
+			}
+		} finally {
+			state.colouring -= 1;
 		}
-		this.#fetching += 1;
-		return () => {
-			this.#fetching -= 1;
-			this.#waitingTurns.shift()?.();
-		};
 	}
 
 	/** Opens hidden lines of a part's block: a step down, a step up, or all of them. */

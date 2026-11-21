@@ -37,7 +37,13 @@ import { fileSlices, groupKeyId, type GroupKey, type ViewKind } from '#lib/core/
 import type { LineCount } from '#lib/core/line-count.tiny.ts';
 import { lineNumberOf, type LineNumber } from '#lib/core/line-number.tiny.ts';
 import type { Side } from '#lib/core/side.tiny.ts';
-import { partBlocks, type PartBlock } from '#lib/core/viewer/part-lines.ts';
+import { partBlocks, type LineSpan, type PartBlock } from '#lib/core/viewer/part-lines.ts';
+import type { ColourRun } from '#lib/core/highlight/colour-run.ts';
+import { languageOf } from '#lib/core/highlight/language.ts';
+import { linesOf } from '#lib/core/file-text.ts';
+import { ColourCache, type PlainReason } from '#lib/server/highlight/file-colours.ts';
+import { DEFAULT_SETTINGS, type SettingChange, type ViewSettings } from '#lib/core/settings.ts';
+import { readSettings, writeSetting } from '../db/tables/settings.ts';
 import { initialState, type AssignmentState } from '#lib/core/diff/state.ts';
 import type { IdSource } from '#lib/core/ids.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
@@ -354,6 +360,23 @@ export interface MarkOutcome {
 	readonly files: ReadonlySet<RepoPath>;
 }
 
+/** One side of a file, coloured by language: the lines asked for that have colour, or why it is plain. */
+export type SideColours =
+	| {
+			readonly kind: 'coloured';
+			readonly lines: readonly {
+				readonly number: LineNumber;
+				readonly runs: readonly ColourRun[];
+			}[];
+	  }
+	| { readonly kind: 'plain'; readonly reason: PlainReason };
+
+/** The colours of lines of both sides of a file (`readColours`). */
+export interface PartColours {
+	readonly old: SideColours | undefined;
+	readonly new: SideColours | undefined;
+}
+
 /** What one part of a revision shows when it is open (`partBlocks`). */
 export interface PartContent {
 	readonly file: DiffFile;
@@ -602,6 +625,8 @@ export class ReportService {
 	readonly #log: (line: string) => void;
 	/** What has been logged already, so a damaged entry is logged once, not on every listing. */
 	readonly #logged = new Set<string>();
+	/** Files' colours, kept by blob and language for the daemon's life. */
+	readonly #colours: ColourCache;
 
 	private constructor(db: Database, options: ReportServiceOptions) {
 		this.#db = db;
@@ -614,6 +639,7 @@ export class ReportService {
 			((line) => {
 				console.error(line);
 			});
+		this.#colours = new ColourCache(this.#log);
 	}
 
 	/** Opens the service on a data directory, making its database if there is none. */
@@ -1010,6 +1036,75 @@ export class ReportService {
 		const snapshot = await this.#snapshotOf(shown.value.report, shown.value.revision);
 		if (!snapshot.ok) return snapshot;
 		return readSnapshotLines(snapshot.value, side, path, first, last);
+	}
+
+	/**
+	 * The colours of lines of a file of the revision numbered `version`, by
+	 * language (DESIGN 8.3): for each side, the lines asked for, coloured as
+	 * part of the whole file, or why that side is shown plain. A side the file
+	 * does not have, or that no line was asked of, is undefined.
+	 */
+	async readColours(
+		id: ReportId,
+		version: RevisionNumber,
+		path: RepoPath,
+		wanted: Readonly<Record<Side, readonly LineSpan[]>>
+	): Promise<Result<PartColours, ReportError>> {
+		const shown = this.#db.read((q) => asOf(q, id, version));
+		if (!shown.ok) return shown;
+		const snapshot = await this.#snapshotOf(shown.value.report, shown.value.revision);
+		if (!snapshot.ok) return snapshot;
+		const side = async (which: Side): Promise<Result<SideColours | undefined, ReportError>> => {
+			const spans = wanted[which];
+			if (spans.length === 0) return ok(undefined);
+			const file = await readSnapshotFile(snapshot.value, which, path);
+			if (!file.ok) return file.error.kind === 'PathNotFound' ? ok(undefined) : file;
+			if (file.value.binary) return ok({ kind: 'plain', reason: 'binary' });
+			const lines = linesOf(file.value.bytes);
+			const colours = await this.#colours.colours(
+				file.value.blob,
+				languageOf(path, lines[0]),
+				file.value.size,
+				lines
+			);
+			if (colours.kind === 'plain') return ok(colours);
+			const found: { readonly number: LineNumber; readonly runs: readonly ColourRun[] }[] = [];
+			for (const span of spans) {
+				for (let n: number = span.first; n <= span.last; n += 1) {
+					const runs = colours.lines[n - 1];
+					if (runs === undefined) break;
+					if (runs.length > 0) found.push({ number: lineNumberOf(n), runs });
+				}
+			}
+			return ok({ kind: 'coloured', lines: found });
+		};
+		const old = await side('old');
+		if (!old.ok) return old;
+		const now = await side('new');
+		if (!now.ok) return now;
+		return ok({ old: old.value, new: now.value });
+	}
+
+	/**
+	 * How the person likes diffs shown. A setting that cannot be read is logged
+	 * once and has its default, so a damaged row never stands between the
+	 * person and their diffs; changing the setting stores it again.
+	 */
+	settings(): ViewSettings {
+		const read = this.#db.read((q) => readSettings(q));
+		if (read.ok) return read.value;
+		this.#logOnce(`Could not read the settings: ${JSON.stringify(read.error)}`);
+		return DEFAULT_SETTINGS;
+	}
+
+	/** Changes one setting, and gives the settings as they now are. */
+	changeSetting(change: SettingChange): Result<ViewSettings, ReportError> {
+		const written = this.#db.write((q): Result<void, ReportError> => {
+			writeSetting(q, change);
+			return ok(undefined);
+		});
+		if (!written.ok) return written;
+		return ok(this.settings());
 	}
 
 	/** Closes a report at the reviewer's request. Closing a closed report changes nothing. */

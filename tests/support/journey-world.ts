@@ -239,6 +239,103 @@ export const JOURNEY_REPOSITORIES = {
 	}),
 
 	/**
+	 * Code to read, uncommitted, for colours by language: a change deep inside a
+	 * TypeScript block comment, far from the line that opens it; Python, Rust and
+	 * CSS changed; and a TypeScript file whose changed lines hold a tab, white
+	 * space at the end, a CRLF ending and a character that cannot be seen, in a string.
+	 */
+	reading: defineFixture('reading', async (repo) => {
+		const lexer = (rule: string): string =>
+			lines(
+				'/**',
+				' * A small lexer for the shop’s search box.',
+				' *',
+				' * It reads what the shopper typed and splits it into words, so that',
+				' * each word can be looked up on its own. Nothing here knows about',
+				' * products or prices: that is the search index’s work.',
+				' *',
+				' * Rules:',
+				' *   1. Words are split on white space.',
+				' *   2. Upper and lower case are the same.',
+				' *   3. Punctuation at either end of a word is dropped.',
+				` *   4. ${rule}`,
+				' *',
+				' * Nothing is ever thrown: text the lexer cannot read gives no words.',
+				' */',
+				'export function lex(text: string): string[] {',
+				'\treturn text',
+				'\t\t.toLowerCase()',
+				'\t\t.split(/\\s+/)',
+				"\t\t.map((word) => word.replace(/^\\W+|\\W+$/g, ''))",
+				'\t\t.filter((word) => word.length > 0);',
+				'}'
+			);
+		const basket = (...add: string[]): string =>
+			lines(
+				'class Basket:',
+				'    """Items a shopper has chosen."""',
+				'',
+				'    def __init__(self) -> None:',
+				'        self.items: list[str] = []',
+				'',
+				...add
+			);
+		await repo.write('src/lexer.ts', lexer('Numbers are words too.'));
+		await repo.write(
+			'app/models.py',
+			basket('    def add(self, item: str) -> None:', '        self.items.append(item)')
+		);
+		await repo.write(
+			'src/main.rs',
+			lines('fn main() {', '    let total: u32 = 3;', '    println!("{} items", total);', '}')
+		);
+		await repo.write('styles/site.css', lines('.price {', '\tcolor: #1f2328;', '}'));
+		await repo.write(
+			'src/marks.ts',
+			lines(
+				"export const greeting = 'hello';",
+				'export function shout(text: string): string {',
+				'\treturn text.toUpperCase();',
+				'}'
+			)
+		);
+		await repo.commit('Start');
+		await repo.write('src/lexer.ts', lexer('A number is a word, and keeps its digits.'));
+		await repo.write(
+			'app/models.py',
+			basket(
+				'    def add(self, item: str, count: int = 1) -> None:',
+				'        # Each one is kept, so the basket can say how many.',
+				'        self.items.extend([item] * count)'
+			)
+		);
+		await repo.write(
+			'src/main.rs',
+			lines(
+				'fn main() {',
+				'    let total: u32 = 3;',
+				'    let label = if total == 1 { "item" } else { "items" };',
+				'    println!("{} {}", total, label);',
+				'}'
+			)
+		);
+		await repo.write(
+			'styles/site.css',
+			lines('.price {', '\tcolor: #1a7f37;', '\tfont-weight: 700;', '}')
+		);
+		await repo.write(
+			'src/marks.ts',
+			[
+				"export const greeting = 'hel\u200Blo';\r",
+				'export function shout(text: string): string {  ',
+				"\treturn text.toUpperCase() + '!';",
+				'}',
+				''
+			].join('\n')
+		);
+	}),
+
+	/**
 	 * A large diff, for the viewer's speed (tests/speed/): 2,000 files of 100
 	 * lines, the first 50 of each rewritten and left uncommitted, so 200,000
 	 * changed lines.

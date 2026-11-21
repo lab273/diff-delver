@@ -18,7 +18,8 @@ export type TableName =
 	| 'new_units'
 	| 'unmarked_units'
 	| 'revisions_to_check'
-	| 'unreferenced_snapshots';
+	| 'unreferenced_snapshots'
+	| 'settings';
 
 /**
  * The file could not be opened or made (a missing folder, no permission, a full
@@ -171,6 +172,8 @@ function tableInWords(table: TableName): string {
 			return 'the record of the database’s own version';
 		case 'unreferenced_snapshots':
 			return 'the list of saved changes to remove';
+		case 'settings':
+			return 'how you like diffs shown';
 	}
 }
 
@@ -187,6 +190,8 @@ function storedRowAdvice(table: TableName): string {
 		case 'unmarked_units':
 		case 'revisions_to_check':
 			return 'Delete that diff from the list of diffs, where it shows as damaged, or restore the database from a backup.';
+		case 'settings':
+			return 'Change any setting on a diff’s page, which stores it again.';
 		case 'schema_migrations':
 		case 'unreferenced_snapshots':
 			return 'Restore the database from a backup, or move it out of the way to start again with no diffs; the saved changes in the data folder are not affected.';

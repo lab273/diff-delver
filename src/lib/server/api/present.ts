@@ -12,6 +12,8 @@ import type {
 	FileView,
 	Marked,
 	PartBlockView,
+	ColoursView,
+	SideColoursView,
 	PartLines,
 	PartView,
 	ShownLineView,
@@ -52,17 +54,21 @@ import type { NextSource } from '#lib/core/reports/nothing-left.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { formatGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
-import {
-	describeReportError,
-	type ChangeCheck,
-	type ListedReport,
-	type LoadedReport,
-	type OpenOutcome,
-	type PartContent,
-	type ReportError,
-	type ReportSummary,
-	type StartOutcome,
-	type UpdateOutcome
+// Its errors' messages from their own module, so the app's build does not take in
+// the report service, which runs in the daemon.
+import { describeReportError } from '../reports/report-error.ts';
+import type {
+	ChangeCheck,
+	ListedReport,
+	LoadedReport,
+	OpenOutcome,
+	PartColours,
+	PartContent,
+	SideColours,
+	ReportError,
+	ReportSummary,
+	StartOutcome,
+	UpdateOutcome
 } from '../reports/index.ts';
 import type { SourceCandidate, SuggestedSource } from '../sources/git/index.ts';
 
@@ -353,6 +359,23 @@ function lineView(line: ShownLine): ShownLineView {
 				home: line.home
 			};
 	}
+}
+
+function sideColoursView(side: SideColours | undefined): SideColoursView {
+	if (side === undefined) return null;
+	switch (side.kind) {
+		case 'plain':
+			return side;
+		case 'coloured':
+			return {
+				kind: 'coloured',
+				lines: side.lines.map((l) => ({ number: l.number, runs: [...l.runs] }))
+			};
+	}
+}
+
+export function coloursView(colours: PartColours): ColoursView {
+	return { old: sideColoursView(colours.old), new: sideColoursView(colours.new) };
 }
 
 export function partLinesView(content: PartContent): PartLines {
