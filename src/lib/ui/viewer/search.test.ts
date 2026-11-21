@@ -238,6 +238,27 @@ describe('searching within the diff on its page', () => {
 		]);
 	});
 
+	it('goes on from where the match the person is on was when its opened lines are closed again', async () => {
+		const { viewer, search } = await opened();
+		await searchFor(viewer, 'findme');
+		await viewer.wholeFile(A);
+		expect(await steps(viewer, [true, true])).toEqual([
+			'1 a.ts findme10 = 1 6',
+			'2 a.ts findme, unch 3'
+		]);
+		// Only the changes again: the line the person is on is not drawn.
+		await viewer.wholeFile(A);
+		expect(search.ordinal).toBeUndefined();
+		expect(search.summary).toBe('5 matches in 2 files. Press Enter to go to the next.');
+		expect(await steps(viewer, [true])).toEqual(["2 a.ts findme50 = ' 6"]);
+
+		// And back: Previous goes on from there too.
+		await viewer.wholeFile(A);
+		expect(await steps(viewer, [false])).toEqual(['2 a.ts findme, unch 3']);
+		await viewer.wholeFile(A);
+		expect(await steps(viewer, [false])).toEqual(['1 a.ts findme10 = 1 6']);
+	});
+
 	it('says no place among the matches once the one the person is on is hidden or skipped, and goes on from it', async () => {
 		const { viewer, search } = await opened();
 		await searchFor(viewer, 'findme');

@@ -13,7 +13,7 @@
  * "Skip closed files", parts that are closed; lines opened around a change are.
  */
 import { describeApiError } from '#lib/api/client.ts';
-import type { DiffSearchView } from '#lib/api/schemas.ts';
+import type { DiffSearchView, ShownLineView } from '#lib/api/schemas.ts';
 import { partIndexOf, type PartIndex } from '#lib/core/part-index.tiny.ts';
 import type { DiffSearchOptions } from '#lib/core/search/diff-search.ts';
 import { searchedQuery } from '#lib/core/search/find-text.ts';
@@ -27,7 +27,7 @@ import { shownPath } from '#lib/core/shown-path.tiny.ts';
 import { countOf, formatCount } from '#lib/core/viewer/words.ts';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { openedMatches, placesIn, type MatchPlace } from './search-places.ts';
-import type { BlockState, PartState, Viewer } from './viewer.svelte.ts';
+import type { BlockState, OpenLine, PartState, Viewer } from './viewer.svelte.ts';
 
 /** How long typing pauses before the diff is searched, so a search is not sent for every key. */
 export const SEARCH_PAUSE_MS = 150;
@@ -91,6 +91,64 @@ function placeInWords(path: string, place: MatchPlace): string {
 function samePlace(a: MatchPlace, b: MatchPlace): boolean {
 	if (a.kind === 'path' || b.kind === 'path') return a.kind === b.kind && a.start === b.start;
 	return a.line === b.line && a.start === b.start;
+}
+
+/** A line's numbers, on each side it is on. */
+function numbersOf(line: ShownLineView | OpenLine): {
+	readonly old?: number;
+	readonly new?: number;
+} {
+	if (!('kind' in line)) return { old: line.old, new: line.new };
+	switch (line.kind) {
+		case 'context':
+			return { old: line.old, new: line.new };
+		case 'deleted':
+			return { old: line.old };
+		case 'added':
+			return { new: line.new };
+	}
+}
+
+/**
+ * Whether match `a` comes before match `b` in their part, by where they are in
+ * the file rather than by what is drawn, so it holds for a match whose line is
+ * no longer drawn: the name first, then lines by their number on a side both
+ * are on, the new one when both are on both; a removed line and an added one,
+ * which share no side, by their block, and the removed one first in it.
+ */
+function comesBefore(a: MatchPlace, b: MatchPlace): boolean {
+	if (a.kind === 'path' || b.kind === 'path') {
+		if (a.kind !== b.kind) return a.kind === 'path';
+		return a.start < b.start;
+	}
+	const [x, y] = [numbersOf(a.line), numbersOf(b.line)];
+	const byNumber =
+		x.new !== undefined && y.new !== undefined
+			? x.new - y.new
+			: x.old !== undefined && y.old !== undefined
+				? x.old - y.old
+				: a.block !== b.block
+					? a.block - b.block
+					: x.old !== undefined
+						? -1
+						: 1;
+	return byNumber === 0 ? a.start < b.start : byNumber < 0;
+}
+
+/**
+ * Where to go from the match the person is on, among its part's matches:
+ * the one after it (or before), or, when its line is no longer drawn, as when
+ * the lines opened around it are closed again, the first after where it was
+ * (or the last before).
+ */
+function stepFrom(places: readonly MatchPlace[], from: MatchPlace, forward: boolean): number {
+	const here = places.findIndex((p) => samePlace(p, from));
+	if (here >= 0) return here + (forward ? 1 : -1);
+	if (forward) {
+		const after = places.findIndex((p) => comesBefore(from, p));
+		return after < 0 ? places.length : after;
+	}
+	return places.findLastIndex((p) => comesBefore(p, from));
 }
 
 /** Where a part's matches are, for drawing them: on its path, and on each line. */
@@ -370,7 +428,6 @@ export class DiffSearch {
 		const viewer = this.#viewer;
 		const count = viewer.parts.length;
 		const current = this.current;
-		const currentIndex = this.#currentIndex();
 		const from = current?.at ?? viewer.current ?? partIndexOf(forward ? 0 : Math.max(0, count - 1));
 		for (let n = 0; n <= count; n += 1) {
 			const raw = forward ? from + n : from - n;
@@ -384,12 +441,12 @@ export class DiffSearch {
 				this.problem = `Could not read the lines of ${shownPath(state.part.path)}, so its matches cannot be shown. ${state.lines.message} Press Enter to try again.`;
 				return undefined;
 			}
-			// From the match the person is on, the one after it; anywhere else, a part's
-			// first (or last). The last turn comes back to where it began, so the search
-			// goes round within a part that holds every match.
+			// From the match the person is on, the one after it, drawn or not; anywhere
+			// else, a part's first (or last). The last turn comes back to where it
+			// began, so the search goes round within a part that holds every match.
 			const index =
-				n === 0 && currentIndex !== undefined
-					? currentIndex + (forward ? 1 : -1)
+				n === 0 && current?.at === at
+					? stepFrom(places, current.place, forward)
 					: forward
 						? 0
 						: places.length - 1;
