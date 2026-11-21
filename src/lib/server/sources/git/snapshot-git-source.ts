@@ -50,7 +50,7 @@ import {
 } from '../../store/index.ts';
 import type { GitSourceError } from './git-source-error.ts';
 import { gitIn, type LocalRepository } from './local-repository.ts';
-import { firstParent, headCommit, mergeBase, resolveCommit, treeOf } from './resolve.ts';
+import { firstParent, headCommit, rangeEnds, resolveCommit, treeOf } from './resolve.ts';
 import {
 	removeStaleScratchIndexes,
 	scratchSettings,
@@ -392,17 +392,9 @@ async function prepareSides(
 			return commitSides(repo, parent.value, commit.value);
 		}
 		case 'range': {
-			const from = await resolveCommit(repo, spec.from);
-			if (!from.ok) return from;
-			const to = await resolveCommit(repo, spec.to);
-			if (!to.ok) return to;
-			const base = await mergeBase(
-				repo,
-				{ revision: spec.from, commit: from.value },
-				{ revision: spec.to, commit: to.value }
-			);
-			if (!base.ok) return base;
-			return commitSides(repo, base.value, to.value);
+			const ends = await rangeEnds(repo, spec);
+			if (!ends.ok) return ends;
+			return commitSides(repo, ends.value.base, ends.value.to);
 		}
 		case 'staged':
 		case 'working-tree': {

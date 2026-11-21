@@ -8,9 +8,12 @@
  * - `commit`: a commit's first parent against it (the empty tree for a root
  *   commit).
  * - `range`: the merge base of `from` and `to` against `to`, which is what a pull
- *   request from `to` into `from` shows.
+ *   request from `to` into `from` shows. A `from` that is git's empty tree
+ *   (`EMPTY_TREE`) compares from nothing: every commit up to `to`, which is how
+ *   a run of commits that starts at the repository's first commit is reviewed.
  */
 import type { FileCount } from '../file-count.tiny.ts';
+import { EMPTY_TREE } from '../object-format.ts';
 import { jsonQuoted } from '../json-quoted.ts';
 import { gitSourceText, type GitSourceText } from './git-source-text.tiny.ts';
 import { err, ok, type Result } from '../result.ts';
@@ -113,6 +116,14 @@ export function shortRevisionName(revision: Revision): string {
 	return /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(revision) ? revision.slice(0, 7) : revision;
 }
 
+/** Whether a range end is git's empty tree, in either object format: a range from nothing. */
+export function isEmptyTreeRevision(revision: Revision): boolean {
+	const text: string = revision;
+	return text === EMPTY_TREE.sha1 || text === EMPTY_TREE.sha256;
+}
+
+const FULL_ID = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
+
 /** The source in plain words, as a title: "Uncommitted changes", "feature-x compared with main". */
 export function describeGitSource(spec: GitSourceSpec): ReviewerMessage {
 	switch (spec.kind) {
@@ -127,6 +138,15 @@ export function describeGitSource(spec: GitSourceSpec): ReviewerMessage {
 					: `Commit ${shortRevisionName(spec.revision)}`
 			);
 		case 'range': {
+			// A run of commits chosen from a list, written as commit ids.
+			if (FULL_ID.test(spec.to) && isEmptyTreeRevision(spec.from)) {
+				return reviewerMessage(`Every commit up to ${shortRevisionName(spec.to)}`);
+			}
+			if (FULL_ID.test(spec.to) && FULL_ID.test(spec.from)) {
+				return reviewerMessage(
+					`The commits after ${shortRevisionName(spec.from)}, up to ${shortRevisionName(spec.to)}`
+				);
+			}
 			const to =
 				spec.to === HEAD || spec.to === '@' ? 'The checked-out commit' : shortRevisionName(spec.to);
 			return reviewerMessage(`${to} compared with ${shortRevisionName(spec.from)}`);

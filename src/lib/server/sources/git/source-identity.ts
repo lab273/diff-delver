@@ -28,7 +28,7 @@ import { createHash } from 'node:crypto';
 import { lstat } from 'node:fs/promises';
 import { parseAbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { ok, type Result } from '#lib/core/result.ts';
-import type { GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
+import { isEmptyTreeRevision, type GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import { parseSourceIdentity, type SourceIdentity } from '#lib/core/source-identity.tiny.ts';
 import type { GitSourceError } from './git-source-error.ts';
 import { gitIn, sharedIndexFiles, type LocalRepository } from './local-repository.ts';
@@ -102,6 +102,10 @@ export async function sourceIdentity(
 			return commit.ok ? ok(fingerprint(['commit', commit.value])) : commit;
 		}
 		case 'range': {
+			if (isEmptyTreeRevision(spec.from)) {
+				const to = await resolveCommit(repo, spec.to);
+				return to.ok ? ok(fingerprint(['range', spec.from, to.value])) : to;
+			}
 			const from = await resolveCommit(repo, spec.from);
 			if (!from.ok) return from;
 			const to = await resolveCommit(repo, spec.to);

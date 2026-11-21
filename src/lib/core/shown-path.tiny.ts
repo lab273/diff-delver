@@ -1,5 +1,5 @@
 import { escapedRepoPath, type EscapedPath } from './escaped-path.tiny.ts';
-import { escapeCharacter, isHiddenCharacter } from './hidden-characters.ts';
+import { textPieces, type TextPiece } from './hidden-characters.ts';
 import type { RepoPath } from './repo-path.tiny.ts';
 import type { Tiny } from './tiny.ts';
 
@@ -10,9 +10,7 @@ import type { Tiny } from './tiny.ts';
 export type ShownPath = Tiny<string, 'ShownPath'>;
 
 /** A piece of a shown path: text, or a character that cannot be seen, written as its escape. */
-export type PathPiece =
-	| { readonly kind: 'text'; readonly text: string }
-	| { readonly kind: 'escape'; readonly shown: string };
+export type PathPiece = TextPiece;
 
 /**
  * The pieces of a path as a person is shown it: its escaped form
@@ -25,19 +23,7 @@ export type PathPiece =
  * has it doubled, so its text can never pass for an escape here.
  */
 export function pathPieces(path: EscapedPath): readonly PathPiece[] {
-	const pieces: PathPiece[] = [];
-	let plain = '';
-	for (const character of path) {
-		if (!isHiddenCharacter(character)) {
-			plain += character;
-			continue;
-		}
-		if (plain !== '') pieces.push({ kind: 'text', text: plain });
-		plain = '';
-		pieces.push({ kind: 'escape', shown: escapeCharacter(character) });
-	}
-	if (plain !== '') pieces.push({ kind: 'text', text: plain });
-	return pieces;
+	return textPieces(path);
 }
 
 /** A path as a person is shown it, as text (see `pathPieces`). */

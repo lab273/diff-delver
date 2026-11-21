@@ -13,12 +13,13 @@
  * do (see `suggest-source.ts`): a file git would refuse to add is listed here.
  */
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { EMPTY_TREE } from '#lib/core/object-format.ts';
 import { ok, type Result } from '#lib/core/result.ts';
 import type { GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import type { CommitId } from '#lib/core/commit-id.tiny.ts';
 import type { GitSourceError } from './git-source-error.ts';
 import { gitCwd, gitIn, sharedIndexFiles, type LocalRepository } from './local-repository.ts';
-import { firstParent, headCommit, mergeBase, resolveCommit } from './resolve.ts';
+import { firstParent, headCommit, rangeEnds, resolveCommit } from './resolve.ts';
 import { withScratchIndex } from './scratch-index.ts';
 import { workingTreeStatus } from './working-tree-status.ts';
 
@@ -27,24 +28,21 @@ function listedAny(stdout: Buffer): boolean {
 	return stdout.some((byte) => byte !== 0);
 }
 
-/** Whether two commits' trees differ, the first absent for a root commit. */
+/** Whether two commits' trees differ, the first absent for nothing before: the empty tree. */
 async function commitsDiffer(
 	repo: LocalRepository,
 	base: CommitId | undefined,
 	head: CommitId
 ): Promise<Result<boolean, GitSourceError>> {
-	// A root commit is compared with nothing; its own id, which git would print first, is left out.
-	const root = base === undefined ? ['--root', '--no-commit-id'] : [];
-	const commits = base === undefined ? [head] : [base, head];
 	const listed = await gitIn(repo, gitCwd(repo), [
 		'diff-tree',
 		'-r',
 		'-z',
 		'--name-only',
 		'--no-renames',
-		...root,
 		'--end-of-options',
-		...commits
+		base ?? EMPTY_TREE[repo.objectFormat],
+		head
 	]);
 	return listed.ok ? ok(listedAny(listed.value.stdout)) : listed;
 }
@@ -85,17 +83,9 @@ export async function sourceHasChanges(
 			return commitsDiffer(repo, parent.value, commit.value);
 		}
 		case 'range': {
-			const from = await resolveCommit(repo, spec.from);
-			if (!from.ok) return from;
-			const to = await resolveCommit(repo, spec.to);
-			if (!to.ok) return to;
-			const base = await mergeBase(
-				repo,
-				{ revision: spec.from, commit: from.value },
-				{ revision: spec.to, commit: to.value }
-			);
-			if (!base.ok) return base;
-			return commitsDiffer(repo, base.value, to.value);
+			const ends = await rangeEnds(repo, spec);
+			if (!ends.ok) return ends;
+			return commitsDiffer(repo, ends.value.base, ends.value.to);
 		}
 		case 'staged': {
 			const workTree = repo.workTree;

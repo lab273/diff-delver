@@ -3,7 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseCommitId, type CommitId } from '#lib/core/commit-id.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
+import { EMPTY_TREE } from '#lib/core/object-format.ts';
 import type { Revision } from '#lib/core/revision.tiny.ts';
+import { isEmptyTreeRevision } from '#lib/core/sources/git-source-spec.ts';
 import { parseTreeId, type TreeId } from '#lib/core/tree-id.tiny.ts';
 import type { GitSourceError } from './git-source-error.ts';
 import { gitCwd, gitIn, type LocalRepository } from './local-repository.ts';
@@ -140,4 +142,44 @@ export async function mergeBase(
 				from: from.revision,
 				to: to.revision
 			});
+}
+
+/**
+ * What a range compares: from the merge base of its two ends (undefined, the
+ * empty tree, when `from` is git's empty tree, a range from nothing) to the
+ * commit `to` names. `from` and `to` are the commits the ends name now, for a
+ * fingerprint; `from` is undefined for the empty tree.
+ */
+export async function rangeEnds(
+	repo: LocalRepository,
+	spec: { readonly from: Revision; readonly to: Revision }
+): Promise<
+	Result<
+		{
+			readonly from: CommitId | undefined;
+			readonly base: CommitId | undefined;
+			readonly to: CommitId;
+		},
+		GitSourceError
+	>
+> {
+	const to = await resolveCommit(repo, spec.to);
+	if (!to.ok) return to;
+	if (isEmptyTreeRevision(spec.from)) {
+		// Only this repository's own empty tree: the other format's names nothing here.
+		const from: string = spec.from;
+		if (from !== EMPTY_TREE[repo.objectFormat]) {
+			return err({ kind: 'UnknownRevision', repository: repo.commonDir, revision: spec.from });
+		}
+		return ok({ from: undefined, base: undefined, to: to.value });
+	}
+	const from = await resolveCommit(repo, spec.from);
+	if (!from.ok) return from;
+	const base = await mergeBase(
+		repo,
+		{ revision: spec.from, commit: from.value },
+		{ revision: spec.to, commit: to.value }
+	);
+	if (!base.ok) return base;
+	return ok({ from: from.value, base: base.value, to: to.value });
 }

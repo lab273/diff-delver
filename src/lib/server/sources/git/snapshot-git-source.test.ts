@@ -17,10 +17,14 @@ import { absolutePath, GitRepo } from '../../../../../tests/support/git-repo.ts'
 import { changesOf, take, value } from '../../../../../tests/support/git-source-helpers.ts';
 import { reviewer, treeGitWouldCommit } from '../../../../../tests/support/reviewer-git.ts';
 import { listSnapshotPaths, readSnapshotDiff, readSnapshotFile } from '../../store/index.ts';
+import { EMPTY_TREE } from '#lib/core/object-format.ts';
+import { parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import {
 	describeGitSourceError,
 	locateRepository,
 	snapshotGitSource,
+	sourceHasChanges,
+	sourceIdentity,
 	type GitSourceError
 } from './index.ts';
 
@@ -424,6 +428,22 @@ describe('a commit or range snapshot', () => {
 		}
 		const back = value(await take(repo.dir, 'feature...main', who));
 		expect(await changesOf(back.snapshot)).toEqual({ 'main.txt': 'added', 'side.txt': 'added' });
+	});
+
+	it('compares a range from the empty tree with nothing: every commit up to its end', async () => {
+		const repo = await useFixture(history);
+		const who = await reviewer();
+		const all = value(await take(repo.dir, `${EMPTY_TREE.sha1}...feature`, who));
+		expect(await changesOf(all.snapshot)).toEqual({ 'a.txt': 'added', 'f.txt': 'added' });
+		expect(all.baseCommit).toBeUndefined();
+		expect(all.headCommit).toBe((await repo.snapshot('feature')).commit);
+		const found = value(await locateRepository(repo.dir, { gitEnv: who.gitEnv }));
+		const spec = value(parseGitSourceSpec(`${EMPTY_TREE.sha1}...feature`));
+		expect(value(await sourceHasChanges(found, spec))).toBe(true);
+		expect(value(await sourceIdentity(found, spec))).toBe(all.identity);
+		// The other format's empty tree names nothing in this repository.
+		const other = await take(repo.dir, `${EMPTY_TREE.sha256}...feature`, who);
+		expect(other.ok ? 'taken' : other.error.kind).toBe('UnknownRevision');
 	});
 
 	it('names an unknown revision and unrelated histories plainly', async () => {

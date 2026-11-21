@@ -25,6 +25,32 @@ export function escapeCharacter(character: string): string {
 	return code < 0x80 ? `\\x${hex.padStart(2, '0')}` : `\\u${hex.padStart(4, '0')}`;
 }
 
+/** A piece of text as it is shown: as it is, or a character that cannot be seen, written as its escape. */
+export type TextPiece =
+	| { readonly kind: 'text'; readonly text: string }
+	| { readonly kind: 'escape'; readonly shown: string };
+
+/**
+ * Text in the pieces it is shown in: runs of characters drawn as they are, and
+ * each hidden character as its own escape, so a page can mark the escapes as
+ * code's are. Joined, the pieces are `visibleText`.
+ */
+export function textPieces(text: string): readonly TextPiece[] {
+	const pieces: TextPiece[] = [];
+	let plain = '';
+	for (const character of text) {
+		if (!isHiddenCharacter(character)) {
+			plain += character;
+			continue;
+		}
+		if (plain !== '') pieces.push({ kind: 'text', text: plain });
+		plain = '';
+		pieces.push({ kind: 'escape', shown: escapeCharacter(character) });
+	}
+	if (plain !== '') pieces.push({ kind: 'text', text: plain });
+	return pieces;
+}
+
 /**
  * Text, such as a folder's name, with each hidden character written as its
  * escape. For a repository path, `shownPath` (`shown-path.tiny.ts`) also keeps
