@@ -14,12 +14,18 @@ import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { parseCodeVersion } from '#lib/core/code-version.tiny.ts';
 import { parseFileCount } from '#lib/core/file-count.tiny.ts';
 import { parseEntryCode } from '#lib/core/entry-code.tiny.ts';
+import { parseByteSize } from '#lib/core/byte-size.tiny.ts';
 import { parseLineCount } from '#lib/core/line-count.tiny.ts';
+import { parseLineNumber } from '#lib/core/line-number.tiny.ts';
+import { parseLineText } from '#lib/core/line-text.tiny.ts';
+import { parsePartPosition } from '#lib/core/part-position.tiny.ts';
+import { parseSliceCount } from '#lib/core/slice-count.tiny.ts';
 import { parseProcessId } from '#lib/core/process-id.tiny.ts';
 import { parseEscapedPath } from '#lib/core/path-bytes.ts';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { ok, err, type Result } from '#lib/core/result.ts';
+import { parseGroupText } from '#lib/core/viewer/group-text.ts';
 import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 import { parseSectionTitle } from '#lib/core/section-title.tiny.ts';
@@ -49,6 +55,8 @@ const timestamp = parsed(z.number(), parseTimestamp);
 const fileCount = parsed(z.number(), parseFileCount);
 const lineCount = parsed(z.number(), parseLineCount);
 const unitCount = parsed(z.number(), parseUnitCount);
+const lineNumber = parsed(z.number(), parseLineNumber);
+const byteSize = parsed(z.number(), parseByteSize);
 /** A version of a diff, as the page numbers them: 1 for the first, 2 after the first update. */
 const version = parsed(z.number(), parseRevisionNumber);
 const escapedPath = parsed(z.string(), parseEscapedPath);
@@ -221,19 +229,76 @@ const IgnoreReasonSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('agent'), reason: parsed(z.string(), parseAgentMarkdown) })
 ]);
 
-const ListedFileSchema = z.object({
+const sectionId = parsed(z.string(), parseSectionId);
+
+/** A group of the page: a section, the tests of a section, Ignored or Not sorted yet. */
+export const GroupKeySchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('section'), section: sectionId }),
+	z.object({ kind: z.literal('tests'), section: sectionId }),
+	z.object({ kind: z.literal('ignored') }),
+	z.object({ kind: z.literal('uncategorised') })
+]);
+export type GroupKeyView = z.output<typeof GroupKeySchema>;
+
+/** How the page groups the diff: by section with tests in them (the only view so far), or tests apart. */
+const ViewSchema = z.enum(['sections', 'tests-separate']);
+export type ViewName = z.output<typeof ViewSchema>;
+
+/**
+ * How far a part, a file or a group has got. A change is one added line, one
+ * removed line, or one change to a file itself (DESIGN 8.5).
+ */
+const TallySchema = z.object({
+	units: unitCount,
+	reviewed: unitCount,
+	/** Of them, new since the previous version. */
+	fresh: unitCount,
+	/** Of them, unmarked by the last update because lines close to them changed. */
+	unmarked: unitCount
+});
+export type TallyView = z.output<typeof TallySchema>;
+
+/** One file's part within one group, as the page lists it before its lines are drawn. */
+const PartSchema = z.object({
+	group: GroupKeySchema,
 	path: escapedPath,
-	/** How it changed, in plain words: "changed", "renamed from src/old.ts", "changed, made executable". */
+	/** How the file changed, saying only what is in this part: "changed", "renamed from src/old.ts". */
 	change: message,
 	added: lineCount,
 	removed: lineCount,
+	/** What the change to the file itself stands for, when it is in this part: "made executable". */
+	fileUnit: message.nullable(),
 	ignored: z.array(IgnoreReasonSchema),
-	/** Changes new to review since the previous version: 0 in a first version. */
-	newChanges: unitCount
+	tally: TallySchema,
+	/** How many rows its lines take when drawn, hidden lines aside. */
+	rows: lineCount,
+	/** Part 2 of 3. */
+	position: parsed(z.number(), parsePartPosition),
+	of: parsed(z.number(), parseSliceCount),
+	/** The groups the file's other parts are in, in reading order. */
+	others: z.array(GroupKeySchema),
+	/** What the file holds: text, or no lines to show. */
+	content: z.enum(['text', 'binary', 'submodule'])
 });
-export type ListedFileView = z.output<typeof ListedFileSchema>;
+export type PartView = z.output<typeof PartSchema>;
 
-/** GET /api/diffs/:id: a diff's page. */
+/** A file of the by-file view: every file once. */
+const FileSchema = z.object({
+	path: escapedPath,
+	/** How the whole file changed: "changed, renamed from src/old.ts". */
+	change: message,
+	added: lineCount,
+	removed: lineCount,
+	/** Its parts outside Ignored. */
+	tally: TallySchema,
+	/** Its changes in Ignored. */
+	ignored: unitCount,
+	/** Where its parts are, in reading order. */
+	parts: z.array(GroupKeySchema)
+});
+export type FileView = z.output<typeof FileSchema>;
+
+/** GET /api/diffs/:id: a diff's page, without the code, which comes a part at a time. */
 export const DiffPageSchema = z.object({
 	now: timestamp,
 	summary: DiffSummarySchema,
@@ -243,22 +308,132 @@ export const DiffPageSchema = z.object({
 	source,
 	/** Files that could not be included, one sentence each. */
 	leftOut: z.array(message),
+	view: ViewSchema,
+	/** The groups in reading order, each with its parts; empty ones left out, except sections. */
 	groups: z.array(
 		z.object({
-			group: z.discriminatedUnion('kind', [
-				z.object({ kind: z.literal('section'), title: parsed(z.string(), parseSectionTitle) }),
-				z.object({ kind: z.literal('ignored') }),
-				z.object({ kind: z.literal('uncategorised') })
-			]),
-			files: z.array(ListedFileSchema)
+			key: GroupKeySchema,
+			/** A section's title, as the agent wrote it; null for the other groups. */
+			title: parsed(z.string(), parseSectionTitle).nullable(),
+			parts: z.array(PartSchema)
 		})
 	),
+	/** Every file once, in path order. */
+	files: z.array(FileSchema),
 	/** Whether any section exists, to explain "Not sorted yet". */
 	sorted: z.boolean(),
 	/** What the update that made this version did, and when; null for a first version. */
 	update: UpdateViewSchema.extend({ at: timestamp }).nullable()
 });
 export type DiffPage = z.output<typeof DiffPageSchema>;
+export type DiffPageGroup = DiffPage['groups'][number];
+
+/** A number written in an address, such as `?version=2`. */
+function inQuery<T>(parse: (value: number) => Result<T, unknown>): z.ZodType<T> {
+	return parsed(
+		z
+			.string()
+			.regex(/^[0-9]+$/, 'is not a whole number')
+			.transform(Number),
+		parse
+	);
+}
+
+/** GET /api/diffs/:id?view=V: which view to give the page in. */
+export const PageQuerySchema = z.object({ view: ViewSchema.default('sections') });
+export type PageQuery = z.input<typeof PageQuerySchema>;
+
+/** GET /api/diffs/:id/part: which part, of the version the page shows. */
+export const PartQuerySchema = z.object({
+	version: inQuery(parseRevisionNumber),
+	view: ViewSchema,
+	/** The group as `groupKeyId` writes it: `uncategorised`, `section:auth`. */
+	group: parsed(z.string(), parseGroupText),
+	path: escapedPath
+});
+export type PartQuery = z.output<typeof PartQuerySchema>;
+
+/** GET /api/diffs/:id/lines: which lines of which side of a file, of the version the page shows. */
+export const LinesQuerySchema = z
+	.object({
+		version: inQuery(parseRevisionNumber),
+		side: z.enum(['old', 'new']),
+		path: escapedPath,
+		first: inQuery(parseLineNumber),
+		last: inQuery(parseLineNumber)
+	})
+	.refine((q) => q.first <= q.last, 'the first line comes after the last');
+export type LinesQuery = z.output<typeof LinesQuerySchema>;
+
+const LineSpanSchema = z.object({ first: lineNumber, last: lineNumber });
+
+/** Where a changed line of a part belongs: here (and whether it is new), or in another group. */
+const LineHomeSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('here'), fresh: z.boolean() }),
+	z.object({ kind: z.literal('elsewhere'), group: GroupKeySchema })
+]);
+
+const lineText = parsed(z.string(), parseLineText);
+
+const ShownLineSchema = z.discriminatedUnion('kind', [
+	z.object({
+		kind: z.literal('context'),
+		old: lineNumber,
+		new: lineNumber,
+		text: lineText,
+		noNewlineAtEnd: z.boolean()
+	}),
+	z.object({
+		kind: z.literal('deleted'),
+		old: lineNumber,
+		text: lineText,
+		noNewlineAtEnd: z.boolean(),
+		home: LineHomeSchema
+	}),
+	z.object({
+		kind: z.literal('added'),
+		new: lineNumber,
+		text: lineText,
+		noNewlineAtEnd: z.boolean(),
+		home: LineHomeSchema
+	})
+]);
+export type ShownLineView = z.output<typeof ShownLineSchema>;
+
+/**
+ * GET /api/diffs/:id/part?version=N&view=V&group=G&path=P: one part's lines,
+ * of the version the page shows.
+ */
+export const PartLinesSchema = z.object({
+	blocks: z.array(
+		z.discriminatedUnion('kind', [
+			/** Unchanged lines not shown, the same on both sides. */
+			z.object({ kind: z.literal('hidden'), old: LineSpanSchema, new: LineSpanSchema }),
+			z.object({ kind: z.literal('hunk'), heading: lineText, lines: z.array(ShownLineSchema) }),
+			/** A hunk with none of this part's changes: where they are. */
+			z.object({
+				kind: z.literal('elsewhere'),
+				groups: z.array(GroupKeySchema),
+				lines: z.array(ShownLineSchema)
+			})
+		])
+	),
+	/** For a binary file, its size on each side it has. */
+	sizes: z.object({ old: byteSize.nullable(), new: byteSize.nullable() }).nullable()
+});
+export type PartLines = z.output<typeof PartLinesSchema>;
+export type PartBlockView = PartLines['blocks'][number];
+
+/**
+ * GET /api/diffs/:id/lines?version=N&side=S&path=P&first=A&last=B: lines of a
+ * file of the version the page shows, from diff delver's copy of it.
+ */
+export const LinesSchema = z.object({
+	lines: z.array(z.object({ number: lineNumber, text: lineText })),
+	/** How many lines the file has. */
+	lineCount
+});
+export type LinesView = z.output<typeof LinesSchema>;
 
 /**
  * GET /api/diffs/:id/changes?seen=N: whether the diff has a newer version than
@@ -288,18 +463,7 @@ export type UpdateResponse = z.output<typeof UpdateResponseSchema>;
 // Each request that changes a diff's sorting or marks names the version the page
 // shows. When the diff has been updated since, nothing changes and the answer is
 // 409 with a message saying to show the new version first, so a tick made on
-// version 1 never marks what is new in version 2. The routes come with the
-// diff viewer.
-
-const sectionId = parsed(z.string(), parseSectionId);
-
-/** A group of the page: a section, the tests of a section, Ignored or Not sorted yet. */
-const GroupKeySchema = z.discriminatedUnion('kind', [
-	z.object({ kind: z.literal('section'), section: sectionId }),
-	z.object({ kind: z.literal('tests'), section: sectionId }),
-	z.object({ kind: z.literal('ignored') }),
-	z.object({ kind: z.literal('uncategorised') })
-]);
+// version 1 never marks what is new in version 2.
 
 /** POST /api/diffs/:id/reviewed: marks a part of the shown version as reviewed, or not. */
 export const MarkReviewedRequestSchema = z.object({
@@ -310,9 +474,21 @@ export const MarkReviewedRequestSchema = z.object({
 		z.object({ kind: z.literal('group'), group: GroupKeySchema })
 	]),
 	reviewed: z.boolean(),
-	view: z.enum(['sections', 'tests-separate'])
+	view: ViewSchema
 });
 export type MarkReviewedRequest = z.input<typeof MarkReviewedRequestSchema>;
+
+/**
+ * What marking changed: the diff's summary with its progress, and the parts
+ * and files of every file it touched, which the page puts in place of its own;
+ * the groups' figures are their parts' sums.
+ */
+export const MarkedSchema = z.object({
+	summary: DiffSummarySchema,
+	parts: z.array(PartSchema),
+	files: z.array(FileSchema)
+});
+export type Marked = z.output<typeof MarkedSchema>;
 
 /** POST /api/diffs/:id/assign: the agent's `assign` items, on the version it read. */
 export const AssignRequestSchema = z.object({

@@ -216,6 +216,15 @@ function project(
 	return { groups: ordered.map((g) => ({ key: g.key, slices: g.slices, units: g.units })) };
 }
 
+/** One file's slices in a view, each with its group, in the order its units come (not reading order). */
+export function fileSlices(
+	file: DiffFile,
+	state: AssignmentState,
+	view: ViewKind
+): readonly { readonly group: GroupKey; readonly slice: Slice }[] {
+	return slicesOfFile(file, state, (assignment) => groupOf(view, assignment));
+}
+
 /** The slices of one file, each with the group it belongs to. */
 function slicesOfFile(
 	file: DiffFile,

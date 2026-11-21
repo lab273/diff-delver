@@ -142,6 +142,13 @@ export interface CarriedOver {
 	readonly marks: ReviewedMarks;
 	/** The units of the new diff with no match in the previous version. */
 	readonly fresh: UnitSet;
+	/**
+	 * The units of the new diff that were reviewed in the previous version and
+	 * matched, but lost their mark because something near them changed (the
+	 * distance rule above), so the page can say why they are to be read again.
+	 * Never fresh, never in `marks`.
+	 */
+	readonly unmarked: UnitSet;
 	readonly summary: UpdateSummary;
 }
 
@@ -227,6 +234,7 @@ class CarryOver {
 		const files = new Map<RepoPath, FileAssignment>();
 		const marks = new Map<RepoPath, FileUnitSet>();
 		const fresh = new Map<RepoPath, FileUnitSet>();
+		const unmarked = new Map<RepoPath, FileUnitSet>();
 		const previousOf = new Map<RepoPath, DiffFile | undefined>();
 		for (const file of this.#input.diff.files) {
 			const path = file.file.path;
@@ -238,6 +246,11 @@ class CarryOver {
 			const kept = this.#awayFromChanges(file, lines.reviewed, lines.fresh);
 			const reviewed = fileUnitsOf(kept.old, kept.new, own?.reviewed ?? false);
 			if (reviewed !== undefined) marks.set(path, reviewed);
+			const lost = fileUnitsOf(
+				lines.reviewed.old.subtract(kept.old),
+				lines.reviewed.new.subtract(kept.new)
+			);
+			if (lost !== undefined) unmarked.set(path, lost);
 			const isNew = fileUnitsOf(lines.fresh.old, lines.fresh.new, own?.fresh ?? false);
 			if (isNew !== undefined) fresh.set(path, isNew);
 		}
@@ -248,6 +261,7 @@ class CarryOver {
 			state: sorted.state,
 			marks: marksSet,
 			fresh: freshSet,
+			unmarked: { files: unmarked },
 			summary: this.#summary(sorted.state, marksSet, freshSet, previousOf)
 		};
 	}

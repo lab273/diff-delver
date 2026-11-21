@@ -154,6 +154,8 @@ describe('the marks an update keeps', () => {
 		const kept = lines(r.marks, 'app.ts', 'new');
 		expect(kept).toHaveLength(40 - 7);
 		expect(kept.filter((n) => n >= 17 && n <= 23)).toEqual([]);
+		// The six familiar lines around the fix are unmarked, so the page can say why.
+		expect(lines(r.unmarked, 'app.ts', 'new')).toEqual([17, 18, 19, 21, 22, 23]);
 	});
 
 	it('takes marks off around each of two edits far apart, and keeps those between', () => {

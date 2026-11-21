@@ -150,6 +150,11 @@ describe('the database', () => {
 				version: 4,
 				name: 'revisions to check for changes to a file beside its lines',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 5,
+				name: 'which changes an update unmarked because lines close to them changed',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -208,6 +213,7 @@ describe('the database', () => {
 		expect(rowsOf(dir)).toEqual({
 			...before,
 			new_units: [],
+			unmarked_units: [],
 			revision_updates: [],
 			revisions_to_check: [{ revision_id: 'v_1' }]
 		});

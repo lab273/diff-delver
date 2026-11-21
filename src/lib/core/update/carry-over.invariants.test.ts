@@ -400,6 +400,20 @@ describe('carry-over invariants', () => {
 					expect(file.old.intersect(linesInSet(carried.fresh, path, 'old')).isEmpty).toBe(true);
 					expect(file.new.intersect(linesInSet(carried.fresh, path, 'new')).isEmpty).toBe(true);
 				}
+				// Unmarked units are units of the new diff, neither new nor marked, and
+				// with the marks kept they are never more than were marked before.
+				expect(reviewedMarksFromRows(after, reviewedRowsOf(carried.unmarked)).ok).toBe(true);
+				for (const [path, file] of carried.unmarked.files) {
+					expect(file.file).toBe(false);
+					for (const side of ['old', 'new'] as const) {
+						const lines = side === 'old' ? file.old : file.new;
+						expect(lines.intersect(linesInSet(carried.fresh, path, side)).isEmpty).toBe(true);
+						expect(lines.intersect(linesInSet(carried.marks, path, side)).isEmpty).toBe(true);
+					}
+				}
+				expect(unitSetSize(carried.marks) + unitSetSize(carried.unmarked)).toBeLessThanOrEqual(
+					unitSetSize(marks)
+				);
 
 				const old = facts(before, state, marks, { files: new Map() });
 				const now = facts(after, carried.state, carried.marks, carried.fresh);
@@ -468,6 +482,7 @@ describe('carry-over invariants', () => {
 				expect(sameAssignmentState(before, state, carried.state)).toBe(true);
 				expect(sameReviewedMarks(marks, carried.marks)).toBe(true);
 				expect(unitSetSize(carried.fresh)).toBe(0);
+				expect(unitSetSize(carried.unmarked)).toBe(0);
 				expect(carried.summary.filesChanged).toBe(0);
 			}),
 			{ numRuns: 100 }

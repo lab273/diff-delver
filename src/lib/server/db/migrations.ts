@@ -218,6 +218,26 @@ CREATE TABLE revisions_to_check (
 ) STRICT;
 INSERT INTO revisions_to_check (revision_id) SELECT id FROM revisions;
 `
+	},
+	{
+		version: schemaVersionOf(5),
+		name: 'which changes an update unmarked because lines close to them changed',
+		sql: `
+-- The units of a revision that were marked reviewed in the revision before it,
+-- are the same lines, and lost their mark because something close to them
+-- changed (DESIGN 6.2 step 3), as runs of units like new_units, so the page can
+-- say why they are to be read again. Revisions made before this table have none.
+CREATE TABLE unmarked_units (
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new', 'file')),
+	first_line INTEGER NOT NULL,
+	last_line INTEGER NOT NULL,
+	PRIMARY KEY (revision_id, path, side, first_line),
+	CHECK ((side = 'file') = (first_line = 0 AND last_line = 0)),
+	CHECK (side = 'file' OR (first_line >= 1 AND last_line >= first_line))
+) STRICT, WITHOUT ROWID;
+`
 	}
 ];
 

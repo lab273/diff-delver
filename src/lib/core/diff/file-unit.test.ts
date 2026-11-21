@@ -18,7 +18,7 @@ import { markReviewed } from '../review/mark-reviewed.ts';
 import { reviewProgress } from '../review/progress.ts';
 import { fileUnitReviewed, NO_MARKS, reviewedLines } from '../review/reviewed-marks.ts';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
-import { listFiles } from '../reports/file-list.ts';
+import { frameOf, NO_PART_MARKS } from '../viewer/parts.ts';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -276,12 +276,12 @@ describe('the file-level unit', () => {
 				.find((g) => groupKeyId(g.key) === 'tests:modes')
 				?.slices.map((s) => [s.file.path, s.fileUnit !== undefined])
 		).toEqual([[run, true]]);
-		// The list of files counts it in its group only.
-		const listed = listFiles(diff, state, []);
-		const counts = listed.flatMap((g) =>
-			g.files
-				.filter((f) => f.path === 'run.sh')
-				.map((f) => [g.kind === 'section' ? g.title : g.kind, f.added, f.removed])
+		// The page's parts count it in its group only.
+		const frame = frameOf(diff, state, NO_PART_MARKS, 'sections', []);
+		const counts = frame.groups.flatMap((g) =>
+			g.parts
+				.filter((p) => p.file.file.path === 'run.sh')
+				.map((p) => [g.key.kind === 'section' ? g.key.section : g.key.kind, p.added, p.removed])
 		);
 		expect(counts).toEqual([
 			['modes', 0, 0],

@@ -16,6 +16,7 @@ export type TableName =
 	| 'reviewed_marks'
 	| 'revision_updates'
 	| 'new_units'
+	| 'unmarked_units'
 	| 'revisions_to_check'
 	| 'unreferenced_snapshots';
 
@@ -162,6 +163,8 @@ function tableInWords(table: TableName): string {
 			return 'what an update of a diff changed';
 		case 'new_units':
 			return 'which changes are new since a diff’s previous version';
+		case 'unmarked_units':
+			return 'which changes an update unmarked because lines close to them changed';
 		case 'revisions_to_check':
 			return 'the list of diffs saved by an earlier diff delver still to bring up to date';
 		case 'schema_migrations':
@@ -181,6 +184,7 @@ function storedRowAdvice(table: TableName): string {
 		case 'reviewed_marks':
 		case 'revision_updates':
 		case 'new_units':
+		case 'unmarked_units':
 		case 'revisions_to_check':
 			return 'Delete that diff from the list of diffs, where it shows as damaged, or restore the database from a backup.';
 		case 'schema_migrations':

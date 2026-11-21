@@ -271,11 +271,11 @@
 		</Notice>
 	{/if}
 
-	{#each page.groups as { group, files }, index (index)}
+	{#each page.groups as { key: group, title, parts: files }, index (index)}
 		<section class="group" aria-labelledby="group-{index}">
 			<h2 id="group-{index}">
-				{group.kind === 'section'
-					? group.title
+				{group.kind === 'section' || group.kind === 'tests'
+					? title
 					: group.kind === 'ignored'
 						? 'Ignored'
 						: 'Not sorted yet'}
@@ -295,8 +295,8 @@
 					<li>
 						<span class="path">{file.path}</span>
 						<span class="change">{file.change}</span>
-						{#if file.newChanges > 0}
-							<span class="new">{newChanges(file.newChanges, summary.version)}</span>
+						{#if file.tally.fresh > 0 && group.kind !== 'ignored'}
+							<span class="new">{newChanges(file.tally.fresh, summary.version)}</span>
 						{/if}
 						{#each file.ignored as reason, r (r)}
 							<span class="reason">

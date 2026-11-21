@@ -9,6 +9,12 @@ import type {
 	ChangeCheckResponse,
 	DiffPage,
 	DiffSummary,
+	FileView,
+	Marked,
+	PartBlockView,
+	PartLines,
+	PartView,
+	ShownLineView,
 	ListedDiff,
 	NextSourceOffer,
 	OpenResponse,
@@ -25,7 +31,22 @@ import {
 	describeUnitProgress,
 	repositoryLabel
 } from '#lib/core/reports/describe-report.ts';
-import { listFiles } from '#lib/core/reports/file-list.ts';
+import { describeFileChange } from '#lib/core/diff/file-unit.ts';
+import type { ViewKind } from '#lib/core/diff/slices.ts';
+import { lineCountOf } from '#lib/core/line-count.tiny.ts';
+import { escapedRepoPath } from '#lib/core/path-bytes.ts';
+import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
+import type { SectionId } from '#lib/core/section-id.tiny.ts';
+import { parseSectionTitle, type SectionTitle } from '#lib/core/section-title.tiny.ts';
+import type { ShownLine } from '#lib/core/viewer/part-lines.ts';
+import {
+	fileParts,
+	fileTally,
+	frameOf,
+	type FrameFile,
+	type PartMarks,
+	type PartSummary
+} from '#lib/core/viewer/parts.ts';
 import type { NextSource } from '#lib/core/reports/nothing-left.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { formatGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
@@ -36,6 +57,7 @@ import {
 	type ListedReport,
 	type LoadedReport,
 	type OpenOutcome,
+	type PartContent,
 	type ReportError,
 	type ReportSummary,
 	type StartOutcome,
@@ -182,31 +204,166 @@ export function suggestView(
 	}
 }
 
-export function pageView(loaded: LoadedReport, now: Timestamp): DiffPage {
+/** How a part's file holds its content. */
+function contentOf(part: PartSummary): PartView['content'] {
+	return part.file.file.content.kind;
+}
+
+export function partView(part: PartSummary): PartView {
+	return {
+		group: part.group,
+		path: escapedRepoPath(part.file.file.path),
+		change: part.change,
+		added: part.added,
+		removed: part.removed,
+		fileUnit: part.fileUnit ?? null,
+		ignored: [...part.ignored],
+		tally: part.tally,
+		rows: part.rows,
+		position: part.position,
+		of: part.of,
+		others: [...part.others],
+		content: contentOf(part)
+	};
+}
+
+export function fileView(file: FrameFile): FileView {
+	return {
+		path: escapedRepoPath(file.file.file.path),
+		change: file.change,
+		added: file.added,
+		removed: file.removed,
+		tally: file.tally,
+		ignored: file.ignored,
+		parts: file.parts.map((p) => p.group)
+	};
+}
+
+/** The sets a loaded report's parts are counted against. */
+export function marksOf(loaded: LoadedReport): PartMarks {
+	return { reviewed: loaded.reviewed, fresh: loaded.fresh, unmarked: loaded.unmarked };
+}
+
+export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): DiffPage {
 	const update = loaded.update;
+	const titles = new Map<string, SectionTitle>(loaded.sections.map((s) => [s.id, s.title]));
+	const frame = frameOf(
+		loaded.diff,
+		loaded.state,
+		marksOf(loaded),
+		view,
+		loaded.sections.map((s) => s.id)
+	);
 	return {
 		now,
 		summary: summaryView(loaded.summary),
 		directory: loaded.report.repositoryPath,
 		source: formatGitSourceSpec(loaded.report.source.spec),
 		leftOut: [...loaded.leftOut],
-		groups: listFiles(loaded.diff, loaded.state, loaded.sections, loaded.fresh).map((group) => ({
-			group:
-				group.kind === 'section' ? { kind: 'section', title: group.title } : { kind: group.kind },
-			files: group.files.map((file) => ({
-				path: file.path,
-				change: file.change,
-				added: file.added,
-				removed: file.removed,
-				ignored: [...file.ignored],
-				newChanges: file.newChanges
-			}))
+		view,
+		groups: frame.groups.map((group) => ({
+			key: group.key,
+			title:
+				group.key.kind === 'section' || group.key.kind === 'tests'
+					? (titles.get(group.key.section) ?? sectionTitleOf(group.key.section))
+					: null,
+			parts: group.parts.map(partView)
 		})),
+		files: frame.files.map(fileView),
 		sorted: loaded.sections.length > 0,
 		update:
 			update === undefined
 				? null
 				: { ...updateView(update.revision, update.summary), at: update.at }
+	};
+}
+
+/** A section the state uses but the list lacks is shown by its id, never dropped. */
+function sectionTitleOf(section: SectionId): SectionTitle {
+	const title = parseSectionTitle(section);
+	if (!title.ok) throw new Error(`A section id is not a title: ${section}`);
+	return title.value;
+}
+
+/** What marking changed, for the page: its summary, and the touched files' parts and files. */
+export function markedView(
+	loaded: LoadedReport,
+	view: ViewKind,
+	paths: Iterable<RepoPath>
+): Marked {
+	const sections = loaded.sections.map((s) => s.id);
+	const parts: PartView[] = [];
+	const files: FileView[] = [];
+	for (const path of paths) {
+		const file = loaded.diff.byPath.get(path);
+		if (file === undefined) continue;
+		const own = fileParts(file, loaded.state, marksOf(loaded), view, sections);
+		parts.push(...own.map(partView));
+		const { tally, ignored } = fileTally(own);
+		files.push(
+			fileView({
+				file,
+				change: describeFileChange(file.file),
+				added: lineCountOf(file.changed.new.size),
+				removed: lineCountOf(file.changed.old.size),
+				tally,
+				ignored,
+				parts: own
+			})
+		);
+	}
+	return { summary: summaryView(loaded.summary), parts, files };
+}
+
+function lineView(line: ShownLine): ShownLineView {
+	switch (line.kind) {
+		case 'context':
+			return {
+				kind: 'context',
+				old: line.line.old,
+				new: line.line.new,
+				text: line.line.text,
+				noNewlineAtEnd: line.line.noNewlineAtEnd
+			};
+		case 'deleted':
+			return {
+				kind: 'deleted',
+				old: line.line.old,
+				text: line.line.text,
+				noNewlineAtEnd: line.line.noNewlineAtEnd,
+				home: line.home
+			};
+		case 'added':
+			return {
+				kind: 'added',
+				new: line.line.new,
+				text: line.line.text,
+				noNewlineAtEnd: line.line.noNewlineAtEnd,
+				home: line.home
+			};
+	}
+}
+
+export function partLinesView(content: PartContent): PartLines {
+	return {
+		blocks: content.blocks.map((block): PartBlockView => {
+			switch (block.kind) {
+				case 'hidden':
+					return { kind: 'hidden', old: block.old, new: block.new };
+				case 'hunk':
+					return { kind: 'hunk', heading: block.heading, lines: block.lines.map(lineView) };
+				case 'elsewhere':
+					return {
+						kind: 'elsewhere',
+						groups: [...block.groups],
+						lines: block.lines.map(lineView)
+					};
+			}
+		}),
+		sizes:
+			content.sizes === undefined
+				? null
+				: { old: content.sizes.old ?? null, new: content.sizes.new ?? null }
 	};
 }
 
@@ -247,6 +404,8 @@ export function statusOf(error: ReportError): number {
 		case 'StoreNotFound':
 		case 'SnapshotNotFound':
 		case 'SnapshotGone':
+		case 'PartNotFound':
+		case 'PathNotFound':
 			return 404;
 		case 'ReportClosed':
 		case 'AnotherReportOpen':
@@ -258,6 +417,9 @@ export function statusOf(error: ReportError): number {
 		case 'SectionsRefused':
 		case 'FileNotInDiff':
 		case 'NothingToMark':
+		case 'PathIsDirectory':
+		case 'PathIsSubmodule':
+		case 'FileIsBinary':
 		case 'UnresolvedConflict':
 		case 'NoWorkingTree':
 		case 'UnknownRevision':

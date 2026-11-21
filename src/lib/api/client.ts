@@ -21,6 +21,9 @@ import {
 	EntryCodeSchema,
 	DiffListSchema,
 	DiffPageSchema,
+	LinesSchema,
+	MarkedSchema,
+	PartLinesSchema,
 	OpenResponseSchema,
 	StartResponseSchema,
 	StateChangeSchema,
@@ -33,6 +36,13 @@ import {
 	type EntryCodeResponse,
 	type DiffList,
 	type DiffPage,
+	type LinesQuery,
+	type LinesView,
+	type Marked,
+	type MarkReviewedRequest,
+	type PartLines,
+	type PartQuery,
+	type ViewName,
 	type OpenRequest,
 	type OpenResponse,
 	type StartRequest,
@@ -43,6 +53,7 @@ import {
 	type UpdateResponse
 } from './schemas.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import { groupKeyId } from '#lib/core/group-key-id.tiny.ts';
 
 export type ApiError =
 	/** The daemon answered with an error: its message says what happened and what to do. */
@@ -175,8 +186,37 @@ export class ApiClient {
 		return this.#call('GET', `/api/suggest?${query.toString()}`, SuggestResponseSchema);
 	}
 
-	loadDiff(id: ReportId): Promise<Result<DiffPage, ApiError>> {
-		return this.#call('GET', `/api/diffs/${id}`, DiffPageSchema);
+	loadDiff(id: ReportId, view: ViewName = 'sections'): Promise<Result<DiffPage, ApiError>> {
+		const query = view === 'sections' ? '' : `?view=${view}`;
+		return this.#call('GET', `/api/diffs/${id}${query}`, DiffPageSchema);
+	}
+
+	/** One part's lines, of the version the page shows. */
+	readPart(id: ReportId, part: PartQuery): Promise<Result<PartLines, ApiError>> {
+		const query = new URLSearchParams({
+			version: String(part.version),
+			view: part.view,
+			group: groupKeyId(part.group),
+			path: part.path
+		});
+		return this.#call('GET', `/api/diffs/${id}/part?${query.toString()}`, PartLinesSchema);
+	}
+
+	/** Lines of one side of a file, of the version the page shows, for unchanged lines a part opens. */
+	readLines(id: ReportId, lines: LinesQuery): Promise<Result<LinesView, ApiError>> {
+		const query = new URLSearchParams({
+			version: String(lines.version),
+			side: lines.side,
+			path: lines.path,
+			first: String(lines.first),
+			last: String(lines.last)
+		});
+		return this.#call('GET', `/api/diffs/${id}/lines?${query.toString()}`, LinesSchema);
+	}
+
+	/** Marks a part, a file or a group of the version the page shows as reviewed, or not. */
+	markReviewed(id: ReportId, request: MarkReviewedRequest): Promise<Result<Marked, ApiError>> {
+		return this.#call('POST', `/api/diffs/${id}/reviewed`, MarkedSchema, request);
 	}
 
 	/** Whether the diff has moved on from the version `seen`, which a page shows, or its files have. */

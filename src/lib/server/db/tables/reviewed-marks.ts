@@ -22,15 +22,18 @@ function toReviewedRow(raw: RawRow): Result<ReviewedRow, StoredRowInvalid> {
 	);
 }
 
-/** Every reviewed row of a revision. */
+/** Every reviewed row of a revision, or only of the file at `path`. */
 export function reviewedRowsFor(
 	q: Queries,
-	revision: RevisionId
+	revision: RevisionId,
+	path?: RepoPath
 ): Result<readonly ReviewedRow[], StoredRowInvalid> {
 	const rows: ReviewedRow[] = [];
 	for (const raw of q.all(
-		'SELECT path, side, first_line, last_line FROM reviewed_marks WHERE revision_id = ?',
-		revision
+		'SELECT path, side, first_line, last_line FROM reviewed_marks WHERE revision_id = ?' +
+			(path === undefined ? '' : ' AND path = ?'),
+		revision,
+		...(path === undefined ? [] : [repoPathBytes(path)])
 	)) {
 		const parsed = toReviewedRow(raw);
 		if (!parsed.ok) return parsed;

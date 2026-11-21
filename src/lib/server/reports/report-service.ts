@@ -31,8 +31,13 @@ import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { Clock } from '#lib/core/clock.ts';
 import { assign, type AssignOutcome, type AssignRequest } from '#lib/core/diff/assign.ts';
 import { autoIgnore, type AutoIgnored } from '#lib/core/diff/auto-ignore.ts';
-import { makeDiff, type Diff } from '#lib/core/diff/diff.ts';
-import type { ViewKind } from '#lib/core/diff/slices.ts';
+import type { ByteSize } from '#lib/core/byte-size.tiny.ts';
+import { makeDiff, type Diff, type DiffFile } from '#lib/core/diff/diff.ts';
+import { fileSlices, groupKeyId, type GroupKey, type ViewKind } from '#lib/core/diff/slices.ts';
+import type { LineCount } from '#lib/core/line-count.tiny.ts';
+import { lineNumberOf, type LineNumber } from '#lib/core/line-number.tiny.ts';
+import type { Side } from '#lib/core/side.tiny.ts';
+import { partBlocks, type PartBlock } from '#lib/core/viewer/part-lines.ts';
 import { initialState, type AssignmentState } from '#lib/core/diff/state.ts';
 import type { IdSource } from '#lib/core/ids.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
@@ -103,6 +108,7 @@ import {
 	touchReport
 } from '../db/tables/reports.ts';
 import { insertNewUnitRows, newUnitRowsFor } from '../db/tables/new-units.ts';
+import { insertUnmarkedUnitRows, unmarkedUnitRowsFor } from '../db/tables/unmarked-units.ts';
 import { replaceReviewedRows, reviewedRowsFor } from '../db/tables/reviewed-marks.ts';
 import { insertRevisionUpdate, revisionUpdateFor } from '../db/tables/revision-updates.ts';
 import {
@@ -147,8 +153,11 @@ import {
 	openSnapshotRef,
 	openStore,
 	readSnapshotDiff,
+	readSnapshotFile,
+	readSnapshotLines,
 	readTreeDiff,
 	type Snapshot,
+	type SnapshotLines,
 	type StoreError
 } from '../store/index.ts';
 import { describeReportError, type ReportError } from './report-error.ts';
@@ -302,6 +311,12 @@ export interface LoadedReport {
 	readonly update: LastUpdate | undefined;
 	/** The units new since the previous revision; empty for a first revision. */
 	readonly fresh: UnitSet;
+	/**
+	 * The units the update that made this revision unmarked because something
+	 * close to them changed; empty for a first revision. Some may have been
+	 * marked again since.
+	 */
+	readonly unmarked: UnitSet;
 }
 
 /** What the update that made a report's current revision did, for its page. */
@@ -330,6 +345,17 @@ export interface MarkOutcome {
 	readonly progress: Progress;
 	/** How many units the target covers. */
 	readonly units: UnitCount;
+	/** The files whose marks may have changed. */
+	readonly files: ReadonlySet<RepoPath>;
+}
+
+/** What one part of a revision shows when it is open (`partBlocks`). */
+export interface PartContent {
+	readonly file: DiffFile;
+	readonly blocks: readonly PartBlock[];
+	/** For a binary file, its size on each side it has; undefined for any other file. */
+	readonly sizes:
+		{ readonly old: ByteSize | undefined; readonly new: ByteSize | undefined } | undefined;
 }
 
 /** Whether an open report's source has moved on since its current revision. */
@@ -372,6 +398,8 @@ export interface StoredSnapshot {
 	readonly store: StoreId;
 	readonly snapshot: SnapshotId;
 }
+
+const FIRST_LINE = lineNumberOf(1);
 
 /** How many diffs to keep in memory: the reports a reviewer has open at once. */
 const CACHED_DIFFS = 8;
@@ -458,6 +486,24 @@ function current(q: Queries, id: ReportId): Result<Current, ReportError> {
 				? err({ kind: 'ReportHasNoRevision', report: id })
 				: ok({ report, revision })
 		);
+	});
+}
+
+/** Like `current`, with the revision numbered `version` when one is given. */
+function asOf(
+	q: Queries,
+	id: ReportId,
+	version: RevisionNumber | undefined
+): Result<Current, ReportError> {
+	return andThen(current(q, id), (found): Result<Current, ReportError> => {
+		const latest = found.revision.number;
+		if (version === undefined || version === latest) return ok(found);
+		return andThen(revisionsOf(q, id), (revisions) => {
+			const revision = revisions.find((r) => r.number === version);
+			return revision === undefined
+				? err({ kind: 'VersionNotFound', report: id, seen: version, current: latest })
+				: ok({ report: found.report, revision });
+		});
 	});
 }
 
@@ -660,9 +706,15 @@ export class ReportService {
 		return repo.ok ? this.#openIn(repo.value, spec) : repo;
 	}
 
-	/** Everything a report page shows, from the database and the store; the repository is not touched. */
-	async load(id: ReportId): Promise<Result<LoadedReport, ReportError>> {
-		const shown = this.#db.read((q) => current(q, id));
+	/**
+	 * Everything a report page shows, from the database and the store; the
+	 * repository is not touched. Its current revision, or with `version` that
+	 * revision, so a page showing an earlier version keeps reading it after an
+	 * update; a version it never had is `VersionNotFound`. Everything, the
+	 * summary too, is of the revision loaded.
+	 */
+	async load(id: ReportId, version?: RevisionNumber): Promise<Result<LoadedReport, ReportError>> {
+		const shown = this.#db.read((q) => asOf(q, id, version));
 		if (!shown.ok) return shown;
 		const { report } = shown.value;
 		const content = await this.#contentOf(report, shown.value.revision);
@@ -672,15 +724,21 @@ export class ReportService {
 			(
 				q
 			): Result<
-				Stored & { fresh: readonly UnitRow[]; summary: UpdateSummary | undefined },
+				Stored & {
+					fresh: readonly UnitRow[];
+					unmarked: readonly UnitRow[];
+					summary: UpdateSummary | undefined;
+				},
 				ReportError
 			> =>
 				andThen(sectionsOf(q, revision.id), (sections) =>
 					andThen(assignmentRowsFor(q, revision.id), (rows) =>
 						andThen(reviewedRowsFor(q, revision.id), (marked) =>
 							andThen(newUnitRowsFor(q, revision.id), (fresh) =>
-								andThen(revisionUpdateFor(q, revision.id), (summary) =>
-									ok({ sections, rows, marked, fresh, summary })
+								andThen(unmarkedUnitRowsFor(q, revision.id), (unmarked) =>
+									andThen(revisionUpdateFor(q, revision.id), (summary) =>
+										ok({ sections, rows, marked, fresh, unmarked, summary })
+									)
 								)
 							)
 						)
@@ -695,6 +753,8 @@ export class ReportService {
 		if (!reviewed.ok) return reviewed;
 		const fresh = unitSetFromRows(diff, found.value.fresh, 'new changes');
 		if (!fresh.ok) return fresh;
+		const unmarked = unitSetFromRows(diff, found.value.unmarked, 'unmarked changes');
+		if (!unmarked.ok) return unmarked;
 		return ok({
 			summary: summaryOf(report, revision),
 			report,
@@ -716,7 +776,8 @@ export class ReportService {
 				summary === undefined
 					? undefined
 					: { revision: revision.number, at: revision.takenAt, summary },
-			fresh: fresh.value
+			fresh: fresh.value,
+			unmarked: unmarked.value
 		});
 	}
 
@@ -836,7 +897,8 @@ export class ReportService {
 								view,
 								sections.map((s) => s.id)
 							),
-							units: marked.units
+							units: marked.units,
+							files: marked.files
 						},
 						state,
 						marks: marked.marks
@@ -844,6 +906,98 @@ export class ReportService {
 				})
 			)
 		);
+	}
+
+	/**
+	 * What one part shows when it is open: `group`'s part of the file at `path`
+	 * in `view`, of the revision numbered `version`, with its hunks, the
+	 * unchanged lines between them to open, and for a binary file its sizes.
+	 * Reads only that file's rows, so opening a part of a large diff costs about
+	 * what opening one of a small diff does. A file the version does not have is
+	 * `FileNotInDiff`; a group it has no part in, `PartNotFound`.
+	 */
+	async readPart(
+		id: ReportId,
+		version: RevisionNumber,
+		view: ViewKind,
+		group: GroupKey,
+		path: RepoPath
+	): Promise<Result<PartContent, ReportError>> {
+		const shown = this.#db.read((q) => asOf(q, id, version));
+		if (!shown.ok) return shown;
+		const content = await this.#contentOf(shown.value.report, shown.value.revision);
+		if (!content.ok) return content;
+		const { snapshot, diff, revision } = content.value;
+		const file = diff.byPath.get(path);
+		if (file === undefined) return err({ kind: 'FileNotInDiff', path });
+		const one: Diff = { files: [file], byPath: new Map([[path, file]]), unitCount: file.unitCount };
+		const rows = this.#db.read(
+			(q): Result<{ assigned: readonly AssignmentRow[]; fresh: readonly UnitRow[] }, ReportError> =>
+				andThen(assignmentRowsFor(q, revision.id, path), (assigned) =>
+					andThen(newUnitRowsFor(q, revision.id, path), (fresh) => ok({ assigned, fresh }))
+				)
+		);
+		if (!rows.ok) return rows;
+		const state = assignmentStateFromRows(one, rows.value.assigned);
+		if (!state.ok) return state;
+		const fresh = unitSetFromRows(one, rows.value.fresh, 'new changes');
+		if (!fresh.ok) return fresh;
+		const wanted = groupKeyId(group);
+		if (!fileSlices(file, state.value, view).some((s) => groupKeyId(s.group) === wanted)) {
+			return err({ kind: 'PartNotFound', path });
+		}
+		let headLines: LineCount | undefined;
+		let sizes: PartContent['sizes'];
+		const { old, new: now, content: kind } = file.file;
+		switch (kind.kind) {
+			case 'text':
+				if (old !== undefined && now !== undefined) {
+					const read = await readSnapshotLines(snapshot, 'new', path, FIRST_LINE, FIRST_LINE);
+					if (read.ok) headLines = read.value.lineCount;
+					else if (read.error.kind !== 'FileIsBinary') return read;
+				}
+				break;
+			case 'binary': {
+				const size = async (side: Side, there: boolean) => {
+					if (!there) return ok(undefined);
+					const found = await readSnapshotFile(snapshot, side, path);
+					return found.ok ? ok(found.value.size) : found;
+				};
+				const before = await size('old', old !== undefined);
+				if (!before.ok) return before;
+				const after = await size('new', now !== undefined);
+				if (!after.ok) return after;
+				sizes = { old: before.value, new: after.value };
+				break;
+			}
+			case 'submodule':
+				break;
+		}
+		return ok({
+			file,
+			blocks: partBlocks(file, group, state.value, view, fresh.value, headLines),
+			sizes
+		});
+	}
+
+	/**
+	 * Lines `first` to `last` of one side of a file of the revision numbered
+	 * `version`, as its snapshot holds them, for unchanged lines a part opens;
+	 * the repository is not read.
+	 */
+	async readLines(
+		id: ReportId,
+		version: RevisionNumber,
+		side: Side,
+		path: RepoPath,
+		first: LineNumber,
+		last: LineNumber
+	): Promise<Result<SnapshotLines, ReportError>> {
+		const shown = this.#db.read((q) => asOf(q, id, version));
+		if (!shown.ok) return shown;
+		const snapshot = await this.#snapshotOf(shown.value.report, shown.value.revision);
+		if (!snapshot.ok) return snapshot;
+		return readSnapshotLines(snapshot.value, side, path, first, last);
 	}
 
 	/** Closes a report at the reviewer's request. Closing a closed report changes nothing. */
@@ -1508,6 +1662,7 @@ export class ReportService {
 						replaceAssignmentRows(q, revision.id, 'all', assignmentRowsOf(diff, carried.state));
 						replaceReviewedRows(q, revision.id, 'all', reviewedRowsOf(carried.marks));
 						insertNewUnitRows(q, revision.id, unitRowsOf(carried.fresh));
+						insertUnmarkedUnitRows(q, revision.id, unitRowsOf(carried.unmarked));
 						insertRevisionUpdate(q, revision.id, carried.summary);
 						touchReport(q, id, at);
 						return ok({

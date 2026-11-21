@@ -4,6 +4,8 @@
  * a set of units into these rows and back). The only code that sees its rows.
  */
 import { z } from 'zod';
+import { repoPathBytes } from '#lib/core/path-bytes.ts';
+import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import { andThen, ok, type Result } from '#lib/core/result.ts';
 import type { RevisionId } from '#lib/core/revision-id.tiny.ts';
 import type { UnitRow } from '#lib/core/storage/stored-units.ts';
@@ -20,15 +22,18 @@ function toUnitRow(raw: RawRow): Result<UnitRow, StoredRowInvalid> {
 	);
 }
 
-/** Every row of a revision's new units. */
+/** Every row of a revision's new units, or only of the file at `path`. */
 export function newUnitRowsFor(
 	q: Queries,
-	revision: RevisionId
+	revision: RevisionId,
+	path?: RepoPath
 ): Result<readonly UnitRow[], StoredRowInvalid> {
 	const rows: UnitRow[] = [];
 	for (const raw of q.all(
-		'SELECT path, side, first_line, last_line FROM new_units WHERE revision_id = ?',
-		revision
+		'SELECT path, side, first_line, last_line FROM new_units WHERE revision_id = ?' +
+			(path === undefined ? '' : ' AND path = ?'),
+		revision,
+		...(path === undefined ? [] : [repoPathBytes(path)])
 	)) {
 		const parsed = toUnitRow(raw);
 		if (!parsed.ok) return parsed;

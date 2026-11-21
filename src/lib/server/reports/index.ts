@@ -29,6 +29,7 @@ export type {
 	LoadedReport,
 	MarkOutcome,
 	OpenOutcome,
+	PartContent,
 	ReportServiceOptions,
 	ReportSummary,
 	StartOutcome,
@@ -46,6 +47,7 @@ export type {
 	RevisionChangedWhileSaving,
 	VersionOutOfDate,
 	VersionNotFound,
+	PartNotFound,
 	SectionsRefused,
 	SnapshotGone
 } from './report-error.ts';

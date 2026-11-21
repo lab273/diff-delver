@@ -111,15 +111,18 @@ function bucketValues(
 	}
 }
 
-/** Every assignment row of a revision. */
+/** Every assignment row of a revision, or only of the file at `path`. */
 export function assignmentRowsFor(
 	q: Queries,
-	revision: RevisionId
+	revision: RevisionId,
+	path?: RepoPath
 ): Result<readonly AssignmentRow[], StoredRowInvalid> {
 	const rows: AssignmentRow[] = [];
 	for (const raw of q.all(
-		'SELECT path, side, first_line, last_line, bucket, section_id, ignored_by, ignored_detail, role FROM assignments WHERE revision_id = ?',
-		revision
+		'SELECT path, side, first_line, last_line, bucket, section_id, ignored_by, ignored_detail, role FROM assignments WHERE revision_id = ?' +
+			(path === undefined ? '' : ' AND path = ?'),
+		revision,
+		...(path === undefined ? [] : [repoPathBytes(path)])
 	)) {
 		const parsed = toAssignmentRow(raw);
 		if (!parsed.ok) return parsed;

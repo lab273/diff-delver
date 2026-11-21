@@ -23,7 +23,7 @@ import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
 import { NO_MARKS, sameReviewedMarks, type ReviewedMarks } from '../review/reviewed-marks.ts';
 import type { Side } from '../side.tiny.ts';
 import { sameAssignmentState } from '../storage/stored-units.ts';
-import { listFiles } from '../reports/file-list.ts';
+import { frameOf } from '../viewer/parts.ts';
 import { carryOver, type CarriedOver } from './carry-over.ts';
 import { NO_TREE_CHANGES } from './line-map.ts';
 
@@ -495,18 +495,19 @@ describe('carry-over', () => {
 		expect(r.summary.reviewedBefore).toBe(0);
 	});
 
-	it('gives the file list what is new to review in each file, but not what is ignored', () => {
+	it('gives each part of the page what is new in it, and keeps what is ignored apart', () => {
 		const head = tree({ 'app.ts': [...numbered('line', 20), 'added'] });
 		const head2 = tree({
 			'app.ts': [...numbered('line', 20), 'added', 'more', 'still more'],
 			'pnpm-lock.yaml': ['lock: 1']
 		});
 		const r = update({ base: BASE, head, head2 });
-		const listed = listFiles(r.after, r.state, [], r.fresh).flatMap((g) =>
-			g.files.map((f) => [g.kind, f.path, f.newChanges])
+		const marks = { reviewed: r.marks, fresh: r.fresh, unmarked: r.unmarked };
+		const listed = frameOf(r.after, r.state, marks, 'sections', []).groups.flatMap((g) =>
+			g.parts.map((p) => [g.key.kind, p.file.file.path, p.tally.fresh])
 		);
 		expect(listed).toEqual([
-			['ignored', 'pnpm-lock.yaml', 0],
+			['ignored', 'pnpm-lock.yaml', 1],
 			['uncategorised', 'app.ts', 2]
 		]);
 	});

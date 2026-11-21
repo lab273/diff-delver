@@ -212,7 +212,16 @@ describe('updating a diff', () => {
 		expect(bucket(page, 'src/new.ts', 'new', 1)).toBe('ignored: Generated');
 		expect(bucket(page, 'package-lock.json', 'new', 1)).toBe('ignored by rule');
 		expect(marked(page, 'src/new.ts', 'new')).toEqual([]);
+		// The two lines of new.ts beside the line it lost were unmarked, and say so.
+		expect([...linesInSet(page.unmarked, path('src/new.ts'), 'new').values()]).toEqual([1, 2]);
+		expect(page.unmarked.files.size).toBe(1);
 		expect(page.summary.progress).toMatchObject({ reviewed: 3 });
+		// The version before can still be read, as a page left open on it does; one never made cannot.
+		const earlier = value(await service.load(id, FIRST));
+		expect([earlier.revision.number, earlier.summary.revision]).toEqual([1, 1]);
+		expect(earlier.unmarked.files.size).toBe(0);
+		const never = await service.load(id, value(parseRevisionNumber(3)));
+		expect(never.ok ? undefined : never.error.kind).toBe('VersionNotFound');
 		// The first version and its snapshot stay; nothing else was left behind.
 		expect(await snapshotCount(data)).toBe(2);
 		expect(everyRow(data)['revisions']).toHaveLength(2);

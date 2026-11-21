@@ -42,3 +42,20 @@ export function diffId(text: string | undefined): Result<ReportId, Response> {
 				)
 			);
 }
+
+/** The query of an address, read with its schema; each name once. */
+export function readQuery<T>(url: URL, schema: z.ZodType<T>): Result<T, Response> {
+	const fields: Record<string, string> = {};
+	for (const [name, value] of url.searchParams) fields[name] = value;
+	const parsed = schema.safeParse(fields);
+	if (parsed.success) return ok(parsed.data);
+	const issue = parsed.error.issues[0];
+	return err(
+		badRequest(`${issue?.path.join('.') ?? 'query'}: ${issue?.message ?? 'not as expected'}`)
+	);
+}
+
+/** The answer for a path that names no file a diff could have. */
+export function unknownPath(): Response {
+	return badRequest('the path of the file is not one diff delver wrote');
+}

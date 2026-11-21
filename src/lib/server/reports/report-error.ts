@@ -15,7 +15,15 @@ import {
 	describeStoredStateMismatch,
 	type StoredStateMismatch
 } from '#lib/core/storage/stored-units.ts';
+import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import { describeDatabaseError, type DatabaseError } from '../db/index.ts';
+import {
+	describeLinesError,
+	type FileIsBinary,
+	type PathIsDirectory,
+	type PathIsSubmodule,
+	type PathNotFound
+} from '../store/index.ts';
 import { describeGitSourceError, type GitSourceError } from '../sources/git/index.ts';
 
 /** No report has this id: it was deleted, or the link is wrong. */
@@ -99,6 +107,15 @@ export interface SnapshotGone {
 	readonly open: boolean;
 }
 
+/**
+ * A part was asked for that the version does not have: its file has no changes
+ * in that group. The page that asked shows a breakdown that has changed since.
+ */
+export interface PartNotFound {
+	readonly kind: 'PartNotFound';
+	readonly path: RepoPath;
+}
+
 /** `upsertSections` was refused; nothing changed. */
 export interface SectionsRefused {
 	readonly kind: 'SectionsRefused';
@@ -121,7 +138,12 @@ export type ReportError =
 	| VersionOutOfDate
 	| VersionNotFound
 	| SnapshotGone
-	| SectionsRefused;
+	| SectionsRefused
+	| PartNotFound
+	| PathNotFound
+	| PathIsDirectory
+	| PathIsSubmodule
+	| FileIsBinary;
 
 /** What happened and what to do next, for the reviewer. */
 export function describeReportError(error: ReportError): ReviewerMessage {
@@ -174,6 +196,15 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 			);
 		case 'StoredStateMismatch':
 			return describeStoredStateMismatch(error);
+		case 'PartNotFound':
+			return reviewerMessage(
+				`This part of ${escapedRepoPath(error.path)} is not where the page showed it any more: the diff was sorted again since. Reload the page to see where it is now.`
+			);
+		case 'PathNotFound':
+		case 'PathIsDirectory':
+		case 'PathIsSubmodule':
+		case 'FileIsBinary':
+			return describeLinesError(error);
 		case 'FileNotInDiff':
 		case 'NothingToMark':
 			return describeMarkError(error);
