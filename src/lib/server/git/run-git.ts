@@ -314,7 +314,7 @@ function gitErrorText(error: GitError): string {
 				? `${error.directory} does not exist. Check the path, then try again.`
 				: `${error.directory} is a file, not a folder. Give the folder of the repository instead.`;
 		case 'NotARepository':
-			return `${error.directory} is not a git repository. Run diff delver inside a repository, or pass its path.`;
+			return `${error.directory} is not a git repository. Run diff delver in a folder inside the repository you want to review.`;
 		case 'DubiousOwnership':
 			return `git refuses to work in ${error.repository} because the folder belongs to another user account on this computer. If you trust it, allow it with: git config --global --add safe.directory '${error.repository}' Then try again.`;
 		case 'BadRevision':

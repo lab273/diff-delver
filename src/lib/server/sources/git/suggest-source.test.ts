@@ -171,7 +171,9 @@ describe('suggestSource', () => {
 		});
 		expect(result.ok ? 'found' : result.error.kind).toBe('NotARepository');
 		if (!result.ok)
-			expect(describeGitSourceError(result.error)).toMatch(/Run diff delver inside a repository/);
+			expect(describeGitSourceError(result.error)).toMatch(
+				/Run diff delver in a folder inside the repository you want to review\./
+			);
 		const gone = absolutePath(join(plain, 'not-here'));
 		const missing = await suggestSource(gone, { gitEnv: (await reviewer()).gitEnv });
 		expect(missing.ok ? 'found' : describeGitSourceError(missing.error)).toBe(

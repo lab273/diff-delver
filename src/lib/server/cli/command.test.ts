@@ -198,7 +198,10 @@ describe('the diff-delver command', () => {
 		expect(addressIn(result.stdout).pathname).toBe('/start');
 		const choose = await run(['choose', '--no-open', '--data-directory', data], folder, who);
 		expect(choose.code).toBe(1);
-		expect(choose.stderr).toContain(`${folder} is not a git repository.`);
+		// What it says to do is something the command can do: it takes no path.
+		expect(choose.stderr).toContain(
+			`${folder} is not a git repository. Run diff delver in a folder inside the repository you want to review.`
+		);
 		expect(addressIn(choose.stdout).pathname).toBe('/choose');
 	});
 
@@ -331,5 +334,8 @@ describe('the diff-delver command', () => {
 		const wrong = await run(['frobnicate'], repo.dir, who);
 		expect(wrong.code).toBe(2);
 		expect(wrong.stderr).toMatch(/^diff delver has no command "frobnicate"/);
+		const extra = await run(['choose', 'main'], repo.dir, who);
+		expect(extra.code).toBe(2);
+		expect(extra.stderr).toMatch(/^diff-delver choose did not expect "main" after it/);
 	});
 });

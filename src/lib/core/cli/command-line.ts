@@ -42,7 +42,12 @@ export type CommandLineError =
 	| { readonly kind: 'UnknownCommand'; readonly word: string }
 	| { readonly kind: 'UnknownOption'; readonly option: string }
 	| { readonly kind: 'MissingSource' }
-	| { readonly kind: 'ExtraArgument'; readonly argument: string }
+	/** A word after a command that takes none, or one more than `open` takes. */
+	| {
+			readonly kind: 'ExtraArgument';
+			readonly command: (typeof COMMANDS)[number];
+			readonly argument: string;
+	  }
 	| { readonly kind: 'MissingOptionValue'; readonly option: string }
 	| {
 			readonly kind: 'InvalidSource';
@@ -106,7 +111,9 @@ export function parseCommandLine(args: readonly string[]): Result<Invocation, Co
 		case 'open': {
 			const [source, ...extra] = rest;
 			if (source === undefined) return err({ kind: 'MissingSource' });
-			if (extra[0] !== undefined) return err({ kind: 'ExtraArgument', argument: extra[0] });
+			if (extra[0] !== undefined) {
+				return err({ kind: 'ExtraArgument', command: known, argument: extra[0] });
+			}
 			const spec = parseGitSourceSpec(source);
 			if (!spec.ok) {
 				return err({ kind: 'InvalidSource', message: describeInvalidSourceSpec(spec.error) });
@@ -119,13 +126,31 @@ export function parseCommandLine(args: readonly string[]): Result<Invocation, Co
 		case 'mcp':
 		case 'help':
 		case 'version': {
-			if (rest[0] !== undefined) return err({ kind: 'ExtraArgument', argument: rest[0] });
+			if (rest[0] !== undefined) {
+				return err({ kind: 'ExtraArgument', command: known, argument: rest[0] });
+			}
 			return done({ kind: known });
 		}
 	}
 }
 
 const SEE_HELP = 'Run diff-delver --help to see what it can do.';
+
+/** What a word too many after a command means, said of that command. */
+function describeExtraArgument(command: (typeof COMMANDS)[number], argument: string): string {
+	switch (command) {
+		case 'open':
+			return `diff delver did not expect "${argument}" there. To open a range, write it as one word, such as main...feature-x. ${SEE_HELP}`;
+		case 'choose':
+			return `diff-delver choose did not expect "${argument}" after it: it takes nothing. It shows the branches and commits of the repository whose folder you run it in, so change to that folder first. To open a commit or a range directly, use diff-delver open.`;
+		case 'serve':
+		case 'stop':
+		case 'mcp':
+		case 'help':
+		case 'version':
+			return `diff-delver ${command} did not expect "${argument}" after it: it takes nothing. ${SEE_HELP}`;
+	}
+}
 
 /** What was wrong with the command line, and what to do next. */
 export function describeCommandLineError(error: CommandLineError): ReviewerMessage {
@@ -141,9 +166,7 @@ export function describeCommandLineError(error: CommandLineError): ReviewerMessa
 				'diff-delver open needs what to open: a commit (such as HEAD), two branches to compare (such as main...feature-x), staged or working-tree.'
 			);
 		case 'ExtraArgument':
-			return reviewerMessage(
-				`diff delver did not expect "${error.argument}" there. To open a range, write it as one word, such as main...feature-x. ${SEE_HELP}`
-			);
+			return reviewerMessage(describeExtraArgument(error.command, error.argument));
 		case 'MissingOptionValue':
 			return reviewerMessage(
 				`${error.option} needs a folder after it, such as ${error.option} ~/diff-delver-data.`

@@ -31,7 +31,7 @@ describe('the command line', () => {
 		});
 		expect(parseCommandLine(['choose', 'main'])).toMatchObject({
 			ok: false,
-			error: { kind: 'ExtraArgument', argument: 'main' }
+			error: { kind: 'ExtraArgument', command: 'choose', argument: 'main' }
 		});
 		expect(parseCommandLine(['open', 'HEAD'])).toMatchObject({
 			ok: true,
@@ -79,7 +79,12 @@ describe('the command line', () => {
 		[['--colour'], 'UnknownOption', /no option --colour/],
 		[['open'], 'MissingSource', /needs what to open/],
 		[['open', 'main', 'feature'], 'ExtraArgument', /did not expect "feature"/],
-		[['serve', 'now'], 'ExtraArgument', /did not expect "now"/],
+		[['serve', 'now'], 'ExtraArgument', /^diff-delver serve did not expect "now" after it/],
+		[
+			['choose', '../shop'],
+			'ExtraArgument',
+			/^diff-delver choose did not expect "\.\.\/shop" after it: it takes nothing\. It shows the branches and commits of the repository whose folder you run it in/
+		],
 		[['--data-directory'], 'MissingOptionValue', /needs a folder/],
 		[['--data-directory='], 'MissingOptionValue', /needs a folder/],
 		[['open', ' main ... x '], 'InvalidSource', /./]
