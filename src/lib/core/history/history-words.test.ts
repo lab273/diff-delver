@@ -7,6 +7,7 @@ import {
 	describeCheckButton,
 	describeExactTime,
 	describeForkPoint,
+	describeLastCommit,
 	describeLastFetch,
 	describeWholeBranch
 } from './history-words.ts';
@@ -36,6 +37,12 @@ describe('the chooser’s words', () => {
 	it('says a moment exactly, in UTC', () => {
 		expect(describeExactTime(time('2026-01-05T07:03:00Z'))).toBe('5 January 2026, 07:03 UTC');
 		expect(describeExactTime(time('2025-12-31T23:59:00Z'))).toBe('31 December 2025, 23:59 UTC');
+	});
+
+	it('says when a branch’s newest commit was made, or that its time is unknown', () => {
+		const now = time('2026-01-15T09:30:00Z');
+		expect(describeLastCommit(time('2026-01-12T09:30:00Z'), now)).toBe('last commit 3 days ago');
+		expect(describeLastCommit(undefined, now)).toBe('last commit at an unknown time');
 	});
 
 	it('says how far a branch has gone from the main branch, and what reviewing it opens', () => {

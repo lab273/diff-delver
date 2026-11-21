@@ -696,7 +696,8 @@ export const HistorySchema = z.object({
 	branches: z.array(
 		z.object({
 			ref: branchRef,
-			committedAt: timestamp,
+			/** When its newest commit was made; null when git cannot read a time from it. */
+			committedAt: timestamp.nullable(),
 			current: z.boolean(),
 			main: z.boolean(),
 			/** Commits the main branch lacks; null with no main branch. */
@@ -738,7 +739,8 @@ export const CommitsSchema = z.object({
 			merge: z.boolean(),
 			subject: parsed(z.string(), parseSubjectLine),
 			author: parsed(z.string(), parseAuthorName),
-			committedAt: timestamp,
+			/** When it was made; null when git cannot read a time from it. */
+			committedAt: timestamp.nullable(),
 			/** Against its first parent; null when it could not be measured without downloading. */
 			size: CommitSizeSchema.nullable(),
 			/** Whether the main branch has it too. */

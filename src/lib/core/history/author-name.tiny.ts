@@ -20,3 +20,11 @@ export function parseAuthorName(value: string): Result<AuthorName, InvalidAuthor
 	}
 	return ok(value as AuthorName);
 }
+
+/**
+ * Any text as an author's name, for a list that must show every commit: a line
+ * break or NUL becomes a space, and text that is not well formed is made so.
+ */
+export function authorNameOf(value: string): AuthorName {
+	return value.toWellFormed().replaceAll(/[\n\0]/g, ' ') as AuthorName;
+}

@@ -1,4 +1,4 @@
-import { rm, utimes } from 'node:fs/promises';
+import { rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { branchName, parseBranchRef, type BranchRef } from '#lib/core/history/branch-ref.tiny.ts';
@@ -208,6 +208,48 @@ describe('a branch’s commits', () => {
 			kind: 'commit',
 			commit: second.commits[0]?.commit
 		});
+	});
+
+	it('lists a commit whose date git cannot read, between its neighbours, and the branch it is newest on', async () => {
+		const repo = await emptyRepo();
+		await repo.write('a.txt', 'a\n');
+		const first = await repo.commit('Start');
+		// A commit as another tool might write it: its committer line has no date.
+		const tree = (await repo.git('rev-parse', `${first.commit}^{tree}`)).trim();
+		const text = [
+			`tree ${tree}`,
+			`parent ${first.commit}`,
+			'author Fixture Author <fixture@example.invalid> 1700000000 +0000',
+			'committer Fixture Author <fixture@example.invalid> not-a-date +0000',
+			'',
+			'Written without a date',
+			''
+		].join('\n');
+		const file = join(await tempDirectory(), 'commit.txt');
+		await writeFile(file, text);
+		const odd = (await repo.git('hash-object', '-t', 'commit', '-w', '--literally', file)).trim();
+		await repo.git('update-ref', 'refs/heads/undated', odd);
+		await repo.git('reset', '--quiet', '--hard', odd);
+		await repo.write('a.txt', 'a\nb\n');
+		await repo.commit('Later');
+		const found = await located(repo, (await reviewer()).gitEnv);
+		const page = value(await listCommits(found, ref('refs/heads/main'), undefined, undefined));
+		expect(page.commits.map((c) => [c.subject, c.committedAt === undefined])).toEqual([
+			['Later', false],
+			['Written without a date', true],
+			['Start', false]
+		]);
+		// Each row's parent is the row below it: no commit is hidden between two rows.
+		expect(page.commits.map((c) => (c.parent.kind === 'commit' ? c.parent.commit : null))).toEqual([
+			odd,
+			first.commit,
+			null
+		]);
+		const branches = value(await listBranches(found, ''));
+		expect(branches.shown.map((b) => [branchName(b.ref), b.committedAt === undefined])).toEqual([
+			['main', false],
+			['undated', true]
+		]);
 	});
 
 	it('says plainly when a branch is not there', async () => {

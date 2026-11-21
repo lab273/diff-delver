@@ -22,3 +22,11 @@ export function parseSubjectLine(value: string): Result<SubjectLine, InvalidSubj
 	}
 	return ok(value as SubjectLine);
 }
+
+/**
+ * Any text as a subject line, for a list that must show every commit: a line
+ * break or NUL becomes a space, and text that is not well formed is made so.
+ */
+export function subjectLineOf(value: string): SubjectLine {
+	return value.toWellFormed().replaceAll(/[\n\0]/g, ' ') as SubjectLine;
+}

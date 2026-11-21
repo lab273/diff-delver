@@ -232,7 +232,7 @@ export function historyView(found: RepositoryBranches, now: Timestamp): HistoryV
 		main: branches.main ?? null,
 		branches: branches.shown.map((b) => ({
 			ref: b.ref,
-			committedAt: b.committedAt,
+			committedAt: b.committedAt ?? null,
 			current: b.current,
 			main: b.main,
 			ahead: b.ahead ?? null
@@ -254,7 +254,7 @@ export function commitsView(page: CommitPage): CommitsView {
 			merge: c.merge,
 			subject: c.subject,
 			author: c.author,
-			committedAt: c.committedAt,
+			committedAt: c.committedAt ?? null,
 			size: c.size ?? null,
 			onMain: c.onMain
 		})),

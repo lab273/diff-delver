@@ -16,7 +16,7 @@ import { EMPTY_TREE } from '#lib/core/object-format.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { parseRevision } from '#lib/core/revision.tiny.ts';
 import { parseTimestamp, type Timestamp } from '#lib/core/timestamp.tiny.ts';
-import { parseAuthorName, type AuthorName } from '#lib/core/history/author-name.tiny.ts';
+import { authorNameOf, type AuthorName } from '#lib/core/history/author-name.tiny.ts';
 import {
 	branchName,
 	isRemoteBranch,
@@ -29,7 +29,7 @@ import type { CommitParent } from '#lib/core/history/commit-selection.ts';
 import type { LastFetch } from '#lib/core/history/history-words.ts';
 import { parseRemoteName, type RemoteName } from '#lib/core/history/remote-name.tiny.ts';
 import type { TrackedBranch } from '#lib/core/history/remote-check.ts';
-import { parseSubjectLine, type SubjectLine } from '#lib/core/history/subject-line.tiny.ts';
+import { subjectLineOf, type SubjectLine } from '#lib/core/history/subject-line.tiny.ts';
 import type { GitSourceError } from './git-source-error.ts';
 import { gitCwd, gitIn, type LocalRepository } from './local-repository.ts';
 import { shallowBoundary } from './resolve.ts';
@@ -45,8 +45,8 @@ export const COMMITS_PER_PAGE = 50;
 export interface BranchSummary {
 	readonly ref: BranchRef;
 	readonly commit: CommitId;
-	/** When its newest commit was made: its committer time. */
-	readonly committedAt: Timestamp;
+	/** When its newest commit was made: its committer time; undefined when git cannot read one from it. */
+	readonly committedAt: Timestamp | undefined;
 	/** The branch checked out in this worktree. */
 	readonly current: boolean;
 	/** The main branch itself, or the local branch of the same name. */
@@ -102,10 +102,16 @@ function lines(stdout: Buffer): Buffer[] {
 	return out;
 }
 
+/** The latest moment a `Date` can hold, in milliseconds: a time past it cannot be written out. */
+const LATEST_TIME = 8_640_000_000_000_000;
+
+/** A moment from git's seconds since 1970, or undefined when it holds none that can be shown. */
 function timestampOfSeconds(text: string): Timestamp | undefined {
 	const seconds = Number(text);
 	const parsed = parseTimestamp(seconds * 1000);
-	return /^[0-9]+$/.test(text) && parsed.ok ? parsed.value : undefined;
+	return /^[0-9]+$/.test(text) && parsed.ok && parsed.value <= LATEST_TIME
+		? parsed.value
+		: undefined;
 }
 
 /** The name a remote-tracking branch has on its remote, `refs/remotes/origin/x` → `x`, for the remote it is of. */
@@ -156,8 +162,9 @@ export async function listBranches(
 		if (symref !== '') continue;
 		const ref = parseBranchRef(name);
 		const commit = parseCommitId(object);
-		const committedAt = timestampOfSeconds(date);
-		if (!ref.ok || !commit.ok || committedAt === undefined) continue;
+		if (!ref.ok || !commit.ok) continue;
+		// for-each-ref writes 0, or nothing, for a commit whose time it cannot read.
+		const committedAt = date === '0' ? undefined : timestampOfSeconds(date);
 		if (isRemoteBranch(ref.value)) tracked.push({ ref: ref.value, commit: commit.value });
 		const ahead = /^([0-9]+) [0-9]+$/.exec(aheadBehind)?.[1];
 		all.push({
@@ -194,7 +201,8 @@ export async function listBranches(
 		.toSorted(
 			(a, b) =>
 				Number(b.current) - Number(a.current) ||
-				b.committedAt - a.committedAt ||
+				// A branch whose time is unknown comes after those whose time is known.
+				(b.committedAt ?? -1) - (a.committedAt ?? -1) ||
 				(a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0)
 		);
 	return ok({
@@ -214,7 +222,8 @@ export interface CommitSummary {
 	readonly merge: boolean;
 	readonly subject: SubjectLine;
 	readonly author: AuthorName;
-	readonly committedAt: Timestamp;
+	/** Its committer time; undefined when git cannot read one from the commit. */
+	readonly committedAt: Timestamp | undefined;
 	/** Its size against its first parent; undefined when it could not be measured without downloading. */
 	readonly size: CommitSize | undefined;
 	/** Whether the main branch has it too. */
@@ -281,7 +290,11 @@ function readSizes(
 
 const HEADER_FIELDS = 5;
 
-/** The commits of `log`'s output, each with its size when `sized`. */
+/**
+ * The commits of `log`'s output, each with its size when `sized`. Every commit
+ * git lists is a row, whatever its date, author or message hold: a commit left
+ * out would make the two around it look like neighbours.
+ */
 function readLog(
 	stdout: Buffer,
 	sized: boolean,
@@ -311,17 +324,13 @@ function readLog(
 			: boundary.has(commit.value)
 				? { kind: 'not-downloaded' }
 				: { kind: 'none' };
-		const committedAt = timestampOfSeconds(date);
-		const subjectLine = parseSubjectLine(subject);
-		const authorName = parseAuthorName(author);
-		if (committedAt === undefined || !subjectLine.ok || !authorName.ok) continue;
 		commits.push({
 			commit: commit.value,
 			parent,
 			merge: parentIds.length > 1,
-			subject: subjectLine.value,
-			author: authorName.value,
-			committedAt,
+			subject: subjectLineOf(subject),
+			author: authorNameOf(author),
+			committedAt: timestampOfSeconds(date),
 			// A commit whose parent was not downloaded would measure as everything it holds.
 			size: parent.kind === 'not-downloaded' ? undefined : size
 		});

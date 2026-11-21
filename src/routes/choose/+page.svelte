@@ -30,8 +30,10 @@
 		describeCheckButton,
 		describeExactTime,
 		describeForkPoint,
+		describeLastCommit,
 		describeLastFetch,
-		describeWholeBranch
+		describeWholeBranch,
+		UNKNOWN_COMMIT_TIME
 	} from '#lib/core/history/history-words.ts';
 	import { describeComparison, hasNews } from '#lib/core/history/remote-check.ts';
 	import { itemIndexAt } from '#lib/core/item-index.tiny.ts';
@@ -347,7 +349,7 @@
 										{#if listed.ahead !== null && main !== undefined && !listed.main}
 											{describeAhead(listed.ahead, main)},
 										{/if}
-										last commit {describeTimeAgo(listed.committedAt, now)}
+										{describeLastCommit(listed.committedAt ?? undefined, now)}
 									</span>
 								</span>
 							</label>
@@ -435,10 +437,14 @@
 									<span class="row-details">
 										<code>{row.commit.slice(0, 7)}</code>
 										<span><VisibleText text={row.author} /></span>
-										<span>
-											{describeTimeAgo(row.committedAt, now)}
-											<span class="exact">({describeExactTime(row.committedAt)})</span>
-										</span>
+										{#if row.committedAt === null}
+											<span>{UNKNOWN_COMMIT_TIME}</span>
+										{:else}
+											<span>
+												{describeTimeAgo(row.committedAt, now)}
+												<span class="exact">({describeExactTime(row.committedAt)})</span>
+											</span>
+										{/if}
 										{#if row.size !== null}
 											<span>
 												<DiffSize added={row.size.added} removed={row.size.removed} />

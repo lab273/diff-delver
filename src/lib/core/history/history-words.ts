@@ -45,6 +45,16 @@ export function describeWhen(at: Timestamp, now: Timestamp): ReviewerMessage {
 	return reviewerMessage(`${describeTimeAgo(at, now)} (${describeExactTime(at)})`);
 }
 
+/** When a branch's newest commit was made, as its row says it: "last commit 3 days ago". */
+export function describeLastCommit(at: Timestamp | undefined, now: Timestamp): ReviewerMessage {
+	return reviewerMessage(
+		at === undefined ? 'last commit at an unknown time' : `last commit ${describeTimeAgo(at, now)}`
+	);
+}
+
+/** What a commit's row says in place of its time when git cannot read one from the commit. */
+export const UNKNOWN_COMMIT_TIME = reviewerMessage('Time unknown');
+
 /** A branch as the page names it, with what cannot be seen written out: "feature-x", "origin/feature-x". */
 export function shownBranch(branch: BranchRef): ReviewerMessage {
 	return reviewerMessage(visibleText(branchName(branch)));
