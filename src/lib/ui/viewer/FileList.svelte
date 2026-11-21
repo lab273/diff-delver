@@ -12,8 +12,13 @@
 	import PathText from '#lib/ui/PathText.svelte';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import { tick } from 'svelte';
+
 	import TickRefused from './TickRefused.svelte';
 	import { done, partly, showTally, type Viewer } from './viewer.svelte.ts';
+
+	/** How many files are drawn at first, and how many more after each frame. */
+	const FIRST_FILES = 60;
+	const NEXT_FILES = 200;
 
 	let {
 		viewer,
@@ -41,6 +46,25 @@
 		(next ?? document.getElementById('by-file-heading'))?.focus();
 	}
 
+	/**
+	 * How many files are drawn. A long list is drawn a batch a frame after its
+	 * first screen, as the parts are, so it shows at once on 2,000 files.
+	 */
+	let drawnCount = $state(FIRST_FILES);
+
+	$effect(() => {
+		let frame = 0;
+		const more = (): void => {
+			if (drawnCount >= viewer.files.length) return;
+			drawnCount = Math.min(viewer.files.length, drawnCount + NEXT_FILES);
+			frame = requestAnimationFrame(more);
+		};
+		frame = requestAnimationFrame(more);
+		return () => {
+			cancelAnimationFrame(frame);
+		};
+	});
+
 	const shown = $derived(
 		viewer.files.filter((f) => !viewer.onlyWaiting || (f.tally.units > 0 && !done(f.tally)))
 	);
@@ -57,7 +81,7 @@
 		<p class="explain">Every file is reviewed.</p>
 	{:else}
 		<ul class="files">
-			{#each shown as file, i (file.path)}
+			{#each shown.slice(0, drawnCount) as file, i (file.path)}
 				<li>
 					<span class="path"><PathText path={file.path} /></span>
 					<span class="change">{file.change}</span>

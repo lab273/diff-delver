@@ -257,6 +257,18 @@ export const JOURNEY_REPOSITORIES = {
 		}
 	}),
 
+	/**
+	 * One very large change, for the viewer's speed (tests/speed/): a file of
+	 * 40,000 lines rewritten and left uncommitted, so 80,000 changed rows.
+	 */
+	'long-file': defineFixture('long-file', async (repo) => {
+		const numbered = (prefix: string): string =>
+			Array.from({ length: 40_000 }, (_, i) => `${prefix} line ${String(i + 1)}\n`).join('');
+		await repo.write('data/rows.txt', numbered('old'));
+		await repo.commit('base');
+		await repo.write('data/rows.txt', numbered('new'));
+	}),
+
 	/** On main, with nothing uncommitted and no other branch: nothing new to review. */
 	'nothing-new': defineFixture('nothing-new', async (repo) => {
 		await repo.write('src/app.ts', lines('export const name = "app";'));

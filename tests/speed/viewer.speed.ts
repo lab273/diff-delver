@@ -64,6 +64,68 @@ function timeKey(page: Page, key: string, ready: Ready): Promise<number> {
 	);
 }
 
+/**
+ * Clicks the element at `selector` in the page and gives the milliseconds
+ * until a frame shows each selector's element starting with its text.
+ */
+function timeClick(
+	page: Page,
+	selector: string,
+	ready: () => readonly (readonly [string, string])[]
+): Promise<number> {
+	return page.evaluate(
+		({ selector, wanted }) =>
+			new Promise<number>((resolve, reject) => {
+				const target = document.querySelector<HTMLElement>(selector);
+				if (target === null) {
+					reject(new Error(`Nothing on the page matches ${selector}`));
+					return;
+				}
+				const started = performance.now();
+				target.click();
+				const look = (): void => {
+					const shown = wanted.every(([where, text]) =>
+						(document.querySelector(where)?.textContent ?? '').trim().startsWith(text)
+					);
+					if (shown) resolve(performance.now() - started);
+					else requestAnimationFrame(look);
+				};
+				requestAnimationFrame(look);
+			}),
+		{ selector, wanted: ready() }
+	);
+}
+
+test('one change of 80,000 rows is shown and ticked quickly', async ({ page }, testInfo) => {
+	const world = await makeJourneyWorld();
+	try {
+		const repo = await world.repository('long-file');
+		const run = await world.command([], repo);
+		await page.goto(run.address);
+		const part = page.getByRole('article', { name: 'data/rows.txt' });
+		await expect(part).toContainText('This is a large change: 80,000 lines.');
+		await part.getByRole('button', { name: 'Show this large change' }).focus();
+		// Shown: from the key to its first and last rows drawn.
+		const showing = performance.now();
+		await page.keyboard.press('Enter');
+		await page.waitForFunction(
+			() => document.querySelector('#part-0 td.code')?.textContent === 'old line 1',
+			undefined,
+			{ polling: 'raf' }
+		);
+		record(testInfo, 'time to show a change of 80,000 rows', performance.now() - showing, 1_000);
+		// Ticked: from the key to the box shown ticked.
+		// The only file: once ticked, everything is reviewed, and focus goes there.
+		const ticked = await timeKey(page, 'r', { at: 0, focused: false, checked: true });
+		record(testInfo, 'time to tick a change of 80,000 rows', ticked, 500);
+		await expect(page.getByRole('complementary', { name: 'Your review' })).toContainText(
+			'Everything reviewed: 80,000 changes'
+		);
+	} finally {
+		await world.close();
+	}
+});
+
 test('a diff of 2,000 files and 200,000 changed lines opens and moves at once', async ({
 	page
 }, testInfo) => {
@@ -136,30 +198,33 @@ test('a diff of 2,000 files and 200,000 changed lines opens and moves at once', 
 		page.on('requestfailed', (request) => {
 			ended(request.url());
 		});
-		const review = page.getByRole('complementary', { name: 'Your review' });
-		const group = page.getByRole('checkbox', { name: 'All reviewed: Not sorted yet' });
-		await group.focus();
-		const ticking = performance.now();
-		await page.keyboard.press('Space');
-		await expect(review).toContainText('Everything reviewed: 200,000 changes');
-		record(testInfo, 'time to tick a group of 2,000 files', performance.now() - ticking, 1_000);
-		// Everything is reviewed, and the page moved focus there; back to the group's box.
-		await group.focus();
+		// Timed in the page, from the press to the frame that shows the result: a
+		// locator's role query walks all 2,000 parts and would take longer than the page.
+		const group = 'input[aria-label="All reviewed: Not sorted yet"]';
+		const progress = '.rail .progress-text';
+		const groupTicked = await timeClick(page, group, () => [
+			['.rail .progress-text', 'Everything reviewed: 200,000 changes']
+		]);
+		record(testInfo, 'time to tick a group of 2,000 files', groupTicked, 1_000);
 		partRequests = 0;
-		const unticking = performance.now();
-		await page.keyboard.press('Space');
-		await expect(review).toContainText('Not started: 200,000 changes to review');
-		await page.waitForFunction(
-			() => document.querySelector('#part-0 td.code')?.textContent === 'old line 1',
-			undefined,
-			{ polling: 'raf' }
-		);
-		record(testInfo, 'time to untick a group of 2,000 files', performance.now() - unticking, 1_000);
+		const unticked = await timeClick(page, group, () => [
+			[progress, 'Not started: 200,000 changes to review'],
+			['#part-0 td.code', 'old line 1']
+		]);
+		record(testInfo, 'time to untick a group of 2,000 files', unticked, 1_000);
 		await expect.poll(() => inFlight).toBe(0);
 		expect(mostInFlight).toBeLessThanOrEqual(PART_REQUESTS_AT_ONCE);
 		expect(partRequests).toBeLessThan(100);
 		await expect(page.getByText('diff delver is not answering')).toHaveCount(0);
 		await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+
+		// Every file once: the by-file view, to its heading and first file drawn.
+		const switched = await timeClick(page, '.switch button:last-child', () => [
+			['#by-file-heading', 'Every file'],
+			['.by-file li .path', 'src/module-00/file-0000.ts']
+		]);
+		record(testInfo, 'time to show every file, 2,000 files', switched, 500);
+		await expect(page.getByRole('heading', { name: /^Every file/ })).toBeFocused();
 	} finally {
 		await world.close();
 	}

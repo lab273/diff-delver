@@ -15,6 +15,8 @@
 	import { hiddenCount, nextStep } from './viewer.svelte.ts';
 	import { drawLine } from './draw-line.ts';
 	import { tick } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
+	import { chunksOf } from '#lib/core/viewer/chunks.ts';
 	import { EXPANSION_STEP, type Direction } from '#lib/core/viewer/expansion.ts';
 	import { countOf } from '#lib/core/viewer/words.ts';
 
@@ -85,6 +87,31 @@
 		next?.focus();
 	}
 
+	/** The height of one row, as the styles below draw it: 1.25rem. */
+	const ROW_HEIGHT = 20;
+
+	/** The chunks of long hunks drawn so far (`chunks.ts`); the first of each always is. */
+	const drawn = new SvelteSet<string>();
+
+	/** Draws a chunk of rows once it comes near the screen. */
+	function drawWhenNear(element: HTMLElement, key: string) {
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((e) => e.isIntersecting)) {
+					drawn.add(key);
+					observer.disconnect();
+				}
+			},
+			{ rootMargin: '1500px 0px' }
+		);
+		observer.observe(element);
+		return {
+			destroy() {
+				observer.disconnect();
+			}
+		};
+	}
+
 	function isElsewhere(line: ShownLineView): boolean {
 		return line.kind !== 'context' && line.home.kind === 'elsewhere';
 	}
@@ -121,26 +148,35 @@
 	{/if}
 {/snippet}
 
-{#snippet lines(shown: readonly ShownLineView[])}
-	{#each shown as line, i (i)}
-		{@const elsewhere = startsElsewhere(shown, i)}
-		{#if elsewhere !== undefined}
-			<tr class="note">
-				<td colspan={columns} class="where">
-					Shown in <a
-						href="#{viewer.groupWithKey(elsewhere)?.anchor ?? ''}"
-						aria-label="Go to {shownPath(path)} in {name(elsewhere)}"
-						onclick={(event) => {
-							event.preventDefault();
-							ongo(elsewhere);
-						}}
-					>
-						{name(elsewhere)}
-					</a>
-				</td>
+{#snippet lines(shown: readonly ShownLineView[], key: string)}
+	{#each chunksOf(shown.length) as chunk (chunk.first)}
+		{#if chunk.first === 0 || drawn.has(`${key}:${String(chunk.first)}`)}
+			{#each shown.slice(chunk.first, chunk.end) as line, k (k)}
+				{@const elsewhere = startsElsewhere(shown, chunk.first + k)}
+				{#if elsewhere !== undefined}
+					<tr class="note">
+						<td colspan={columns} class="where">
+							Shown in <a
+								href="#{viewer.groupWithKey(elsewhere)?.anchor ?? ''}"
+								aria-label="Go to {shownPath(path)} in {name(elsewhere)}"
+								onclick={(event) => {
+									event.preventDefault();
+									ongo(elsewhere);
+								}}
+							>
+								{name(elsewhere)}
+							</a>
+						</td>
+					</tr>
+				{/if}
+				{@render row(line)}
+			{/each}
+		{:else}
+			<!-- Drawn when it comes near the screen; until then, the room it will take. -->
+			<tr class="pending" aria-hidden="true" use:drawWhenNear={`${key}:${String(chunk.first)}`}>
+				<td colspan={columns} style:height="{(chunk.end - chunk.first) * ROW_HEIGHT}px"></td>
 			</tr>
 		{/if}
-		{@render row(line)}
 	{/each}
 {/snippet}
 
@@ -227,7 +263,7 @@
 				{/if}
 				{#each block.bottom as line (line.new)}{@render opened(line)}{/each}
 			{:else if block.kind === 'hunk'}
-				{@render lines(block.lines)}
+				{@render lines(block.lines, String(b))}
 			{:else}
 				{@const changed = block.lines.filter((l) => l.kind !== 'context').length}
 				<tr class="hidden">
@@ -261,7 +297,7 @@
 						</div>
 					</td>
 				</tr>
-				{#if block.shown}{@render lines(block.lines)}{/if}
+				{#if block.shown}{@render lines(block.lines, String(b))}{/if}
 			{/if}
 		{/each}
 	</tbody>

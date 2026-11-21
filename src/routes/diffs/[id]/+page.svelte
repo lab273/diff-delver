@@ -217,6 +217,8 @@
 	const startOnlyWaiting = untrack(() => shownPage.url.searchParams.get('only') === 'unreviewed');
 
 	let byFile = $state(startByFile);
+	/** Whether the by-file view has been shown yet: it is made only when first asked for. */
+	let fileListMade = $state(startByFile);
 	let onlyWaiting = $state(startOnlyWaiting);
 	const viewer = $derived(
 		data.loaded.ok
@@ -227,6 +229,8 @@
 			: undefined
 	);
 	let helpOpen = $state(false);
+	/** Whether the section view shows any part, with the filter as it is. */
+	const anyShown = $derived(viewer?.parts.some((p) => viewer.shows(p.index)) ?? false);
 
 	/** Keeps the view and the filter in the address, so a reload or a shared link keeps them. */
 	function remember(): void {
@@ -240,6 +244,7 @@
 
 	async function showByFile(files: boolean): Promise<void> {
 		byFile = files;
+		if (files) fileListMade = true;
 		remember();
 		await tick();
 		if (files) document.getElementById('by-file-heading')?.focus();
@@ -667,10 +672,14 @@
 		<div class="content" role="presentation" onfocusin={onFocusIn}>
 			<!-- A new version is a new viewer: its parts are drawn afresh, never reused. -->
 			{#key viewer}
-				{#if byFile}
-					<FileList {viewer} ontick={tickFile} ongo={goTo} onshownewer={showNewer} />
-				{:else}
-					{@const anyShown = viewer.parts.some((p) => viewer.shows(p.index))}
+				<!-- Each view is made once and then only hidden, so going back and forth
+				     between them draws nothing again. -->
+				{#if fileListMade}
+					<div hidden={!byFile}>
+						<FileList {viewer} ontick={tickFile} ongo={goTo} onshownewer={showNewer} />
+					</div>
+				{/if}
+				<div hidden={byFile}>
 					{#if !anyShown}
 						<p class="empty">
 							{onlyWaiting
@@ -740,7 +749,7 @@
 							</section>
 						{/if}
 					{/each}
-				{/if}
+				</div>
 			{/key}
 			<p class="all-diffs"><a href={resolve('/')}>See all your diffs</a></p>
 		</div>
