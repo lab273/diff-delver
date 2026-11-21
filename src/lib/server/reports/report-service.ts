@@ -1078,7 +1078,7 @@ export class ReportService {
 			const found: { readonly number: LineNumber; readonly runs: readonly ColourRun[] }[] = [];
 			for (const span of spans) {
 				for (let n: number = span.first; n <= span.last; n += 1) {
-					const runs = colours.lines[n - 1];
+					const runs = colours.lines.line(lineNumberOf(n));
 					if (runs === undefined) break;
 					if (runs.length > 0) found.push({ number: lineNumberOf(n), runs });
 				}
