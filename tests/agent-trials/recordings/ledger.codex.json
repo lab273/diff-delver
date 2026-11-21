@@ -11,7 +11,7 @@
 	"skill": true,
 	"hashes": {
 		"agentSurface": "sha256:058c34b872b2424ca54b51ffad9afb655e6a1f7d4a64410b5ea24aad288ae005",
-		"skill": "sha256:4a921c83f2976b2d7d6afb0ba5d437bf3df5ff0321de533b3905d6345d36e10f"
+		"skill": "sha256:b13983c02b99edef1a09b6945cd1fafea09d685383159be77a8c57b04b89067a"
 	},
 	"bounds": {
 		"timeLimitSeconds": 600,
@@ -21,7 +21,16 @@
 	"outcomeDetail": null,
 	"session": {
 		"mcpServers": ["diff-delver"],
-		"tools": [],
+		"tools": [
+			"functions",
+			"exec",
+			"wait",
+			"request_user_input",
+			"request_user_input_async",
+			"send_message_to_user_async",
+			"clock",
+			"sleep"
+		],
 		"skills": [
 			"imagegen (r1/imagegen/SKILL.md)",
 			"openai-docs (r1/openai-docs/SKILL.md)",
@@ -66,7 +75,9 @@
 		"agent → tools/call #12",
 		"server ← tools/call #12",
 		"agent → tools/call #13",
-		"server ← tools/call #13"
+		"server ← tools/call #13",
+		"agent → tools/call #14",
+		"server ← tools/call #14"
 	],
 	"calls": [
 		{
@@ -109,6 +120,17 @@
 			}
 		},
 		{
+			"tool": "get_diff",
+			"arguments": {
+				"report": "r_1",
+				"cursor": "v1-f17-l0-k1166br3"
+			},
+			"answer": {
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nThe whole diff: files 18 to 31 of 31.\nEach changed line starts with the label assign takes for it: +<line> for an added line, -<line> for a deleted one; unchanged lines have no label. Hunks are headed \"@@ <hunk id> ...\". \"file\" labels the change to a file itself.\n\n## src/money.ts\nmodified\n@@ h1 -1,23 +1,54 @@\n-1  /** An amount of money in whole cents. Never a fraction of a cent. */\n-2  export type Cents = number & { readonly __cents: true };\n+1  import { minorUnits, type CurrencyCode } from './currency.ts';\n\n-4  export function cents(value: number): Cents {\n-5  \tif (!Number.isInteger(value)) throw new RangeError(`Not a whole number of cents: ${value}`);\n-6  \treturn value as Cents;\n+3  /**\n+4   * An amount of money in the minor unit of its currency (cents, pence, yen),\n+5   * never a fraction of one, with the currency it is in.\n+6   */\n+7  export interface Money {\n+8  \treadonly minor: number;\n+9  \treadonly currency: CurrencyCode;\n    }\n\n-9  export function add(a: Cents, b: Cents): Cents {\n-10 \treturn cents(a + b);\n+12 /** Amounts in two currencies were combined: a bug in the caller, never rounded away. */\n+13 export class CurrencyMismatch extends Error {\n+14 \tconstructor(\n+15 \t\treadonly left: CurrencyCode,\n+16 \t\treadonly right: CurrencyCode\n+17 \t) {\n+18 \t\tsuper(`Cannot combine ${left} with ${right}.`);\n+19 \t}\n    }\n\n-13 export function sum(amounts: readonly Cents[]): Cents {\n-14 \treturn amounts.reduce((total, amount) => add(total, amount), cents(0));\n+22 export function money(minor: number, currency: CurrencyCode): Money {\n+23 \tif (!Number.isInteger(minor)) {\n+24 \t\tthrow new RangeError(`Not a whole number of ${currency} minor units: ${minor}`);\n+25 \t}\n+26 \treturn { minor, currency };\n    }\n\n-17 export function multiply(amount: Cents, quantity: number): Cents {\n-18 \treturn cents(Math.round(amount * quantity));\n+29 export function zero(currency: CurrencyCode): Money {\n+30 \treturn money(0, currency);\n    }\n\n-21 export function percentOf(amount: Cents, percent: number): Cents {\n-22 \treturn cents(Math.round((amount * percent) / 100));\n+33 export function add(a: Money, b: Money): Money {\n+34 \tif (a.currency !== b.currency) throw new CurrencyMismatch(a.currency, b.currency);\n+35 \treturn money(a.minor + b.minor, a.currency);\n+36 }\n+37\n+38 /** The sum of amounts in one currency; zero of that currency for none. */\n+39 export function sum(amounts: readonly Money[], currency: CurrencyCode): Money {\n+40 \treturn amounts.reduce((total, amount) => add(total, amount), zero(currency));\n+41 }\n+42\n+43 export function multiply(amount: Money, quantity: number): Money {\n+44 \treturn money(Math.round(amount.minor * quantity), amount.currency);\n+45 }\n+46\n+47 export function percentOf(amount: Money, percent: number): Money {\n+48 \treturn money(Math.round((amount.minor * percent) / 100), amount.currency);\n+49 }\n+50\n+51 /** The amount in major units, as a number: 1050 cents is 10.5. For display only. */\n+52 export function inMajorUnits(amount: Money): number {\n+53 \treturn amount.minor / 10 ** minorUnits(amount.currency);\n    }\n\n## src/pdf/render.ts\nmodified\n@@ h1 -1,6 +1,7 @@\n    import { config } from '../config.ts';\n+2  import { CURRENCIES } from '../currency.ts';\n    import type { Customer } from '../customers.ts';\n-3  import { formatAmount, formatDate, formatQuantity } from '../format.ts';\n+4  import { formatAmount, formatDate, formatQuantity } from '../format/amount.ts';\n    import { lineNet, totals, type Invoice } from '../invoice.ts';\n    import { describeRate } from '../tax.ts';\n\n@@ h2 -12,6 +13,7 @@ export function renderInvoice(invoice: Invoice, customer: Customer): string[] {\n    \t\t`Invoice ${invoice.id}`,\n    \t\t`Issued ${formatDate(invoice.issuedOn)}`,\n    \t\t`To ${customer.name}`,\n+16 \t\t`Amounts in ${CURRENCIES[invoice.currency].name} (${invoice.currency})`,\n    \t\t'',\n    \t\t...invoice.lines.map(\n    \t\t\t(line) =>\n\n## src/server/app.ts\nmodified\n@@ h1 -1,19 +1,21 @@\n    import { config } from '../config.ts';\n-2  import { log, warn } from '../log.ts';\n+2  import { log } from '../log.ts';\n    import { connect } from '../store/connect.ts';\n+4  import { CustomerStore } from '../store/customers.ts';\n    import { InvoiceStore } from '../store/invoices.ts';\n    import { createRouter, listen } from './http.ts';\n-6  import { invoiceRoutes } from './routes.ts';\n+7  import { currencyRoutes, invoiceRoutes } from './routes.ts';\n\n    export async function start(): Promise<void> {\n    \tconst db = await connect(config.databaseUrl);\n    \tconst router = createRouter();\n-11 \tinvoiceRoutes(router, new InvoiceStore(db));\n+12 \tinvoiceRoutes(router, new InvoiceStore(db), new CustomerStore(db));\n+13 \tcurrencyRoutes(router);\n    \trouter.get('/health', async (_req, res) => res.json({ ok: true }));\n    \tconst server = await listen(router, config.port);\n-14 \tlog(`listening on port ${config.port}`);\n+16 \tlog.info('listening', { port: config.port, level: config.logLevel });\n    \tprocess.on('SIGTERM', () => {\n-16 \t\twarn('stopping on SIGTERM');\n+18 \t\tlog.warn('stopping', { signal: 'SIGTERM' });\n    \t\tserver.close();\n    \t});\n    }\n\n## src/server/routes.test.ts\nmodified\n@@ h1 -1,30 +1,61 @@\n    import { describe, expect, it } from 'vitest';\n-2  import { fakeStore, request } from '../test-helpers.ts';\n-3  import { invoiceRoutes } from './routes.ts';\n+2  import { fakeCustomers, fakeStore, request } from '../test-helpers.ts';\n+3  import { currencyRoutes, invoiceRoutes } from './routes.ts';\n\n    const body = {\n    \tid: 'INV-1001',\n    \tcustomer_id: 'C-7',\n    \tissued_on: '2026-01-15',\n-9  \tlines: [{ description: 'Consulting', quantity: 2, unit_price_cents: 15000, tax_rate: 'standard' }]\n+9  \tlines: [{ description: 'Consulting', quantity: 2, unit_price_minor: 15000, tax_rate: 'standard' }]\n    };\n\n+12 const routes = (router: Parameters<typeof invoiceRoutes>[0], store: Parameters<typeof invoiceRoutes>[1]) =>\n+13 \tinvoiceRoutes(router, store, fakeCustomers({ 'C-9': 'GBP' }));\n+14\n    describe('POST /invoices', () => {\n-13 \tit('creates an invoice and answers with its totals', async () => {\n-14 \t\tconst res = await request(invoiceRoutes, fakeStore(), 'POST', '/invoices', body);\n+16 \tit('creates an invoice in the default currency and answers with its totals', async () => {\n+17 \t\tconst res = await request(routes, fakeStore(), 'POST', '/invoices', body);\n    \t\texpect(res.status).toBe(201);\n-16 \t\texpect(res.body).toMatchObject({ net: '300.00', tax: '60.00', gross: '360.00' });\n+19 \t\texpect(res.body).toMatchObject({\n+20 \t\t\tcurrency: 'EUR',\n+21 \t\t\tnet: '€300.00',\n+22 \t\t\ttax: '€60.00',\n+23 \t\t\tgross: '€360.00',\n+24 \t\t\tgross_minor: 36000\n+25 \t\t});\n+26 \t});\n+27\n+28 \tit('takes the currency the request names', async () => {\n+29 \t\tconst res = await request(routes, fakeStore(), 'POST', '/invoices', { ...body, currency: 'jpy' });\n+30 \t\texpect(res.body).toMatchObject({ currency: 'JPY', gross: '¥36,000' });\n+31 \t});\n+32\n+33 \tit(\"takes the customer's currency when the request names none\", async () => {\n+34 \t\tconst res = await request(routes, fakeStore(), 'POST', '/invoices', { ...body, customer_id: 'C-9' });\n+35 \t\texpect(res.body).toMatchObject({ currency: 'GBP', gross: '£360.00' });\n+36 \t});\n+37\n+38 \tit('refuses a currency it does not know', async () => {\n+39 \t\tconst res = await request(routes, fakeStore(), 'POST', '/invoices', { ...body, currency: 'XYZ' });\n+40 \t\texpect(res.status).toBe(422);\n    \t});\n\n    \tit('refuses an invoice with no lines', async () => {\n-20 \t\tconst res = await request(invoiceRoutes, fakeStore(), 'POST', '/invoices', { ...body, lines: [] });\n+44 \t\tconst res = await request(routes, fakeStore(), 'POST', '/invoices', { ...body, lines: [] });\n    \t\texpect(res.status).toBe(422);\n    \t});\n    });\n\n    describe('GET /invoices/:id', () => {\n    \tit('answers 404 for an invoice that does not exist', async () => {\n-27 \t\tconst res = await request(invoiceRoutes, fakeStore(), 'GET', '/invoices/nope');\n+51 \t\tconst res = await request(routes, fakeStore(), 'GET', '/invoices/nope');\n    \t\texpect(res.status).toBe(404);\n    \t});\n    });\n+55\n+56 describe('GET /currencies', () => {\n+57 \tit('lists every currency and the default', async () => {\n+58 \t\tconst res = await request((router) => currencyRoutes(router), fakeStore(), 'GET', '/currencies');\n+59 \t\texpect(res.body).toMatchObject({ default: 'EUR' });\n+60 \t});\n+61 });\n\n## src/server/routes.ts\nmodified\n@@ h1 -1,61 +1,97 @@\n-1  import type { CreateInvoiceRequest, InvoiceResponse } from '../generated/api-types.ts';\n-2  import { formatAmount, formatQuantity } from '../format.ts';\n+1  import { config } from '../config.ts';\n+2  import { CURRENCIES, parseCurrency, type CurrencyCode } from '../currency.ts';\n+3  import { formatAmount, formatQuantity } from '../format/amount.ts';\n+4  import type {\n+5  \tCreateInvoiceRequest,\n+6  \tCurrencyListResponse,\n+7  \tInvoiceResponse\n+8  } from '../generated/api-types.ts';\n    import { lineNet, totals, validate, type Invoice } from '../invoice.ts';\n-4  import { log, warn } from '../log.ts';\n-5  import { cents } from '../money.ts';\n+10 import { log } from '../log.ts';\n+11 import { money } from '../money.ts';\n+12 import type { CustomerStore } from '../store/customers.ts';\n    import type { InvoiceStore } from '../store/invoices.ts';\n    import { describeRate } from '../tax.ts';\n    import type { Router } from './router.ts';\n\n-10 export function invoiceRoutes(router: Router, store: InvoiceStore): void {\n+17 export function invoiceRoutes(router: Router, store: InvoiceStore, customers: CustomerStore): void {\n    \trouter.get('/invoices/:id', async (req, res) => {\n    \t\tconst id = req.params['id'] ?? '';\n-13 \t\tlog(`GET /invoices/${id}`);\n+20 \t\tconst requestLog = log.with({ request: req.id });\n+21 \t\trequestLog.info('get invoice', { invoice: id });\n    \t\tconst invoice = await store.get(id);\n    \t\tif (invoice === undefined) return res.status(404).json({ error: 'There is no such invoice.' });\n    \t\treturn res.json(present(invoice));\n    \t});\n\n    \trouter.post('/invoices', async (req, res) => {\n+28 \t\tconst requestLog = log.with({ request: req.id });\n    \t\tconst body = req.body as CreateInvoiceRequest;\n+30 \t\tlet currency: CurrencyCode;\n+31 \t\ttry {\n+32 \t\t\tcurrency =\n+33 \t\t\t\tbody.currency === undefined\n+34 \t\t\t\t\t? ((await customers.preferredCurrency(body.customer_id)) ?? config.defaultCurrency)\n+35 \t\t\t\t\t: parseCurrency(body.currency);\n+36 \t\t} catch (error) {\n+37 \t\t\treturn res.status(422).json({ error: (error as Error).message });\n+38 \t\t}\n    \t\tconst invoice: Invoice = {\n    \t\t\tid: body.id,\n    \t\t\tcustomerId: body.customer_id,\n    \t\t\tissuedOn: body.issued_on,\n+43 \t\t\tcurrency,\n    \t\t\tlines: body.lines.map((line) => ({\n    \t\t\t\tdescription: line.description,\n    \t\t\t\tquantity: line.quantity,\n-28 \t\t\t\tunitPrice: cents(line.unit_price_cents),\n+47 \t\t\t\tunitPrice: money(line.unit_price_minor, currency),\n    \t\t\t\ttaxRate: line.tax_rate\n    \t\t\t}))\n    \t\t};\n    \t\tconst problems = validate(invoice);\n    \t\tif (problems.length > 0) {\n-34 \t\t\twarn(`refused invoice ${body.id}: ${problems.join('; ')}`);\n+53 \t\t\trequestLog.warn('refused invoice', { invoice: body.id, problems: problems.length });\n    \t\t\treturn res.status(422).json({ error: 'The invoice is not valid.', problems });\n    \t\t}\n    \t\tawait store.save(invoice);\n-38 \t\tlog(`created invoice ${invoice.id}`);\n+57 \t\trequestLog.info('created invoice', { invoice: invoice.id, currency });\n    \t\treturn res.status(201).json(present(invoice));\n    \t});\n\n    \trouter.get('/customers/:id/invoices', async (req, res) => {\n    \t\tconst id = req.params['id'] ?? '';\n-44 \t\tlog(`GET /customers/${id}/invoices`);\n+63 \t\tlog.with({ request: req.id }).info('list invoices', { customer: id });\n    \t\tconst invoices = await store.forCustomer(id);\n    \t\treturn res.json(invoices.map(present));\n    \t});\n    }\n\n+69 export function currencyRoutes(router: Router): void {\n+70 \trouter.get('/currencies', async (_req, res) => {\n+71 \t\tconst body: CurrencyListResponse = {\n+72 \t\t\tcurrencies: Object.entries(CURRENCIES).map(([code, c]) => ({\n+73 \t\t\t\tcode: code as CurrencyCode,\n+74 \t\t\t\tname: c.name,\n+75 \t\t\t\tsymbol: c.symbol.trim(),\n+76 \t\t\t\tminor_units: c.minorUnits\n+77 \t\t\t})),\n+78 \t\t\tdefault: config.defaultCurrency\n+79 \t\t};\n+80 \t\treturn res.json(body);\n+81 \t});\n+82 }\n+83\n    function present(invoice: Invoice): InvoiceResponse {\n    \tconst sums = totals(invoice);\n    \treturn {\n    \t\tid: invoice.id,\n    \t\tcustomer_id: invoice.customerId,\n    \t\tissued_on: invoice.issuedOn,\n+90 \t\tcurrency: invoice.currency,\n    \t\tnet: formatAmount(sums.net),\n    \t\ttax: formatAmount(sums.tax),\n    \t\tgross: formatAmount(sums.gross),\n+94 \t\tgross_minor: sums.gross.minor,\n    \t\tlines: invoice.lines.map((line) => ({\n    \t\t\tdescription: line.description,\n    \t\t\tquantity: formatQuantity(line.quantity),\n\n## src/store/customers.ts\nmodified\n@@ h1 -1,3 +1,4 @@\n+1  import type { CurrencyCode } from '../currency.ts';\n    import type { Customer } from '../customers.ts';\n    import type { Database } from './database.ts';\n\n@@ h2 -5,13 +6,26 @@ interface CustomerRow {\n    \tid: string;\n    \tname: string;\n    \temail: string;\n+9  \tpreferred_currency: CurrencyCode | null;\n    }\n\n    export class CustomerStore {\n    \tconstructor(private readonly db: Database) {}\n\n    \tasync get(id: string): Promise<Customer | undefined> {\n-14 \t\tconst row = await this.db.one<CustomerRow>('SELECT id, name, email FROM customers WHERE id = $1', [id]);\n+16 \t\tconst row = await this.db.one<CustomerRow>(\n+17 \t\t\t'SELECT id, name, email, preferred_currency FROM customers WHERE id = $1',\n+18 \t\t\t[id]\n+19 \t\t);\n    \t\treturn row === undefined ? undefined : { id: row.id, name: row.name, email: row.email };\n    \t}\n+22\n+23 \t/** The currency new invoices for the customer are written in, if they chose one. */\n+24 \tasync preferredCurrency(id: string): Promise<CurrencyCode | undefined> {\n+25 \t\tconst row = await this.db.one<CustomerRow>(\n+26 \t\t\t'SELECT preferred_currency FROM customers WHERE id = $1',\n+27 \t\t\t[id]\n+28 \t\t);\n+29 \t\treturn row?.preferred_currency ?? undefined;\n+30 \t}\n    }\n\n## src/store/invoices.ts\nmodified\n@@ h1 -1,12 +1,14 @@\n+1  import type { CurrencyCode } from '../currency.ts';\n    import type { Invoice, InvoiceLine } from '../invoice.ts';\n-2  import { log, warn } from '../log.ts';\n-3  import { cents } from '../money.ts';\n+3  import { log } from '../log.ts';\n+4  import { money } from '../money.ts';\n    import type { Database } from './database.ts';\n\n    interface InvoiceRow {\n    \tid: string;\n    \tcustomer_id: string;\n    \tissued_on: string;\n+11 \tcurrency: CurrencyCode;\n    }\n\n    interface LineRow {\n@@ h2 -14,7 +16,7 @@ interface LineRow {\n    \tposition: number;\n    \tdescription: string;\n    \tquantity: number;\n-17 \tunit_price_cents: number;\n+19 \tunit_price_minor: number;\n    \ttax_rate: 'standard' | 'reduced' | 'zero';\n    }\n\n@@ h3 -23,11 +25,11 @@ export class InvoiceStore {\n\n    \tasync get(id: string): Promise<Invoice | undefined> {\n    \t\tconst row = await this.db.one<InvoiceRow>(\n-26 \t\t\t'SELECT id, customer_id, issued_on FROM invoices WHERE id = $1',\n+28 \t\t\t'SELECT id, customer_id, issued_on, currency FROM invoices WHERE id = $1',\n    \t\t\t[id]\n    \t\t);\n    \t\tif (row === undefined) {\n-30 \t\t\twarn(`invoice ${id} not found`);\n+32 \t\t\tlog.info('invoice not found', { invoice: id });\n    \t\t\treturn undefined;\n    \t\t}\n    \t\treturn this.#withLines(row);\n@@ h4 -35,7 +37,7 @@ export class InvoiceStore {\n\n    \tasync forCustomer(customerId: string): Promise<Invoice[]> {\n    \t\tconst rows = await this.db.many<InvoiceRow>(\n-38 \t\t\t'SELECT id, customer_id, issued_on FROM invoices WHERE customer_id = $1 ORDER BY issued_on DESC',\n+40 \t\t\t'SELECT id, customer_id, issued_on, currency FROM invoices WHERE customer_id = $1 ORDER BY issued_on DESC',\n    \t\t\t[customerId]\n    \t\t);\n    \t\treturn Promise.all(rows.map((row) => this.#withLines(row)));\n@@ h5 -44,20 +46,20 @@ export class InvoiceStore {\n    \tasync save(invoice: Invoice): Promise<void> {\n    \t\tawait this.db.transaction(async (tx) => {\n    \t\t\tawait tx.run(\n-47 \t\t\t\t'INSERT INTO invoices (id, customer_id, issued_on) VALUES ($1, $2, $3) ' +\n-48 \t\t\t\t\t'ON CONFLICT (id) DO UPDATE SET customer_id = $2, issued_on = $3',\n-49 \t\t\t\t[invoice.id, invoice.customerId, invoice.issuedOn]\n+49 \t\t\t\t'INSERT INTO invoices (id, customer_id, issued_on, currency) VALUES ($1, $2, $3, $4) ' +\n+50 \t\t\t\t\t'ON CONFLICT (id) DO UPDATE SET customer_id = $2, issued_on = $3, currency = $4',\n+51 \t\t\t\t[invoice.id, invoice.customerId, invoice.issuedOn, invoice.currency]\n    \t\t\t);\n    \t\t\tawait tx.run('DELETE FROM invoice_lines WHERE invoice_id = $1', [invoice.id]);\n    \t\t\tfor (const [position, line] of invoice.lines.entries()) {\n    \t\t\t\tawait tx.run(\n-54 \t\t\t\t\t'INSERT INTO invoice_lines (invoice_id, position, description, quantity, unit_price_cents, tax_rate) ' +\n+56 \t\t\t\t\t'INSERT INTO invoice_lines (invoice_id, position, description, quantity, unit_price_minor, tax_rate) ' +\n    \t\t\t\t\t\t'VALUES ($1, $2, $3, $4, $5, $6)',\n-56 \t\t\t\t\t[invoice.id, position, line.description, line.quantity, line.unitPrice, line.taxRate]\n+58 \t\t\t\t\t[invoice.id, position, line.description, line.quantity, line.unitPrice.minor, line.taxRate]\n    \t\t\t\t);\n    \t\t\t}\n    \t\t});\n-60 \t\tlog(`saved invoice ${invoice.id} with ${invoice.lines.length} lines`);\n+62 \t\tlog.info('saved invoice', { invoice: invoice.id, lines: invoice.lines.length });\n    \t}\n\n    \tasync #withLines(row: InvoiceRow): Promise<Invoice> {\n@@ h6 -69,16 +71,17 @@ export class InvoiceStore {\n    \t\t\tid: row.id,\n    \t\t\tcustomerId: row.customer_id,\n    \t\t\tissuedOn: row.issued_on,\n-72 \t\t\tlines: lines.map(toLine)\n+74 \t\t\tcurrency: row.currency,\n+75 \t\t\tlines: lines.map((line) => toLine(line, row.currency))\n    \t\t};\n    \t}\n    }\n\n-77 function toLine(row: LineRow): InvoiceLine {\n+80 function toLine(row: LineRow, currency: CurrencyCode): InvoiceLine {\n    \treturn {\n    \t\tdescription: row.description,\n    \t\tquantity: row.quantity,\n-81 \t\tunitPrice: cents(row.unit_price_cents),\n+84 \t\tunitPrice: money(row.unit_price_minor, currency),\n    \t\ttaxRate: row.tax_rate\n    \t};\n    }\n\n## src/store/migrations/004-invoice-currency.sql\nadded\n@@ h1 -0,0 +1,9 @@\n+1 -- Invoices get a currency. Every invoice written before now was in euros.\n+2 ALTER TABLE invoices ADD COLUMN currency CHAR(3) NOT NULL DEFAULT 'EUR';\n+3 ALTER TABLE invoices ALTER COLUMN currency DROP DEFAULT;\n+4\n+5 -- Prices are in the minor unit of the invoice's currency, which is no longer always cents.\n+6 ALTER TABLE invoice_lines RENAME COLUMN unit_price_cents TO unit_price_minor;\n+7\n+8 -- A customer may choose the currency their invoices are written in.\n+9 ALTER TABLE customers ADD COLUMN preferred_currency CHAR(3);\n\n## src/tax.test.ts\nmodified\n@@ h1 -1,13 +1,17 @@\n    import { expect, it } from 'vitest';\n-2  import { cents } from './money.ts';\n+2  import { money } from './money.ts';\n    import { describeRate, taxFor } from './tax.ts';\n\n    it('takes the standard rate', () => {\n-6  \texpect(taxFor(cents(1000), 'standard')).toBe(200);\n+6  \texpect(taxFor(money(1000, 'EUR'), 'standard')).toEqual(money(200, 'EUR'));\n    });\n\n    it('takes nothing at the zero rate', () => {\n-10 \texpect(taxFor(cents(1000), 'zero')).toBe(0);\n+10 \texpect(taxFor(money(1000, 'EUR'), 'zero')).toEqual(money(0, 'EUR'));\n+11 });\n+12\n+13 it('rounds Swiss tax to five rappen', () => {\n+14 \texpect(taxFor(money(1234, 'CHF'), 'reduced')).toEqual(money(60, 'CHF'));\n    });\n\n    it('describes a rate', () => {\n\n## src/tax.ts\nmodified\n@@ h1 -1,11 +1,14 @@\n-1  import { percentOf, type Cents } from './money.ts';\n+1  import { roundForTax } from './currency.ts';\n+2  import { money, type Money } from './money.ts';\n\n    export type TaxRate = 'standard' | 'reduced' | 'zero';\n\n    const PERCENT: Record<TaxRate, number> = { standard: 20, reduced: 5, zero: 0 };\n\n-7  export function taxFor(net: Cents, rate: TaxRate): Cents {\n-8  \treturn percentOf(net, PERCENT[rate]);\n+8  /** The tax on a net amount, rounded as the amount's currency requires. */\n+9  export function taxFor(net: Money, rate: TaxRate): Money {\n+10 \tconst exact = (net.minor * PERCENT[rate]) / 100;\n+11 \treturn money(roundForTax(exact, net.currency), net.currency);\n    }\n\n    export function describeRate(rate: TaxRate): string {\n\n## src/test-helpers.ts\nmodified\n@@ h1 -1,4 +1,6 @@\n    import type { Invoice } from './invoice.ts';\n+2  import type { CurrencyCode } from './currency.ts';\n+3  import type { CustomerStore } from './store/customers.ts';\n    import type { InvoiceStore } from './store/invoices.ts';\n    import type { Router } from './server/router.ts';\n\n@@ h2 -14,6 +16,13 @@ export function fakeStore(): InvoiceStore {\n    \t} as unknown as InvoiceStore;\n    }\n\n+19 /** A customer store that knows only each customer's preferred currency. */\n+20 export function fakeCustomers(preferred: Readonly<Record<string, CurrencyCode>>): CustomerStore {\n+21 \treturn {\n+22 \t\tpreferredCurrency: async (id: string) => preferred[id]\n+23 \t} as unknown as CustomerStore;\n+24 }\n+25\n    /** Sends one request through the routes `install` sets up, and gives the answer. */\n    export async function request(\n    \tinstall: (router: Router, store: InvoiceStore) => void,\n\n## tests/__snapshots__/pdf.test.ts.snap\nmodified\n@@ h1 -6,13 +6,32 @@ exports[`lays out an invoice 1`] = `\n      \"Invoice INV-1001\",\n      \"Issued 15 Jan 2026\",\n      \"To Ada Lovelace Ltd\",\n+9    \"Amounts in Euro (EUR)\",\n      \"\",\n-10   \"Consulting  2 x 150.00  20%  300.00\",\n-11   \"Travel  1 x 42.50  0%  42.50\",\n-12   \"Book  1 x 20.00  5%  20.00\",\n+11   \"Consulting  2 x €150.00  20%  €300.00\",\n+12   \"Travel  1 x €42.50  0%  €42.50\",\n+13   \"Book  1 x €20.00  5%  €20.00\",\n      \"\",\n-14   \"Net    362.50\",\n-15   \"Tax    61.00\",\n-16   \"Total  423.50\",\n+15   \"Net    €362.50\",\n+16   \"Tax    €61.00\",\n+17   \"Total  €423.50\",\n+18 ]\n+19 `;\n+20\n+21 exports[`lays out an invoice in yen, with no minor unit 1`] = `\n+22 [\n+23   \"Ledger Ltd\",\n+24   \"Invoice INV-1001\",\n+25   \"Issued 15 Jan 2026\",\n+26   \"To Ada Lovelace Ltd\",\n+27   \"Amounts in Japanese yen (JPY)\",\n+28   \"\",\n+29   \"Consulting  2 x ¥24,000  20%  ¥48,000\",\n+30   \"Travel  1 x ¥6,800  0%  ¥6,800\",\n+31   \"Book  1 x ¥3,200  5%  ¥3,200\",\n+32   \"\",\n+33   \"Net    ¥58,000\",\n+34   \"Tax    ¥9,760\",\n+35   \"Total  ¥67,760\",\n    ]\n    `;\n\n## tests/pdf.test.ts\nmodified\n@@ h1 -1,22 +1,28 @@\n    import { expect, it } from 'vitest';\n-2  import { cents } from '../src/money.ts';\n+2  import type { CurrencyCode } from '../src/currency.ts';\n+3  import { money } from '../src/money.ts';\n    import { renderInvoice } from '../src/pdf/render.ts';\n\n    const customer = { id: 'C-7', name: 'Ada Lovelace Ltd', email: 'accounts@example.com' };\n\n+8  function invoiceIn(currency: CurrencyCode, prices: readonly [number, number, number]) {\n+9  \treturn {\n+10 \t\tid: 'INV-1001',\n+11 \t\tcustomerId: 'C-7',\n+12 \t\tissuedOn: '2026-01-15',\n+13 \t\tcurrency,\n+14 \t\tlines: [\n+15 \t\t\t{ description: 'Consulting', quantity: 2, unitPrice: money(prices[0], currency), taxRate: 'standard' as const },\n+16 \t\t\t{ description: 'Travel', quantity: 1, unitPrice: money(prices[1], currency), taxRate: 'zero' as const },\n+17 \t\t\t{ description: 'Book', quantity: 1, unitPrice: money(prices[2], currency), taxRate: 'reduced' as const }\n+18 \t\t]\n+19 \t};\n+20 }\n+21\n    it('lays out an invoice', () => {\n-8  \tconst lines = renderInvoice(\n-9  \t\t{\n-10 \t\t\tid: 'INV-1001',\n-11 \t\t\tcustomerId: 'C-7',\n-12 \t\t\tissuedOn: '2026-01-15',\n-13 \t\t\tlines: [\n-14 \t\t\t\t{ description: 'Consulting', quantity: 2, unitPrice: cents(15000), taxRate: 'standard' },\n-15 \t\t\t\t{ description: 'Travel', quantity: 1, unitPrice: cents(4250), taxRate: 'zero' },\n-16 \t\t\t\t{ description: 'Book', quantity: 1, unitPrice: cents(2000), taxRate: 'reduced' }\n-17 \t\t\t]\n-18 \t\t},\n-19 \t\tcustomer\n-20 \t);\n-21 \texpect(lines).toMatchSnapshot();\n+23 \texpect(renderInvoice(invoiceIn('EUR', [15000, 4250, 2000]), customer)).toMatchSnapshot();\n+24 });\n+25\n+26 it('lays out an invoice in yen, with no minor unit', () => {\n+27 \texpect(renderInvoice(invoiceIn('JPY', [24000, 6800, 3200]), customer)).toMatchSnapshot();\n    });\n\n## tests/smoke.test.ts\nadded\n@@ h1 -0,0 +1,18 @@\n+1  import { expect, it } from 'vitest';\n+2  import { fakeStore, request } from '../src/test-helpers.ts';\n+3  import type { Router } from '../src/server/router.ts';\n+4\n+5  // Not a test of any one feature: the service answers at all, and its health\n+6  // check says so, which the deploy pipeline waits for.\n+7  it('answers its health check', async () => {\n+8  \tconst health = (router: Router) => {\n+9  \t\trouter.get('/health', async (_req, res) => res.json({ ok: true }));\n+10 \t};\n+11 \tconst res = await request(health, fakeStore(), 'GET', '/health');\n+12 \texpect(res).toEqual({ status: 200, body: { ok: true } });\n+13 });\n+14\n+15 it('answers 404 for a path it does not know', async () => {\n+16 \tconst res = await request(() => undefined, fakeStore(), 'GET', '/nowhere');\n+17 \texpect(res.status).toBe(404);\n+18 });\n\nThat was the last page.",
+				"refused": false
+			}
+		},
+		{
 			"tool": "upsert_sections",
 			"arguments": {
 				"report": "r_1",
@@ -116,48 +138,63 @@
 				"sections": [
 					{
 						"id": "money",
-						"title": "Amounts carry a currency",
-						"summary": "Start with the supported currency table, code normalization, and minor-unit arithmetic. Check mixed-currency addition and the rounding rules in `src/currency.ts +45..+47`, including how Swiss rounding handles negative ties."
-					},
-					{
-						"id": "invoice",
-						"title": "Invoice totals and tax use the invoice currency",
-						"summary": "Invoices carry one currency, reject lines in another, and calculate the net and tax in that currency. Check the per-line tax calculation in `src/tax.ts +8..+11` and the yen total and mixed-currency validation tests."
+						"title": "Amounts carry a currency through tax and totals",
+						"summary": "The currency registry defines seven supported codes, their decimal precision and tax rounding. Money arithmetic rejects mixed currencies, and invoice totals apply tax per line. Check CHF negative ties in `src/currency.ts +45..+47` against the rounding described in `docs/currencies.md +29..+31`."
 					},
 					{
 						"id": "storage",
-						"title": "Existing invoices migrate to EUR",
-						"summary": "Migration 004 assigns EUR to historical invoices, removes the temporary default, renames the price column, and adds an optional customer preference. Follow the store queries and row conversion to verify that writes and reads preserve the invoice currency and minor-unit amount."
-					},
-					{
-						"id": "api",
-						"title": "The API selects and exposes invoice currency",
-						"summary": "Invoice creation uses the request currency, then the customer preference, then `DEFAULT_CURRENCY`. Review the input field rename, the formatted totals and raw `gross_minor`, and `GET /currencies`. Check whether a failure reading the customer preference should return 422 (`src/server/routes.ts +30..+38`) and whether the OpenAPI response schemas cover the fields the routes return."
+						"title": "Store invoice currencies and preserve existing euro amounts",
+						"summary": "The migration backfills EUR, renames the price column and adds a nullable customer preference. Check that the migration runs before the new reads and writes in `src/store/invoices.ts +49..+58`."
 					},
 					{
 						"id": "display",
-						"title": "PDFs show currency symbols and precision",
-						"summary": "The formatter uses each currency’s fractional digits and symbol. The EUR and JPY snapshots show how the PDF identifies the currency and displays line amounts and totals."
+						"title": "Show currency symbols and precision on invoices",
+						"summary": "The renamed formatter uses each currency’s precision and symbol. The PDF adds the currency name and code, and the EUR and JPY snapshots show the resulting layout."
+					},
+					{
+						"id": "api",
+						"title": "Choose and expose invoice currencies in the API",
+						"summary": "Invoice creation uses the request currency, then the customer preference, then the configured default. Review the renamed request field, the currency list and response fields against the OpenAPI contract. In `src/server/routes.ts +30..+38`, the same error handler covers invalid input and customer lookup failures.",
+						"references": [
+							{
+								"file": "src/config.ts",
+								"lines": "+29"
+							},
+							{
+								"file": "src/format/amount.ts",
+								"lines": "+12..+14"
+							}
+						]
 					},
 					{
 						"id": "logging",
-						"title": "Logs become structured JSON",
-						"summary": "The logger filters by severity and writes JSON lines to stderr. Callers attach fields such as request and invoice IDs. Review startup first. `src/log.ts +59` reads config during module initialization, and `src/config.ts +2` imports the logger module to validate `LOG_LEVEL`. This cycle can cause an initialization error."
-					},
-					{
-						"id": "release",
-						"title": "Release tooling and the logo change",
-						"summary": "Review the executable bit and shell error handling in the release script, the Vitest upgrade, and the binary logo replacement."
+						"title": "Emit structured logs with request context",
+						"summary": "The logger writes JSON lines to stderr and filters by configured level. Start with the reciprocal imports in `src/config.ts +2` and `src/log.ts +1` and the eager logger initialization at `src/log.ts +59`, which can fail during module initialization.",
+						"references": [
+							{
+								"file": "src/server/routes.ts",
+								"lines": "+10"
+							},
+							{
+								"file": "README.md",
+								"lines": "+11..+13"
+							}
+						]
 					},
 					{
 						"id": "smoke",
-						"title": "Smoke tests exercise health and unknown paths",
-						"summary": "The tests cover a health response and an unknown route through the request helper. The health test installs its own handler in `tests/smoke.test.ts +8..+11`, so check whether that provides the intended coverage of server startup."
+						"title": "Exercise health and unknown routes",
+						"summary": "The smoke test checks a health handler installed by the test and a 404 for an unknown path. Check whether the coverage intended for deployment also needs to exercise the wiring in `src/server/app.ts`."
+					},
+					{
+						"id": "release",
+						"title": "Update release tooling and the logo",
+						"summary": "The release script becomes executable and enables shell error and unset-variable checks. The package adds an API type generation command and bumps Vitest. Check where the generation command obtains its executable. The logo changes as a binary asset."
 					}
 				]
 			},
 			"answer": {
-				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n8 sections, in reading order:\n- money: \"Amounts carry a currency\", 0 change lines\n- invoice: \"Invoice totals and tax use the invoice currency\", 0 change lines\n- storage: \"Existing invoices migrate to EUR\", 0 change lines\n- api: \"The API selects and exposes invoice currency\", 0 change lines\n- display: \"PDFs show currency symbols and precision\", 0 change lines\n- logging: \"Logs become structured JSON\", 0 change lines\n- release: \"Release tooling and the logo change\", 0 change lines\n- smoke: \"Smoke tests exercise health and unknown paths\", 0 change lines\nNext: put change lines into the sections with assign (718 change lines not sorted yet).",
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n7 sections, in reading order:\n- money: \"Amounts carry a currency through tax and totals\", 0 change lines\n- storage: \"Store invoice currencies and preserve existing euro amounts\", 0 change lines\n- display: \"Show currency symbols and precision on invoices\", 0 change lines\n- api: \"Choose and expose invoice currencies in the API\", 0 change lines, 4 change lines cross-referenced\n- logging: \"Emit structured logs with request context\", 0 change lines, 4 change lines cross-referenced\n- smoke: \"Exercise health and unknown routes\", 0 change lines\n- release: \"Update release tooling and the logo\", 0 change lines\nNext: put change lines into the sections with assign (718 change lines not sorted yet).",
 				"refused": false
 			}
 		},
@@ -168,8 +205,50 @@
 				"version": 1,
 				"items": [
 					{
+						"section": "logging",
+						"file": "src/invoice.ts",
+						"lines": "-34,+40"
+					},
+					{
+						"section": "logging",
+						"file": "src/store/invoices.ts",
+						"lines": "-30,+32,-60,+62"
+					},
+					{
+						"section": "logging",
+						"file": "src/server/app.ts",
+						"lines": "-2,+2,-14,+16,-16,+18"
+					},
+					{
+						"section": "logging",
+						"file": "src/server/routes.ts",
+						"lines": "-13,+20..+21,+28,-34,+53,-38,+57,-44,+63"
+					},
+					{
+						"section": "api",
+						"file": "src/config.ts",
+						"lines": "+1,+8..+9"
+					},
+					{
+						"section": "logging",
+						"file": "README.md",
+						"lines": "+20..+24"
+					},
+					{
 						"section": "money",
 						"file": "src/currency.ts"
+					},
+					{
+						"section": "money",
+						"file": "src/money.ts"
+					},
+					{
+						"section": "money",
+						"file": "src/tax.ts"
+					},
+					{
+						"section": "money",
+						"file": "src/invoice.ts"
 					},
 					{
 						"section": "money",
@@ -178,29 +257,17 @@
 					},
 					{
 						"section": "money",
-						"file": "src/money.ts"
-					},
-					{
-						"section": "money",
 						"file": "src/money.test.ts",
 						"role": "test"
 					},
 					{
-						"section": "invoice",
-						"file": "src/invoice.ts"
-					},
-					{
-						"section": "invoice",
-						"file": "src/invoice.test.ts",
+						"section": "money",
+						"file": "src/tax.test.ts",
 						"role": "test"
 					},
 					{
-						"section": "invoice",
-						"file": "src/tax.ts"
-					},
-					{
-						"section": "invoice",
-						"file": "src/tax.test.ts",
+						"section": "money",
+						"file": "src/invoice.test.ts",
 						"role": "test"
 					},
 					{
@@ -214,24 +281,6 @@
 					{
 						"section": "storage",
 						"file": "src/store/migrations/004-invoice-currency.sql"
-					},
-					{
-						"section": "api",
-						"file": "api/openapi.yaml"
-					},
-					{
-						"section": "api",
-						"file": "docs/currencies.md"
-					},
-					{
-						"section": "api",
-						"file": "src/server/routes.test.ts",
-						"role": "test"
-					},
-					{
-						"section": "api",
-						"file": "src/test-helpers.ts",
-						"role": "test"
 					},
 					{
 						"section": "display",
@@ -252,13 +301,56 @@
 						"role": "snapshot"
 					},
 					{
+						"section": "api",
+						"file": "README.md"
+					},
+					{
+						"section": "api",
+						"file": "docs/currencies.md"
+					},
+					{
+						"section": "api",
+						"file": "api/openapi.yaml"
+					},
+					{
+						"section": "api",
+						"file": "src/server/routes.ts"
+					},
+					{
+						"section": "api",
+						"file": "src/server/app.ts"
+					},
+					{
+						"section": "api",
+						"file": "src/server/routes.test.ts",
+						"role": "test"
+					},
+					{
+						"section": "api",
+						"file": "src/test-helpers.ts",
+						"role": "test"
+					},
+					{
 						"section": "logging",
 						"file": "src/log.ts"
 					},
 					{
 						"section": "logging",
+						"file": "src/config.ts"
+					},
+					{
+						"section": "logging",
 						"file": "src/log.test.ts",
 						"role": "test"
+					},
+					{
+						"section": "smoke",
+						"file": "tests/smoke.test.ts",
+						"role": "test"
+					},
+					{
+						"section": "release",
+						"file": "package.json"
 					},
 					{
 						"section": "release",
@@ -267,66 +359,11 @@
 					{
 						"section": "release",
 						"file": "assets/logo.png"
-					},
-					{
-						"section": "smoke",
-						"file": "tests/smoke.test.ts",
-						"role": "test"
-					},
-					{
-						"file": "README.md",
-						"section": "api",
-						"lines": "-11..-12,+11..+19,-16"
-					},
-					{
-						"file": "README.md",
-						"section": "logging",
-						"lines": "+20..+24"
-					},
-					{
-						"file": "src/config.ts",
-						"section": "api",
-						"lines": "+1,+8..+9,-16,+28..+30"
-					},
-					{
-						"file": "src/config.ts",
-						"section": "logging",
-						"lines": "+2..+3,+10,+19..+24"
-					},
-					{
-						"file": "src/server/app.ts",
-						"section": "api",
-						"lines": "+4,-6,+7,-11,+12..+13"
-					},
-					{
-						"file": "src/server/app.ts",
-						"section": "logging",
-						"lines": "-2,+2,-14,+16,-16,+18"
-					},
-					{
-						"file": "src/server/routes.ts",
-						"section": "api",
-						"lines": "-1..-2,+1..+8,-5,+11..+12,-10,+17,+30..+38,+43,-28,+47,+69..+83,+90,+94"
-					},
-					{
-						"file": "src/server/routes.ts",
-						"section": "logging",
-						"lines": "-4,+10,-13,+20..+21,+28,-34,+53,-38,+57,-44,+63"
-					},
-					{
-						"file": "package.json",
-						"section": "api",
-						"lines": "-8,+8..+9"
-					},
-					{
-						"file": "package.json",
-						"section": "release",
-						"lines": "-12,+13"
 					}
 				]
 			},
 			"answer": {
-				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nAll 34 items were applied.\nItem 0: took 48 change lines into section \"money\".\nItem 1: took 33 change lines into section \"money\", with role test.\nItem 2: took 57 change lines into section \"money\".\nItem 3: took 32 change lines into section \"money\", with role test.\nItem 4: took 29 change lines into section \"invoice\".\nItem 5: took 28 change lines into section \"invoice\", with role test.\nItem 6: took 9 change lines into section \"invoice\".\nItem 7: took 10 change lines into section \"invoice\", with role test.\nItem 8: took 16 change lines into section \"storage\".\nItem 9: took 33 change lines into section \"storage\".\nItem 10: took 9 change lines into section \"storage\".\nItem 11: took 12 change lines into section \"api\".\nItem 12: took 37 change lines into section \"api\".\nItem 13: took 47 change lines into section \"api\", with role test.\nItem 14: took 9 change lines into section \"api\", with role test.\nItem 15: took 21 change lines into section \"display\".\nItem 16: took 4 change lines into section \"display\".\nItem 17: took 36 change lines into section \"display\", with role test.\nItem 18: took 31 change lines into section \"display\", with role snapshot.\nItem 19: took 62 change lines into section \"logging\".\nItem 20: took 31 change lines into section \"logging\", with role test.\nItem 21: took 2 change lines into section \"release\".\nItem 22: took 1 change line into section \"release\".\nItem 23: took 18 change lines into section \"smoke\", with role test.\nItem 24: took 9 change lines into section \"api\".\nItem 25: took 5 change lines into section \"logging\".\nItem 26: took 7 change lines into section \"api\".\nItem 27: took 9 change lines into section \"logging\".\nItem 28: took 6 change lines into section \"api\".\nItem 29: took 6 change lines into section \"logging\".\nItem 30: took 44 change lines into section \"api\".\nItem 31: took 12 change lines into section \"logging\".\nItem 32: took 3 change lines into section \"api\".\nItem 33: took 2 change lines into section \"release\".\n\nNothing is left to sort: every change line is in a section or ignored. Next: get_coverage, for warnings and what is still to write.",
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nAll 35 items were applied.\nItem 0: took 2 change lines into section \"logging\".\nItem 1: took 4 change lines into section \"logging\".\nItem 2: took 6 change lines into section \"logging\".\nItem 3: took 10 change lines into section \"logging\".\nItem 4: took 3 change lines into section \"api\".\nItem 5: took 5 change lines into section \"logging\".\nItem 6: took 48 change lines into section \"money\".\nItem 7: took 57 change lines into section \"money\".\nItem 8: took 9 change lines into section \"money\".\nItem 9: took 27 change lines into section \"money\".\nItem 10: took 33 change lines into section \"money\", with role test.\nItem 11: took 32 change lines into section \"money\", with role test.\nItem 12: took 10 change lines into section \"money\", with role test.\nItem 13: took 28 change lines into section \"money\", with role test.\nItem 14: took 16 change lines into section \"storage\".\nItem 15: took 29 change lines into section \"storage\".\nItem 16: took 9 change lines into section \"storage\".\nItem 17: took 21 change lines into section \"display\".\nItem 18: took 4 change lines into section \"display\".\nItem 19: took 36 change lines into section \"display\", with role test.\nItem 20: took 31 change lines into section \"display\", with role snapshot.\nItem 21: took 9 change lines into section \"api\".\nItem 22: took 37 change lines into section \"api\".\nItem 23: took 12 change lines into section \"api\".\nItem 24: took 46 change lines into section \"api\".\nItem 25: took 6 change lines into section \"api\".\nItem 26: took 47 change lines into section \"api\", with role test.\nItem 27: took 9 change lines into section \"api\", with role test.\nItem 28: took 62 change lines into section \"logging\".\nItem 29: took 13 change lines into section \"logging\".\nItem 30: took 31 change lines into section \"logging\", with role test.\nItem 31: took 18 change lines into section \"smoke\", with role test.\nItem 32: took 5 change lines into section \"release\".\nItem 33: took 2 change lines into section \"release\".\nItem 34: took 1 change line into section \"release\".\n\nNothing is left to sort: every change line is in a section or ignored. Next: get_coverage, for warnings and what is still to write.",
 				"refused": false
 			}
 		},
@@ -336,7 +373,7 @@
 				"report": "r_1"
 			},
 			"answer": {
-				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n1,026 change lines in 31 files: 718 in sections, 308 ignored, 0 not sorted yet.\nSections: money 170, invoice 76, storage 58, api 174, display 92, logging 125, release 5, smoke 18.\n\nNothing is left to sort: every change line is in a section or ignored.\n\nWarnings (4):\n- README.md h1: the adjacent changed lines -16,+17..+24 are split between section \"api\" and section \"logging\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n- src/config.ts h1: the adjacent changed lines +1..+3 are split between section \"api\" and section \"logging\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n- src/config.ts h1: the adjacent changed lines +8..+10 are split between section \"api\" and section \"logging\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n- src/server/routes.ts h1: the adjacent changed lines -4..-5,+10..+12 are split between section \"logging\" and section \"api\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n\nNext: write the overview with set_overview. Then the report is ready for the person to review.",
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n1,026 change lines in 31 files: 718 in sections, 308 ignored, 0 not sorted yet.\nSections: money 244, storage 54, display 92, api 169, logging 133, smoke 18, release 8.\n\nNothing is left to sort: every change line is in a section or ignored.\n\nWarnings (4):\n- README.md h1: the adjacent changed lines -16,+17..+24 are split between section \"api\" and section \"logging\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n- src/config.ts h1: the adjacent changed lines +1..+3 are split between section \"api\" and section \"logging\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n- src/config.ts h1: the adjacent changed lines +8..+10 are split between section \"api\" and section \"logging\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n- src/invoice.ts h2: the adjacent changed lines -31..-34,+34..+40 are split between section \"money\" and section \"logging\". This is allowed, but usually reads badly; keep a run together unless the parts really belong apart.\n\nNext: write the overview with set_overview. Then the report is ready for the person to review.",
 				"refused": false
 			}
 		},
@@ -348,23 +385,23 @@
 				"items": [
 					{
 						"file": "README.md",
-						"lines": "-16,+17..+24",
+						"lines": "+20..+24",
 						"section": "api"
 					},
 					{
 						"file": "src/config.ts",
-						"lines": "+1..+3,+8..+10",
-						"section": "api"
+						"lines": "+1,+8..+9",
+						"section": "logging"
 					},
 					{
-						"file": "src/server/routes.ts",
-						"lines": "-4..-5,+10..+12",
-						"section": "api"
+						"file": "src/invoice.ts",
+						"lines": "-34,+40",
+						"section": "money"
 					}
 				]
 			},
 			"answer": {
-				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nAll 3 items were applied.\nItem 0: took 9 change lines into section \"api\".\nItem 1: took 6 change lines into section \"api\".\nItem 2: took 5 change lines into section \"api\".\n\nNothing is left to sort: every change line is in a section or ignored. Next: get_coverage, for warnings and what is still to write.",
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nAll 3 items were applied.\nItem 0: took 5 change lines into section \"api\".\nItem 1: took 3 change lines into section \"logging\".\nItem 2: took 2 change lines into section \"money\".\n\nNothing is left to sort: every change line is in a section or ignored. Next: get_coverage, for warnings and what is still to write.",
 				"refused": false
 			}
 		},
@@ -378,31 +415,23 @@
 						"id": "logging",
 						"references": [
 							{
-								"file": "README.md",
-								"lines": "+13,+21..+24"
-							},
-							{
-								"file": "src/config.ts",
-								"lines": "+2,+10,+30"
-							},
-							{
 								"file": "src/server/routes.ts",
-								"lines": "-4,+10"
+								"lines": "+10"
+							},
+							{
+								"file": "README.md",
+								"lines": "+11..+13,+20..+24"
 							},
 							{
 								"file": "src/invoice.ts",
 								"lines": "-34,+40"
-							},
-							{
-								"file": "src/store/invoices.ts",
-								"lines": "-2,+3,-30,+32,-60,+62"
 							}
 						]
 					}
 				]
 			},
 			"answer": {
-				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n8 sections, in reading order:\n- money: \"Amounts carry a currency\", 170 change lines\n- invoice: \"Invoice totals and tax use the invoice currency\", 76 change lines\n- storage: \"Existing invoices migrate to EUR\", 58 change lines\n- api: \"The API selects and exposes invoice currency\", 184 change lines\n- display: \"PDFs show currency symbols and precision\", 92 change lines\n- logging: \"Logs become structured JSON\", 115 change lines, 18 change lines cross-referenced\n- release: \"Release tooling and the logo change\", 5 change lines\n- smoke: \"Smoke tests exercise health and unknown paths\", 18 change lines\nEvery change line is sorted.",
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n7 sections, in reading order:\n- money: \"Amounts carry a currency through tax and totals\", 246 change lines\n- storage: \"Store invoice currencies and preserve existing euro amounts\", 54 change lines\n- display: \"Show currency symbols and precision on invoices\", 92 change lines\n- api: \"Choose and expose invoice currencies in the API\", 171 change lines, 4 change lines cross-referenced\n- logging: \"Emit structured logs with request context\", 129 change lines, 11 change lines cross-referenced\n- smoke: \"Exercise health and unknown routes\", 18 change lines\n- release: \"Update release tooling and the logo\", 8 change lines\nEvery change line is sorted.",
 				"refused": false
 			}
 		},
@@ -412,7 +441,7 @@
 				"report": "r_1"
 			},
 			"answer": {
-				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n1,026 change lines in 31 files: 718 in sections, 308 ignored, 0 not sorted yet.\nSections: money 170, invoice 76, storage 58, api 184, display 92, logging 115, release 5, smoke 18.\n\nNothing is left to sort: every change line is in a section or ignored.\n\nNext: write the overview with set_overview. Then the report is ready for the person to review.",
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\n1,026 change lines in 31 files: 718 in sections, 308 ignored, 0 not sorted yet.\nSections: money 246, storage 54, display 92, api 171, logging 129, smoke 18, release 8.\n\nNothing is left to sort: every change line is in a section or ignored.\n\nNext: write the overview with set_overview. Then the report is ready for the person to review.",
 				"refused": false
 			}
 		},
@@ -421,10 +450,10 @@
 			"arguments": {
 				"report": "r_1",
 				"version": 1,
-				"markdown": "Ledger adds support for invoices in seven currencies. Amounts carry a currency and whole minor units, and invoice tax uses currency-specific rounding. The migration marks historical invoices as EUR. The API resolves the currency for new invoices and exposes the supported choices, and PDFs show the currency and its formatting.\n\nThe diff also introduces JSON logging, adjusts release tooling, replaces the logo, and adds health and unknown-route smoke tests. For startup, check the import cycle between `src/config.ts +2` and `src/log.ts +1` and the logger initialization at `src/log.ts +59`."
+				"markdown": "Ledger now writes invoices in seven currencies. Amounts carry their currency through arithmetic and per-line tax, the database migration preserves existing euro amounts, and PDFs show each currency’s symbol and precision. The API chooses a currency from the request, customer preference or configured default and exposes the supported currencies. The remaining sections cover structured logs, smoke coverage, and release, tooling and logo changes. Check the logger’s initialization first if you’re looking for a startup blocker (`src/config.ts +2` and `src/log.ts +59`)."
 			},
 			"answer": {
-				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nThe overview is saved (592 characters); the person sees it above the sections. Calling set_overview again replaces it.\nEvery change line is sorted. get_coverage says whether anything else is left to write.",
+				"text": "Report r_1: Uncommitted changes in ledger, version 1.\nThe overview is saved (570 characters); the person sees it above the sections. Calling set_overview again replaces it.\nEvery change line is sorted. get_coverage says whether anything else is left to write.",
 				"refused": false
 			}
 		},
@@ -437,76 +466,60 @@
 			}
 		}
 	],
-	"finalMessage": "[Open your diff delver review](http://127.0.0.1:<port>/diffs/r_1?entry=<code>). The entry link is single-use and expires in two minutes. All 31 changed files are accounted for.\n\n1. Amounts carry a currency\n2. Invoice totals and tax use the invoice currency\n3. Existing invoices migrate to EUR\n4. The API selects and exposes invoice currency\n5. PDFs show currency symbols and precision\n6. Logs become structured JSON\n7. Release tooling and the logo change\n8. Smoke tests exercise health and unknown paths\n\nDiff delver automatically skipped `pnpm-lock.yaml` as a lockfile and `src/generated/api-types.ts` because `.gitattributes` marks it as generated.\n\nIf you check one thing first, start with the circular import between the logger and configuration. It may prevent the server from starting.",
+	"finalMessage": "[Open the diff delver report](http://127.0.0.1:<port>/diffs/r_1?entry=<code>). This link works once within two minutes.\n\nAll uncommitted changes across 31 files are accounted for. The report has seven sections in reading order.\n\n1. Amounts carry a currency through tax and totals\n2. Store invoice currencies and preserve existing euro amounts\n3. Show currency symbols and precision on invoices\n4. Choose and expose invoice currencies in the API\n5. Emit structured logs with request context\n6. Exercise health and unknown routes\n7. Update release tooling and the logo\n\nI’d check the logging section first. The circular import between configuration and logging can fail during startup.\n\nDiff delver automatically excluded `pnpm-lock.yaml` as a lockfile and `src/generated/api-types.ts` because `.gitattributes` marks it as generated.",
 	"finalState": [
 		{
 			"id": "r_1",
 			"source": "Uncommitted changes",
 			"version": 1,
-			"overview": "Ledger adds support for invoices in seven currencies. Amounts carry a currency and whole minor units, and invoice tax uses currency-specific rounding. The migration marks historical invoices as EUR. The API resolves the currency for new invoices and exposes the supported choices, and PDFs show the currency and its formatting.\n\nThe diff also introduces JSON logging, adjusts release tooling, replaces the logo, and adds health and unknown-route smoke tests. For startup, check the import cycle between `src/config.ts +2` and `src/log.ts +1` and the logger initialization at `src/log.ts +59`.",
+			"overview": "Ledger now writes invoices in seven currencies. Amounts carry their currency through arithmetic and per-line tax, the database migration preserves existing euro amounts, and PDFs show each currency’s symbol and precision. The API chooses a currency from the request, customer preference or configured default and exposes the supported currencies. The remaining sections cover structured logs, smoke coverage, and release, tooling and logo changes. Check the logger’s initialization first if you’re looking for a startup blocker (`src/config.ts +2` and `src/log.ts +59`).",
 			"sections": [
 				{
 					"id": "money",
-					"title": "Amounts carry a currency",
-					"summary": "Start with the supported currency table, code normalization, and minor-unit arithmetic. Check mixed-currency addition and the rounding rules in `src/currency.ts +45..+47`, including how Swiss rounding handles negative ties.",
-					"references": []
-				},
-				{
-					"id": "invoice",
-					"title": "Invoice totals and tax use the invoice currency",
-					"summary": "Invoices carry one currency, reject lines in another, and calculate the net and tax in that currency. Check the per-line tax calculation in `src/tax.ts +8..+11` and the yen total and mixed-currency validation tests.",
+					"title": "Amounts carry a currency through tax and totals",
+					"summary": "The currency registry defines seven supported codes, their decimal precision and tax rounding. Money arithmetic rejects mixed currencies, and invoice totals apply tax per line. Check CHF negative ties in `src/currency.ts +45..+47` against the rounding described in `docs/currencies.md +29..+31`.",
 					"references": []
 				},
 				{
 					"id": "storage",
-					"title": "Existing invoices migrate to EUR",
-					"summary": "Migration 004 assigns EUR to historical invoices, removes the temporary default, renames the price column, and adds an optional customer preference. Follow the store queries and row conversion to verify that writes and reads preserve the invoice currency and minor-unit amount.",
-					"references": []
-				},
-				{
-					"id": "api",
-					"title": "The API selects and exposes invoice currency",
-					"summary": "Invoice creation uses the request currency, then the customer preference, then `DEFAULT_CURRENCY`. Review the input field rename, the formatted totals and raw `gross_minor`, and `GET /currencies`. Check whether a failure reading the customer preference should return 422 (`src/server/routes.ts +30..+38`) and whether the OpenAPI response schemas cover the fields the routes return.",
+					"title": "Store invoice currencies and preserve existing euro amounts",
+					"summary": "The migration backfills EUR, renames the price column and adds a nullable customer preference. Check that the migration runs before the new reads and writes in `src/store/invoices.ts +49..+58`.",
 					"references": []
 				},
 				{
 					"id": "display",
-					"title": "PDFs show currency symbols and precision",
-					"summary": "The formatter uses each currency’s fractional digits and symbol. The EUR and JPY snapshots show how the PDF identifies the currency and displays line amounts and totals.",
+					"title": "Show currency symbols and precision on invoices",
+					"summary": "The renamed formatter uses each currency’s precision and symbol. The PDF adds the currency name and code, and the EUR and JPY snapshots show the resulting layout.",
 					"references": []
+				},
+				{
+					"id": "api",
+					"title": "Choose and expose invoice currencies in the API",
+					"summary": "Invoice creation uses the request currency, then the customer preference, then the configured default. Review the renamed request field, the currency list and response fields against the OpenAPI contract. In `src/server/routes.ts +30..+38`, the same error handler covers invalid input and customer lookup failures.",
+					"references": ["src/config.ts +29", "src/format/amount.ts +12..+14"]
 				},
 				{
 					"id": "logging",
-					"title": "Logs become structured JSON",
-					"summary": "The logger filters by severity and writes JSON lines to stderr. Callers attach fields such as request and invoice IDs. Review startup first. `src/log.ts +59` reads config during module initialization, and `src/config.ts +2` imports the logger module to validate `LOG_LEVEL`. This cycle can cause an initialization error.",
+					"title": "Emit structured logs with request context",
+					"summary": "The logger writes JSON lines to stderr and filters by configured level. Start with the reciprocal imports in `src/config.ts +2` and `src/log.ts +1` and the eager logger initialization at `src/log.ts +59`, which can fail during module initialization.",
 					"references": [
-						"README.md +13",
-						"README.md +21..+24",
-						"src/config.ts +2",
-						"src/config.ts +10",
-						"src/config.ts +30",
+						"README.md +11..+13",
+						"README.md +20..+24",
 						"src/invoice.ts -34",
 						"src/invoice.ts +40",
-						"src/server/routes.ts -4",
-						"src/server/routes.ts +10",
-						"src/store/invoices.ts -2",
-						"src/store/invoices.ts -30",
-						"src/store/invoices.ts -60",
-						"src/store/invoices.ts +3",
-						"src/store/invoices.ts +32",
-						"src/store/invoices.ts +62"
+						"src/server/routes.ts +10"
 					]
 				},
 				{
-					"id": "release",
-					"title": "Release tooling and the logo change",
-					"summary": "Review the executable bit and shell error handling in the release script, the Vitest upgrade, and the binary logo replacement.",
+					"id": "smoke",
+					"title": "Exercise health and unknown routes",
+					"summary": "The smoke test checks a health handler installed by the test and a 404 for an unknown path. Check whether the coverage intended for deployment also needs to exercise the wiring in `src/server/app.ts`.",
 					"references": []
 				},
 				{
-					"id": "smoke",
-					"title": "Smoke tests exercise health and unknown paths",
-					"summary": "The tests cover a health response and an unknown route through the request helper. The health test installs its own handler in `tests/smoke.test.ts +8..+11`, so check whether that provides the intended coverage of server startup.",
+					"id": "release",
+					"title": "Update release tooling and the logo",
+					"summary": "The release script becomes executable and enables shell error and unset-variable checks. The package adds an API type generation command and bumps Vitest. Check where the generation command obtains its executable. The logo changes as a binary asset.",
 					"references": []
 				}
 			],
@@ -526,9 +539,9 @@
 				"api/openapi.yaml +41 section:api code",
 				"assets/logo.png file section:release code",
 				"docs/currencies.md +1..+37 section:api code",
-				"package.json -8 section:api code",
+				"package.json -8 section:release code",
 				"package.json -12 section:release code",
-				"package.json +8..+9 section:api code",
+				"package.json +8..+9 section:release code",
 				"package.json +13 section:release code",
 				"pnpm-lock.yaml -15..-16 ignored:rule:lockfile code",
 				"pnpm-lock.yaml -32..-33 ignored:rule:lockfile code",
@@ -676,11 +689,11 @@
 				"pnpm-lock.yaml +244..+249 ignored:rule:lockfile code",
 				"scripts/release.sh file section:release code",
 				"scripts/release.sh +3 section:release code",
-				"src/config.ts -16 section:api code",
-				"src/config.ts +1..+3 section:api code",
-				"src/config.ts +8..+10 section:api code",
+				"src/config.ts -16 section:logging code",
+				"src/config.ts +1..+3 section:logging code",
+				"src/config.ts +8..+10 section:logging code",
 				"src/config.ts +19..+24 section:logging code",
-				"src/config.ts +28..+30 section:api code",
+				"src/config.ts +28..+30 section:logging code",
 				"src/currency.test.ts +1..+33 section:money test",
 				"src/currency.ts +1..+48 section:money code",
 				"src/format/amount.ts file section:display code",
@@ -705,27 +718,27 @@
 				"src/generated/api-types.ts +60 ignored:rule:linguist-generated code",
 				"src/generated/api-types.ts +62..+63 ignored:rule:linguist-generated code",
 				"src/generated/api-types.ts +84..+105 ignored:rule:linguist-generated code",
-				"src/invoice.test.ts -3 section:invoice test",
-				"src/invoice.test.ts -10..-11 section:invoice test",
-				"src/invoice.test.ts -17 section:invoice test",
-				"src/invoice.test.ts +3..+5 section:invoice test",
-				"src/invoice.test.ts +11 section:invoice test",
-				"src/invoice.test.ts +13..+14 section:invoice test",
-				"src/invoice.test.ts +20..+29 section:invoice test",
-				"src/invoice.test.ts +41..+48 section:invoice test",
-				"src/invoice.ts -2 section:invoice code",
-				"src/invoice.ts -8 section:invoice code",
-				"src/invoice.ts -20..-22 section:invoice code",
-				"src/invoice.ts -25 section:invoice code",
-				"src/invoice.ts -31..-34 section:invoice code",
-				"src/invoice.ts +1 section:invoice code",
-				"src/invoice.ts +3 section:invoice code",
-				"src/invoice.ts +9 section:invoice code",
-				"src/invoice.ts +17..+18 section:invoice code",
-				"src/invoice.ts +23..+25 section:invoice code",
-				"src/invoice.ts +28 section:invoice code",
-				"src/invoice.ts +34..+40 section:invoice code",
-				"src/invoice.ts +50..+52 section:invoice code",
+				"src/invoice.test.ts -3 section:money test",
+				"src/invoice.test.ts -10..-11 section:money test",
+				"src/invoice.test.ts -17 section:money test",
+				"src/invoice.test.ts +3..+5 section:money test",
+				"src/invoice.test.ts +11 section:money test",
+				"src/invoice.test.ts +13..+14 section:money test",
+				"src/invoice.test.ts +20..+29 section:money test",
+				"src/invoice.test.ts +41..+48 section:money test",
+				"src/invoice.ts -2 section:money code",
+				"src/invoice.ts -8 section:money code",
+				"src/invoice.ts -20..-22 section:money code",
+				"src/invoice.ts -25 section:money code",
+				"src/invoice.ts -31..-34 section:money code",
+				"src/invoice.ts +1 section:money code",
+				"src/invoice.ts +3 section:money code",
+				"src/invoice.ts +9 section:money code",
+				"src/invoice.ts +17..+18 section:money code",
+				"src/invoice.ts +23..+25 section:money code",
+				"src/invoice.ts +28 section:money code",
+				"src/invoice.ts +34..+40 section:money code",
+				"src/invoice.ts +50..+52 section:money code",
 				"src/log.test.ts +1..+31 section:logging test",
 				"src/log.ts -1..-3 section:logging code",
 				"src/log.ts -6..-8 section:logging code",
@@ -813,12 +826,12 @@
 				"src/store/invoices.ts -2..-3 section:storage code",
 				"src/store/invoices.ts -17 section:storage code",
 				"src/store/invoices.ts -26 section:storage code",
-				"src/store/invoices.ts -30 section:storage code",
+				"src/store/invoices.ts -30 section:logging code",
 				"src/store/invoices.ts -38 section:storage code",
 				"src/store/invoices.ts -47..-49 section:storage code",
 				"src/store/invoices.ts -54 section:storage code",
 				"src/store/invoices.ts -56 section:storage code",
-				"src/store/invoices.ts -60 section:storage code",
+				"src/store/invoices.ts -60 section:logging code",
 				"src/store/invoices.ts -72 section:storage code",
 				"src/store/invoices.ts -77 section:storage code",
 				"src/store/invoices.ts -81 section:storage code",
@@ -827,26 +840,26 @@
 				"src/store/invoices.ts +11 section:storage code",
 				"src/store/invoices.ts +19 section:storage code",
 				"src/store/invoices.ts +28 section:storage code",
-				"src/store/invoices.ts +32 section:storage code",
+				"src/store/invoices.ts +32 section:logging code",
 				"src/store/invoices.ts +40 section:storage code",
 				"src/store/invoices.ts +49..+51 section:storage code",
 				"src/store/invoices.ts +56 section:storage code",
 				"src/store/invoices.ts +58 section:storage code",
-				"src/store/invoices.ts +62 section:storage code",
+				"src/store/invoices.ts +62 section:logging code",
 				"src/store/invoices.ts +74..+75 section:storage code",
 				"src/store/invoices.ts +80 section:storage code",
 				"src/store/invoices.ts +84 section:storage code",
 				"src/store/migrations/004-invoice-currency.sql +1..+9 section:storage code",
-				"src/tax.test.ts -2 section:invoice test",
-				"src/tax.test.ts -6 section:invoice test",
-				"src/tax.test.ts -10 section:invoice test",
-				"src/tax.test.ts +2 section:invoice test",
-				"src/tax.test.ts +6 section:invoice test",
-				"src/tax.test.ts +10..+14 section:invoice test",
-				"src/tax.ts -1 section:invoice code",
-				"src/tax.ts -7..-8 section:invoice code",
-				"src/tax.ts +1..+2 section:invoice code",
-				"src/tax.ts +8..+11 section:invoice code",
+				"src/tax.test.ts -2 section:money test",
+				"src/tax.test.ts -6 section:money test",
+				"src/tax.test.ts -10 section:money test",
+				"src/tax.test.ts +2 section:money test",
+				"src/tax.test.ts +6 section:money test",
+				"src/tax.test.ts +10..+14 section:money test",
+				"src/tax.ts -1 section:money code",
+				"src/tax.ts -7..-8 section:money code",
+				"src/tax.ts +1..+2 section:money code",
+				"src/tax.ts +8..+11 section:money code",
 				"src/test-helpers.ts +2..+3 section:api test",
 				"src/test-helpers.ts +19..+25 section:api test",
 				"tests/__snapshots__/pdf.test.ts.snap -10..-12 section:display snapshot",
@@ -865,11 +878,11 @@
 	],
 	"summary": {
 		"fullCoverage": true,
-		"sections": 8,
+		"sections": 7,
 		"callsByTool": {
 			"create_report": 2,
 			"get_manifest": 1,
-			"get_diff": 2,
+			"get_diff": 3,
 			"upsert_sections": 2,
 			"assign": 2,
 			"get_coverage": 2,
@@ -877,16 +890,13 @@
 		},
 		"refusals": [],
 		"forbidden": [],
-		"commands": [
-			"shell: /usr/bin/zsh -lc 'git status --short'",
-			"shell: /usr/bin/zsh -lc 'cat <trial>/home/.codex/skills/diff-delver/SKILL.md'"
-		],
-		"wallSeconds": 67,
+		"commands": ["shell: /usr/bin/zsh -lc 'cat <trial>/home/.codex/skills/diff-delver/SKILL.md'"],
+		"wallSeconds": 60,
 		"turns": 1,
 		"tokens": {
-			"input": 373217,
-			"output": 2367,
-			"cacheRead": 330112,
+			"input": 402831,
+			"output": 2043,
+			"cacheRead": 355968,
 			"cacheWrite": 0
 		}
 	}
