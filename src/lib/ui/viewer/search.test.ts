@@ -311,6 +311,45 @@ describe('searching within the diff on its page', () => {
 		again.held.failing = false;
 		expect(await steps(again.viewer, [true])).toEqual(['4 b.ts findme b 0']);
 	});
+	it('says why lines could not be read only while they cannot be', async () => {
+		const unreadable =
+			/^Could not read the lines of b\.ts, so its matches cannot be shown\. .+ Press Enter to try again\.$/;
+		const { viewer, search, held } = await opened();
+		await searchFor(viewer, 'findme');
+		expect(await steps(viewer, [true, true, true])).toContain("3 a.ts findme'; 18");
+		held.failing = true;
+		expect(await search.step(true)).toBeUndefined();
+		expect(search.summary).toMatch(unreadable);
+		// The part's own Try again reads them: the box no longer says they cannot be.
+		held.failing = false;
+		await viewer.load(B);
+		expect(search.summary).toBe('3 of 5 matches in 2 files');
+	});
+
+	it('goes past a part whose lines cannot be read when Enter tries them once more, both ways', async () => {
+		const { viewer, search, held } = await opened();
+		await searchFor(viewer, 'findme');
+		expect(await steps(viewer, [true, true, true])).toContain("3 a.ts findme'; 18");
+		held.failing = true;
+		expect(await search.step(true)).toBeUndefined();
+		expect(search.summary).toMatch(/^Could not read the lines of b\.ts/);
+		expect(await steps(viewer, [true])).toEqual(['1 a.ts findme10 = 1 6']);
+		expect(search.summary).toMatch(
+			/^1 of 5 matches in 2 files\. Skipped b\.ts: its lines could not be read again\. This did not reach diff delver \(fetch failed\), though diff delver is running\. Try again\.$/
+		);
+		expect(search.describeCurrent()).toMatch(
+			/^1 of 5 matches in 2 files, in a\.ts, line 10\. Skipped b\.ts: its lines could not be read again\. /
+		);
+		// Going backwards, from the first match round to b.ts and past it.
+		expect(await steps(viewer, [false])).toEqual(["3 a.ts findme'; 18"]);
+		expect(search.summary).toMatch(/^3 of 5 matches in 2 files\. Skipped b\.ts: /);
+		// Read at last: nothing is said of them, and the move goes into them again.
+		held.failing = false;
+		await viewer.load(B);
+		expect(search.summary).toBe('3 of 5 matches in 2 files');
+		expect(await steps(viewer, [true])).toEqual(['4 b.ts findme b 0']);
+	});
+
 	it('does nothing once a newer version has taken the search over while a move waited', async () => {
 		const { viewer, search, held } = await opened();
 		await searchFor(viewer, 'findme');

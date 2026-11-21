@@ -63,6 +63,29 @@ export interface CurrentMatch {
 	readonly place: MatchPlace;
 }
 
+/**
+ * Why the last move to a match fell short, said in the search box while it is
+ * still true: a part whose lines could not be read, where the move stopped,
+ * or parts it went past because their lines could not be read a second time.
+ */
+type Trouble =
+	| { readonly kind: 'unreadable'; readonly part: PartState }
+	| { readonly kind: 'skipped'; readonly parts: readonly PartState[] };
+
+/** What the search box's status line says: the count, where the match is (said only to screen readers), and why a move fell short. */
+export interface SearchStatus {
+	readonly count: string;
+	/** Where the current match is, as `, in a.ts, line 10`, or ''. */
+	readonly where: string;
+	readonly note: string;
+}
+
+/** Names in a list: `a`, `a and b`, `a, b and c`. */
+function listed(names: readonly string[]): string {
+	const last = names.at(-1) ?? '';
+	return names.length < 2 ? last : `${names.slice(0, -1).join(', ')} and ${last}`;
+}
+
 /** Why what is in the box cannot be searched for, and what to do instead. */
 function whyNotSearched(reason: InvalidSearchTextReason): string {
 	switch (reason) {
@@ -187,8 +210,9 @@ export class DiffSearch {
 	skipClosed = $state(false);
 	found = $state<Found>({ kind: 'none' });
 	current = $state<CurrentMatch>();
-	/** Why the last move to a match stopped short: the lines it needed could not be read. */
-	problem = $state('');
+	#trouble = $state<Trouble>();
+	/** Parts a move stopped at because their lines could not be read: the next move goes past them if they still cannot be. */
+	#triedOnce = new SvelteSet<PartState>();
 	#changed: Changed = nothingChanged();
 	/** Bumped for each search sent, so an answer to an older one is dropped. */
 	#asked = 0;
@@ -281,29 +305,75 @@ export class DiffSearch {
 		return before + index + 1;
 	}
 
-	/** What the search box says of what was found. */
-	get summary(): string {
-		const found = this.found;
-		switch (found.kind) {
-			case 'none':
-				return '';
-			case 'searching':
-				return 'Searching…';
-			case 'failed':
-				return found.message;
-			case 'found': {
-				if (this.problem !== '') return this.problem;
-				const { matches, files } = this.totals;
-				if (matches === 0) return 'No matches';
-				const where = `${countOf(matches, 'match', 'matches')} in ${countOf(files, 'file', 'files')}`;
-				const ordinal = this.ordinal;
-				if (ordinal !== undefined) return `${formatCount(ordinal)} of ${where}`;
-				// The match the person was on is hidden or skipped now: Enter goes on from there.
-				return this.current === undefined
-					? `${where}. Press Enter to go to the first.`
-					: `${where}. Press Enter to go to the next.`;
+	/**
+	 * Why the last move fell short, while it is still true: once the lines it
+	 * could not read have been read, as when the part's own Try again reads
+	 * them, nothing.
+	 */
+	get problem(): string {
+		const trouble = this.#trouble;
+		if (trouble === undefined) return '';
+		switch (trouble.kind) {
+			case 'unreadable': {
+				const lines = trouble.part.lines;
+				if (lines.kind !== 'failed') return '';
+				return `Could not read the lines of ${shownPath(trouble.part.part.path)}, so its matches cannot be shown. ${lines.message} Press Enter to try again.`;
+			}
+			case 'skipped': {
+				const still = trouble.parts.filter((p) => p.lines.kind === 'failed');
+				const [first] = still;
+				if (first?.lines.kind !== 'failed') return '';
+				const names = listed(still.map((p) => shownPath(p.part.path)));
+				const whose = still.length === 1 ? 'its lines' : 'their lines';
+				return `Skipped ${names}: ${whose} could not be read again. ${first.lines.message}`;
 			}
 		}
+	}
+
+	/** What the search box's status line says, in its pieces. */
+	get status(): SearchStatus {
+		const found = this.found;
+		const only = (count: string): SearchStatus => ({ count, where: '', note: '' });
+		switch (found.kind) {
+			case 'none':
+				return only('');
+			case 'searching':
+				return only('Searching…');
+			case 'failed':
+				return only(found.message);
+			case 'found': {
+				const problem = this.problem;
+				// The move stopped short: no place among the matches is claimed.
+				if (problem !== '' && this.#trouble?.kind !== 'skipped') {
+					return { count: '', where: '', note: problem };
+				}
+				const { matches, files } = this.totals;
+				if (matches === 0) return only('No matches');
+				const counted = `${countOf(matches, 'match', 'matches')} in ${countOf(files, 'file', 'files')}`;
+				const ordinal = this.ordinal;
+				const current = this.current;
+				const state = current === undefined ? undefined : this.#viewer.parts[current.at];
+				if (ordinal !== undefined && current !== undefined && state !== undefined) {
+					return {
+						count: `${formatCount(ordinal)} of ${counted}`,
+						where: `, ${placeInWords(shownPath(state.part.path), current.place)}`,
+						note: problem
+					};
+				}
+				// The match the person was on is hidden or skipped now: Enter goes on from there.
+				const press =
+					current === undefined
+						? `${counted}. Press Enter to go to the first.`
+						: `${counted}. Press Enter to go to the next.`;
+				return { count: press, where: '', note: problem };
+			}
+		}
+	}
+
+	/** What the search box shows of what was found. */
+	get summary(): string {
+		const { count, note } = this.status;
+		return count === '' ? note : note === '' ? count : `${count}. ${note}`;
 	}
 
 	/** Where a part's matches are, for drawing them; undefined when it has none to draw. */
@@ -363,7 +433,8 @@ export class DiffSearch {
 		clearTimeout(this.#pause);
 		const asked = (this.#asked += 1);
 		this.current = undefined;
-		this.problem = '';
+		this.#trouble = undefined;
+		this.#triedOnce.clear();
 		if (this.text === '') {
 			this.found = { kind: 'none' };
 			this.putBack();
@@ -424,7 +495,11 @@ export class DiffSearch {
 	async step(forward: boolean): Promise<CurrentMatch | undefined> {
 		const found = this.found;
 		if (found.kind !== 'found' || this.#outdated(found)) return undefined;
-		this.problem = '';
+		this.#trouble = undefined;
+		// Lines read since, as by the part's own Try again: a later failure is tried once more.
+		for (const part of this.#triedOnce)
+			if (part.lines.kind === 'loaded') this.#triedOnce.delete(part);
+		const skipped: PartState[] = [];
 		const viewer = this.#viewer;
 		const count = viewer.parts.length;
 		const current = this.current;
@@ -435,12 +510,21 @@ export class DiffSearch {
 			if (!this.counts(at) || this.matchesIn(at) === 0) continue;
 			const places = await this.#loadedPlaces(at);
 			if (this.#outdated(found)) return undefined;
-			// Its lines could not be read: say so, rather than pass over its matches unseen.
+			// Its lines could not be read: say so, rather than pass over its matches
+			// unseen, and stop, so the next move tries once more. When they cannot be
+			// read then either, go past it, saying so, so it never traps the reader.
 			const state = viewer.parts[at];
 			if (state?.lines.kind === 'failed') {
-				this.problem = `Could not read the lines of ${shownPath(state.part.path)}, so its matches cannot be shown. ${state.lines.message} Press Enter to try again.`;
+				if (this.#triedOnce.has(state)) {
+					skipped.push(state);
+					this.#trouble = { kind: 'skipped', parts: skipped };
+					continue;
+				}
+				this.#triedOnce.add(state);
+				this.#trouble = { kind: 'unreadable', part: state };
 				return undefined;
 			}
+			if (state !== undefined) this.#triedOnce.delete(state);
 			// From the match the person is on, the one after it, drawn or not; anywhere
 			// else, a part's first (or last). The last turn comes back to where it
 			// began, so the search goes round within a part that holds every match.
@@ -500,12 +584,9 @@ export class DiffSearch {
 
 	/** What the page says of the current match, for screen readers. */
 	describeCurrent(): string {
-		const current = this.current;
-		const state = current === undefined ? undefined : this.#viewer.parts[current.at];
-		if (current === undefined || state === undefined || this.ordinal === undefined) {
-			return this.summary;
-		}
-		return `${this.summary}, ${placeInWords(shownPath(state.part.path), current.place)}.`;
+		const { count, where, note } = this.status;
+		if (where === '') return this.summary;
+		return note === '' ? `${count}${where}.` : `${count}${where}. ${note}`;
 	}
 
 	/** Puts back what moving to matches opened and showed. */

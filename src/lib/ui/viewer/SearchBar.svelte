@@ -30,11 +30,12 @@
 		onoption: (option: 'match-case' | 'changed-only' | 'skip-closed', on: boolean) => void;
 	} = $props();
 
-	/** Where the current match is, said after the count to screen readers. */
-	const where = $derived.by(() => {
-		const said = search.describeCurrent();
-		return said.startsWith(search.summary) ? said.slice(search.summary.length) : '';
-	});
+	/** The count, where the current match is (said only to screen readers), and why a move fell short. */
+	const status = $derived(search.status);
+	/** Why a move fell short, after the count when there is one. */
+	const note = $derived(
+		status.count !== '' && status.note !== '' ? `. ${status.note}` : status.note
+	);
 
 	function onKeydown(event: KeyboardEvent): void {
 		if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -141,7 +142,7 @@
 			</button>
 		</div>
 		<p id="search-status" class="status" role="status">
-			{search.summary}<span class="visually-hidden">{where}</span>
+			{status.count}<span class="visually-hidden">{status.where}</span>{note}
 		</p>
 	</div>
 </div>
