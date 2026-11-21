@@ -24,14 +24,23 @@ const A_AFTER = A_BEFORE.map((line, i) =>
 	i + 1 === 10 ? 'const findme10 = 10;' : i + 1 === 50 ? "const findme50 = 'findme';" : line
 );
 
+/** Thirty lines, two of them indented with spaces, which the change turns to tabs. */
+const D_BEFORE = Array.from({ length: 30 }, (_, i) =>
+	i + 1 === 2 ? '  spaced2();' : i + 1 === 25 ? '  spaced25();' : numbered(i + 1)
+);
+const D_AFTER = D_BEFORE.map((line) => line.replace(/^ {2}/, '\t'));
+
 /**
  * `a.ts`: a match in its first hunk, two in its second and one in the
- * unchanged lines between them; `b.ts`, new, two; `c.ts`, none.
+ * unchanged lines between them; `b.ts`, new, two; `c.ts`, none; `d.ts`, two
+ * hunks that only change white space.
  */
 const searched = defineFixture('viewer-search', async (repo) => {
 	await repo.write('a.ts', `${A_BEFORE.join('\n')}\n`);
 	await repo.write('c.ts', 'nothing\n');
+	await repo.write('d.ts', `${D_BEFORE.join('\n')}\n`);
 	await repo.commit('base');
+	await repo.write('d.ts', `${D_AFTER.join('\n')}\n`);
 	await repo.write('a.ts', `${A_AFTER.join('\n')}\n`);
 	await repo.write('b.ts', 'findme b\nfindme c\n');
 	await repo.write('c.ts', 'nothing at all\n');
@@ -39,6 +48,7 @@ const searched = defineFixture('viewer-search', async (repo) => {
 
 const A = partIndexOf(0);
 const B = partIndexOf(1);
+const D = partIndexOf(3);
 
 /** A fetch that holds back, or fails, the lines of one part while a test says so. */
 class HeldFetch {
@@ -279,5 +289,31 @@ describe('searching within the diff on its page', () => {
 		expect(where(again.viewer, again.search.current)).toBe("a.ts findme'; 18");
 		again.held.failing = false;
 		expect(await steps(again.viewer, [true])).toEqual(['4 b.ts findme b 0']);
+	});
+	it('puts back the white space it showed on the very hunk it showed it in, and on no other', async () => {
+		const { viewer, search } = await opened({ hideWhiteSpace: true });
+		viewer.hideWhiteSpace = true;
+		await searchFor(viewer, 'spaced2();');
+		expect(await steps(viewer, [true])).toEqual(['1 d.ts spaced2(); 2']);
+		const hunks = (): boolean[] => {
+			const lines = partOf(viewer, D).lines;
+			if (lines.kind !== 'loaded') throw new Error(lines.kind);
+			return lines.blocks.flatMap((b) => (b.kind === 'hunk' ? [b.showWhiteSpace] : []));
+		};
+		// The match is in a change drawn as an unchanged line: its hunk shows its changes.
+		expect(hunks()).toEqual([true, false]);
+		search.close();
+		expect(hunks()).toEqual([false, false]);
+
+		// Moved to again, and the part's lines fetched afresh, with the person
+		// showing every white-space change: closing the search leaves them shown.
+		search.open = true;
+		await searchFor(viewer, 'spaced2();');
+		await steps(viewer, [true]);
+		partOf(viewer, D).lines = { kind: 'waiting' };
+		await viewer.load(D);
+		viewer.showWhiteSpace(D);
+		search.close();
+		expect(hunks()).toEqual([true, true]);
 	});
 });

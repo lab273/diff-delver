@@ -23,7 +23,7 @@ import { shownPath } from '#lib/core/shown-path.tiny.ts';
 import { countOf, formatCount } from '#lib/core/viewer/words.ts';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { openedMatches, placesIn, type MatchPlace } from './search-places.ts';
-import type { Viewer } from './viewer.svelte.ts';
+import type { BlockState, PartState, Viewer } from './viewer.svelte.ts';
 
 /** How long typing pauses before the diff is searched, so a search is not sent for every key. */
 export const SEARCH_PAUSE_MS = 150;
@@ -67,11 +67,21 @@ export interface PartMarks {
 
 const NO_LINE_MARKS: PartMarks['lines'] = new Map();
 
-/** What moving to matches changed, to put back when the search is closed or cleared. */
+/**
+ * What moving to matches changed, to put back when the search is closed or
+ * cleared: the parts and hunks themselves, not their places, so nothing is
+ * put back on another part or hunk, and nothing on lines fetched again since.
+ */
 interface Changed {
-	readonly opened: Set<PartIndex>;
-	readonly large: Set<PartIndex>;
-	readonly whiteSpace: { readonly at: PartIndex; readonly block: number }[];
+	readonly opened: Set<PartState>;
+	readonly large: Set<PartState>;
+	readonly whiteSpace: Set<{ readonly part: PartState; readonly hunk: HunkState }>;
+}
+
+type HunkState = Extract<BlockState, { kind: 'hunk' }>;
+
+function nothingChanged(): Changed {
+	return { opened: new SvelteSet(), large: new SvelteSet(), whiteSpace: new SvelteSet() };
 }
 
 export class DiffSearch {
@@ -87,7 +97,7 @@ export class DiffSearch {
 	current = $state<CurrentMatch>();
 	/** Why the last move to a match stopped short: the lines it needed could not be read. */
 	problem = $state('');
-	#changed: Changed = { opened: new SvelteSet(), large: new SvelteSet(), whiteSpace: [] };
+	#changed: Changed = nothingChanged();
 	/** Bumped for each search sent, so an answer to an older one is dropped. */
 	#asked = 0;
 	#pause: ReturnType<typeof setTimeout> | undefined;
@@ -350,11 +360,11 @@ export class DiffSearch {
 		if (state !== undefined) {
 			if (!state.open) {
 				state.open = true;
-				this.#changed.opened.add(at);
+				this.#changed.opened.add(state);
 			}
 			if (viewer.isLarge(state)) {
 				state.showLarge = true;
-				this.#changed.large.add(at);
+				this.#changed.large.add(state);
 			}
 			if (place.kind === 'line' && state.lines.kind === 'loaded') {
 				const block = state.lines.blocks[place.block];
@@ -366,7 +376,7 @@ export class DiffSearch {
 						)
 					) {
 						block.showWhiteSpace = true;
-						this.#changed.whiteSpace.push({ at, block: place.block });
+						this.#changed.whiteSpace.add({ part: state, hunk: block });
 					}
 				}
 			}
@@ -395,21 +405,15 @@ export class DiffSearch {
 
 	/** Puts back what moving to matches opened and showed. */
 	putBack(): void {
-		const viewer = this.#viewer;
-		for (const at of this.#changed.opened) {
-			const state = viewer.parts[at];
-			if (state !== undefined) state.open = false;
+		for (const state of this.#changed.opened) state.open = false;
+		for (const state of this.#changed.large) state.showLarge = false;
+		for (const { part, hunk } of this.#changed.whiteSpace) {
+			// Only while the hunk is still among its part's lines, never on lines fetched again.
+			if (part.lines.kind === 'loaded' && part.lines.blocks.includes(hunk)) {
+				hunk.showWhiteSpace = false;
+			}
 		}
-		for (const at of this.#changed.large) {
-			const state = viewer.parts[at];
-			if (state !== undefined) state.showLarge = false;
-		}
-		for (const { at, block } of this.#changed.whiteSpace) {
-			const lines = viewer.parts[at]?.lines;
-			const hunk = lines?.kind === 'loaded' ? lines.blocks[block] : undefined;
-			if (hunk?.kind === 'hunk') hunk.showWhiteSpace = false;
-		}
-		this.#changed = { opened: new SvelteSet(), large: new SvelteSet(), whiteSpace: [] };
+		this.#changed = nothingChanged();
 		this.current = undefined;
 	}
 
