@@ -42,6 +42,16 @@ function kindOf(outcome: RemoteOutcome): string {
 	return outcome.kind === 'compared' ? 'compared' : outcome.error.kind;
 }
 
+/** Whether a process with this id exists: signal 0 only asks. */
+function isRunning(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /** A program called `ssh` that writes its arguments to a file and then runs `then`. */
 async function fakeSsh(then: string): Promise<{ command: string; args: string }> {
 	const dir = await tempDirectory();
@@ -91,7 +101,9 @@ describe('asking a remote what it has', () => {
 
 	it('gives up on a remote that does not answer within the time limit, and stops what it started', async () => {
 		const { repo } = await cloned();
-		const ssh = await fakeSsh('exec sleep 30');
+		// An ssh that never answers, and starts a program of its own that would outlive it.
+		const pids = join(await tempDirectory(), 'pids.txt');
+		const ssh = await fakeSsh(`sleep 300 &\necho "$$ $!" > '${pids}'\nwait`);
 		await repo.git('config', 'core.sshCommand', ssh.command);
 		await repo.git('remote', 'set-url', 'origin', 'ssh://git@example.invalid/shop.git');
 		const outcome = await check(repo, origin, 1);
@@ -99,6 +111,11 @@ describe('asking a remote what it has', () => {
 			kind: 'failed',
 			error: { kind: 'RemoteTimedOut', remote: origin, seconds: 1 }
 		});
+		// Both ran, and neither is left: the ssh git started, and what that ssh started.
+		const started = (await readFile(pids, 'utf8')).trim().split(' ').map(Number);
+		expect(started).toHaveLength(2);
+		expect(started.every((pid) => Number.isSafeInteger(pid) && pid > 1)).toBe(true);
+		await expect.poll(() => started.filter(isRunning), { timeout: 10_000 }).toEqual([]);
 	});
 
 	it('never asks for a password when a remote over HTTP wants one', async () => {
