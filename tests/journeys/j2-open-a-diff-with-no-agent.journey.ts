@@ -154,6 +154,17 @@ test.describe('J2 Open a diff with no agent', () => {
 		await journey.expectVisible(journey.within(prices).byText('item-1,0.99'));
 		await journey.step('The large change shown');
 
+		// Moving on from it, past its 901 lines, to the files near the end of a long
+		// page: each comes to rest at the top of the screen, whatever was drawn first.
+		await journey.press('j');
+		await journey.expectFocused(
+			journey.byRole('button', { name: 'notes/a\\u200Bb.txt', exact: true })
+		);
+		await journey.press('j');
+		await journey.press('j');
+		await journey.expectFocused(journey.byRole('button', { name: 'notes/odd.txt', exact: true }));
+		await journey.step('A file near the end of a long page');
+
 		// Every file once, with where its changes are: the lockfile is there too, ignored.
 		await journey.activate(journey.byRole('button', { name: 'By file' }));
 		const files = journey.byRole('region', { name: /^Every file/ });

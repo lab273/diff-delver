@@ -164,9 +164,6 @@ test.describe('J8 The diff changes mid-review', () => {
 			'Nothing was marked. This diff was updated to version 3 after you last looked at it'
 		);
 		await journey.expectState(discountTick, { checked: false });
-		// The top of the page, where it says the diff has moved on. (The discount is
-		// near the end of the page, where how far the page scrolls can vary by a line.)
-		await journey.press('Home');
 		// The page is refused, as it should be, and says so in place.
 		const refusedTick = { route: '/api/diffs/[id]/reviewed', status: 409 };
 		await journey.step('A tick from a page that is behind', { refusals: [refusedTick] });

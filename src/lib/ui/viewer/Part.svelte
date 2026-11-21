@@ -62,7 +62,17 @@
 		return text.charAt(0).toUpperCase() + text.slice(1);
 	}
 
-	/** Watches whether the part is near the screen. */
+	/**
+	 * Watches whether the part is near the screen. A part far from it is not
+	 * laid out (`content-visibility: auto`), so a diff of 2,000 files costs what
+	 * its first screen does, and stands in at the size it last had, or an
+	 * estimate if it never had one. A part near the screen is always laid out
+	 * whole, well before it is on it: the browser's own idea of which skipped
+	 * parts matter changes from frame to frame, and when estimates on the
+	 * screen became real sizes, where a part moved to came to rest depended on
+	 * timing. Now every size on and around the screen is real, and changes far
+	 * above it are kept from moving what is read by the browser's scroll anchoring.
+	 */
 	function nearScreen(element: HTMLElement) {
 		const observer = new IntersectionObserver(
 			(entries) => {
@@ -86,6 +96,7 @@
 	class:ignored
 	id="part-{at}"
 	aria-labelledby="part-{at}-name"
+	style:content-visibility={state.near ? 'visible' : 'auto'}
 	style:contain-intrinsic-size="auto {state.open && !large
 		? Math.min(part.rows, 2000) * 20 + 60
 		: 48}px"
@@ -275,7 +286,6 @@
 		border: 1px solid var(--color-border);
 		border-radius: 6px;
 		margin: 0 0 1rem;
-		content-visibility: auto;
 		scroll-margin-top: 1rem;
 		background: var(--color-background);
 	}
