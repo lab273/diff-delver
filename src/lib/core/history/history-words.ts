@@ -69,6 +69,13 @@ export function describeAhead(ahead: CommitCount, main: BranchRef): ReviewerMess
 	);
 }
 
+/** What the page says above the commits of a branch that has none the main branch lacks. */
+export function describeNothingAhead(branch: BranchRef, main: BranchRef): ReviewerMessage {
+	return reviewerMessage(
+		`${shownBranch(branch)} has no commits that ${shownBranch(main)} lacks: every commit below is on ${shownBranch(main)} too. Tick commits to review them.`
+	);
+}
+
 /** Where a branch's own commits end in its list, said above the first commit the main branch has too. */
 export function describeForkPoint(branch: BranchRef, main: BranchRef): ReviewerMessage {
 	return reviewerMessage(

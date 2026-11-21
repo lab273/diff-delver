@@ -78,21 +78,29 @@ test.describe('J17 Choose commits to review', () => {
 		);
 		await journey.step('The ticked commits opened');
 
-		// Another branch, with the arrow keys: main, with its merge.
+		// Another branch, with the arrow keys: the local main, with its merge. It is
+		// a branch like any other, one commit ahead of origin/main, the main branch.
 		const again = await journey.command(['choose'], shop);
 		await journey.open(again.address);
 		await journey.tabTo(discounts);
 		await journey.press('ArrowDown');
-		await journey.press('ArrowDown');
 		const main = journey.byRole('radio', { name: /^main/ });
 		await journey.expectState(main, { checked: true });
+		await journey.expectVisible(
+			journey.byRole('radio', { name: /^main 1 commit not on origin\/main, last commit/ })
+		);
 		const onMain = journey.byRole('region', { name: 'Commits on main' });
 		await journey.expectVisible(journey.within(onMain).byText('Merge the tidier styles'));
 		await journey.expectVisible(journey.within(onMain).byText('Merge', { exact: true }));
-		await journey.step('The main branch’s commits');
+		await journey.expectVisible(
+			journey.byRole('button', {
+				name: 'Review the whole branch: 1 commit, compared with origin/main'
+			})
+		);
+		await journey.expectVisible(journey.byRole('radio', { name: /^origin\/main Main branch/ }));
+		await journey.step('A local main ahead of the main branch');
 
 		// The whole branch, compared with the main branch.
-		await journey.press('ArrowUp');
 		await journey.press('ArrowUp');
 		await journey.expectState(discounts, { checked: true });
 		await journey.activate(

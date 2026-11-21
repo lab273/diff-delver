@@ -1,7 +1,12 @@
 import { rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { branchName, parseBranchRef, type BranchRef } from '#lib/core/history/branch-ref.tiny.ts';
+import {
+	branchName,
+	isRemoteBranch,
+	parseBranchRef,
+	type BranchRef
+} from '#lib/core/history/branch-ref.tiny.ts';
 import { listingsAround } from '../../../../../tests/support/directory-listing.ts';
 import { emptyRepo, tempDirectory } from '../../../../../tests/support/fixture-repos.ts';
 import { absolutePath, GitRepo } from '../../../../../tests/support/git-repo.ts';
@@ -78,17 +83,18 @@ async function readOnly<T>(repo: GitRepo, work: () => Promise<T>): Promise<T> {
 }
 
 describe('a repository’s branches', () => {
-	it('lists local branches and remote ones with no local branch, the checked-out one first', async () => {
+	it('lists local branches, remote ones with no local branch and the main branch, the checked-out one first', async () => {
 		const { repo } = await shop();
 		const found = await located(repo, (await reviewer()).gitEnv);
 		const branches = value(await readOnly(repo, () => listBranches(found, '')));
 		expect(branches.main).toBe('refs/remotes/origin/main');
 		expect(branches.shown.map((b) => [branchName(b.ref), b.current, b.main, b.ahead])).toEqual([
 			['feature', true, false, 2],
-			['main', false, true, 0],
+			['main', false, false, 0],
+			['origin/main', false, true, 0],
 			['origin/prices', false, false, 0]
 		]);
-		expect(branches.matching).toBe(3);
+		expect(branches.matching).toBe(4);
 		expect(branches.remotes).toEqual(['origin']);
 		const tracked = value(await readOnly(repo, () => trackedBranches(found)));
 		expect(tracked.map((t) => [t.ref, t.commit])).toEqual([
@@ -99,6 +105,30 @@ describe('a repository’s branches', () => {
 		expect(feature?.committedAt).toBe(fixtureTime(3));
 		const found2 = value(await listBranches(found, 'PRI'));
 		expect(found2.shown.map((b) => b.ref)).toEqual(['refs/remotes/origin/prices']);
+	});
+
+	it('counts what a local main has that the remote main branch lacks, as for any branch', async () => {
+		const { repo } = await shop();
+		await repo.git('checkout', '--quiet', 'main');
+		await repo.write('later.txt', 'later\n');
+		await repo.commit('Not pushed yet');
+		const found = await located(repo, (await reviewer()).gitEnv);
+		const branches = value(await listBranches(found, ''));
+		expect(branches.main).toBe('refs/remotes/origin/main');
+		// One branch is the main branch: the one the counts are against.
+		expect(
+			branches.shown.map((b) => [branchName(b.ref), isRemoteBranch(b.ref), b.main, b.ahead])
+		).toEqual([
+			['main', false, false, 1],
+			['origin/main', true, true, 0],
+			['origin/prices', true, false, 0],
+			['feature', false, false, 2]
+		]);
+		const page = value(await listCommits(found, ref('refs/heads/main'), undefined, branches.main));
+		expect(page.commits.map((c) => [c.subject, c.onMain]).slice(0, 2)).toEqual([
+			['Not pushed yet', false],
+			['Merge the side', true]
+		]);
 	});
 
 	it('shows a bounded number of many branches, keeps every name exact and never reads one as an option', async () => {

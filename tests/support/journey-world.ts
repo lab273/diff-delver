@@ -469,8 +469,9 @@ export const JOURNEY_REPOSITORIES = {
 	 * clock: main with a merge, `discounts` three commits ahead of it and checked
 	 * out, an old local branch, a branch only on the remote, and a remote
 	 * (a bare repository inside the clone's .git folder, so it is copied with
-	 * it) whose main has a commit this copy has not fetched. The fetch is
-	 * recorded only in the remote branches' reflogs, at a fixed time.
+	 * it) whose main has a commit this copy has not fetched, while the local
+	 * main has one the remote has not been sent. The fetch is recorded only in
+	 * the remote branches' reflogs, at a fixed time.
 	 */
 	history: defineFixture(
 		'shop',
@@ -559,6 +560,10 @@ export const JOURNEY_REPOSITORIES = {
 			await repo.write('README.md', lines('# Shop', '', 'Open every day but Monday.'));
 			await repo.commit('Say when the shop is open');
 			await repo.git('push', '--quiet', server, 'HEAD:main');
+			// And main here gets a commit that is not pushed.
+			await repo.git('checkout', '--quiet', 'main');
+			await repo.write('src/receipt.ts', lines("export const THANKS = 'Thank you!';"));
+			await repo.commit('Thank the customer on the receipt');
 			await repo.git('checkout', '--quiet', 'discounts');
 			await repo.git('branch', '--quiet', '-D', 'new-menu');
 			// Its time is the machine's; the reflogs hold the fetch's fixed one.

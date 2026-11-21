@@ -9,6 +9,7 @@ import {
 	describeForkPoint,
 	describeLastCommit,
 	describeLastFetch,
+	describeNothingAhead,
 	describeWholeBranch
 } from './history-words.ts';
 import { parseRemoteName, type RemoteName } from './remote-name.tiny.ts';
@@ -49,6 +50,9 @@ describe('the chooser’s words', () => {
 		const main = branch('refs/remotes/origin/main');
 		expect(describeAhead(commitCountOf(0), main)).toBe('No commits that origin/main lacks');
 		expect(describeAhead(commitCountOf(1), main)).toBe('1 commit not on origin/main');
+		expect(describeNothingAhead(branch('refs/heads/main'), main)).toBe(
+			'main has no commits that origin/main lacks: every commit below is on origin/main too. Tick commits to review them.'
+		);
 		expect(describeAhead(commitCountOf(1200), main)).toBe('1,200 commits not on origin/main');
 		expect(describeWholeBranch(main, commitCountOf(3))).toBe(
 			'Review the whole branch: 3 commits, compared with origin/main'

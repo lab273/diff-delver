@@ -49,7 +49,7 @@ export interface BranchSummary {
 	readonly committedAt: Timestamp | undefined;
 	/** The branch checked out in this worktree. */
 	readonly current: boolean;
-	/** The main branch itself, or the local branch of the same name. */
+	/** The main branch itself: the one the others are compared with. */
 	readonly main: boolean;
 	/** How many commits it has that the main branch lacks; undefined with no main branch. */
 	readonly ahead: CommitCount | undefined;
@@ -123,9 +123,11 @@ function remoteLocalName(ref: BranchRef, remotes: readonly RemoteName[]): string
 }
 
 /**
- * The repository's branches: local ones, and remote-tracking ones that have no
- * local branch of the same name. With `find`, only those whose name holds it,
- * in any case. At most `BRANCHES_SHOWN` are shown; `matching` counts them all.
+ * The repository's branches: local ones, remote-tracking ones that have no
+ * local branch of the same name, and the main branch itself whichever it is,
+ * since it is what every count and comparison names. With `find`, only those
+ * whose name holds it, in any case. At most `BRANCHES_SHOWN` are shown;
+ * `matching` counts them all.
  */
 export async function listBranches(
 	repo: LocalRepository,
@@ -173,24 +175,15 @@ export async function listBranches(
 		});
 	}
 	const locals = new Set(all.filter((b) => !isRemoteBranch(b.ref)).map((b) => branchName(b.ref)));
-	const mainName =
-		main.value === undefined
-			? undefined
-			: isRemoteBranch(main.value)
-				? remoteLocalName(main.value, remotes.value)
-				: branchName(main.value);
 	const offered = all
 		.filter((branch) => {
-			if (!isRemoteBranch(branch.ref)) return true;
+			if (!isRemoteBranch(branch.ref) || branch.ref === main.value) return true;
 			const local = remoteLocalName(branch.ref, remotes.value);
 			return local === undefined || !locals.has(local);
 		})
-		.map((branch) => ({
-			...branch,
-			main:
-				branch.ref === main.value ||
-				(!isRemoteBranch(branch.ref) && branchName(branch.ref) === mainName)
-		}));
+		// Only the branch the others are compared with is the main branch: a local
+		// `main` beside `origin/main` is a branch like any other, with its own count.
+		.map((branch) => ({ ...branch, main: branch.ref === main.value }));
 	const wanted = find.trim().toLowerCase();
 	const matching = offered
 		.filter((branch) => wanted === '' || branchName(branch.ref).toLowerCase().includes(wanted))

@@ -45,7 +45,8 @@ describe('the chooser’s routes', () => {
 		expect(after).toEqual(before);
 		const { history, commits, checked } = result;
 		expect(history.branches.map((b) => [b.ref, b.current, b.main])).toEqual([
-			['refs/heads/main', true, true]
+			['refs/heads/main', true, false],
+			['refs/remotes/origin/main', false, true]
 		]);
 		expect(history.lastFetch.kind).toBe('never');
 		expect(commits.commits.map((c) => [c.subject, c.size?.added, c.parent.kind])).toEqual([

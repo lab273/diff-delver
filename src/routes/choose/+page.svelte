@@ -32,6 +32,7 @@
 		describeForkPoint,
 		describeLastCommit,
 		describeLastFetch,
+		describeNothingAhead,
 		describeWholeBranch,
 		UNKNOWN_COMMIT_TIME
 	} from '#lib/core/history/history-words.ts';
@@ -92,7 +93,11 @@
 
 	const main = loaded?.main ?? undefined;
 	const isMain = $derived(chosen?.main ?? false);
-	/** The first row the main branch has too, where the branch's own commits end. */
+	/**
+	 * The first row the main branch has too, where the branch's own commits end.
+	 * Said in the list only below a commit of the branch's own: a branch with
+	 * none says so above the list instead.
+	 */
 	const forkAt = $derived(main === undefined || isMain ? -1 : rows.findIndex((row) => row.onMain));
 	const count = $derived(selectedCount(selection));
 
@@ -393,9 +398,7 @@
 						</button>
 						<p class="quiet">Or tick commits below to review only those.</p>
 					{:else}
-						<p class="quiet">
-							This branch has no commits that {branchName(main)} lacks. Tick commits below to review them.
-						</p>
+						<p class="quiet">{describeNothingAhead(branch, main)}</p>
 					{/if}
 				{/if}
 
@@ -428,7 +431,7 @@
 				{/if}
 				<ol class="rows">
 					{#each rows as row, index (row.commit)}
-						{#if index === forkAt && main !== undefined}
+						{#if index === forkAt && index > 0 && main !== undefined}
 							<li class="fork">{describeForkPoint(branch, main)}</li>
 						{/if}
 						<li class="row" class:ticked={isSelected(selection, itemIndexAt(index))}>
