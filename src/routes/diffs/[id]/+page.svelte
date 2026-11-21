@@ -495,6 +495,17 @@
 		});
 	}
 
+	/**
+	 * Takes the reader to a group's heading, at the top of the screen. Focusing it
+	 * alone would scroll only until it showed, at the bottom of the screen, where
+	 * the parts above it, still filling in their lines, would push it off again.
+	 */
+	function goToGroupHeading(anchor: string): void {
+		const heading = document.getElementById(`${anchor}-heading`);
+		heading?.scrollIntoView({ block: 'start' });
+		heading?.focus({ preventScroll: true });
+	}
+
 	/** Where the reader is: the part at the top of the screen and how far down it is. */
 	function readerPlace(): { readonly anchor: string; readonly top: number; readonly y: number } {
 		const parts = [...document.querySelectorAll<HTMLElement>('article.part')];
@@ -921,7 +932,7 @@
 									event.preventDefault();
 									if (byFile) void showByFile(false);
 									void tick().then(() => {
-										document.getElementById(`${group.anchor}-heading`)?.focus();
+										goToGroupHeading(group.anchor);
 									});
 								}}
 							>
