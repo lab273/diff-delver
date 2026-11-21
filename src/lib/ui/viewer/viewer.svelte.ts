@@ -15,7 +15,7 @@
  * time, and drawn when they come; until then the lines are plain, in the same
  * place. Lines opened later are coloured the same way.
  */
-import { describeApiError, type ApiError } from '#lib/api/client.ts';
+import { describeApiError, type ApiClient, type ApiError } from '#lib/api/client.ts';
 import type {
 	DiffPage,
 	DiffSummary,
@@ -357,6 +357,8 @@ export class Viewer {
 
 	/** Searching within the diff. */
 	readonly search: DiffSearch;
+	/** How it asks the daemon: the page's own client, or a test's. */
+	readonly client: ApiClient;
 
 	/** Where each part is; fixed for the viewer's life, so not reactive. */
 	readonly #byKey: ReadonlyMap<string, PartIndex>;
@@ -372,7 +374,13 @@ export class Viewer {
 	/** How many ticks have been answered, so a slower refresh never undoes a newer tick. */
 	#ticks = 0;
 
-	constructor(page: DiffPage, onlyWaiting: boolean, settings: ViewSettings) {
+	constructor(
+		page: DiffPage,
+		onlyWaiting: boolean,
+		settings: ViewSettings,
+		client: ApiClient = pageClient()
+	) {
+		this.client = client;
 		this.summary = $state.raw(page.summary);
 		this.colouring = settings.colours;
 		this.hideWhiteSpace = settings.hideWhiteSpace;
@@ -519,9 +527,9 @@ export class Viewer {
 		}
 		state.lines = { kind: 'loading' };
 		const release = await this.#lineTurns.take();
-		let read: Awaited<ReturnType<ReturnType<typeof pageClient>['readPart']>>;
+		let read: Awaited<ReturnType<ApiClient['readPart']>>;
 		try {
-			read = await pageClient().readPart(this.id, {
+			read = await this.client.readPart(this.id, {
 				version: this.version,
 				view: this.view,
 				group: state.part.group,
@@ -566,9 +574,9 @@ export class Viewer {
 		try {
 			await this.#lineTurns.idle();
 			const release = await this.#colourTurns.take();
-			let read: Awaited<ReturnType<ReturnType<typeof pageClient>['readColours']>>;
+			let read: Awaited<ReturnType<ApiClient['readColours']>>;
 			try {
-				read = await pageClient().readColours(this.id, {
+				read = await this.client.readColours(this.id, {
 					version: this.version,
 					path: state.part.path,
 					old: spansOf(old.map(lineNumberOf)),
@@ -601,7 +609,7 @@ export class Viewer {
 		if (range === undefined) return;
 		hidden.busy = true;
 		hidden.problem = '';
-		const read = await pageClient().readLines(this.id, {
+		const read = await this.client.readLines(this.id, {
 			version: this.version,
 			side: 'new',
 			path: state.part.path,
@@ -707,7 +715,7 @@ export class Viewer {
 		}
 		this.refused = undefined;
 		const before = target.kind === 'group' ? undefined : this.groupOfPartIn(target);
-		const sent = await pageClient().markReviewed(this.id, {
+		const sent = await this.client.markReviewed(this.id, {
 			version: this.version,
 			view: this.view,
 			reviewed,
@@ -765,7 +773,7 @@ export class Viewer {
 	async refreshTicks(): Promise<void> {
 		if (this.parts.some((p) => p.busy)) return;
 		const ticks = this.#ticks;
-		const loaded = await pageClient().loadDiff(this.id, this.view, this.version);
+		const loaded = await this.client.loadDiff(this.id, this.view, this.version);
 		if (!loaded.ok || ticks !== this.#ticks || this.parts.some((p) => p.busy)) return;
 		this.summary = loaded.value.summary;
 		for (const group of loaded.value.groups) {

@@ -14,7 +14,9 @@ import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 import type { GroupKey } from '#lib/core/diff/slices.ts';
 import { parseSearchText } from '#lib/core/search/search-text.tiny.ts';
 import { searchedQuery } from '#lib/core/search/find-text.ts';
-import { shownRepoPath } from '#lib/core/shown-path.tiny.ts';
+import { shownPath, shownRepoPath } from '#lib/core/shown-path.tiny.ts';
+import { escapedRepoPath } from '#lib/core/path-bytes.ts';
+import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import { partLinesView } from '#lib/server/api/present.ts';
 import { placesIn } from '#lib/ui/viewer/search-places.ts';
@@ -60,49 +62,55 @@ describe('searching a diff', () => {
 			);
 
 			const page = value(await service.load(id));
+			const groups: readonly GroupKey[] = [
+				{ kind: 'section', section: value(parseSectionId('early')) },
+				{ kind: 'uncategorised' }
+			];
+			// Each part's lines as the page holds them, read once, with its path as the
+			// page shows it: escaped as the API sends it, then shown.
+			const parts: { path: RepoPath; group: GroupKey; shown: string; blocks: BlockState[] }[] = [];
+			for (const file of page.diff.files) {
+				for (const group of groups) {
+					const content = await service.readPart(id, FIRST, 'sections', group, file.file.path);
+					if (!content.ok) continue;
+					const blocks = partLinesView(content.value).blocks.map((block): BlockState => {
+						switch (block.kind) {
+							case 'hidden':
+								return { ...block, top: [], bottom: [], busy: false, problem: '' };
+							case 'hunk':
+								return { ...block, showWhiteSpace: false };
+							case 'elsewhere':
+								return { ...block, shown: false };
+						}
+					});
+					const shown = shownPath(escapedRepoPath(file.file.path));
+					expect(shown).toBe(shownRepoPath(file.file.path));
+					parts.push({ path: file.file.path, group, shown, blocks });
+				}
+			}
+			expect(parts).toHaveLength(3);
+
 			for (const text of ['total', 'Total', 'TOTAL', 'sum', '3', 'const total', 'nowhere']) {
 				const query = value(parseSearchText(text));
 				for (const matchCase of [false, true]) {
 					for (const changedOnly of [false, true]) {
 						const options = { matchCase, changedOnly };
 						const found = value(await service.searchDiff(id, FIRST, 'sections', query, options));
-						const groups: readonly GroupKey[] = [
-							{ kind: 'section', section: value(parseSectionId('early')) },
-							{ kind: 'uncategorised' }
-						];
-						const parts = page.diff.files.flatMap((file) =>
-							groups.map((group) => ({ file, group }))
-						);
-						let seen = 0;
-						for (const { file, group } of parts) {
-							const g = group.kind;
-							const content = await service.readPart(id, FIRST, 'sections', group, file.file.path);
-							if (!content.ok) continue;
-							const blocks = partLinesView(content.value).blocks.map((block): BlockState => {
-								switch (block.kind) {
-									case 'hidden':
-										return { ...block, top: [], bottom: [], busy: false, problem: '' };
-									case 'hunk':
-										return { ...block, showWhiteSpace: false };
-									case 'elsewhere':
-										return { ...block, shown: false };
-								}
-							});
+						for (const part of parts) {
 							const onPage = placesIn(
-								shownRepoPath(file.file.path),
-								blocks,
+								part.shown,
+								part.blocks,
 								searchedQuery(query, matchCase),
 								options
 							).length;
 							const counted =
-								found.find((p) => p.path === file.file.path && p.group.kind === group.kind)
+								found.find((p) => p.path === part.path && p.group.kind === part.group.kind)
 									?.matches ?? 0;
-							expect(counted, `${text} ${JSON.stringify(options)} in ${g} ${file.file.path}`).toBe(
-								onPage
-							);
-							seen += 1;
+							expect(
+								counted,
+								`${text} ${JSON.stringify(options)} in ${part.group.kind} ${part.path}`
+							).toBe(onPage);
 						}
-						expect(seen).toBe(3);
 					}
 				}
 			}

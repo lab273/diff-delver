@@ -21,7 +21,6 @@ import type { Mark } from '#lib/core/search/marks.ts';
 import { parseSearchText, type SearchText } from '#lib/core/search/search-text.tiny.ts';
 import { shownPath } from '#lib/core/shown-path.tiny.ts';
 import { countOf, formatCount } from '#lib/core/viewer/words.ts';
-import { pageClient } from '#lib/ui/client.ts';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { openedMatches, placesIn, type MatchPlace } from './search-places.ts';
 import type { Viewer } from './viewer.svelte.ts';
@@ -231,7 +230,7 @@ export class DiffSearch {
 		const options = this.options;
 		this.found = { kind: 'searching' };
 		const viewer = this.#viewer;
-		const answer = await pageClient().searchDiff(viewer.id, {
+		const answer = await viewer.client.searchDiff(viewer.id, {
 			version: viewer.version,
 			view: viewer.view,
 			text: text.value,
