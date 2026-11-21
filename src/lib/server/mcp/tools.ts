@@ -79,7 +79,9 @@ import {
 	type ReportService
 } from '../reports/index.ts';
 import { repositoryOnDisk } from '../sources/git/index.ts';
-import { listSnapshotPaths, readSnapshotFile, readSnapshotLines } from '../store/index.ts';
+import { listSnapshotPaths, readSnapshotLinesWithin, snapshotEntry } from '../store/index.ts';
+import { describeByteSize } from '#lib/core/viewer/words.ts';
+import { parseByteSize, type ByteSize } from '#lib/core/byte-size.tiny.ts';
 import { describeForAgent } from './agent-errors.ts';
 import { describeInputProblems } from './input-problems.ts';
 
@@ -706,7 +708,7 @@ const getFile = tool({
 	title: "Read any file of the diff's two sides",
 	description: [
 		'Reads lines of any file in the repository as the diff has it, for context beyond the diff: the new side (after the change, the default) or the old side (before it). Files the diff does not change can be read too. Lines are numbered as get_diff numbers them, so "+120" in the diff is line 120 of the new side.',
-		`At most ${grouped(MAX_FILE_LINES)} lines at once: give "lines" such as "1..200" or "+120..+180", and the answer says what to ask for next. A folder's path lists what is in it. Only the repository's own files at the diff's two versions can be read: nothing outside it, and nothing changed since the report's version was taken.`
+		`At most ${grouped(MAX_FILE_LINES)} lines at once: give "lines" such as "1..200" or "+120..+180", and the answer says what to ask for next. A folder's path lists what is in it. Only the repository's own files at the diff's two versions can be read, and none larger than 8 MB: nothing outside the repository, and nothing changed since the report's version was taken.`
 	].join('\n\n'),
 	readOnly: true,
 	example: '{ "report": "r_7f3a9c01", "path": "src/auth/session.ts", "lines": "1..200" }',
@@ -741,12 +743,13 @@ const getFile = tool({
 		const snapshot = page.value.snapshot;
 		const heading = headingOf(page.value);
 		for (const path of candidates) {
-			const read = await readSnapshotLines(
+			const read = await readSnapshotLinesWithin(
 				snapshot,
 				side,
 				path,
 				range.value.first,
-				range.value.last
+				range.value.last,
+				MAX_FILE_BYTES
 			);
 			if (read.ok) {
 				return ok(
@@ -762,6 +765,11 @@ const getFile = tool({
 			if (read.error.kind === 'PathNotFound') continue;
 			if (read.error.kind === 'PathIsDirectory')
 				return ok(await folderListing(page.value, side, path));
+			if (read.error.kind === 'FileTooLarge') {
+				return err(
+					`${headingLine(heading)}\n${agentPath(path)} is ${describeByteSize(read.error.size)} on ${sideInWords(side)}, larger than the ${describeByteSize(read.error.limit)} get_file reads, so none of it was read. get_diff shows its changed lines with the unchanged lines around them.`
+				);
+			}
 			return err(`${headingLine(heading)}\n${describeReportError(read.error)}`);
 		}
 		return err(await notFound(page.value, side, primary));
@@ -803,6 +811,13 @@ function linesWanted(
 	}
 	return make(signed ?? side ?? 'new', Number(first), Number(last ?? first));
 }
+
+/** The largest file get_file reads: larger ones are refused from their size, before any is read. */
+const MAX_FILE_BYTES: ByteSize = (() => {
+	const size = parseByteSize(8 * 1024 * 1024);
+	if (!size.ok) throw new RangeError('8 MiB is a byte size');
+	return size.value;
+})();
 
 /** At most this many entries of a folder are listed. */
 const MAX_FOLDER_ENTRIES = 300;
@@ -850,8 +865,8 @@ async function folderListing(
 
 async function notFound(page: LoadedReport, side: Side, path: RepoPath): Promise<string> {
 	const other: Side = side === 'new' ? 'old' : 'new';
-	const there = await readSnapshotFile(page.snapshot, other, path);
-	if (there.ok) {
+	const there = await snapshotEntry(page.snapshot, other, path);
+	if (there.ok && there.value.kind !== 'missing') {
 		return `${agentPath(path)} is not on ${sideInWords(side)}, but it is on ${sideInWords(other)}: ask with "side": "${other}".${side === 'new' ? ' The change deleted or renamed it.' : ' The change added it, or renamed another file to it.'}`;
 	}
 	const listed = await listSnapshotPaths(page.snapshot, side);

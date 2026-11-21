@@ -43,18 +43,21 @@ export {
 	snapshotRefOf,
 	takeSnapshot
 } from './snapshots.ts';
-export type { SnapshotFile, SnapshotLines, TreeEntry } from './read-snapshot.ts';
+export type { SnapshotEntry, SnapshotFile, SnapshotLines, TreeEntry } from './read-snapshot.ts';
 export {
 	generatedPaths,
 	listSnapshotPaths,
 	readSnapshotDiff,
 	readSnapshotFile,
 	readSnapshotLines,
-	readTreeDiff
+	readSnapshotLinesWithin,
+	readTreeDiff,
+	snapshotEntry
 } from './read-snapshot.ts';
 export type {
 	DataDirectoryUnusable,
 	FileIsBinary,
+	FileTooLarge,
 	FileLookupError,
 	LinesError,
 	PathIsDirectory,

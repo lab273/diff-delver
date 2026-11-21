@@ -25,7 +25,13 @@ import type { Side } from '#lib/core/side.tiny.ts';
 import type { TreeId } from '#lib/core/tree-id.tiny.ts';
 import { readDiffDirect } from '../git/read-diff.ts';
 import { runGit } from '../git/run-git.ts';
-import type { FileLookupError, LinesError, SnapshotDiffError, StoreError } from './store-error.ts';
+import type {
+	FileLookupError,
+	FileTooLarge,
+	LinesError,
+	SnapshotDiffError,
+	StoreError
+} from './store-error.ts';
 import { withStoreLock } from './store-lock.ts';
 import type { Snapshot } from './snapshots.ts';
 import type { Store } from './store.ts';
@@ -202,6 +208,54 @@ export async function readSnapshotLines(
 	const lineCount = parseLineCount(all.length);
 	if (!lineCount.ok) throw new RangeError('A list length is a line count');
 	return ok({ lines, lineCount: lineCount.value });
+}
+
+/** What is at a path of one side: a file with its size, a folder, a submodule, or nothing. */
+export type SnapshotEntry =
+	| { readonly kind: 'file'; readonly size: ByteSize }
+	| { readonly kind: 'folder' }
+	| { readonly kind: 'submodule' }
+	| { readonly kind: 'missing' };
+
+/** What is at a path of one side, from one lookup, without reading a file's bytes. */
+export function snapshotEntry(
+	snapshot: Snapshot,
+	side: Side,
+	path: RepoPath
+): Promise<Result<SnapshotEntry, StoreError>> {
+	return reading(snapshot, async (): Promise<Result<SnapshotEntry, StoreError>> => {
+		const entry = await lookUp(snapshot, treeOf(snapshot, side), path);
+		if (!entry.ok) return entry;
+		switch (entry.value.kind) {
+			case 'blob':
+				return ok({ kind: 'file', size: entry.value.size });
+			case 'tree':
+				return ok({ kind: 'folder' });
+			case 'submodule':
+			case 'missing':
+				return ok({ kind: entry.value.kind });
+		}
+	});
+}
+
+/**
+ * Like `readSnapshotLines`, for a file of at most `maxBytes`: a larger one is
+ * `FileTooLarge`, from the size git already knows, before any of it is read.
+ */
+export async function readSnapshotLinesWithin(
+	snapshot: Snapshot,
+	side: Side,
+	path: RepoPath,
+	first: LineNumber,
+	last: LineNumber,
+	maxBytes: ByteSize
+): Promise<Result<SnapshotLines, LinesError | FileTooLarge>> {
+	const entry = await snapshotEntry(snapshot, side, path);
+	if (!entry.ok) return entry;
+	if (entry.value.kind === 'file' && entry.value.size > maxBytes) {
+		return err({ kind: 'FileTooLarge', side, path, size: entry.value.size, limit: maxBytes });
+	}
+	return readSnapshotLines(snapshot, side, path, first, last);
 }
 
 /** Every file, symbolic link and submodule of one side's tree, sorted as git sorts them. */

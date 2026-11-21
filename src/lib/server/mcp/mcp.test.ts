@@ -658,6 +658,21 @@ describe('the agent interface, through the stdio shim', () => {
 		);
 	});
 
+	it('refuses a file larger than it reads from its size, and finds the other side without reading it', async () => {
+		const { session, repo } = await shopAgent();
+		await repo.write('data/huge.txt', `${'x'.repeat(99)}\n`.repeat(90_000));
+		const report = reportIn(await session.call('create_report', { source: 'working-tree' }));
+		const huge = await session.call('get_file', { report, path: 'data/huge.txt' });
+		expect(huge.refused).toBe(true);
+		expect(huge.text).toMatch(
+			/^data\/huge\.txt is 8\.6 MB on the new side \(after the change\), larger than the 8 MB get_file reads, so none of it was read\. get_diff shows its changed lines/m
+		);
+		const old = await session.call('get_file', { report, path: 'data/huge.txt', side: 'old' });
+		expect(old.text).toMatch(
+			/is not on the old side \(before the change\), but it is on the new side/
+		);
+	});
+
 	it('reads only the two sides of the snapshot, never what is around them', async () => {
 		const { session, repo } = await agentIn(await useFixture(long));
 		const report = reportIn(await session.call('create_report', { source: 'working-tree' }));

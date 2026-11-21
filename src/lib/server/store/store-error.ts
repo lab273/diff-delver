@@ -5,6 +5,7 @@
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { describeDiffOutputError, type DiffOutputError } from '#lib/core/diff/diff-output-error.ts';
 import { shownRepoPath } from '#lib/core/shown-path.tiny.ts';
+import type { ByteSize } from '#lib/core/byte-size.tiny.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import type { Side } from '#lib/core/side.tiny.ts';
@@ -100,6 +101,15 @@ export interface FileIsBinary {
 	readonly kind: 'FileIsBinary';
 	readonly side: Side;
 	readonly path: RepoPath;
+}
+
+/** The file is larger than the reader takes. */
+export interface FileTooLarge {
+	readonly kind: 'FileTooLarge';
+	readonly side: Side;
+	readonly path: RepoPath;
+	readonly size: ByteSize;
+	readonly limit: ByteSize;
 }
 
 export type FileLookupError = StoreError | PathNotFound | PathIsDirectory | PathIsSubmodule;
