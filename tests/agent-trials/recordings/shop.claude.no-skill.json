@@ -59,7 +59,7 @@
 			"cc-plugin-plugin-authoring (cc-plugin-plugin-authoring@builtin)"
 		],
 		"instructions": [
-			"{\"auto\":\"<trial>/home/.claude/projects/-tmp-diff-delver-trial-EWxZa7-work-shop/memory/\"}"
+			"{\"auto\":\"<trial>/home/.claude/projects/<trial-dashed>-work-shop/memory/\"}"
 		]
 	},
 	"messages": [

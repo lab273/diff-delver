@@ -273,9 +273,9 @@
 		"refusals": [],
 		"forbidden": [],
 		"commands": [
-			"shell: /usr/bin/zsh -lc 'cat <trial>/home/.codex/skills/diff-delver/SKILL.md'",
-			"shell: /usr/bin/zsh -lc 'git status --short'",
-			"shell: /usr/bin/zsh -lc \"rg -n 'recorded\\\\.json|docs/guide\\\\.md|\\\\bdiscount\\\\(' .\""
+			"shell: <shell> -lc 'cat <trial>/home/.codex/skills/diff-delver/SKILL.md'",
+			"shell: <shell> -lc 'git status --short'",
+			"shell: <shell> -lc \"rg -n 'recorded\\\\.json|docs/guide\\\\.md|\\\\bdiscount\\\\(' .\""
 		],
 		"wallSeconds": 42,
 		"turns": 1,

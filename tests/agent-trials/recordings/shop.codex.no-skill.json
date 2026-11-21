@@ -299,8 +299,8 @@
 		"refusals": [],
 		"forbidden": [],
 		"commands": [
-			"shell: /usr/bin/zsh -lc \"rg --files --hidden -g AGENTS.md -g '\"'!.git'\"'\"",
-			"shell: /usr/bin/zsh -lc 'git status --short; git diff --stat; git diff --cached --stat'"
+			"shell: <shell> -lc \"rg --files --hidden -g AGENTS.md -g '\"'!.git'\"'\"",
+			"shell: <shell> -lc 'git status --short; git diff --stat; git diff --cached --stat'"
 		],
 		"wallSeconds": 37,
 		"turns": 1,

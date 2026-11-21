@@ -62,7 +62,7 @@
 			"cc-plugin-plugin-authoring (cc-plugin-plugin-authoring@builtin)"
 		],
 		"instructions": [
-			"{\"auto\":\"<trial>/home/.claude/projects/-tmp-diff-delver-trial-5ya31o-work-ledger/memory/\"}"
+			"{\"auto\":\"<trial>/home/.claude/projects/<trial-dashed>-work-ledger/memory/\"}"
 		]
 	},
 	"messages": [

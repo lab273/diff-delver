@@ -116,6 +116,11 @@ describe('agent trial recordings', () => {
 			}
 			const patterns: readonly [string, RegExp][] = [
 				['a temporary path', /(?:^|[\s"'(])\/(?:tmp|var\/folders|private)\/[^\s"']*/g],
+				[
+					'a temporary path written as a folder name',
+					/(?:^|[\s"'(/])-(?:tmp|var-folders|private)-[A-Za-z0-9-]*/g
+				],
+				['a login shell', /\/(?:usr\/)?(?:local\/)?bin\/(?:zsh|bash|fish)\b/g],
 				['an address with a port', /127\.0\.0\.1:\d+/g],
 				['an entry code', /[?&](?:entry|code)=(?!<code>)[A-Za-z0-9_-]+/g],
 				[

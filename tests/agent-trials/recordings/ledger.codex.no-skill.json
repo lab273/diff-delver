@@ -909,7 +909,7 @@
 		"refusals": [],
 		"forbidden": [],
 		"commands": [
-			"shell: /usr/bin/zsh -lc 'git status --short && git diff --stat && git diff --cached --stat'"
+			"shell: <shell> -lc 'git status --short && git diff --stat && git diff --cached --stat'"
 		],
 		"wallSeconds": 71,
 		"turns": 1,

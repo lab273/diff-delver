@@ -62,7 +62,7 @@
 			"cc-plugin-plugin-authoring"
 		],
 		"instructions": [
-			"{\"auto\":\"<trial>/home/.claude/projects/-tmp-diff-delver-trial-c429n9-work-shop/memory/\"}"
+			"{\"auto\":\"<trial>/home/.claude/projects/<trial-dashed>-work-shop/memory/\"}"
 		]
 	},
 	"messages": [

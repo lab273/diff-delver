@@ -890,7 +890,7 @@
 		},
 		"refusals": [],
 		"forbidden": [],
-		"commands": ["shell: /usr/bin/zsh -lc 'cat <trial>/home/.codex/skills/diff-delver/SKILL.md'"],
+		"commands": ["shell: <shell> -lc 'cat <trial>/home/.codex/skills/diff-delver/SKILL.md'"],
 		"wallSeconds": 60,
 		"turns": 1,
 		"tokens": {

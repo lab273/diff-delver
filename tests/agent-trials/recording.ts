@@ -5,9 +5,12 @@
  *
  * Recordings are public, so everything that varies by machine or run is
  * written as a placeholder (`normaliser`): the trial's folders as
- * `<repository>`, `<data>` and `<trial>`, the daemon's port and entry codes,
- * and the machine's home folder and user name. A replay puts the real values
- * back where the agent sent them.
+ * `<repository>`, `<data>` and `<trial>`, and as a CLI names a folder after
+ * one, with every character but letters and digits a dash
+ * (`-tmp-diff-delver-trial-c429n9-work-shop`, written `<repository-dashed>`);
+ * the daemon's port and entry codes; the login shell a CLI ran commands in
+ * (`<shell> -lc`); and the machine's home folder and user name. A replay puts
+ * the real values back where the agent sent them.
  */
 import { z } from 'zod';
 
@@ -123,6 +126,21 @@ export type Normaliser = (text: string) => string;
 
 const ADDRESS = /http:\/\/(?:127\.0\.0\.1|localhost):\d+/g;
 const ENTRY_CODE = /([?&](?:code|entry)=)[A-Za-z0-9_-]+/g;
+/**
+ * A trial's folder as a CLI names a folder after it, which the exact values
+ * miss in a recording made before they were written as placeholders: the
+ * dashed path of a folder `mkdtemp` made, `diff-delver-trial-` and six
+ * letters or digits.
+ */
+const DASHED_TRIAL =
+	/(?<=^|[/"'\s])-[A-Za-z0-9-]*?diff-delver-trial-[A-Za-z0-9]{6}(?![A-Za-z0-9])/g;
+/** The login shell a CLI runs a command in, which is the machine's: `/usr/bin/zsh -lc`. */
+const LOGIN_SHELL = /(?<=^|[\s"'(:])(?:\/[\w.+-]+)+\/(?:zsh|bash|fish|dash|ksh|sh)(?= -l?c )/g;
+
+/** A path as a CLI names a folder after it: every character but letters and digits a dash. */
+export function dashed(path: string): string {
+	return path.replace(/[^A-Za-z0-9]/g, '-');
+}
 
 export function normaliser(values: Placeholders): Normaliser {
 	const pairs: [string, string][] = [
@@ -130,6 +148,13 @@ export function normaliser(values: Placeholders): Normaliser {
 		[values.data, '<data>'],
 		[values.trial, '<trial>']
 	];
+	for (const [name, path] of [
+		['repository', values.repository],
+		['data', values.data],
+		['trial', values.trial]
+	] as const) {
+		if (path.startsWith('/') && path.length > 4) pairs.push([dashed(path), `<${name}-dashed>`]);
+	}
 	if (values.home !== undefined && values.home.length > 1) pairs.push([values.home, '<home>']);
 	pairs.sort((a, b) => b[0].length - a[0].length);
 	const user =
@@ -139,7 +164,11 @@ export function normaliser(values: Placeholders): Normaliser {
 	return (text) => {
 		let out = text;
 		for (const [from, to] of pairs) out = out.split(from).join(to);
-		out = out.replace(ADDRESS, 'http://127.0.0.1:<port>').replace(ENTRY_CODE, '$1<code>');
+		out = out
+			.replace(DASHED_TRIAL, '<trial-dashed>')
+			.replace(LOGIN_SHELL, '<shell>')
+			.replace(ADDRESS, 'http://127.0.0.1:<port>')
+			.replace(ENTRY_CODE, '$1<code>');
 		return user === undefined ? out : out.replace(user, '<user>');
 	};
 }
