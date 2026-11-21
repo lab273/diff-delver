@@ -1,6 +1,6 @@
 /**
  * How much work code did, counted rather than timed, so a test can hold it to a
- * bound on any machine, however slow or busy (README, "Testing").
+ * bound on any machine, however slow or busy (docs/DEVELOPING.md, "Testing").
  *
  * It uses V8's precise block coverage: every time a function is called or one of
  * its blocks (a loop body, a branch) runs, V8 counts it. The work is the sum of

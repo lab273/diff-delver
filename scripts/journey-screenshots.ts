@@ -1,5 +1,5 @@
 /**
- * The committed journey screenshots (README, "Checking the experience"): where
+ * The committed journey screenshots (docs/DEVELOPING.md, "Checking the experience"): where
  * each step's images live and what they are called, which images a run produced,
  * and which committed ones no step produces any more. Pure; the journey helper
  * (tests/support/journey.ts) and `pnpm journeys:*` (scripts/journeys.ts) use it.

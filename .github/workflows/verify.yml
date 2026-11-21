@@ -1,6 +1,6 @@
 # Runs `pnpm verify` on every commit that reaches main, not only the newest one,
 # so a commit that fails on its own is found even when a later one repairs it.
-# See README, "How we work".
+# See docs/DEVELOPING.md, "How we work".
 name: Verify
 
 on:

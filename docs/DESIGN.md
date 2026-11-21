@@ -3,7 +3,7 @@
 Status: draft for discussion. Nothing here is built yet.
 
 This document covers what the tool does and why. How the code is written, tested
-and committed is in the [README](../README.md) and is not repeated here.
+and committed is in the [developer guidance](DEVELOPING.md) and is not repeated here.
 
 ## 1. What it is
 
@@ -51,7 +51,8 @@ What this commits us to:
 10. **For everyone.** Fully usable by keyboard and screen reader, never colour
     alone to carry meaning, light and dark themes, readable on a laptop screen.
 
-Section 8.1 says how this is designed in. The README says how it is checked.
+Section 8.1 says how this is designed in. The developer guidance says
+[how it is checked](DEVELOPING.md#checking-the-experience).
 
 ### 1.2 Three rules of the model
 
@@ -785,8 +786,8 @@ How it is measured:
 
 ## 10. User journeys
 
-Each journey is a named scenario, written from the reviewer's side. The README
-says how journeys are tested.
+Each journey is a named scenario, written from the reviewer's side. The developer
+guidance says [how journeys are tested](DEVELOPING.md#testing).
 
 | # | Journey | The reviewer can |
 |---|---|---|
@@ -811,7 +812,8 @@ says how journeys are tested.
 The agent interface is also tried with real coding agents. Recorded sessions of
 Claude Code and Codex sorting fixture diffs through the MCP server are kept in the
 repository; the tests replay them, and what a replay leaves on the page is checked
-like a journey, with committed screenshots. The README says how trials are run.
+like a journey, with committed screenshots. The developer guidance says
+[how trials are run](DEVELOPING.md#agent-trials).
 
 ## 11. Build order
 

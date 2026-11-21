@@ -1,6 +1,6 @@
 /**
  * Finds personal or sensitive data in an export of the issue tracker, before it
- * is published (README, "Tracking work"). Pure: it takes the export's text and
+ * is published (docs/DEVELOPING.md, "Tracking work"). Pure: it takes the export's text and
  * the lists to check against, and returns what it found.
  *
  * It looks at every string in every record, however deeply nested: titles,

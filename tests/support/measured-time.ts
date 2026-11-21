@@ -2,7 +2,7 @@
  * Times measured inside a test, held to guidance rather than to a hard limit.
  *
  * A size test that times the code under test must not fail because the machine
- * is slow or busy (README, "Testing"). It records what it measured here, against
+ * is slow or busy (docs/DEVELOPING.md, "Testing"). It records what it measured here, against
  * the time it should take, and `pnpm verify` lists every measurement over its
  * guidance as a warning, beside the tests over theirs. A time cannot show a
  * slowdown on its own, so the work is bounded without the clock as well: by the

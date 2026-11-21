@@ -10,7 +10,7 @@
  * grammar's state carried from one slice to the next (which gives exactly the
  * colours of one pass), and the daemon answers other requests between slices.
  *
- * Colours never depend on time or on what was coloured before (README,
+ * Colours never depend on time or on what was coloured before (docs/DEVELOPING.md,
  * "Journeys are deterministic"): Shiki's limit on how long a line may take is
  * switched off, since a line cut short would keep its wrong colours for good,
  * and what bounds the work instead are the limits on a file's size and a

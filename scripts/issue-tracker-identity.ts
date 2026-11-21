@@ -1,6 +1,6 @@
 /**
  * Who the issue tracker records as the author of every change, and the only email
- * addresses an issue may contain (README, "Tracking work"). `pnpm bd` sets the
+ * addresses an issue may contain (docs/DEVELOPING.md, "Tracking work"). `pnpm bd` sets the
  * identity on every `bd` command, and `pnpm bd push` refuses to publish any
  * other address. To allow another address, add it here, in this one place.
  */

@@ -1,6 +1,6 @@
 /**
  * How long a test should take, and how long it may take before it counts as hung,
- * for each type of test. The guidance is the README's ("Testing"); a test over it
+ * for each type of test. The guidance is the docs/DEVELOPING.md's ("Testing"); a test over it
  * is reported by `pnpm verify` as a warning, never a failure.
  *
  * The hang timeout is the only time limit that fails a test. It is there so that a
@@ -13,7 +13,7 @@
  */
 import { millisecondsOf, type Milliseconds } from '../src/lib/core/milliseconds.tiny.ts';
 
-/** The three types of test (README, "Three layers"). */
+/** The three types of test (docs/DEVELOPING.md, "Three layers"). */
 export type TestLayer = 'core' | 'integration' | 'journey';
 
 export interface TimeLimit {

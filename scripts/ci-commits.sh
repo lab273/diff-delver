@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Lists the commits a push to main must verify, for .github/workflows/verify.yml,
 # and splits them into batches for the job matrix. Every commit that reaches main
-# is verified on its own (README, "How we work").
+# is verified on its own (docs/DEVELOPING.md, "How we work").
 #
 # Input, from the environment:
 #   EVENT     the GitHub event name: push or workflow_dispatch

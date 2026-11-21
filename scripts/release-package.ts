@@ -1,6 +1,6 @@
 /**
  * Packs the built diff delver into the tarball a release attaches
- * (`pnpm release:package`, README "Releasing"):
+ * (`pnpm release:package`, docs/DEVELOPING.md "Releasing"):
  *
  *   node scripts/release-package.ts [--version <release>] [--out <folder>]
  *

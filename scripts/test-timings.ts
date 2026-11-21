@@ -1,6 +1,6 @@
 /**
  * How long the tests took, read from the Vitest and Playwright JSON reports, and
- * which of them went over the time guidance for their type (README, "Testing").
+ * which of them went over the time guidance for their type (docs/DEVELOPING.md, "Testing").
  * Pure: `scripts/verify.ts` reads the files and prints what this returns.
  */
 import {

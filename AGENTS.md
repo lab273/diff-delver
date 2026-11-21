@@ -1,1 +1,1 @@
-README.md
+docs/DEVELOPING.md

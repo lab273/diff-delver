@@ -1,6 +1,6 @@
 /**
  * Proves a packed diff delver works before it is released (`pnpm
- * release:check`, README "Releasing"):
+ * release:check`, docs/DEVELOPING.md "Releasing"):
  *
  *   node scripts/release-check.ts <tarball> [--version <release>]
  *

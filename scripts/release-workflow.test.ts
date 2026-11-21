@@ -1,5 +1,5 @@
 /**
- * The rules for releasing (README, "How we work" and "Releasing"), held to: the
+ * The rules for releasing (docs/DEVELOPING.md, "How we work" and "Releasing"), held to: the
  * release workflow runs only when started by hand, packs only after every test
  * passed, lets only its last job write, checks everything again just before it
  * creates the release, runs its steps in bash with pipefail, and never touches npm; nothing else in

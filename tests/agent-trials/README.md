@@ -3,8 +3,8 @@
 Real coding agents sorting fixture diffs through diff delver's MCP server,
 recorded. Every refusal an agent ran into, every wrong turn and every needless
 call is a finding about our tools and the skill, not about the agent. How to run
-a trial, how replay works and what is safe to commit are in the README, under
-[Agent trials](../../README.md#agent-trials).
+a trial, how replay works and what is safe to commit are in the developer guidance, under
+[Agent trials](../../docs/DEVELOPING.md#agent-trials).
 
 Each trial gives the agent the same prompt:
 

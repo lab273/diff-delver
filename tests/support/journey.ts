@@ -10,7 +10,7 @@
  *     });
  *
  * One `step` call does everything that must hold on every screen, so a journey
- * cannot leave part of it out (README, "Checking the experience"). It first
+ * cannot leave part of it out (docs/DEVELOPING.md, "Checking the experience"). It first
  * waits until the page has finished what it said it was doing (nothing marked
  * `aria-busy="true"`, as lines are while their colours come), then checks:
  *
@@ -100,7 +100,7 @@ const MODE = screenshotMode(process.env);
 /** For the determinism check: a directory to copy every screenshot into, as taken. */
 const COPY_DIRECTORY = process.env[SCREENSHOT_COPY_VARIABLE];
 
-/** The committed images are Linux images (README, "Checking the experience"). */
+/** The committed images are Linux images (docs/DEVELOPING.md, "Checking the experience"). */
 export const COMPARES_SCREENSHOTS = process.platform === 'linux';
 
 /** Most Tab presses `activate` makes looking for its target. */

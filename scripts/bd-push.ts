@@ -122,7 +122,7 @@ export function describePushProblem(problem: PushProblem): string {
 		case 'FoundPrivateData':
 			return [
 				`Nothing was pushed: the issue data holds ${String(problem.findings.length)} thing(s) that ` +
-					'look personal or sensitive (README, "Tracking work"):',
+					'look personal or sensitive (docs/DEVELOPING.md, "Tracking work"):',
 				...problem.findings.map((finding) => `  ${describeFinding(finding)}`),
 				'If one is personal, edit the issue to remove it, and tell the project owner before',
 				'anything is pushed: beads publishes every earlier version of an issue too, so an edit',

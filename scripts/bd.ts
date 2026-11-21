@@ -1,6 +1,6 @@
 /**
  * `pnpm bd <bd arguments>`: runs beads' `bd` with the agent identity always
- * set, so no personal name or email address is copied into an issue (README,
+ * set, so no personal name or email address is copied into an issue (docs/DEVELOPING.md,
  * "Tracking work"). Arguments, output and exit status pass through unchanged.
  *
  * A publishing command, `pnpm bd push`, `pnpm bd dolt push` or `pnpm bd sync`
@@ -42,7 +42,7 @@ function bdEnvironment(): NodeJS.ProcessEnv {
 		...process.env,
 		BEADS_ACTOR: AGENT_ACTOR,
 		GIT_AUTHOR_EMAIL: AGENT_EMAIL,
-		// beads' anonymous usage metrics stay off (README, "Tracking work").
+		// beads' anonymous usage metrics stay off (docs/DEVELOPING.md, "Tracking work").
 		DO_NOT_TRACK: '1'
 	};
 }

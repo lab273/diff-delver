@@ -9,7 +9,7 @@
  * The version it reports is a release and a hash of everything the build is
  * made from, so two builds of the same code have the same version and a command
  * can tell whether a running daemon is its own. The release workflow gives the
- * release in `DIFF_DELVER_RELEASE_VERSION` (README, "Releasing"), which is how
+ * release in `DIFF_DELVER_RELEASE_VERSION` (docs/DEVELOPING.md, "Releasing"), which is how
  * it is stamped in without anything being committed; any other build, such as a
  * clone's, reports the package version marked `-dev`, which is no release.
  */

@@ -1,5 +1,5 @@
 /**
- * A lint rule for core code (README, "Layout"): no clock, timezone, locale or
+ * A lint rule for core code (docs/DEVELOPING.md, "Layout"): no clock, timezone, locale or
  * build environment. It covers what `no-restricted-globals` and
  * `no-restricted-properties` in eslint.config.js cannot see, because a global is
  * allowed in some positions and not in others, or because the call looks like

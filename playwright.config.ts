@@ -42,7 +42,7 @@ const HANG_TIMEOUT_MS = TIME_LIMITS.journey.hangTimeout;
 
 /**
  * What the journey browser runs with, so the same commit draws the same pixels on
- * every run and every Linux machine (README, "Checking the experience").
+ * every run and every Linux machine (docs/DEVELOPING.md, "Checking the experience").
  */
 const DETERMINISTIC_CHROMIUM_ARGS = [
 	// Glyph outlines unhinted and greyscale-antialiased, never shaped to the

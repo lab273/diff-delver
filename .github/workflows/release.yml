@@ -1,4 +1,4 @@
-# Makes a release of diff delver on GitHub: the only way one is made (README,
+# Makes a release of diff delver on GitHub: the only way one is made (docs/DEVELOPING.md,
 # "How we work" and "Releasing"). It runs only when a person starts it by hand,
 # from main, and runs every test (pnpm verify) on the commit before packing it.
 # Packing waits for the tests to pass, releasing waits for the packed package to

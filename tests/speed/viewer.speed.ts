@@ -1,5 +1,5 @@
 /**
- * The viewer's speed on a large diff (README, "Checking the experience"): 2,000
+ * The viewer's speed on a large diff (docs/DEVELOPING.md, "Checking the experience"): 2,000
  * files and 200,000 changed lines, opened in the journey browser against a
  * daemon of the test's own. Time to first readable content, time to move to
  * the next file and time to tick one are recorded against their guidance,

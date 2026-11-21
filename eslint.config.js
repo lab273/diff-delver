@@ -157,7 +157,7 @@ export default defineConfig(
 		}
 	},
 	{
-		// The rules from README "Strong typing" that the compiler alone does not enforce.
+		// The rules from docs/DEVELOPING.md "Strong typing" that the compiler alone does not enforce.
 		rules: {
 			'@typescript-eslint/no-explicit-any': 'error',
 			'@typescript-eslint/no-non-null-assertion': 'error',

@@ -1,6 +1,6 @@
 /**
  * The release workflow's checks of what the person who started it typed
- * (`.github/workflows/release.yml`, README "Releasing"): run by its first job,
+ * (`.github/workflows/release.yml`, docs/DEVELOPING.md "Releasing"): run by its first job,
  * before any work is done, and again by the releasing job just before it
  * creates the release, since that job can be re-run on its own long after the
  * first check, when other releases may have been made. Every problem found is

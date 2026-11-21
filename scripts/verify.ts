@@ -4,7 +4,7 @@
  * every test over the time guidance for its type and for a run that has become
  * unreasonably long, and the notices tests recorded (tests/support/test-notices.ts),
  * such as an agent trial recorded with an older skill. Neither time nor a notice
- * fails the run (README, "Testing"); only a test that hangs past its hang timeout
+ * fails the run (docs/DEVELOPING.md, "Testing"); only a test that hangs past its hang timeout
  * does, and that is the test failing.
  */
 import { spawn } from 'node:child_process';
@@ -225,7 +225,7 @@ async function main(): Promise<number> {
 	});
 	if (warnings.length > 0) {
 		heading(
-			`\u001b[33m⚠ ${String(warnings.length)} over the time guidance (README, "Testing"). ` +
+			`\u001b[33m⚠ ${String(warnings.length)} over the time guidance (docs/DEVELOPING.md, "Testing"). ` +
 				'They do not fail the run; each is a prompt to look for a faster way.\u001b[0m'
 		);
 		for (const warning of warnings) {

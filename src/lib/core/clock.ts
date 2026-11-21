@@ -1,7 +1,7 @@
 /**
  * Where time comes from. Nothing reads the clock directly: the daemon is given a
  * `Clock`, so tests and journeys can say what time it is and screenshots stay
- * the same from run to run (README, "Testing"). The real clock is in
+ * the same from run to run (docs/DEVELOPING.md, "Testing"). The real clock is in
  * `#lib/server/system.ts`.
  */
 import { parseTimestamp, type Timestamp } from './timestamp.tiny.ts';

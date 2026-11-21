@@ -3,7 +3,7 @@
  * apart from the harness so it can be tested without starting a session:
  *
  * - the exact arguments and settings each CLI is given, which are what keeps
- *   the agent to reading the trial's copy of the repository (README, "Agent
+ *   the agent to reading the trial's copy of the repository (docs/DEVELOPING.md, "Agent
  *   trials", and tests/agent-trials/README.md say what each enforces);
  * - the person's login, linked into the trial's home and taken out again on
  *   every exit, with a login the CLI refreshed during the run put back;

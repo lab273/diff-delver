@@ -1,7 +1,7 @@
 /**
  * What lint forbids in journey files (tests/journeys/), so that a journey reaches
  * the page only as a person does, by keyboard, through the journey helper
- * (tests/support/journey.ts; README, "Checking the experience").
+ * (tests/support/journey.ts; docs/DEVELOPING.md, "Checking the experience").
  *
  * The helper gives a journey no Playwright page, context or locator, so most of
  * Playwright is out of reach by construction. These rules close what is left: the
@@ -12,7 +12,7 @@
  */
 
 const KEYBOARD_ONLY =
-	'Journeys use the keyboard only (README, "Checking the experience"): use journey.press, journey.type and journey.activate.';
+	'Journeys use the keyboard only (docs/DEVELOPING.md, "Checking the experience"): use journey.press, journey.type and journey.activate.';
 
 const HELPER_ONLY =
 	'Journeys reach the page only through the journey helper (tests/support/journey.ts). ' +
