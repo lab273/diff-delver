@@ -113,7 +113,7 @@ export async function runShim(options: ShimOptions): Promise<number> {
 			authorization: `Bearer ${connection.token}`,
 			[DIRECTORY_HEADER]: encodeURIComponent(options.directory)
 		};
-		const ask = browser.lend();
+		const ask = callsCreateReport(message) ? await browser.lend() : 'not-asked';
 		const asked = browserHeader(ask);
 		if (asked !== undefined) headers[OPEN_BROWSER_HEADER] = asked;
 		if (protocolVersion !== undefined) headers['mcp-protocol-version'] = protocolVersion;
@@ -167,6 +167,13 @@ export async function runShim(options: ShimOptions): Promise<number> {
 		}
 		return ok(messages);
 	};
+
+	/** Whether a message calls create_report, the one tool that may open a window. */
+	const callsCreateReport = (message: JSONRPCMessage): boolean =>
+		'method' in message &&
+		message.method === 'tools/call' &&
+		typeof message.params?.['name'] === 'string' &&
+		message.params['name'] === 'create_report';
 
 	const deliver = async (message: JSONRPCMessage): Promise<void> => {
 		let failedOn: DaemonConnection | undefined;
