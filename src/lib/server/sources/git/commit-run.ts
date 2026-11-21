@@ -2,7 +2,7 @@
  * What a run of commits is made of, for its diff's title (`core/history/commit-run.ts`):
  * how many commits it is and the subjects of its oldest and newest.
  *
- * A run is a range between two commit ids, `from` the first parent of its
+ * A run is one pinned commit or a range between two commit ids, `from` the first parent of its
  * oldest commit (or git's empty tree, from the repository's first commit) and
  * `to` its newest: what ticking commits on the choose page opens. A range
  * between two ids written by hand may not be one: `from` may lie off `to`'s
@@ -10,7 +10,7 @@
  * diff is titled by its source alone.
  *
  * Read once, when the report is opened: ids never come to name other commits.
- * Only reads the repository; three short commands, none of which prints more
+ * Only reads the repository; at most three short commands, none of which prints more
  * than a line.
  */
 import { commitCountOf } from '#lib/core/history/commit-count.tiny.ts';
@@ -26,15 +26,31 @@ const FULL_ID = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
 const PARENTS_AND_SUBJECT = '--format=%P%x00%s';
 
 /**
- * The run of commits `spec` is, or undefined when it is not one: not a range
- * between two commit ids, or one whose `from` is not the first parent of the
- * oldest commit on `to`'s first parents. Undefined, too, when git cannot say,
- * since a title is not worth failing to open a diff for.
+ * Reads the title data for a pinned commit or a first-parent range. For a range,
+ * `from` must be the first parent of the oldest selected commit, or the empty tree
+ * when the selection starts at the root. Returns undefined if git cannot read it.
  */
 export async function readCommitRun(
 	repo: LocalRepository,
 	spec: GitSourceSpec
 ): Promise<CommitRun | undefined> {
+	if (spec.kind === 'commit' && FULL_ID.test(spec.revision)) {
+		const logged = await gitIn(repo, gitCwd(repo), [
+			'log',
+			'--max-count=1',
+			'--encoding=UTF-8',
+			'--no-show-signature',
+			'--format=%s',
+			'--end-of-options',
+			spec.revision,
+			'--'
+		]);
+		if (!logged.ok) return undefined;
+		const subject = runSubjectOf(
+			subjectLineOf(logged.value.stdout.toString('utf8').replace(/\n$/, ''))
+		);
+		return { commits: commitCountOf(1), oldest: subject, newest: subject };
+	}
 	if (spec.kind !== 'range' || !FULL_ID.test(spec.to)) return undefined;
 	const fromNothing = isEmptyTreeRevision(spec.from);
 	if (!fromNothing && !FULL_ID.test(spec.from)) return undefined;

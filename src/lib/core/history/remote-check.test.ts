@@ -7,6 +7,7 @@ import {
 	compareWithRemote,
 	describeComparison,
 	describeRemoteCheckError,
+	fetchRemoteCommand,
 	hasNews
 } from './remote-check.ts';
 
@@ -29,6 +30,21 @@ function remote(name: string): RemoteName {
 }
 
 const origin = remote('origin');
+
+it('keeps remote diagnostics out of the message shown to the reviewer', () => {
+	const error = classifyRemoteFailure(
+		origin,
+		'fatal: unable to access https://user:example@example.invalid'
+	);
+	expect(describeRemoteCheckError(error)).toBe(
+		'origin could not be reached. Check that you are online and that "git remote -v" shows the right address, then try again.'
+	);
+});
+
+it('gives a fetch command for the remote that moved', () => {
+	expect(fetchRemoteCommand(remote('upstream'))).toBe('git fetch -- upstream');
+	expect(fetchRemoteCommand(remote("team'west"))).toBe("git fetch -- 'team'\\''west'");
+});
 
 describe('comparing a remote with what this copy fetched', () => {
 	it('finds branches that moved on and branches never fetched, ignoring other remotes', () => {
@@ -91,7 +107,7 @@ describe('comparing a remote with what this copy fetched', () => {
 			'origin did not answer within 20 seconds, so it was not checked. Check that you are online, then try again.'
 		);
 		expect(describeRemoteCheckError({ kind: 'RemoteNeedsLogin', remote: origin })).toContain(
-			'Run "git fetch" in a terminal'
+			'Run "git fetch -- origin" in a terminal'
 		);
 	});
 });

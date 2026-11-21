@@ -40,7 +40,11 @@
 		describeWholeBranch,
 		UNKNOWN_COMMIT_TIME
 	} from '#lib/core/history/history-words.ts';
-	import { describeComparison, hasNews } from '#lib/core/history/remote-check.ts';
+	import {
+		describeComparison,
+		fetchRemoteCommand,
+		hasNews
+	} from '#lib/core/history/remote-check.ts';
 	import { itemIndexAt } from '#lib/core/item-index.tiny.ts';
 	import { parseRevision } from '#lib/core/revision.tiny.ts';
 	import type { DiffSize as SizeOfDiff } from '#lib/core/reports/report.ts';
@@ -322,13 +326,13 @@
 						<p>
 							{outcome.kind === 'compared' ? describeComparison(outcome) : outcome.problem}
 						</p>
+						{#if outcome.kind === 'compared' && hasNews(outcome)}
+							<p>
+								To copy them here, run this in a terminal in your repository, then reload this page:
+							</p>
+							<CopyCommand command={fetchRemoteCommand(outcome.remote)} label="Copy the command" />
+						{/if}
 					{/each}
-					{#if checked.remotes.some((o) => o.kind === 'compared' && hasNews(o))}
-						<p>
-							To copy them here, run this in a terminal in your repository, then reload this page:
-						</p>
-						<CopyCommand command="git fetch" label="Copy the command" />
-					{/if}
 				{/if}
 			</div>
 		</section>

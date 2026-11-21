@@ -4,7 +4,7 @@
  * discount rate” to “Say which code was used”`.
  *
  * A run is what ticking commits on the choose page opens (`commit-selection.ts`):
- * a range between two commit ids, or from git's empty tree to one. Ids never
+ * a single commit id, a range between two commit ids, or from git's empty tree to one. Ids never
  * come to name other commits, so what a run is made of is read once, when its
  * report is opened, and kept with the report.
  */

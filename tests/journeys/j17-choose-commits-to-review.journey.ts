@@ -131,7 +131,9 @@ test.describe('J17 Choose commits to review', () => {
 			remote,
 			'origin has new commits on main that this copy has not fetched.'
 		);
-		await journey.expectVisible(journey.within(remote).byText('git fetch', { exact: true }));
+		await journey.expectVisible(
+			journey.within(remote).byText('git fetch -- origin', { exact: true })
+		);
 		await journey.step('Origin has moved on');
 
 		// A branch found by name, and its commits shown.

@@ -122,9 +122,11 @@ Commands:
 - `diff-delver` with no arguments opens the browser on the most likely diff: the
   uncommitted changes if there are any, otherwise the current branch or jj change
   compared with the main branch. If more than one is plausible, the browser shows
-  a short chooser instead of the command line asking questions.
+  a short choice instead of the command line asking questions.
 - `diff-delver open <source>` opens a specific source: a range, a jj revset or a
   pull request URL.
+- `diff-delver choose` opens a page for the repository it is run in, to choose
+  commits or a whole branch to review (3.1). The start page links to it too.
 - `diff-delver setup` connects the MCP server and the skill to the coding agents
   it finds on the machine and says what it did. One command, run once.
 - `diff-delver mcp` is what agents launch. It starts the daemon if needed and
@@ -145,6 +147,36 @@ store that diff delver owns. Each source adapter reduces its input to that.
 | git working tree or staged | Write a tree from a temporary index, so untracked files are included and `.gitignore` is respected. The new objects are written to diff delver's store, not the repo. |
 | jj revision or revset | Resolve to commit ids in the backing git store. The jj working copy is already a commit. |
 | GitHub PR | Fetch the PR head and its merge base into diff delver's store, as a blobless fetch that pulls file contents on demand. A local clone of the same repo, if there is one, is used to avoid downloading what is already on disk. Base is the merge base, as GitHub shows it. Auth comes from `gh` or `GITHUB_TOKEN`. |
+
+**Choosing commits.** The choose page lists a repository's branches and, for the
+one chosen, its commits, newest first, each with when it was made and how many
+lines and files it changes. What a person picks there is always one of the sources
+above, because a diff is between two points in history:
+
+- One commit ticked is the `commit` source, named in the report by its subject.
+- Two or more are always one unbroken run of commits next to each other: ticking a
+  second commit takes in every commit between the two, and unticking one in the
+  middle keeps the newer part and says why. A run is a `range` from the parent of
+  its oldest commit to its newest, written as commit ids, so it never moves. From
+  the repository's first commit, the range starts at git's empty tree. Its name,
+  how many commits it is and the subjects of its oldest and newest (8.5), is read
+  once when it is opened and kept with the report. Commits that are not next to
+  each other are not offered as one diff.
+- A whole branch is the branch compared with the main branch, the same `range` the
+  no-argument start opens.
+
+The list is the branch's first-parent history, so it is one line and any run in it
+is a valid pair of points; a merge is one row, with its size against its first
+parent. One branch is the main branch, the one every count and comparison names
+(`origin/main` when the remote has one), and the list marks where the chosen branch
+left it. History is read a page at a time, never whole.
+
+Whether the local copy is out of date is known offline only as when it last fetched,
+which the page always shows. What the remote has now needs the network, so it is a
+button: it asks the remote which commits its branches are at (`git ls-remote`) and
+says which branches have commits this copy has not fetched, with the command to
+fetch them. diff delver never fetches, because a fetch writes to the repository,
+and it makes no network call the person did not ask for.
 
 This buys three things:
 
@@ -659,6 +691,8 @@ the starting vocabulary, to be adjusted by watching people use it.
 | Internal term | On screen |
 |---|---|
 | report | The diff, named by its source: "Pull request #123", "Uncommitted changes", "feature-x compared with main" |
+| a run of commits | Named by how many commits it is and their subjects: "3 commits: “Add a discount rate” to “Say which code was used”", "2 commits: “A” and “B”", "The first 5 commits: …" from a repository's first commit. Never by commit ids |
+| the main branch, a remote-tracking branch | "Main branch" on the one branch that counts and comparisons name; "On origin" on a branch that is the remote's, not a local one |
 | revision | "Version 2", with when it arrived and what changed |
 | snapshot | Not shown. Its size appears on the update |
 | slice | Not named. A split file shows "part 2 of 3" |
@@ -747,6 +781,16 @@ The quoted code is inserted by the server from the snapshot.
   such an agent can already have them run by the person's own git.
 - An agent reads files only from the snapshot, never from the working folder, and
   never one larger than 8 MiB.
+- For a local repository the daemon makes one kind of network call, and only when
+  the person presses the button for it: asking the repository's remotes which
+  commits their branches are at (3.1). It runs the person's git with that
+  repository's settings, as `git fetch` there would, so it can run what those
+  settings name for reaching a remote: an ssh command, a credential helper, a
+  remote's own upload command or transport. That is the same exposure as the
+  bullet above, reached by a button on the page and never by an agent or by
+  loading a page. It never asks for a password or passphrase, stops after a time
+  limit with everything it started, and never shows or logs a password that a
+  remote's address holds.
 
 ### 9.1 Disk usage
 
@@ -808,6 +852,7 @@ guidance says [how journeys are tested](DEVELOPING.md#testing).
 | J14 | Agent notes | hide all notes, dismiss one, promote one into the review |
 | J15 | Disk space | see what each report and snapshot takes, delete a report and see the space freed |
 | J16 | Reading and finding | read code coloured by language or plain, in one column or side by side, with white-space changes hidden, and search the whole diff, moving from match to match |
+| J17 | Choose commits to review | open the choose page for a repository, see its branches and commits with their times and sizes, pick a run of commits or a whole branch with the keyboard, open it, and see when the repository last fetched and whether origin has moved on |
 
 The agent interface is also tried with real coding agents. Recorded sessions of
 Claude Code and Codex sorting fixture diffs through the MCP server are kept in the

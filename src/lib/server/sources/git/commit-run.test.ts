@@ -47,6 +47,7 @@ describe('what a run of commits is made of', () => {
 		const id = (name: string): string => ids[name] ?? '';
 		const { before, after, result } = await listingsAround([repo.dir], async () => ({
 			// "Add prices"’s parent to the newest: the merge counts once, its side commit not at all.
+			single: await readCommitRun(found, value(parseGitSourceSpec(id('code')))),
 			four: await readCommitRun(found, range(id('start'), id('code'))),
 			two: await readCommitRun(found, range(id('merge'), id('code'))),
 			one: await readCommitRun(found, range(id('total'), id('code'))),
@@ -55,6 +56,7 @@ describe('what a run of commits is made of', () => {
 		}));
 		expect(after).toEqual(before);
 		expect(result).toEqual({
+			single: { commits: 1, oldest: 'Say which code was used', newest: 'Say which code was used' },
 			four: { commits: 4, oldest: 'Add prices', newest: 'Say which code was used' },
 			two: { commits: 2, oldest: 'Show the total', newest: 'Say which code was used' },
 			one: { commits: 1, oldest: 'Say which code was used', newest: 'Say which code was used' },
@@ -78,7 +80,7 @@ describe('what a run of commits is made of', () => {
 			// Names, which may come to mean other commits.
 			spec('refs/heads/other...refs/heads/main'),
 			spec(`${id('start')}...HEAD`),
-			spec(id('code')),
+			spec('HEAD'),
 			spec('working-tree'),
 			// An id of nothing in this repository.
 			range(id('start'), 'f'.repeat(40))

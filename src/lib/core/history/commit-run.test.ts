@@ -64,6 +64,9 @@ describe('a run of commits as a title', () => {
 		expect(reportTitle({ kind: 'git', spec: spec(`${empty}...${to}`), run: kept })).toBe(
 			'The first 3 commits: “Add a discount rate” to “Say which code was used”'
 		);
+		expect(
+			reportTitle({ kind: 'git', spec: spec(to), run: run(1, 'Add prices', 'Add prices') })
+		).toBe('1 commit: “Add prices”');
 		// Opened before runs were kept, or two ids that are not a run.
 		expect(reportTitle({ kind: 'git', spec: spec(`${from}...${to}`), run: undefined })).toBe(
 			'Commit abcdef0 compared with commit 0123456'

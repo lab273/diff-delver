@@ -10,7 +10,6 @@
  * with no terminal at all, and the whole command stopped after a time limit.
  */
 import { parseCommitId, type CommitId } from '#lib/core/commit-id.tiny.ts';
-import { firstLineOf } from '#lib/core/git-stderr.tiny.ts';
 import {
 	classifyRemoteFailure,
 	compareWithRemote,
@@ -19,7 +18,6 @@ import {
 	type TrackedBranch
 } from '#lib/core/history/remote-check.ts';
 import type { RemoteName } from '#lib/core/history/remote-name.tiny.ts';
-import { describeGitError } from '../../git/run-git.ts';
 import { gitCwd, gitIn, type LocalRepository } from './local-repository.ts';
 
 /** How long a remote has to answer, in seconds. */
@@ -106,17 +104,10 @@ export async function checkRemote(
 			case 'NotARepository':
 				return { kind: 'failed', error: classifyRemoteFailure(remote, error.stderr) };
 			case 'DubiousOwnership':
-				return {
-					kind: 'failed',
-					error: { kind: 'RemoteCheckFailed', remote, detail: firstLineOf(error.stderr) }
-				};
 			case 'GitNotFound':
 			case 'GitTooOld':
 			case 'NoSuchDirectory':
-				return {
-					kind: 'failed',
-					error: { kind: 'RemoteCheckFailed', remote, detail: describeGitError(error) }
-				};
+				return { kind: 'failed', error: { kind: 'RemoteCheckFailed', remote } };
 		}
 	}
 	return {

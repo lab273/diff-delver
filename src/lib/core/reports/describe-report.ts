@@ -25,8 +25,8 @@ import type { ClosedReason, DiffSize, ReportSource, UnitProgress } from './repor
 export function reportTitle(source: ReportSource): ReviewerMessage {
 	// One kind of source so far; jj and GitHub will add their own titles.
 	const { spec, run } = source;
-	if (run !== undefined && spec.kind === 'range') {
-		return describeCommitRun(run, isEmptyTreeRevision(spec.from));
+	if (run !== undefined) {
+		return describeCommitRun(run, spec.kind === 'range' && isEmptyTreeRevision(spec.from));
 	}
 	return describeGitSource(spec);
 }

@@ -37,12 +37,14 @@ npx https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.t
 ```
 
 > **No release has been made yet**, so that address finds nothing for now. Until the
-> first release, use `npx github:lab273/diff-delver` in its place. It builds diff
-> delver on your machine, which takes a few minutes the first time.
+> first release, use `npx github:lab273/diff-delver` in its place. The first time, it
+> builds diff delver on your machine: about a minute, and about 400 MB of build tools
+> downloaded into npx's cache.
 
-npx asks once whether to install it (about 3 MB), then your diff opens in the
-browser. It shows your uncommitted changes. If you have none, it shows your branch
-compared with the main branch, and if there is more than one likely choice, it asks.
+npx asks whether to install diff delver. The release download is about 3 MB.
+After installation, your diff opens in the browser. It shows your uncommitted
+changes. If you have none, it shows your branch compared with the main branch,
+and if there is more than one likely choice, it asks.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="tests/journeys/screenshots/j0-first-run.02.the-uncommitted-changes.dark.png">
@@ -77,9 +79,15 @@ agent once. For Claude Code:
 claude mcp add diff-delver -- npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz mcp
 ```
 
+> **Until the first release** that command adds a server that cannot start. Use this
+> one instead:
+>
+> ```
+> claude mcp add diff-delver -- npx --yes github:lab273/diff-delver mcp
+> ```
+
 For another agent, add an MCP server that runs the same command: everything after
-the `--`. (Until the first release, see [Build it](#build-it) for the command to use
-instead.)
+the `--`.
 
 Then start the agent in your repository and ask it, in your own words:
 

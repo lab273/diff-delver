@@ -55,14 +55,14 @@ export function compareWithRemote(
 /** Why a remote could not be asked. */
 export type RemoteCheckError =
 	/** The remote could not be reached: offline, or its address is wrong. */
-	| { readonly kind: 'RemoteUnreachable'; readonly remote: RemoteName; readonly detail: string }
+	| { readonly kind: 'RemoteUnreachable'; readonly remote: RemoteName }
 	/** The remote wants a login or a key that diff delver does not ask for. */
 	| { readonly kind: 'RemoteNeedsLogin'; readonly remote: RemoteName }
 	/** The remote's address names no repository, or one this account cannot see. */
 	| { readonly kind: 'RemoteNotFound'; readonly remote: RemoteName }
 	/** The remote did not answer within the time limit. */
 	| { readonly kind: 'RemoteTimedOut'; readonly remote: RemoteName; readonly seconds: number }
-	| { readonly kind: 'RemoteCheckFailed'; readonly remote: RemoteName; readonly detail: string };
+	| { readonly kind: 'RemoteCheckFailed'; readonly remote: RemoteName };
 
 const NEEDS_LOGIN =
 	/authentication failed|could not read (?:username|password)|unable to get (?:username|password)|terminal prompts disabled|permission denied|host key verification failed|invalid credentials|\b40[13]\b/i;
@@ -72,15 +72,10 @@ const UNREACHABLE =
 
 /** What git's error output says went wrong, from the words git and ssh use. */
 export function classifyRemoteFailure(remote: RemoteName, stderr: string): RemoteCheckError {
-	const detail =
-		stderr
-			.split('\n')
-			.map((line) => line.trim())
-			.find((line) => line !== '') ?? 'git gave no reason';
 	if (NEEDS_LOGIN.test(stderr)) return { kind: 'RemoteNeedsLogin', remote };
 	if (NOT_FOUND.test(stderr)) return { kind: 'RemoteNotFound', remote };
-	if (UNREACHABLE.test(stderr)) return { kind: 'RemoteUnreachable', remote, detail };
-	return { kind: 'RemoteCheckFailed', remote, detail };
+	if (UNREACHABLE.test(stderr)) return { kind: 'RemoteUnreachable', remote };
+	return { kind: 'RemoteCheckFailed', remote };
 }
 
 /** "main", "main and prices", "main, prices and 3 more". */
@@ -122,17 +117,25 @@ export function hasNews(comparison: RemoteComparison): boolean {
 	return comparison.changed.length > 0 || comparison.added.length > 0;
 }
 
+/** Fetch the named remote in a shell, including names with shell metacharacters. */
+export function fetchRemoteCommand(remote: RemoteName): string {
+	const argument = /^[a-zA-Z0-9_./-]+$/.test(remote)
+		? remote
+		: `'${remote.replaceAll("'", "'\\''")}'`;
+	return `git fetch -- ${argument}`;
+}
+
 /** What happened and what to do next, for the reviewer. */
 export function describeRemoteCheckError(error: RemoteCheckError): ReviewerMessage {
 	const remote = visibleText(error.remote);
 	switch (error.kind) {
 		case 'RemoteUnreachable':
 			return reviewerMessage(
-				`${remote} could not be reached (${error.detail}). Check that you are online and that "git remote -v" shows the right address, then try again.`
+				`${remote} could not be reached. Check that you are online and that "git remote -v" shows the right address, then try again.`
 			);
 		case 'RemoteNeedsLogin':
 			return reviewerMessage(
-				`${remote} needs a login or a key that diff delver does not ask for, so it could not be checked. Run "git fetch" in a terminal, which can ask you, to bring this copy up to date.`
+				`${remote} needs a login or a key that diff delver does not ask for, so it could not be checked. Run "${fetchRemoteCommand(error.remote)}" in a terminal, which can ask you, to bring this copy up to date.`
 			);
 		case 'RemoteNotFound':
 			return reviewerMessage(
@@ -144,7 +147,7 @@ export function describeRemoteCheckError(error: RemoteCheckError): ReviewerMessa
 			);
 		case 'RemoteCheckFailed':
 			return reviewerMessage(
-				`${remote} could not be checked: ${error.detail} Check that "git ls-remote ${remote}" works in a terminal, then try again.`
+				`${remote} could not be checked. Check the address with "git remote -v", then try again.`
 			);
 	}
 }
