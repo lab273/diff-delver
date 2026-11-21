@@ -18,7 +18,6 @@ import {
 import { describeNoDataDirectory } from '#lib/core/data-directory.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { loadAppHandler } from '../daemon/app-handler.ts';
-import { describeApiError } from '#lib/api/client.ts';
 import { ENTRY_CODE_LIFETIME_TEXT } from '#lib/core/daemon/entry-codes.ts';
 import { describeDaemonStartError, entryAddress, startDaemon } from '../daemon/daemon.ts';
 import {
@@ -30,9 +29,15 @@ import {
 import { machineDataDirectory } from '../store/index.ts';
 import { randomIds, systemClock } from '../system.ts';
 import { codeVersion } from '../version.ts';
-import { describeReplacedDaemon } from '#lib/core/cli/replaced-daemon.ts';
+import { describeNewerDaemon, describeReplacedDaemon } from '#lib/core/cli/replaced-daemon.ts';
 import { openBrowser } from './open-browser.ts';
-import { openOutcome, startOutcome, type CommandOutcome } from './outcome.ts';
+import {
+	describerFor,
+	openOutcome,
+	startOutcome,
+	type CommandOutcome,
+	type DescribeApiError
+} from './outcome.ts';
 
 export interface Terminal {
 	readonly print: (line: string) => void;
@@ -121,13 +126,14 @@ async function show(
 	client: ApiClient,
 	origin: string,
 	outcome: CommandOutcome,
-	noOpen: boolean
+	noOpen: boolean,
+	describe: DescribeApiError
 ): Promise<number> {
 	for (const line of outcome.lines)
 		(outcome.exitCode === 0 ? terminal.print : terminal.printError)(line);
 	const code = await client.entryCode();
 	if (!code.ok) {
-		terminal.printError(describeApiError(code.error));
+		terminal.printError(describe(code.error));
 		return 1;
 	}
 	const address = entryAddress(origin, outcome.page, code.value.code);
@@ -206,16 +212,24 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 				terminal.printError(describeLaunchError(launched.error));
 				return 1;
 			}
-			const { connection, replaced } = launched.value;
-			if (replaced !== undefined) {
-				terminal.print(describeReplacedDaemon(replaced, codeVersion(), entry));
+			const { connection, found } = launched.value;
+			switch (found.kind) {
+				case 'own':
+					break;
+				case 'replaced':
+					terminal.print(describeReplacedDaemon(found.version, codeVersion()));
+					break;
+				case 'newer':
+					terminal.print(describeNewerDaemon(found.version, codeVersion(), entry));
+					break;
 			}
+			const describe = describerFor(found, codeVersion(), entry);
 			const client = new ApiClient({ fetch, base: connection.origin, token: connection.token });
 			const outcome =
 				command.kind === 'start'
-					? await startOutcome(client, directory.value)
-					: await openOutcome(client, directory.value, command.source);
-			return show(client, connection.origin, outcome, invocation.noOpen);
+					? await startOutcome(client, directory.value, describe)
+					: await openOutcome(client, directory.value, command.source, describe);
+			return show(client, connection.origin, outcome, invocation.noOpen, describe);
 		}
 	}
 }

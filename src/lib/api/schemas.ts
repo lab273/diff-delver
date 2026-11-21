@@ -593,7 +593,16 @@ export const DeletedSchema = z.object({
 });
 export type DeletedResponse = z.output<typeof DeletedSchema>;
 
-/** GET /api/daemon: which build the daemon runs, and which process it is, so the command can tell it is the one its lockfile names. */
+/**
+ * GET /api/daemon: which build the daemon runs, and which process it is, so the command can tell it is the one its lockfile names.
+ *
+ * An older copy of the command reads this from a newer daemon, to find that it
+ * is newer and use it, and to stop it (`launcher.ts`), so it never changes
+ * between releases: only fields may be added. The same holds for stopping
+ * (POST /api/daemon/stop), whose answer the command does not read. What else
+ * the command asks a newer daemon (start, open, an entry code) may change: an
+ * answer it cannot read is then said as this copy being too old.
+ */
 export const DaemonInfoSchema = z.object({
 	version: parsed(z.string(), parseCodeVersion),
 	pid: parsed(z.number(), parseProcessId)

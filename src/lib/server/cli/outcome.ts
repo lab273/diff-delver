@@ -4,9 +4,13 @@
  * open. The command (`main.ts`) and the journeys both use this, so a journey
  * follows the command exactly as a person's terminal would.
  */
-import { describeApiError, type ApiClient } from '#lib/api/client.ts';
+import { describeApiError, type ApiClient, type ApiError } from '#lib/api/client.ts';
 import type { OpenResponse, StartResponse } from '#lib/api/schemas.ts';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { describeTooOldForDaemon } from '#lib/core/cli/replaced-daemon.ts';
+import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
+import type { ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import type { FoundDaemon } from '../daemon/launcher.ts';
 import {
 	formatGitSourceSpec,
 	parseGitSourceSpec,
@@ -82,14 +86,56 @@ function described(
 	}
 }
 
+/** How the command words an error from the daemon; `describeApiError` unless it says more, as for a newer daemon. */
+export type DescribeApiError = (error: ApiError) => ReviewerMessage;
+
+/**
+ * Whether an error means the daemon and this command do not understand each
+ * other: an answer the command cannot read, or a request the daemon could not.
+ */
+function misunderstood(error: ApiError): boolean {
+	switch (error.kind) {
+		case 'unreadable':
+			return true;
+		case 'refused':
+			return error.reason === 'BadRequest';
+		case 'unreachable':
+		case 'interrupted':
+			return false;
+	}
+}
+
+/**
+ * How the command words errors from the daemon it found. A newer daemon may
+ * answer in a way this older copy cannot read, or not read what it sends:
+ * then this copy is too old, and the message says how to upgrade.
+ */
+export function describerFor(
+	found: FoundDaemon,
+	mine: CodeVersion,
+	commandPath: string
+): DescribeApiError {
+	switch (found.kind) {
+		case 'own':
+		case 'replaced':
+			return describeApiError;
+		case 'newer':
+			return (error) =>
+				misunderstood(error)
+					? describeTooOldForDaemon(found.version, mine, commandPath)
+					: describeApiError(error);
+	}
+}
+
 /** `diff-delver` with no arguments. */
 export async function startOutcome(
 	client: ApiClient,
-	directory: AbsolutePath
+	directory: AbsolutePath,
+	describe: DescribeApiError = describeApiError
 ): Promise<CommandOutcome> {
 	const started = await client.start({ directory });
 	if (!started.ok) {
-		return { lines: [describeApiError(started.error)], page: startPage(directory), exitCode: 1 };
+		return { lines: [describe(started.error)], page: startPage(directory), exitCode: 1 };
 	}
 	return described(started.value, directory, undefined);
 }
@@ -98,13 +144,14 @@ export async function startOutcome(
 export async function openOutcome(
 	client: ApiClient,
 	directory: AbsolutePath,
-	source: GitSourceSpec
+	source: GitSourceSpec,
+	describe: DescribeApiError = describeApiError
 ): Promise<CommandOutcome> {
 	const opened = await client.open({ directory, source: formatGitSourceSpec(source) });
 	if (!opened.ok) {
 		// The page says what was asked for and why it could not be opened, then what can be.
 		return {
-			lines: [describeApiError(opened.error)],
+			lines: [describe(opened.error)],
 			page: startPage(directory, source),
 			exitCode: 1
 		};

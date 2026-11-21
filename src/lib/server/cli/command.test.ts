@@ -295,6 +295,19 @@ describe('the diff-delver command', () => {
 		).toHaveLength(1);
 	});
 
+	it('stops a running daemon of any other version on diff-delver stop, newer ones included', async () => {
+		const { who, data } = await setUp();
+		const newer = await testDaemon({
+			dataDirectory: data,
+			version: version('999.0.0+aaaaaaaaaaaa'),
+			who
+		});
+		const result = await run(['stop', '--data-directory', data], data, who);
+		expect(result).toEqual({ code: 0, stdout: 'diff delver has stopped.\n', stderr: '' });
+		await newer.stopped;
+		expect(await readLockfile(data)).toEqual({ kind: 'none' });
+	});
+
 	it('prints its help and version, and says what is wrong with a command it cannot read', async () => {
 		const who = await reviewer();
 		const repo = await emptyRepo();

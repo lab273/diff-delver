@@ -1,8 +1,16 @@
 /**
- * What the command says when it has replaced a running daemon of another
- * version (`ensureDaemon`): which way the versions went, and, when this copy
- * is the older one, how to get the newest. Two releases are put in order; a
- * build that is no release (a clone's, marked `-dev`) is only "different".
+ * A running daemon of another version than the command (`ensureDaemon`):
+ * which of the two is newer, and what the command says about it.
+ *
+ * Two releases are put in order by their numbers. A build that is no release (a
+ * clone's, marked `-dev`), on either side, and one release built from different
+ * code cannot be put in order: they are only "different".
+ *
+ * - The daemon is newer: the command uses it as it is, since the older copy
+ *   could not read a database the newer one has changed, and says how to bring
+ *   this copy up to date.
+ * - The daemon is older, or the two cannot be put in order: the command
+ *   replaces it and says so.
  */
 import type { CodeVersion } from '../code-version.tiny.ts';
 import { compareReleases, releaseOfCodeVersion } from '../release-version.tiny.ts';
@@ -30,11 +38,47 @@ export function howToUpgrade(commandPath: string): string {
 	return `To run the newest release, see "Upgrading" in the README (${UPGRADING_ADDRESS}).`;
 }
 
-export function describeReplacedDaemon(
+/** How the running daemon's version stands to the command's own. */
+export type DaemonOrder = 'same' | 'running-newer' | 'running-older' | 'unordered';
+
+export function orderOfDaemon(running: CodeVersion, mine: CodeVersion): DaemonOrder {
+	if (running === mine) return 'same';
+	const theirs = releaseOfCodeVersion(running);
+	const ours = releaseOfCodeVersion(mine);
+	if (theirs === undefined || ours === undefined) return 'unordered';
+	const order = compareReleases(theirs, ours);
+	return order > 0 ? 'running-newer' : order < 0 ? 'running-older' : 'unordered';
+}
+
+/** The release a build reports, or the whole version of a build that is no release. */
+function shown(version: CodeVersion): string {
+	return releaseOfCodeVersion(version) ?? version;
+}
+
+/** What the command says when it uses a newer daemon that is running. */
+export function describeNewerDaemon(
 	running: CodeVersion,
 	mine: CodeVersion,
 	commandPath: string
 ): ReviewerMessage {
+	return reviewerMessage(
+		`A newer diff delver, ${shown(running)}, is already running, so this copy, ${shown(mine)}, is using it. ${howToUpgrade(commandPath)}`
+	);
+}
+
+/** What the command says when a newer daemon it is using answered in a way it cannot read. */
+export function describeTooOldForDaemon(
+	running: CodeVersion,
+	mine: CodeVersion,
+	commandPath: string
+): ReviewerMessage {
+	return reviewerMessage(
+		`This copy of diff delver, ${shown(mine)}, is too old for the newer one that is running, ${shown(running)}: it answered in a way this copy cannot read. ${howToUpgrade(commandPath)}`
+	);
+}
+
+/** What the command says when it has replaced an older daemon, or one it cannot put in order. */
+export function describeReplacedDaemon(running: CodeVersion, mine: CodeVersion): ReviewerMessage {
 	const theirs = releaseOfCodeVersion(running);
 	const ours = releaseOfCodeVersion(mine);
 	if (theirs !== undefined && ours !== undefined) {
@@ -42,11 +86,6 @@ export function describeReplacedDaemon(
 		if (order < 0) {
 			return reviewerMessage(
 				`diff delver ${ours} has replaced ${theirs}, the older version that was running. Pages the old one had open need opening again.`
-			);
-		}
-		if (order > 0) {
-			return reviewerMessage(
-				`diff delver ${ours} has replaced ${theirs}, a newer version that was running, so this copy is older than one you have used. Pages the newer one had open need opening again. ${howToUpgrade(commandPath)}`
 			);
 		}
 	}

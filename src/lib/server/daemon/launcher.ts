@@ -3,9 +3,16 @@
  * is none (DESIGN 3):
  *
  * - a lockfile whose daemon answers, with the command's own version: used;
- * - one whose daemon answers with another version: that daemon is asked to stop
- *   and a new one is started, so a person who updated diff delver is never left
- *   talking to the old one. Its open pages stop working, and the command says so;
+ * - one whose daemon answers with a newer release than the command's: used as
+ *   it is, since npx often runs an older copy after a newer one has started, and
+ *   the older copy could not read a database the newer one has changed. The
+ *   command says so, and how to bring the copy up to date;
+ * - one whose daemon answers with an older release, or a version that cannot
+ *   be put in order with the command's (a development build on either side, or
+ *   one release built from different code, `orderOfDaemon`): that daemon is
+ *   asked to stop and a new one is started, so a person who updated diff
+ *   delver is never left talking to the old one. Its open pages stop working,
+ *   and the command says so;
  * - a stale lockfile (its process is gone, or it does not answer) or none: a
  *   new daemon is started, which replaces the stale lockfile. A process a stale
  *   lockfile names is never signalled: it may be any program by now.
@@ -21,6 +28,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
+import { orderOfDaemon } from '#lib/core/cli/replaced-daemon.ts';
 import type { ProcessId } from '#lib/core/process-id.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
@@ -52,10 +60,15 @@ export function describeLaunchError(error: LaunchError): ReviewerMessage {
 	}
 }
 
+/** Which daemon the command got, for it to say: its own version's, one that replaced another, or a newer one already running. */
+export type FoundDaemon =
+	| { readonly kind: 'own' }
+	| { readonly kind: 'replaced'; readonly version: CodeVersion }
+	| { readonly kind: 'newer'; readonly version: CodeVersion };
+
 export interface Launched {
 	readonly connection: DaemonConnection;
-	/** The version of a daemon this one replaced, for the command to say. */
-	readonly replaced: CodeVersion | undefined;
+	readonly found: FoundDaemon;
 }
 
 /** How long a new daemon has to say it is listening. */
@@ -175,19 +188,28 @@ export async function ensureDaemon(
 	version: CodeVersion,
 	entry: string
 ): Promise<Result<Launched, LaunchError>> {
-	let replaced: Launched['replaced'];
+	let found: FoundDaemon = { kind: 'own' };
 	for (let attempt = 0; attempt < 3; attempt += 1) {
 		const content = await readLockfile(dataDirectory);
 		if (content.kind === 'lock') {
 			const probe = await probeLock(content.lock);
 			if (probe.kind === 'answering') {
-				if (probe.version === version) {
-					return ok({ connection: connectionOf(content.lock), replaced });
+				switch (orderOfDaemon(probe.version, version)) {
+					case 'same':
+						return ok({ connection: connectionOf(content.lock), found });
+					case 'running-newer':
+						return ok({
+							connection: connectionOf(content.lock),
+							found: { kind: 'newer', version: probe.version }
+						});
+					case 'running-older':
+					case 'unordered':
+						break;
 				}
 				if (!(await stopDaemonOf(dataDirectory, content.lock, content.text))) {
 					return err({ kind: 'OldDaemonWouldNotStop', lock: content.lock });
 				}
-				replaced = probe.version;
+				found = { kind: 'replaced', version: probe.version };
 				continue;
 			}
 		}
@@ -197,7 +219,7 @@ export async function ensureDaemon(
 		if (!started.ok) return started;
 	}
 	const content = await readLockfile(dataDirectory);
-	if (content.kind === 'lock') return ok({ connection: connectionOf(content.lock), replaced });
+	if (content.kind === 'lock') return ok({ connection: connectionOf(content.lock), found });
 	return err({
 		kind: 'StartFailed',
 		message: reviewerMessage(
