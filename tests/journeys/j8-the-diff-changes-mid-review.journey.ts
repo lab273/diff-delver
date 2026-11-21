@@ -128,10 +128,23 @@ test.describe('J8 The diff changes mid-review', () => {
 		const newer = journey.byRole('region', { name: 'This diff has a newer version' });
 		await journey.expectText(newer, 'It was updated to version 3 while this page was open');
 		await journey.step('A tick from a page that is behind');
+		// A tick of the whole group says so too, under the group's heading, and its box
+		// shows again that some of it is reviewed.
+		const notSorted = journey.byRole('region', { name: 'Not sorted yet' });
+		const groupTick = journey.byRole('checkbox', { name: 'All reviewed: Not sorted yet' });
+		await journey.expectState(groupTick, { checked: 'mixed' });
+		await journey.activate(groupTick, 'Space');
+		await journey.expectText(
+			journey.nth(journey.within(notSorted).byRole('alert'), 1),
+			'Nothing was marked. This diff was updated to version 3 after you last looked at it'
+		);
+		await journey.expectState(groupTick, { checked: 'mixed' });
+		await journey.expectFocused(groupTick);
+		await journey.step('A group tick from a page that is behind');
 
 		// Where the tick was refused, the way to the new version is at hand.
 		await journey.activate(
-			journey.within(discount).byRole('button', { name: 'Show the new version' })
+			journey.within(notSorted).byRole('button', { name: 'Show the new version' })
 		);
 		await journey.expectFocused(
 			journey.byRole('heading', { name: 'Updated to version 3 just now' })

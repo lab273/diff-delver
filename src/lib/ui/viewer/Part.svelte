@@ -12,7 +12,8 @@
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import PartLines from './PartLines.svelte';
-	import { done, type PartState, type Viewer } from './viewer.svelte.ts';
+	import TickRefused from './TickRefused.svelte';
+	import { done, partly, showTally, type PartState, type Viewer } from './viewer.svelte.ts';
 
 	let {
 		viewer,
@@ -140,6 +141,7 @@
 					type="checkbox"
 					aria-label="Reviewed: {part.path}{part.of > 1 ? ` in ${groupName}` : ''}"
 					checked={reviewed}
+					indeterminate={partly(part.tally)}
 					aria-describedby={state.busy ? `part-${String(at)}-saving` : undefined}
 					onchange={async (event) => {
 						const box = event.currentTarget;
@@ -152,7 +154,7 @@
 						viewer.current = at;
 						await ontick(at, box.checked);
 						// A tick that was refused leaves the box as the diff has it.
-						box.checked = done(state.part.tally);
+						showTally(box, state.part.tally);
 					}}
 				/>
 				Reviewed
@@ -162,10 +164,7 @@
 	</header>
 	{#if state.problem !== ''}
 		<div class="refused">
-			<p class="problem" role="alert">{state.problem}</p>
-			{#if state.behind}
-				<button type="button" onclick={onshownewer}>Show the new version</button>
-			{/if}
+			<TickRefused message={state.problem} behind={state.behind} {onshownewer} />
 		</div>
 	{/if}
 	<div class="body" id="part-{at}-body" hidden={!state.open}>
@@ -406,15 +405,7 @@
 	}
 
 	.refused {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0 0.75rem;
 		border-bottom: 1px solid var(--color-border);
-	}
-
-	.refused button {
-		margin: 0 0.75rem 0.5rem;
 	}
 
 	.tools {

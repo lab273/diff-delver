@@ -25,12 +25,15 @@
 	import { parsePartIndex, type PartIndex } from '#lib/core/part-index.tiny.ts';
 	import FileList from '#lib/ui/viewer/FileList.svelte';
 	import Part from '#lib/ui/viewer/Part.svelte';
+	import TickRefused from '#lib/ui/viewer/TickRefused.svelte';
 	import ProgressBar from '#lib/ui/viewer/ProgressBar.svelte';
 	import Shortcuts from '#lib/ui/viewer/Shortcuts.svelte';
 	import { shortcutOf } from '#lib/ui/viewer/keys.ts';
 	import {
 		done,
 		NEXT_BATCH,
+		partly,
+		showTally,
 		Viewer,
 		type GroupInfo,
 		type TickTarget
@@ -555,11 +558,6 @@
 					<p>{problem}</p>
 				</Notice>
 			{/if}
-			{#if viewer.refusal !== '' && byFile}
-				<Notice tone="danger" heading="Nothing was marked">
-					<p>{viewer.refusal.replace(/^Nothing was marked\. /, '')}</p>
-				</Notice>
-			{/if}
 
 			{#if updated !== null}
 				<Notice
@@ -666,7 +664,7 @@
 			<!-- A new version is a new viewer: its parts are drawn afresh, never reused. -->
 			{#key viewer}
 				{#if byFile}
-					<FileList {viewer} ontick={tickFile} ongo={goTo} />
+					<FileList {viewer} ontick={tickFile} ongo={goTo} onshownewer={showNewer} />
 				{:else}
 					{@const anyShown = viewer.parts.some((p) => viewer.shows(p.index))}
 					{#if !anyShown}
@@ -695,17 +693,25 @@
 												type="checkbox"
 												aria-label="All reviewed: {group.name}"
 												checked={done(tally)}
-												indeterminate={tally.reviewed > 0 && !done(tally)}
+												indeterminate={partly(tally)}
 												onchange={async (event) => {
 													const box = event.currentTarget;
 													await tickGroup(group, box.checked);
-													box.checked = done(viewer.groupTally(group));
+													showTally(box, viewer.groupTally(group));
 												}}
 											/>
 											All reviewed
 										</label>
 									{/if}
 								</div>
+								{#if viewer.refused?.kind === 'group' && viewer.refused.key === group.id}
+									{@const refused = viewer.refused}
+									<TickRefused
+										message={refused.message}
+										behind={refused.behind}
+										onshownewer={showNewer}
+									/>
+								{/if}
 								{#if group.key.kind === 'uncategorised'}
 									<p class="explain">
 										{page.sorted

@@ -10,16 +10,20 @@
 	import type { EscapedPath } from '#lib/core/path-bytes.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import { tick } from 'svelte';
-	import { done, type Viewer } from './viewer.svelte.ts';
+	import TickRefused from './TickRefused.svelte';
+	import { done, partly, showTally, type Viewer } from './viewer.svelte.ts';
 
 	let {
 		viewer,
 		ontick,
-		ongo
+		ongo,
+		onshownewer
 	}: {
 		viewer: Viewer;
 		ontick: (file: FileView, reviewed: boolean) => Promise<void>;
 		ongo: (path: EscapedPath, group: GroupKeyView) => void;
+		/** Shows the diff's newer version, when a tick was refused for being behind it. */
+		onshownewer: () => void;
 	} = $props();
 
 	/**
@@ -79,10 +83,12 @@
 								type="checkbox"
 								aria-label="Reviewed: {file.path}"
 								checked={done(file.tally)}
+								indeterminate={partly(file.tally)}
 								onchange={async (event) => {
 									const box = event.currentTarget;
 									await ontick(file, box.checked);
-									box.checked = done(
+									showTally(
+										box,
 										viewer.files.find((f) => f.path === file.path)?.tally ?? file.tally
 									);
 									await tick();
@@ -91,6 +97,12 @@
 							/>
 							Reviewed
 						</label>
+					{/if}
+					{#if viewer.refused?.kind === 'file' && viewer.refused.key === file.path}
+						{@const refused = viewer.refused}
+						<div class="refused">
+							<TickRefused message={refused.message} behind={refused.behind} {onshownewer} />
+						</div>
 					{/if}
 				</li>
 			{/each}
@@ -165,6 +177,10 @@
 		align-items: center;
 		gap: 0.35rem;
 		font-weight: 700;
+	}
+
+	.refused {
+		flex-basis: 100%;
 	}
 
 	.tick input {

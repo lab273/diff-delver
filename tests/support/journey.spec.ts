@@ -538,6 +538,8 @@ ${['a.ts', 'b.ts', 'c.ts']
 		const journey = await planted(
 			pageWith(`<h1>State</h1>
 <label><input type="checkbox"> Hide whitespace</label>
+<label><input type="checkbox" id="some"> Some reviewed</label>
+<script>document.getElementById('some').indeterminate = true;</script>
 <button type="button" aria-pressed="false" onclick="this.setAttribute('aria-pressed', String(this.getAttribute('aria-pressed') !== 'true'))">Split view</button>
 <button type="button" aria-expanded="false" onclick="this.setAttribute('aria-expanded', 'true')">Agent notes</button>
 <div role="tablist" aria-label="View"><button type="button" role="tab" aria-selected="true">By section</button><button type="button" role="tab" tabindex="-1">By file</button></div>
@@ -549,6 +551,7 @@ ${['a.ts', 'b.ts', 'c.ts']
 		await journey.expectState(hide, { checked: false });
 		await journey.activate(hide, 'Space');
 		await journey.expectState(hide, { checked: true });
+		await journey.expectState(journey.byLabel('Some reviewed'), { checked: 'mixed' });
 		await journey.expectState(split, { pressed: false });
 		await journey.activate(split);
 		await journey.expectState(split, { pressed: true, disabled: false });

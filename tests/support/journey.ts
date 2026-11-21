@@ -165,7 +165,8 @@ export interface Finder {
  * tab; `disabled` for any control.
  */
 export interface ControlState {
-	readonly checked?: boolean;
+	/** `'mixed'` for a box that is partly checked, such as "All reviewed" with some reviewed. */
+	readonly checked?: boolean | 'mixed';
 	readonly pressed?: boolean;
 	readonly expanded?: boolean;
 	readonly selected?: boolean;
@@ -838,7 +839,9 @@ export async function startJourney(
 			const locator = locatorOf(target);
 			const should = (what: string): string => `${target.description} should be ${what}`;
 			const { checked, pressed, expanded, selected, disabled } = state;
-			if (checked !== undefined) {
+			if (checked === 'mixed') {
+				await expect(locator, should('partly checked')).toBeChecked({ indeterminate: true });
+			} else if (checked !== undefined) {
 				await expect(locator, should(checked ? 'checked' : 'not checked')).toBeChecked({
 					checked
 				});

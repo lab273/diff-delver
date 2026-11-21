@@ -132,6 +132,21 @@ export function done(tally: TallyView): boolean {
 	return tally.units > 0 && tally.reviewed === tally.units;
 }
 
+/** Whether some but not all changes of a part, file or group are reviewed: its box is partly ticked. */
+export function partly(tally: TallyView): boolean {
+	return tally.reviewed > 0 && tally.reviewed < tally.units;
+}
+
+/**
+ * Puts a tick box back as the diff has it, ticked, partly ticked or not, after
+ * a press whose tick may not have happened: the browser changed the box when
+ * pressed, and only a change of the tally would change it back.
+ */
+export function showTally(box: HTMLInputElement, tally: TallyView): void {
+	box.checked = done(tally);
+	box.indeterminate = partly(tally);
+}
+
 export function sumTallies(tallies: readonly TallyView[]): TallyView {
 	let units = 0;
 	let reviewed = 0;
@@ -171,6 +186,17 @@ export type TickTarget =
 	| { readonly kind: 'file'; readonly path: FileView['path'] }
 	| { readonly kind: 'group'; readonly group: GroupInfo };
 
+/** A tick of a file or a group that did not happen, and why. */
+export interface Refusal {
+	readonly kind: 'file' | 'group';
+	/** The file's path, or the group's id. */
+	readonly key: string;
+	/** "Nothing was marked." and why, with what to do. */
+	readonly message: string;
+	/** The diff has a newer version than the page shows. */
+	readonly behind: boolean;
+}
+
 /** What a tick came to, for the page to move focus and say so. */
 export type TickOutcome =
 	| {
@@ -200,6 +226,8 @@ export class Viewer {
 	rendered = $state(FIRST_BATCH);
 	/** What the page says to screen readers, politely. */
 	announcement = $state('');
+	/** Why the last tick of a file or a group did not happen; a part's is the part's own. */
+	refused = $state<Refusal>();
 
 	/** Where each part is; fixed for the viewer's life, so not reactive. */
 	readonly #byKey: ReadonlyMap<string, PartIndex>;
@@ -439,7 +467,9 @@ export class Viewer {
 		for (const part of busy) {
 			part.busy = true;
 			part.problem = '';
+			part.behind = false;
 		}
+		this.refused = undefined;
 		const before = target.kind === 'group' ? undefined : this.groupOfPartIn(target);
 		const sent = await pageClient().markReviewed(this.id, {
 			version: this.version,
@@ -509,17 +539,22 @@ export class Viewer {
 		const message = `Nothing was marked. ${describeApiError(error)}`;
 		const first = parts[0];
 		const outOfDate = error.kind === 'refused' && error.reason === 'VersionOutOfDate';
-		if (target.kind === 'part' && first !== undefined) {
-			first.problem = message;
-			first.behind = outOfDate;
+		// Said where the tick was made, as an alert, in either view.
+		switch (target.kind) {
+			case 'part':
+				if (first !== undefined) {
+					first.problem = message;
+					first.behind = outOfDate;
+				}
+				break;
+			case 'file':
+				this.refused = { kind: 'file', key: target.path, message, behind: outOfDate };
+				break;
+			case 'group':
+				this.refused = { kind: 'group', key: target.group.id, message, behind: outOfDate };
+				break;
 		}
-		this.announcement = message;
 		return { kind: 'refused', outOfDate };
-	}
-
-	/** The last refusal, for a tick of a file or a group, which has no part of its own to say it in. */
-	get refusal(): string {
-		return this.announcement.startsWith('Nothing was marked.') ? this.announcement : '';
 	}
 
 	#describeTick(
