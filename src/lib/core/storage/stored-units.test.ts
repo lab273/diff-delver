@@ -175,7 +175,7 @@ describe('rows that do not fit the diff', () => {
 		if (!read.ok) {
 			expect(read.error.problem).toBe(problem);
 			expect(describeStoredStateMismatch(read.error)).toMatch(
-				/Delete the diff from the list of diffs/
+				/Delete the Delve from the list of Delves/
 			);
 		}
 	});

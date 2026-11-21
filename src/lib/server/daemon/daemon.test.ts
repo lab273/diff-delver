@@ -85,7 +85,7 @@ describe('the daemon', () => {
 		expect(value(await client.checkForChanges(id))).toEqual({ kind: 'unchanged' });
 		expect(value(await client.closeDiff(id)).diff.state).toEqual({
 			kind: 'closed',
-			reason: 'You closed this diff.'
+			reason: 'You closed this Delve.'
 		});
 		expect(value(await client.checkForChanges(id))).toEqual({ kind: 'closed' });
 		expect(value(await client.reopenDiff(id)).diff.state).toEqual({ kind: 'open' });
@@ -96,7 +96,7 @@ describe('the daemon', () => {
 		expect(gone.ok).toBe(false);
 		if (!gone.ok) {
 			expect(gone.error).toMatchObject({ kind: 'refused', status: 404, reason: 'ReportNotFound' });
-			expect(describeApiError(gone.error)).toMatch(/This diff is not in diff delver any more/);
+			expect(describeApiError(gone.error)).toMatch(/This Delve is not in diff delver any more/);
 		}
 		expect(value(await client.daemonInfo())).toEqual({ version: 'test', pid: process.pid });
 	});
@@ -186,7 +186,7 @@ describe('the daemon’s gate', () => {
 		const cookie = `${tokenCookieName(daemon.port)}=${daemon.token}`;
 		const home = await rawRequest(daemon.port, { path: '/', headers: { cookie } });
 		expect(home.status).toBe(200);
-		expect(home.body).toContain('There are no diffs in diff delver.');
+		expect(home.body).toContain('No Delves yet.');
 		expect(home.headers['referrer-policy']).toBe('no-referrer');
 		// The pages load nothing from anywhere but the daemon, and run only its own scripts.
 		const policy = String(home.headers['content-security-policy']);

@@ -150,41 +150,41 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 	switch (error.kind) {
 		case 'ReportNotFound':
 			return reviewerMessage(
-				'This diff is not in diff delver any more: it may have been deleted. Go to the list of diffs to find the one you want, or open its changes again.'
+				'This Delve is not in diff delver any more: it may have been deleted. Go to the list of Delves to find the one you want, or open its changes again.'
 			);
 		case 'ReportClosed':
 			return reviewerMessage(
-				'This diff is closed, so it can be read but not changed. Reopen it to carry on with it.'
+				'This Delve is closed, so it can be read but not changed. Reopen it to carry on with it.'
 			);
 		case 'AnotherReportOpen':
 			return reviewerMessage(
-				'This diff cannot be reopened while another diff of the same changes is open. Carry on in that one, or close it first.'
+				'This Delve cannot be reopened while another Delve for the same changes is open. Carry on in that one, or close it first.'
 			);
 		case 'ReportHasNoRevision':
 			return reviewerMessage(
-				'This diff has no saved version of its changes, so the database has been changed by hand or damaged. Delete it from the list of diffs and open its changes again.'
+				'This Delve has no saved version of its changes, so the database has been changed by hand or damaged. Delete it from the list of Delves and open its changes again.'
 			);
 		case 'RepositoryReplaced':
 			return reviewerMessage(
-				`${error.path} now holds a different repository from the one this diff was opened in, so its changes cannot be checked. Open the changes again from the repository you want to review.`
+				`${error.path} now holds a different repository from the one this Delve was opened in, so its changes cannot be checked. Open the changes again from the repository you want to review.`
 			);
 		case 'RevisionChangedWhileSaving':
 			return reviewerMessage(
-				'The diff was updated while your change was being saved, so it was not saved: it was made on a version of the diff that is no longer current. Reload the page to see the new version, then make the change again.'
+				'The Delve was updated while your change was being saved, so it was not saved: it was made on a version of the Delve that is no longer current. Reload the page to see the new version, then make the change again.'
 			);
 		case 'VersionOutOfDate':
 			return reviewerMessage(
-				`This diff was updated to version ${String(error.current)} after you last looked at it, so nothing was changed: what you did was meant for version ${String(error.seen)}. Show the new version first, then do it again there.`
+				`This Delve was updated to version ${String(error.current)} after you last looked at it, so nothing was changed: what you did was meant for version ${String(error.seen)}. Show the new version first, then do it again there.`
 			);
 		case 'VersionNotFound':
 			return reviewerMessage(
-				`This diff has no version ${String(error.seen)}: its newest is version ${String(error.current)}, so nothing was changed. Reload the page to see the diff as it is now, then do it again there.`
+				`This Delve has no version ${String(error.seen)}: its newest is version ${String(error.current)}, so nothing was changed. Reload the page to see the current version, then do it again there.`
 			);
 		case 'SnapshotGone':
 			return reviewerMessage(
 				error.open
-					? `The saved copy of this diff's changes is gone from diff delver's data folder (it was deleted or moved), so the diff cannot be shown. Open ${error.source} again to start a new diff of them; this one will then be closed.`
-					: `The saved copy of this diff's changes is gone from diff delver's data folder (it was deleted or moved), so the diff cannot be shown, and nothing can bring it back. Delete it from the list of diffs.`
+					? `The saved copy of this Delve's changes is gone from diff delver's data folder (it was deleted or moved), so the diff cannot be shown. Open ${error.source} again to start a new Delve; this one will then be closed.`
+					: `The saved copy of this Delve's changes is gone from diff delver's data folder (it was deleted or moved), so the diff cannot be shown, and nothing can bring it back. Delete it from the list of Delves.`
 			);
 		case 'SectionsRefused':
 			return reviewerMessage(
@@ -198,7 +198,7 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 			return describeStoredStateMismatch(error);
 		case 'PartNotFound':
 			return reviewerMessage(
-				`This part of ${shownRepoPath(error.path)} is not where the page showed it any more: the diff was sorted again since. Reload the page to see where it is now.`
+				`This part of ${shownRepoPath(error.path)} is not where the page showed it any more: the Delve was sorted again since. Reload the page to see where it is now.`
 			);
 		case 'PathNotFound':
 		case 'PathIsDirectory':

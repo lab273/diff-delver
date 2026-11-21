@@ -182,7 +182,7 @@ export const HELP_TEXT = `diff delver: review a diff, sorted into sections by an
 Usage:
   diff-delver                 Open the changes in this repository that are most
                               likely to be reviewed, in your browser.
-  diff-delver open <source>   Open one source: working-tree (uncommitted changes),
+  diff-delver open <source>   Open a Delve for working-tree (uncommitted changes),
                               staged, a commit such as HEAD or abc1234, or two
                               branches to compare, such as main...feature-x.
   diff-delver choose          Choose commits, or a whole branch, to review: shows

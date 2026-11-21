@@ -367,7 +367,7 @@ describe('the report service', () => {
 			path: 'gone.ts'
 		});
 		expect(describeReportError(error)).toMatch(
-			/Delete the diff from the list of diffs and open its changes again/
+			/Delete the Delve from the list of Delves and open its changes again/
 		);
 		const ticked = failure(
 			await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/app.ts') }, true)
@@ -400,7 +400,7 @@ describe('the report service', () => {
 		// It was made on version 1, so it is not made on a newer one.
 		expect(error).toMatchObject({ kind: 'VersionOutOfDate', report: id, seen: 1 });
 		expect(describeReportError(error)).toMatch(
-			/^This diff was updated to version \d+ after you last looked at it, so nothing was changed: what you did was meant for version 1\. Show the new version first/
+			/^This Delve was updated to version \d+ after you last looked at it, so nothing was changed: what you did was meant for version 1\. Show the new version first/
 		);
 		const raw = new DatabaseSync(join(data, DATABASE_FILE), { readOnly: true });
 		expect(raw.prepare('SELECT COUNT(*) AS n FROM reviewed_marks').get()).toEqual({ n: 0 });
@@ -421,7 +421,7 @@ describe('the report service', () => {
 		for (const error of errors) {
 			expect(error).toEqual({ kind: 'VersionNotFound', report: id, seen: 2, current: 1 });
 			expect(describeReportError(error)).toBe(
-				'This diff has no version 2: its newest is version 1, so nothing was changed. Reload the page to see the diff as it is now, then do it again there.'
+				'This Delve has no version 2: its newest is version 1, so nothing was changed. Reload the page to see the current version, then do it again there.'
 			);
 		}
 		const raw = new DatabaseSync(join(data, DATABASE_FILE), { readOnly: true });
@@ -549,7 +549,7 @@ describe('the report service', () => {
 		const second = created(value(await service.open(repo.dir, spec('working-tree'))));
 		const refused = failure(service.reopenReport(first));
 		expect(refused).toEqual({ kind: 'AnotherReportOpen', report: first, open: second });
-		expect(describeReportError(refused)).toMatch(/cannot be reopened while another diff/);
+		expect(describeReportError(refused)).toMatch(/cannot be reopened while another Delve/);
 
 		value(service.closeReport(second));
 		expect(value(service.reopenReport(first)).state).toEqual({ kind: 'open' });
@@ -568,13 +568,13 @@ describe('the report service', () => {
 		[
 			"the report's row",
 			"UPDATE reports SET repository_name = '' WHERE id = 'r_1'",
-			'(a diff’s details)',
+			'(a Delve’s details)',
 			'"table":"reports"'
 		],
 		[
 			'a revision row',
 			"UPDATE revisions SET left_out = 'not JSON' WHERE id = 'v_1'",
-			'(a saved version of a diff)',
+			'(a saved version of a Delve)',
 			'left_out'
 		],
 		[
@@ -640,7 +640,7 @@ describe('the report service', () => {
 			open: true
 		});
 		expect(describeReportError(gone)).toMatch(
-			/is gone from diff delver's data folder.*Open Uncommitted changes again to start a new diff/
+			/is gone from diff delver's data folder.*Open Uncommitted changes again to start a new Delve/
 		);
 		expect(
 			failure(
@@ -686,7 +686,7 @@ describe('the report service', () => {
 		try {
 			const deleted = value(await service.deleteReport(id));
 			expect(deleted.storeProblem).toMatch(
-				/^The diff was deleted, but the space its saved changes use could not be freed yet.*frees it by itself later/
+				/^The Delve was deleted, but the space its saved changes use could not be freed yet.*frees it by itself later/
 			);
 			expect(deleted.storeProblem).not.toMatch(/Open the/);
 		} finally {
@@ -837,7 +837,7 @@ describe('the report service', () => {
 		expect(missing.kind).toBe('NotARepository');
 		expect(describeReportError(missing).length).toBeGreaterThan(20);
 		const unknown = failure(await service.load(value(parseReportId('r_404'))));
-		expect(describeReportError(unknown)).toMatch(/This diff is not in diff delver any more/);
+		expect(describeReportError(unknown)).toMatch(/This Delve is not in diff delver any more/);
 		service.close();
 	});
 

@@ -690,7 +690,7 @@ the starting vocabulary, to be adjusted by watching people use it.
 
 | Internal term | On screen |
 |---|---|
-| report | The diff, named by its source: "Pull request #123", "Uncommitted changes", "feature-x compared with main" |
+| report | A Delve is a saved review, named by its source: "Pull request #123", "Uncommitted changes", "feature-x compared with main" |
 | a run of commits | Named by how many commits it is and their subjects: "3 commits: “Add a discount rate” to “Say which code was used”", "2 commits: “A” and “B”", "The first 5 commits: …" from a repository's first commit. Never by commit ids |
 | the main branch, a remote-tracking branch | "Main branch" on the one branch that counts and comparisons name; "On origin" on a branch that is the remote's, not a local one |
 | revision | "Version 2", with when it arrived and what changed |

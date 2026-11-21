@@ -292,13 +292,13 @@
 		This page needs a repository. In a terminal, in your repository, run
 		<code>diff-delver choose</code>.
 	</p>
-	<p><a href={resolve('/')}>See the diffs you have opened before</a></p>
+	<p><a href={resolve('/')}>See all your Delves</a></p>
 {:else if !data.history.ok}
 	<h1>Choose what to review</h1>
 	<Notice tone="danger" heading="This repository cannot be read">
 		<p>{describeApiError(data.history.error)}</p>
 	</Notice>
-	<p><a href={resolve('/')}>See the diffs you have opened before</a></p>
+	<p><a href={resolve('/')}>See all your Delves</a></p>
 {:else if loaded !== undefined}
 	{@const now = loaded.now}
 	{@const fetched = describeLastFetch(loaded.lastFetch, now)}
@@ -511,7 +511,7 @@
 			{/if}
 		</section>
 	</div>
-	<p><a href={resolve('/')}>See the diffs you have opened before</a></p>
+	<p><a href={resolve('/')}>See all your Delves</a></p>
 {/if}
 
 <style>

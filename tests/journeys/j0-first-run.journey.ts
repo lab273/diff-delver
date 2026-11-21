@@ -13,8 +13,8 @@ test.describe('J0 First run', () => {
 		const served = await journey.command(['serve']);
 		await journey.open(served.address);
 
-		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your diffs' }));
-		await journey.expectVisible(journey.byText('There are no diffs in diff delver.'));
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
+		await journey.expectVisible(journey.byText('No Delves yet.'));
 		// The token in the address the command opens is taken out of it at once.
 		expect(await journey.address()).toBe('/');
 		expect(await journey.title()).toBe('diff delver');
@@ -150,8 +150,8 @@ test.describe('J0 First run', () => {
 		await journey.expectText(review, 'Everything reviewed: 14 changes');
 		await journey.step('Everything is reviewed');
 
-		await journey.activate(journey.byRole('link', { name: 'See all your diffs' }));
-		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your diffs' }));
+		await journey.activate(journey.byRole('link', { name: 'See all your Delves' }));
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
 		const listed = journey.byRole('listitem');
 		await journey.expectVisible(
 			journey.within(listed).byRole('link', { name: 'Uncommitted changes' })

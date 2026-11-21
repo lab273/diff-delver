@@ -64,7 +64,7 @@
 {#if !data.suggested.ok}
 	<h1>Nothing to review here</h1>
 	<p>{describeApiError(data.suggested.error)}</p>
-	<p><a href={resolve('/')}>See the diffs you have opened before</a></p>
+	<p><a href={resolve('/')}>See all your Delves</a></p>
 {:else}
 	{@const { repository, suggestion, asked } = data.suggested.value}
 	{@const opensNow = data.asked !== undefined && asked?.problem == null && asked?.changes === true}
@@ -137,7 +137,7 @@
 		<a href={resolve(`/choose?${chooseQuery}`)}>Choose commits or a branch</a> to review something
 		else in {repository}.
 	</p>
-	<p><a href={resolve('/')}>See the diffs you have opened before</a></p>
+	<p><a href={resolve('/')}>See all your Delves</a></p>
 {/if}
 
 <style>

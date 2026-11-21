@@ -45,7 +45,7 @@ export function diffId(text: string | undefined): Result<ReportId, Response> {
 					404,
 					'ReportNotFound',
 					reviewerMessage(
-						'There is no diff at this address. Go to the list of diffs to find the one you want.'
+						'There is no Delve at this address. Go to the list of Delves to find the one you want.'
 					)
 				)
 			);

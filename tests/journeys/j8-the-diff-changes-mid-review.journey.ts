@@ -155,13 +155,13 @@ test.describe('J8 The diff changes mid-review', () => {
 		);
 		// Back on the page, it says so; ticking there anyway changes nothing.
 		await journey.returnToPage();
-		const newer = journey.byRole('region', { name: 'This diff has a newer version' });
+		const newer = journey.byRole('region', { name: 'This Delve has a newer version' });
 		await journey.expectText(newer, 'It was updated to version 3 while this page was open');
 		await journey.activate(discountTick, 'Space');
 		const discount = journey.byRole('article', { name: 'src/discount.ts' });
 		await journey.expectText(
 			journey.within(discount).byRole('alert'),
-			'Nothing was marked. This diff was updated to version 3 after you last looked at it'
+			'Nothing was marked. This Delve was updated to version 3 after you last looked at it'
 		);
 		await journey.expectState(discountTick, { checked: false });
 		// The page is refused, as it should be, and says so in place.
@@ -175,7 +175,7 @@ test.describe('J8 The diff changes mid-review', () => {
 		await journey.activate(groupTick, 'Space');
 		await journey.expectText(
 			journey.nth(journey.within(notSorted).byRole('alert'), 1),
-			'Nothing was marked. This diff was updated to version 3 after you last looked at it'
+			'Nothing was marked. This Delve was updated to version 3 after you last looked at it'
 		);
 		await journey.expectState(groupTick, { checked: 'mixed' });
 		await journey.expectFocused(groupTick);
@@ -201,14 +201,14 @@ test.describe('J8 The diff changes mid-review', () => {
 		);
 		await journey.step('Nothing is left to review');
 
-		await journey.activate(journey.within(nothing).byRole('button', { name: 'Close this diff' }));
-		const closed = journey.byRole('region', { name: 'This diff is closed' });
-		await journey.expectText(closed, 'You closed this diff. You can still read it.');
+		await journey.activate(journey.within(nothing).byRole('button', { name: 'Close this Delve' }));
+		const closed = journey.byRole('region', { name: 'This Delve is closed' });
+		await journey.expectText(closed, 'You closed this Delve. You can still read it.');
 		// The button went with its notice: focus is on the notice that took its place.
-		await journey.expectFocused(journey.byRole('heading', { name: 'This diff is closed' }));
+		await journey.expectFocused(journey.byRole('heading', { name: 'This Delve is closed' }));
 		await journey.step('The diff is closed');
 
-		await journey.activate(journey.within(closed).byRole('button', { name: 'Reopen this diff' }));
+		await journey.activate(journey.within(closed).byRole('button', { name: 'Reopen this Delve' }));
 		await journey.expectHidden(closed);
 		await journey.expectVisible(nothing);
 		await journey.expectFocused(

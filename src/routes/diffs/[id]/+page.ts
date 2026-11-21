@@ -7,7 +7,7 @@ import type { PageLoad } from './$types';
 export const load: PageLoad = async ({ fetch, params, depends }) => {
 	depends('app:diff');
 	const id = parseReportId(params.id);
-	if (!id.ok) error(404, 'There is no diff at this address.');
+	if (!id.ok) error(404, 'There is no Delve at this address.');
 	const client = pageClient(fetch);
 	const [loaded, settings] = await Promise.all([client.loadDiff(id.value), client.readSettings()]);
 	// Settings that cannot be read are the defaults: the diff can still be read.

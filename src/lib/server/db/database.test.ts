@@ -391,7 +391,7 @@ describe('the database', () => {
 			'reviewed_marks'
 		];
 		for (const table of ofReports) {
-			expect(advice(table)).toMatch(/Delete that diff from the list of diffs/);
+			expect(advice(table)).toMatch(/Delete that Delve from the list of Delves/);
 			// In the reviewer's words, not the database's.
 			expect(advice(table)).not.toMatch(/table|column|_/);
 		}
@@ -431,7 +431,7 @@ describe('the database', () => {
 		const error = failure(read);
 		expect(error).toMatchObject({ kind: 'StoredRowInvalid', table: 'reports' });
 		if (error.kind === 'StoredRowInvalid') expect(error.detail).toMatch(/store_id/);
-		expect(describeDatabaseError(error)).toMatch(/\(a diff’s details\) could not be read/);
+		expect(describeDatabaseError(error)).toMatch(/\(a Delve’s details\) could not be read/);
 		expect(describeDatabaseError(error)).not.toMatch(/reports|store_id/);
 	});
 

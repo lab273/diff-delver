@@ -88,7 +88,7 @@ export function describeStoredStateMismatch(error: StoredStateMismatch): Reviewe
 		}
 	})();
 	return reviewerMessage(
-		`The saved ${error.what} of this diff ${problem} (${shownRepoPath(error.path)}), so the database has been damaged or changed by hand. Delete the diff from the list of diffs and open its changes again; if it happens again, please report it as a bug.`
+		`The saved ${error.what} of this Delve ${problem} (${shownRepoPath(error.path)}), so the database has been damaged or changed by hand. Delete the Delve from the list of Delves and open its changes again; if it happens again, please report it as a bug.`
 	);
 }
 

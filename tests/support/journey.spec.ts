@@ -327,14 +327,14 @@ test.describe('the journey helper works in a second tab', () => {
 	test('does what a journey does there, and leaves the first tab as it was', async ({
 		onTheApp: journey
 	}) => {
-		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your diffs' }));
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
 		const shop = await journey.repository('shop');
 		const run = await journey.command([], shop);
 		await journey.inAnotherTab(run.address, async (tab) => {
 			await tab.expectVisible(tab.byRole('heading', { level: 1, name: 'Uncommitted changes' }));
 			await tab.step('The other tab');
 		});
-		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your diffs' }));
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
 		expect(await journey.address()).toBe('/');
 	});
 });
@@ -762,7 +762,7 @@ test.describe('no key is lost on a page that is slow to start', () => {
 			await page.goto(run.address);
 			await failed;
 			// The link to all diffs works without scripts, as a link does.
-			await page.getByRole('link', { name: 'See all your diffs' }).focus();
+			await page.getByRole('link', { name: 'See all your Delves' }).focus();
 			await page.keyboard.press('Enter');
 			await expect(page).toHaveURL(new URL('/', run.address).href);
 		} finally {

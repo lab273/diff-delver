@@ -114,8 +114,8 @@ test.describe('J17 Choose commits to review', () => {
 		await journey.step('The whole branch opened');
 
 		// Both are in the list of diffs, each under the name its page has.
-		await journey.activate(journey.byRole('link', { name: 'See all your diffs' }));
-		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your diffs' }));
+		await journey.activate(journey.byRole('link', { name: 'See all your Delves' }));
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
 		await journey.expectVisible(journey.byRole('link', { name: run }));
 		await journey.expectVisible(
 			journey.byRole('link', { name: 'discounts compared with origin/main' })

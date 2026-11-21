@@ -108,7 +108,7 @@ export function describeDatabaseError(error: DatabaseError): ReviewerMessage {
 			);
 		case 'DatabaseCorrupt':
 			return reviewerMessage(
-				`diff delver's database ${error.file} is damaged (${error.reason}). Restore it from a backup if you have one, or move it out of the way to start again with no diffs; the saved changes in the data folder are not affected.`
+				`diff delver's database ${error.file} is damaged (${error.reason}). Restore it from a backup if you have one, or move it out of the way to start again with no Delves; the saved changes in the data folder are not affected.`
 			);
 		case 'DatabaseTooNew':
 			return reviewerMessage(
@@ -116,7 +116,7 @@ export function describeDatabaseError(error: DatabaseError): ReviewerMessage {
 			);
 		case 'MigrationFailed':
 			return reviewerMessage(
-				`diff delver could not bring its database ${error.file} up to date (change ${String(error.version)} failed: ${error.reason}). The database is as it was, so your diffs are safe. Please report this as a bug; until it is fixed, use the version of diff delver you used before.`
+				`diff delver could not bring its database ${error.file} up to date (change ${String(error.version)} failed: ${error.reason}). The database is as it was, so your Delves are safe. Please report this as a bug; until it is fixed, use the version of diff delver you used before.`
 			);
 		case 'DatabaseBusy':
 			return reviewerMessage(
@@ -154,23 +154,23 @@ function unusable(error: DatabaseUnusable): ReviewerMessage {
 function tableInWords(table: TableName): string {
 	switch (table) {
 		case 'reports':
-			return 'a diff’s details';
+			return 'a Delve’s details';
 		case 'revisions':
-			return 'a saved version of a diff';
+			return 'a saved version of a Delve';
 		case 'sections':
-			return 'a diff’s sections';
+			return 'a Delve’s sections';
 		case 'assignments':
 			return 'which section each change is in';
 		case 'reviewed_marks':
 			return 'what you marked as reviewed';
 		case 'revision_updates':
-			return 'what an update of a diff changed';
+			return 'what an update of a Delve changed';
 		case 'new_units':
-			return 'which changes are new since a diff’s previous version';
+			return 'which changes are new since a Delve’s previous version';
 		case 'unmarked_units':
 			return 'which changes an update unmarked because lines close to them changed';
 		case 'revisions_to_check':
-			return 'the list of diffs saved by an earlier diff delver still to bring up to date';
+			return 'the list of Delves saved by an earlier diff delver still to bring up to date';
 		case 'schema_migrations':
 			return 'the record of the database’s own version';
 		case 'unreferenced_snapshots':
@@ -178,9 +178,9 @@ function tableInWords(table: TableName): string {
 		case 'settings':
 			return 'how you like diffs shown';
 		case 'overviews':
-			return 'the agent’s overview of a diff';
+			return 'the agent’s overview of a Delve';
 		case 'section_references':
-			return 'which lines a diff’s sections point to in other sections';
+			return 'which lines a Delve’s sections point to in other sections';
 		case 'commit_runs':
 			return 'which commits a diff of several commits is named after';
 	}
@@ -201,11 +201,11 @@ function storedRowAdvice(table: TableName): string {
 		case 'overviews':
 		case 'section_references':
 		case 'commit_runs':
-			return 'Delete that diff from the list of diffs, where it shows as damaged, or restore the database from a backup.';
+			return 'Delete that Delve from the list of Delves, where it shows as damaged, or restore the database from a backup.';
 		case 'settings':
-			return 'Change any setting on a diff’s page, which stores it again.';
+			return 'Change any setting on a Delve’s page, which stores it again.';
 		case 'schema_migrations':
 		case 'unreferenced_snapshots':
-			return 'Restore the database from a backup, or move it out of the way to start again with no diffs; the saved changes in the data folder are not affected.';
+			return 'Restore the database from a backup, or move it out of the way to start again with no Delves; the saved changes in the data folder are not affected.';
 	}
 }

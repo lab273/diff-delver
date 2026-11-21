@@ -1,11 +1,12 @@
 # diff delver
 
-Review a diff one logical section at a time. A coding agent sorts your changes into
-sections; you do the reviewing, in your browser, on your own machine.
+Review a Git diff in your browser, one logical section at a time. A coding agent
+can sort your changes into sections. A **Delve** saves the diff, its sections and
+your review progress on your machine.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="tests/journeys/screenshots/trial-shop-codex.01.sections-in-reading-order.dark.png">
-  <img src="tests/journeys/screenshots/trial-shop-codex.01.sections-in-reading-order.light.png" alt="A diff in diff delver, sorted by an agent into named sections in reading order, with each file's changes and a tick box to mark it reviewed" width="800">
+  <img src="tests/journeys/screenshots/trial-shop-codex.01.sections-in-reading-order.light.png" alt="A Delve sorted by an agent into named sections in reading order, with each file's changes and a tick box to mark it reviewed" width="800">
 </picture>
 
 - **The diff is git's, not the agent's.** The agent only sorts the changes and names
@@ -37,7 +38,7 @@ npx https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.t
 ```
 
 npx asks whether to install diff delver. The release download is about 3 MB.
-After installation, your diff opens in the browser. It shows your uncommitted
+After installation, a Delve opens in your browser. It shows your uncommitted
 changes. If you have none, it shows your branch compared with the main branch,
 and if there is more than one likely choice, it asks.
 
@@ -83,8 +84,8 @@ Then start the agent in your repository and ask it, in your own words:
 Sort my changes for review with diff delver.
 ```
 
-The diff opens in your browser and the sections appear as the agent makes them, in
-the order it suggests you read them. The picture at the top of this page is a diff
+The Delve opens in your browser and the sections appear as the agent makes them, in
+the order it suggests you read them. The picture at the top of this page is a Delve
 that Codex sorted in one of the project's recorded trials.
 
 The agent sorts better when it has the project's skill, one file of advice on how to
@@ -98,16 +99,16 @@ to have the agent give you the page's address instead of opening a browser.
 ### Keep reviewing as the code changes
 
 When your files change, the page says so and offers **Update**. Running the command
-again brings the diff up to date too. Your sections and ticks are kept. A tick is taken off only where
+again brings the Delve up to date too. Your sections and ticks are kept. A tick is taken off only where
 the lines, or lines close to them, changed, and the page says why.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="tests/journeys/screenshots/j8-the-diff-changes-mid-review.01.the-files-have-changed.dark.png">
-  <img src="tests/journeys/screenshots/j8-the-diff-changes-mid-review.01.the-files-have-changed.light.png" alt="A notice at the top of a diff that is partly reviewed: your files have changed, with an Update button" width="800">
+  <img src="tests/journeys/screenshots/j8-the-diff-changes-mid-review.01.the-files-have-changed.light.png" alt="A notice at the top of a Delve that is partly reviewed: your files have changed, with an Update button" width="800">
 </picture>
 
-The home page, which you reach from **See all your diffs** at the foot of a diff,
-lists every diff you have opened with how far you got. Delete the ones you are done
+The home page, which you reach from **See all your Delves** at the foot of a Delve,
+lists every Delve you have opened with how far you got. Delete the ones you are done
 with there.
 
 ### Choose what to review
@@ -137,7 +138,7 @@ Other commands and options:
 | `--data-directory <folder>` | Keep its data in this folder. The `DIFF_DELVER_DATA_DIRECTORY` environment variable does the same. |
 | `--help`, `--version` | Show the help, or which version this is. |
 
-diff delver keeps your diffs and ticks in one folder of its own,
+diff delver keeps your Delves and ticks in one folder of its own,
 `~/.local/share/diff-delver` on Linux. It is reached only from your own machine.
 
 ### What works today
@@ -148,7 +149,7 @@ diff delver keeps your diffs and ticks in one folder of its own,
 - Reading a diff: code coloured by language, one column or side by side, white-space
   changes hidden, unchanged lines opened, search.
 - Ticking files and sections as reviewed, with progress, across restarts.
-- Updating a diff when the code changes, keeping sections and ticks.
+- Updating a Delve when the code changes, keeping sections and ticks.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex
   have both done it in the project's [recorded trials](tests/agent-trials/README.md).
 

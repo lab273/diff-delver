@@ -13,4 +13,4 @@
 
 <h1>{page.status === 404 ? 'Nothing here' : 'Something went wrong'}</h1>
 <p>{page.error?.message ?? 'This page could not be shown.'}</p>
-<p><a href={resolve('/')}>See all your diffs</a></p>
+<p><a href={resolve('/')}>See all your Delves</a></p>

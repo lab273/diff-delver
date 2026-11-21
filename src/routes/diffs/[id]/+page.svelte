@@ -848,14 +848,14 @@
 	<title>
 		{data.loaded.ok
 			? `${data.loaded.value.summary.title} in ${data.loaded.value.summary.repository} – diff delver`
-			: 'Diff not found – diff delver'}
+			: 'Delve not found – diff delver'}
 	</title>
 </svelte:head>
 
 {#if !data.loaded.ok || viewer === undefined}
-	<h1>This diff cannot be shown</h1>
+	<h1>This Delve cannot be shown</h1>
 	<p>{data.loaded.ok ? '' : describeApiError(data.loaded.error)}</p>
-	<p><a href={resolve('/')}>See all your diffs</a></p>
+	<p><a href={resolve('/')}>See all your Delves</a></p>
 {:else}
 	{@const page = data.loaded.value}
 	{@const summary = viewer.summary}
@@ -882,7 +882,7 @@
 			</p>
 
 			{#if check.kind === 'updated'}
-				<Notice heading="This diff has a newer version" headingId="newer-heading">
+				<Notice heading="This Delve has a newer version" headingId="newer-heading">
 					<p>
 						It was updated to version {check.version} while this page was open, so what you see here,
 						version
@@ -895,11 +895,11 @@
 					{/snippet}
 				</Notice>
 			{:else if summary.state.kind === 'closed'}
-				<Notice heading="This diff is closed" headingId="closed-heading">
+				<Notice heading="This Delve is closed" headingId="closed-heading">
 					<p>{summary.state.reason} You can still read it.</p>
 					{#snippet actions()}
 						<button type="button" aria-disabled={busy} onclick={() => setOpen(true)}>
-							Reopen this diff
+							Reopen this Delve
 						</button>
 					{/snippet}
 				</Notice>
@@ -930,7 +930,7 @@
 							</button>
 						{/if}
 						<button type="button" aria-disabled={busy} onclick={() => setOpen(false)}>
-							Close this diff
+							Close this Delve
 						</button>
 					{/snippet}
 				</Notice>
@@ -1197,7 +1197,7 @@
 					{/each}
 				</div>
 			{/key}
-			<p class="all-diffs"><a href={resolve('/')}>See all your diffs</a></p>
+			<p class="all-diffs"><a href={resolve('/')}>See all your Delves</a></p>
 		</div>
 	</div>
 	<div class="visually-hidden" aria-live="polite">{viewer.announcement}</div>

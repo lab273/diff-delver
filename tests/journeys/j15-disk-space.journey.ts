@@ -30,11 +30,11 @@ test.describe('J15 Disk space', () => {
 				'Deleted Uncommitted changes in shop. Its space on disk is freed within an hour.'
 			)
 		);
-		await journey.expectVisible(journey.byText('There are no diffs in diff delver.'));
+		await journey.expectVisible(journey.byText('No Delves yet.'));
 		// True after a delete as before the first diff: nothing says it is the first.
-		await journey.expectVisible(journey.byRole('heading', { level: 2, name: 'Open a diff' }));
+		await journey.expectVisible(journey.byRole('heading', { level: 2, name: 'Start a Delve' }));
 		expect(await journey.address()).toBe('/');
-		await journey.expectFocused(journey.byRole('heading', { level: 1, name: 'Your diffs' }));
+		await journey.expectFocused(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
 		await journey.step('The diff is deleted');
 	});
 });

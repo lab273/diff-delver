@@ -64,23 +64,23 @@
 	<title>diff delver</title>
 </svelte:head>
 
-<h1 tabindex="-1" bind:this={heading}>Your diffs</h1>
+<h1 tabindex="-1" bind:this={heading}>Your Delves</h1>
 
 <p class="status" role="status">{status}</p>
 {#if problem !== ''}
-	<Notice tone="danger" heading="The diff was not deleted">
+	<Notice tone="danger" heading="The Delve was not deleted">
 		<p>{problem}</p>
 	</Notice>
 {/if}
 
 {#if !data.listed.ok}
-	<Notice tone="danger" heading="Your diffs cannot be listed">
+	<Notice tone="danger" heading="Your Delves cannot be listed">
 		<p>{describeApiError(data.listed.error)}</p>
 	</Notice>
 {:else if data.listed.value.diffs.length === 0}
 	<section class="empty" aria-labelledby="first-step">
-		<p>There are no diffs in diff delver.</p>
-		<h2 id="first-step">Open a diff</h2>
+		<p>No Delves yet.</p>
+		<h2 id="first-step">Start a Delve</h2>
 		<p>In a terminal, go to a git repository with changes and run:</p>
 		<CopyCommand command={RUN_COMMAND} label="Copy the command" />
 		<p>
@@ -111,7 +111,7 @@
 					<p class="progress">{diff.progressText}</p>
 				{:else}
 					<div class="line">
-						<span class="title">A diff that cannot be read</span>
+						<span class="title">A Delve that cannot be read</span>
 						<span class="state damaged">Damaged</span>
 					</div>
 					<p class="details">{diff.problem}</p>
@@ -137,7 +137,7 @@
 
 <ConfirmDialog
 	bind:open={asking}
-	heading="Delete {deleting?.name ?? 'this diff'}?"
+	heading="Delete {deleting?.name ?? 'this Delve'}?"
 	confirm="Delete"
 	onconfirm={confirmDelete}
 >
