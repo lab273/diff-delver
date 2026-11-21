@@ -29,7 +29,10 @@
  * inside a region (`within`) or by their place on the page (`nth`), and gets
  * back a `Target`, which it can activate, check or read, nothing more. Its
  * checks wait for the app, so it never sleeps. It moves with `press`, `type`,
- * `tabTo` and `activate`, which use the keyboard; the
+ * `tabTo` and `activate`, which use the keyboard and, like `open` and `step`,
+ * first wait until the page says it can act on input (`data-ready`, set once
+ * its scripts have run, src/lib/ui/early-input.ts), so no key is sent to a
+ * page that is drawn but not yet working; the
  * things a person does outside the page have their own helpers, `readClipboard`,
  * `chooseFiles` and `editFile`. Lint closes the rest (scripts/eslint-journey-rules.ts), so a
  * journey is kept to the keyboard by what it is given, and the page is left to
@@ -731,10 +734,21 @@ export async function startJourney(
 		}
 	);
 
+	/**
+	 * Waits until the page can act on what a person does: its scripts have run
+	 * and it says so (`data-ready` on the root element, src/lib/ui/early-input.ts).
+	 * Until then it is drawn but a key pressed on it does nothing of its own, so
+	 * no input is sent before, and every navigation waits for it.
+	 */
+	const ready = async (): Promise<void> => {
+		await page.locator('html[data-ready]').waitFor({ state: 'attached' });
+	};
+
 	const isFocused = (target: Target): Promise<boolean> =>
 		locatorOf(target).evaluate((element) => element === document.activeElement);
 
 	const tabTo = async (target: Target): Promise<void> => {
+		await ready();
 		for (let n = 0; n < MAX_TABS; n += 1) {
 			if (await isFocused(target)) return;
 			await page.keyboard.press('Tab');
@@ -788,6 +802,7 @@ export async function startJourney(
 	const journey: Journey = {
 		async open(path) {
 			await page.goto(new URL(path, origin).href);
+			await ready();
 		},
 		async repository(name) {
 			if (world === undefined)
@@ -816,6 +831,7 @@ export async function startJourney(
 			const number = steps;
 			const label = `Step ${String(number)}, "${name}"`;
 			await base.step(label, async () => {
+				await ready();
 				const problems: string[] = [];
 				// Fonts and characters in both schemes: a theme can change the font too.
 				const fontProblems = new Map<string, Theme[]>();
@@ -846,14 +862,17 @@ export async function startJourney(
 			});
 		},
 		async press(key) {
+			await ready();
 			await page.keyboard.press(key);
 		},
 		async type(text) {
+			await ready();
 			await page.keyboard.type(text);
 		},
 		activate,
 		tabTo,
 		async tabOrder() {
+			await ready();
 			await page.evaluate(() => {
 				if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
 			});

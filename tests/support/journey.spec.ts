@@ -23,10 +23,13 @@ const FONT_FILES: Readonly<Record<string, string>> = {
 
 const HELPER = '/__journey-helper';
 
-/** A page that follows the app's rules for fonts, with `body` in its `<main>`. */
+/**
+ * A page that follows the app's rules for fonts, with `body` in its `<main>`,
+ * and is ready for input from the start, as the app is once its scripts have run.
+ */
 function pageWith(body: string, style = ''): string {
 	return `<!doctype html>
-<html lang="en">
+<html lang="en" data-ready>
 <head>
 <meta charset="utf-8">
 <title>Planted page</title>
@@ -617,5 +620,73 @@ ${['a.ts', 'b.ts', 'c.ts']
 			disabled: true
 		});
 		await journey.step('States');
+	});
+});
+
+/**
+ * Makes the page slow to start, as on a busy machine: the CPU four times slower
+ * and the page's own scripts late by `delay` milliseconds, so it is drawn and
+ * can be read well before it can act on a key.
+ */
+async function slowDown(page: Page, delay: number): Promise<void> {
+	const cdp = await page.context().newCDPSession(page);
+	await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+	await page.route('**/_app/immutable/nodes/**', async (route) => {
+		await new Promise((resolve) => setTimeout(resolve, delay));
+		await route.continue();
+	});
+}
+
+test.describe('no key is lost on a page that is slow to start', () => {
+	test('the helper waits until the page can act before it presses a key', async ({
+		page
+	}, testInfo) => {
+		const world = await makeJourneyWorld();
+		try {
+			await slowDown(page, 1_000);
+			const running = await startJourney(
+				page,
+				testInfo,
+				world.daemon.origin,
+				{ screenshots: 'take' },
+				world
+			);
+			const { journey } = running;
+			const run = await journey.command([], await journey.repository('shop'));
+			await journey.open(run.address);
+			await journey.press('n');
+			await journey.expectFocused(journey.byRole('button', { name: 'src/cart.ts', exact: true }));
+			await journey.press('r');
+			await journey.expectState(journey.byRole('checkbox', { name: 'Reviewed: src/cart.ts' }), {
+				checked: true
+			});
+			await journey.step('Ticked on a slow page');
+			await running.finish();
+		} finally {
+			await world.close();
+		}
+	});
+
+	test('the app acts on keys pressed before its scripts have run', async ({ page }) => {
+		const world = await makeJourneyWorld();
+		try {
+			await slowDown(page, 1_500);
+			const run = await world.command([], await world.repository('shop'));
+			// Not the helper: keys straight after the page is drawn, before it says it is ready.
+			await page.goto(run.address);
+			await expect(page.getByRole('button', { name: /^Start reviewing/ })).toBeVisible();
+			expect(await page.locator('html[data-ready]').count()).toBe(0);
+			await page.keyboard.press('n');
+			await page.keyboard.press('r');
+			await expect(page.getByRole('checkbox', { name: 'Reviewed: src/cart.ts' })).toBeChecked();
+			// Enter on a button that had focus before then does what the button does.
+			await page.goto(page.url());
+			expect(await page.locator('html[data-ready]').count()).toBe(0);
+			await page.getByRole('button', { name: /^Next unread/ }).focus();
+			await page.keyboard.press('Enter');
+			await expect(page.locator('#part-1-toggle')).toBeFocused();
+		} finally {
+			await world.close();
+		}
 	});
 });

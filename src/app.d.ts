@@ -24,6 +24,17 @@ declare global {
 	 * state; this global is where they meet.
 	 */
 	var diffDelverDaemons: Map<number, DaemonContext> | undefined;
+
+	interface Window {
+		/**
+		 * Keys pressed before the page's scripts ran, kept by the script in
+		 * src/app.html until the page can act on them (src/lib/ui/early-input.ts).
+		 */
+		diffDelverEarlyInput?: {
+			readonly kept: readonly { readonly key: string; readonly shiftKey: boolean }[];
+			stop(): void;
+		};
+	}
 }
 
 export {};

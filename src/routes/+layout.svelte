@@ -14,9 +14,14 @@
 	import '@fontsource/jetbrains-mono/700-italic.css';
 	import '../app.css';
 	import favicon from '#lib/assets/favicon.svg';
+	import { pageReady } from '#lib/ui/early-input.ts';
+	import { onMount } from 'svelte';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
+
+	// Runs after the page's own, so its key handlers are in place for the keys kept until now.
+	onMount(pageReady);
 </script>
 
 <svelte:head>
