@@ -76,7 +76,7 @@ export interface KeyPress {
 const NOT_TYPED = new Set(['checkbox', 'radio', 'button', 'submit', 'reset']);
 
 /** Whether the press was made while typing in a field. */
-function inField(target: KeyPress['target']): boolean {
+export function inField(target: KeyPress['target']): boolean {
 	if (target === null) return false;
 	if (target.isContentEditable === true) return true;
 	switch (target.tagName.toLowerCase()) {

@@ -689,4 +689,62 @@ test.describe('no key is lost on a page that is slow to start', () => {
 			await world.close();
 		}
 	});
+
+	test('keys the page does not act on are left to the browser, and Enter does not tick', async ({
+		page
+	}) => {
+		const world = await makeJourneyWorld();
+		try {
+			await slowDown(page, 1_500);
+			const run = await world.command([], await world.repository('shop'));
+			await page.goto(run.address);
+			await expect(page.getByRole('button', { name: /^Start reviewing/ })).toBeVisible();
+			// A scrolling key scrolls at once, as the browser would, though the page is not ready.
+			await page.keyboard.press('PageDown');
+			await expect
+				.poll(() =>
+					page.evaluate(() => ({
+						scrolled: scrollY > 0,
+						ready: document.documentElement.hasAttribute('data-ready')
+					}))
+				)
+				.toEqual({ scrolled: true, ready: false });
+
+			// Enter on a tick box does not tick it; Space does, once.
+			await page.goto(page.url());
+			const tick = page.getByRole('checkbox', { name: 'Reviewed: src/cart.ts' });
+			expect(await page.locator('html[data-ready]').count()).toBe(0);
+			await tick.focus();
+			await page.keyboard.press('Enter');
+			await page.locator('html[data-ready]').waitFor({ state: 'attached' });
+			await expect(tick).not.toBeChecked();
+			await page.goto(page.url());
+			expect(await page.locator('html[data-ready]').count()).toBe(0);
+			await tick.focus();
+			await page.keyboard.press(' ');
+			await page.locator('html[data-ready]').waitFor({ state: 'attached' });
+			await expect(tick).toBeChecked();
+		} finally {
+			await world.close();
+		}
+	});
+
+	test('when the page’s scripts fail to start, the keyboard is the browser’s again', async ({
+		page
+	}) => {
+		const world = await makeJourneyWorld();
+		try {
+			await page.route('**/_app/immutable/entry/start.*', (route) => route.abort());
+			const run = await world.command([], await world.repository('shop'));
+			const failed = page.waitForEvent('pageerror');
+			await page.goto(run.address);
+			await failed;
+			// The link to all diffs works without scripts, as a link does.
+			await page.getByRole('link', { name: 'See all your diffs' }).focus();
+			await page.keyboard.press('Enter');
+			await expect(page).toHaveURL(new URL('/', run.address).href);
+		} finally {
+			await world.close();
+		}
+	});
 });

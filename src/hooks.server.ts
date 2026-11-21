@@ -11,6 +11,41 @@
  */
 import type { Handle, HandleServerError } from '@sveltejs/kit/hooks';
 import { daemonOnPort } from '#lib/server/daemon/context.ts';
+import {
+	GIVE_UP_AFTER_MS,
+	READY_ATTRIBUTE,
+	earlyKeyOf,
+	keepEarlyKeys
+} from '#lib/ui/early-input.ts';
+import { SHORTCUTS } from '#lib/ui/viewer/keys.ts';
+
+/** Where src/app.html takes the script that keeps keys pressed before the page is ready. */
+const EARLY_KEYS_PLACE = '%diff-delver.early-keys%';
+
+/** The pages with keyboard shortcuts of their own. */
+const PAGES_WITH_SHORTCUTS: ReadonlySet<string> = new Set(['/diffs/[id]']);
+
+/**
+ * The script that keeps keys pressed before the page is ready, as the page's
+ * head runs it, before any module has loaded: `keepEarlyKeys` and its rule,
+ * written out as they are in src/lib/ui/early-input.ts, so the rule tested
+ * there is the one the page runs.
+ */
+function earlyKeysScript(routeId: string | null): string {
+	const shortcuts =
+		routeId !== null && PAGES_WITH_SHORTCUTS.has(routeId) ? SHORTCUTS.flatMap((s) => s.keys) : [];
+	const args = [
+		earlyKeyOf.toString(),
+		JSON.stringify(shortcuts),
+		JSON.stringify(READY_ATTRIBUTE),
+		String(GIVE_UP_AFTER_MS)
+	];
+	const script = `(${keepEarlyKeys.toString()})(${args.join(', ')});`;
+	// Our own code, but it must never close the element it is written into.
+	if (script.toLowerCase().includes('</script'))
+		throw new Error('The early-keys script closes itself');
+	return script;
+}
 
 export const handle: Handle = async ({ event, resolve }) => {
 	// Imported only in development, so the app's build carries no daemon of its own:
@@ -25,7 +60,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 		);
 	}
 	event.locals.daemon = daemon;
-	return resolve(event);
+	const script = earlyKeysScript(event.route.id);
+	return resolve(event, {
+		transformPageChunk: ({ html }) => html.replace(EARLY_KEYS_PLACE, () => script)
+	});
 };
 
 /**

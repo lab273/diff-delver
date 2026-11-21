@@ -5,34 +5,10 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
 		%sveltekit.head%
+		<!-- Keeps keys pressed before the page's scripts have run (src/lib/ui/early-input.ts),
+		     written in by src/hooks.server.ts. -->
 		<script nonce="%sveltekit.nonce%">
-			// Keys pressed after the page is drawn but before its scripts have run are
-			// kept, not lost, and handed to the page once it can act on them
-			// (src/lib/ui/early-input.ts). Tab and keys typed into a field are left to
-			// the browser.
-			(() => {
-				const kept = [];
-				const keep = (event) => {
-					if (document.documentElement.hasAttribute('data-ready')) return;
-					if (event.key === 'Tab' || event.ctrlKey || event.altKey || event.metaKey) return;
-					const target = event.target;
-					if (
-						target instanceof HTMLElement &&
-						target.matches(
-							'input:not([type=checkbox]):not([type=radio]):not([type=button]), textarea, select, [contenteditable]'
-						)
-					)
-						return;
-					event.preventDefault();
-					event.stopImmediatePropagation();
-					kept.push({ key: event.key, shiftKey: event.shiftKey });
-				};
-				addEventListener('keydown', keep, true);
-				window.diffDelverEarlyInput = {
-					kept,
-					stop: () => removeEventListener('keydown', keep, true)
-				};
-			})();
+			%diff-delver.early-keys%
 		</script>
 	</head>
 	<body data-sveltekit-preload-data="hover">

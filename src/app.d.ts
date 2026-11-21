@@ -1,6 +1,7 @@
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces
 import type { DaemonContext } from '#lib/server/daemon/context.ts';
+import type { KeptPress } from '#lib/ui/early-input.ts';
 
 declare global {
 	namespace App {
@@ -28,11 +29,11 @@ declare global {
 	interface Window {
 		/**
 		 * Keys pressed before the page's scripts ran, kept by the script in
-		 * src/app.html until the page can act on them (src/lib/ui/early-input.ts).
+		 * the page's head until the page can act on them (src/lib/ui/early-input.ts).
 		 */
 		diffDelverEarlyInput?: {
-			readonly kept: readonly { readonly key: string; readonly shiftKey: boolean }[];
-			stop(): void;
+			/** Stops keeping keys and gives those kept, once. */
+			take(): { press: KeptPress; target: Element | null }[];
 		};
 	}
 }
