@@ -4,7 +4,13 @@ import type { EscapedPath } from '../escaped-path.tiny.ts';
 import { lineCountOf, type LineCount } from '../line-count.tiny.ts';
 import { parseLineText, type LineText } from '../line-text.tiny.ts';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
-import { couldBeColoured, languageOf } from './language.ts';
+import {
+	LANGUAGES,
+	WHITE_SPACE_MATTERS,
+	couldBeColoured,
+	languageOf,
+	whereWhiteSpaceMatters
+} from './language.ts';
 import { tooMuchToColour } from './limits.ts';
 
 function path(value: string): RepoPath {
@@ -85,5 +91,21 @@ describe('what the language rules take', () => {
 		expectTypeOf(couldBeColoured).parameter(0).toEqualTypeOf<RepoPath | EscapedPath>();
 		expectTypeOf(tooMuchToColour).parameters.toEqualTypeOf<[ByteSize, LineCount]>();
 		expect(couldBeColoured(path('a.ts'))).toBe(true);
+	});
+});
+
+describe('the languages where white space can change what a line means', () => {
+	it('names a file of each, and no other', () => {
+		expect(whereWhiteSpaceMatters(path('app/models.py'))).toBe('a Python file');
+		expect(whereWhiteSpaceMatters(path('.github/workflows/ci.yml'))).toBe('a YAML file');
+		expect(whereWhiteSpaceMatters(path('sub/Makefile'))).toBe('a Makefile');
+		expect(whereWhiteSpaceMatters(path('README.md'))).toBe('a Markdown file');
+		expect(whereWhiteSpaceMatters(path('src/app.ts'))).toBeUndefined();
+		expect(whereWhiteSpaceMatters(path('notes.txt'))).toBeUndefined();
+	});
+
+	it('are all languages diff delver colours', () => {
+		const known: readonly string[] = LANGUAGES;
+		for (const language of Object.keys(WHITE_SPACE_MATTERS)) expect(known).toContain(language);
 	});
 });

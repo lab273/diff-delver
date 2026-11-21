@@ -14,6 +14,7 @@
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import PartLines from './PartLines.svelte';
+	import { whereWhiteSpaceMatters } from '#lib/core/highlight/language.ts';
 	import TickRefused from './TickRefused.svelte';
 	import {
 		done,
@@ -47,6 +48,8 @@
 	const reviewed = $derived(done(part.tally));
 	/** How many of its changes only change white space and are drawn as unchanged lines. */
 	const hiddenWhiteSpace = $derived(viewer.hiddenWhiteSpace(at));
+	/** How the page names its file if white space can change what a line in it means: "a Python file". */
+	const whiteSpaceMatters = $derived(whereWhiteSpaceMatters(part.path));
 	const large = $derived(viewer.isLarge(state));
 	const groupName = $derived(viewer.groupOfPart(at)?.name ?? '');
 	/** Its path as a person is shown it, in what is read out. */
@@ -240,6 +243,12 @@
 							? 'changes'
 							: 'change'} white space, so {hiddenWhiteSpace === 1 ? 'it is' : 'they are'} drawn as unchanged
 						lines. Marking this file as reviewed covers {hiddenWhiteSpace === 1 ? 'it' : 'them'} too.
+						{#if whiteSpaceMatters !== undefined}
+							In {whiteSpaceMatters}, white space can change what a line means, so {hiddenWhiteSpace ===
+							1
+								? 'it is'
+								: 'they are'} worth a look.
+						{/if}
 					</p>
 					<button
 						type="button"

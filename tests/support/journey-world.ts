@@ -126,6 +126,15 @@ const PAIRS_AFTER = {
  * a function re-indented with tabs, with one real change among the lines,
  * and further down a line whose only change is a CRLF ending.
  */
+/** A workflow whose last key, `when`, belongs to `deploy` until it is moved out by its indentation alone. */
+const WORKFLOW_BEFORE: readonly string[] = [
+	'deploy:',
+	'  steps:',
+	'    - build',
+	'    - test',
+	'  when: manual'
+];
+
 const TOTAL_BEFORE: readonly string[] = [
 	'export function total(items: number[]): number {',
 	'  let sum = 0;',
@@ -367,7 +376,13 @@ export const JOURNEY_REPOSITORIES = {
 		);
 		await repo.write('src/pairs.ts', pairs(PAIRS_BEFORE));
 		await repo.write('tools/total.ts', lines(...TOTAL_BEFORE));
+		await repo.write('tools/workflow.yml', lines(...WORKFLOW_BEFORE));
 		await repo.commit('Start');
+		// Only white space changes, but `when` moves out of `deploy`: in YAML that changes what it says.
+		await repo.write(
+			'tools/workflow.yml',
+			lines(...WORKFLOW_BEFORE.map((l) => l.replace(/^ {2}when/, 'when')))
+		);
 		await repo.write('tools/total.ts', TOTAL_AFTER.join('\n') + '\n');
 		await repo.write('src/pairs.ts', pairs(PAIRS_AFTER));
 		await repo.write('src/lexer.ts', lexer('A number is a word, and keeps its digits.'));

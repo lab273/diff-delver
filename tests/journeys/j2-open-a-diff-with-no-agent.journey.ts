@@ -276,7 +276,20 @@ test.describe('J2 Open a diff with no agent', () => {
 		);
 		await journey.expectText(
 			journey.byRole('complementary', { name: 'Your review' }),
-			'12 of 38 changes reviewed'
+			'12 of 40 changes reviewed'
 		);
+
+		// Where white space is part of what a file says, as in YAML, the file says
+		// so: its hidden change moves a key out of its block.
+		await journey.press('j');
+		const workflow = journey.byRole('article', { name: 'tools/workflow.yml' });
+		await journey.expectFocused(
+			journey.byRole('button', { name: 'tools/workflow.yml', exact: true })
+		);
+		await journey.expectText(
+			workflow,
+			'In a YAML file, white space can change what a line means, so they are worth a look.'
+		);
+		await journey.step('White space that matters, hidden');
 	});
 });

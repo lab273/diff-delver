@@ -50,6 +50,21 @@ export const LANGUAGES = [
 
 export type Language = (typeof LANGUAGES)[number];
 
+/**
+ * The languages here where white space is part of what the code says, so a
+ * change to it alone can change what a line means: indentation opens and
+ * closes a block in Python and nests a key in YAML, a Makefile's recipe lines
+ * must start with a tab, and in Markdown indentation makes code or nests a
+ * list and two spaces at the end break a line. Each with how the page names
+ * a file of it. Hiding white-space changes in such a file says so.
+ */
+export const WHITE_SPACE_MATTERS: Partial<Readonly<Record<Language, string>>> = {
+	make: 'a Makefile',
+	markdown: 'a Markdown file',
+	python: 'a Python file',
+	yaml: 'a YAML file'
+};
+
 /** By extension, lower case, without its dot. */
 const BY_EXTENSION: ReadonlyMap<string, Language> = new Map<string, Language>([
 	['c', 'c'],
@@ -182,4 +197,14 @@ export function couldBeColoured(path: RepoPath | EscapedPath): boolean {
 	if (languageOf(path) !== undefined) return true;
 	const name = path.split('/').at(-1) ?? '';
 	return name.lastIndexOf('.') <= 0;
+}
+
+/**
+ * How the page names a file named `path` when it is one where white space can
+ * change what a line means (`WHITE_SPACE_MATTERS`), such as "a Python file";
+ * undefined for any other.
+ */
+export function whereWhiteSpaceMatters(path: RepoPath | EscapedPath): string | undefined {
+	const language = languageOf(path);
+	return language === undefined ? undefined : WHITE_SPACE_MATTERS[language];
 }
