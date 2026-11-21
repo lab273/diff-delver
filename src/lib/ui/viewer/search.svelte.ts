@@ -66,11 +66,13 @@ export interface CurrentMatch {
 /**
  * Why the last move to a match fell short, said in the search box while it is
  * still true: a part whose lines could not be read, where the move stopped,
- * or parts it went past because their lines could not be read a second time.
+ * or parts it went past because their lines could not be read a second time;
+ * or the match moved to, which the page could not draw.
  */
 type Trouble =
 	| { readonly kind: 'unreadable'; readonly part: PartState }
-	| { readonly kind: 'skipped'; readonly parts: readonly PartState[] };
+	| { readonly kind: 'skipped'; readonly parts: readonly PartState[] }
+	| { readonly kind: 'not-shown'; readonly match: CurrentMatch };
 
 /** What the search box's status line says: the count, where the match is (said only to screen readers), and why a move fell short. */
 export interface SearchStatus {
@@ -327,7 +329,21 @@ export class DiffSearch {
 				const whose = still.length === 1 ? 'its lines' : 'their lines';
 				return `Skipped ${names}: ${whose} could not be read again. ${first.lines.message}`;
 			}
+			case 'not-shown': {
+				if (this.current !== trouble.match) return '';
+				const state = this.#viewer.parts[trouble.match.at];
+				const path = state === undefined ? 'its file' : shownPath(state.part.path);
+				return `The match moved to, in ${path}, could not be shown on the page. Press Enter to go to the next.`;
+			}
 		}
+	}
+
+	/**
+	 * The page could not draw the match moved to: the search box says so, and
+	 * claims no place among the matches for it, until the next move.
+	 */
+	notShown(match: CurrentMatch): void {
+		if (this.current === match) this.#trouble = { kind: 'not-shown', match };
 	}
 
 	/** What the search box's status line says, in its pieces. */

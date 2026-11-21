@@ -610,8 +610,10 @@
 				? document.getElementById(`part-${String(match.at)}-name`)
 				: document.querySelector<HTMLElement>(`#part-${String(match.at)} [data-current-match]`);
 		if (element === null) {
-			// Never silently: the part at least is shown, and the error is seen.
+			// Never silently: the search box says so, the part at least is shown, and
+			// the error is seen.
 			console.error(`The match moved to in part ${String(match.at)} was not drawn.`);
+			shown.search.notShown(match);
 			document.getElementById(`part-${String(match.at)}`)?.scrollIntoView({ block: 'start' });
 			return;
 		}

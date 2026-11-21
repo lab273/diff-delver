@@ -350,6 +350,21 @@ describe('searching within the diff on its page', () => {
 		expect(await steps(viewer, [true])).toEqual(['4 b.ts findme b 0']);
 	});
 
+	it('says so, and claims no place, when the page could not show the match moved to', async () => {
+		const { viewer, search } = await opened();
+		await searchFor(viewer, 'findme');
+		const moved = await search.step(true);
+		if (moved === undefined) throw new Error('No match');
+		search.notShown(moved);
+		const said =
+			'The match moved to, in a.ts, could not be shown on the page. Press Enter to go to the next.';
+		expect(search.summary).toBe(said);
+		expect(search.status).toEqual({ count: '', where: '', note: said });
+		expect(search.describeCurrent()).toBe(said);
+		expect(await steps(viewer, [true])).toEqual(["2 a.ts findme50 = ' 6"]);
+		expect(search.summary).toBe('2 of 5 matches in 2 files');
+	});
+
 	it('does nothing once a newer version has taken the search over while a move waited', async () => {
 		const { viewer, search, held } = await opened();
 		await searchFor(viewer, 'findme');
