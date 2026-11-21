@@ -1,0 +1,12 @@
+{
+	"mcpServers": {
+		"diff-delver": {
+			"command": "npx",
+			"args": [
+				"--yes",
+				"https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz",
+				"mcp"
+			]
+		}
+	}
+}

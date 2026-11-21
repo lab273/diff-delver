@@ -1,0 +1,10 @@
+{
+	"name": "diff-delver",
+	"description": "Sort a diff into sections, in reading order, for a person to review in diff delver: the diff-delver MCP server and the skill that says how to use it.",
+	"author": {
+		"name": "lab273"
+	},
+	"homepage": "https://github.com/lab273/diff-delver",
+	"repository": "https://github.com/lab273/diff-delver",
+	"license": "AGPL-3.0-only"
+}

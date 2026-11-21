@@ -58,12 +58,13 @@ export default defineConfig({
 				}
 			},
 			{
-				// Everything else under src: sources, the store, the MCP tools, the daemon.
+				// Everything else under src: sources, the store, the MCP tools, the daemon;
+				// and the replay of the agent trials' recordings.
 				extends: './vite.config.ts',
 				test: {
 					name: 'integration',
 					environment: 'node',
-					include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
+					include: ['src/**/*.test.ts', 'scripts/**/*.test.ts', 'tests/agent-trials/**/*.test.ts'],
 					exclude: [`${CORE_TEST_DIRECTORY}**`],
 					globalSetup: ['tests/support/vitest-global-setup.ts'],
 					// The production build, which the daemon tests serve, runs as Node runs it,
