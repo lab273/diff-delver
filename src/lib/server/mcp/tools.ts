@@ -975,7 +975,7 @@ const upsertSections = tool({
 			.max(MAX_SECTIONS)
 			.optional()
 			.describe(
-				'Ids of sections to remove. Only a section that holds no lines can be removed; move its lines first.'
+				'Ids of sections to remove. Only a section that holds no lines can be removed; move its lines first. One that is already gone is passed over.'
 			)
 	}),
 	run: async (input, context) => {
@@ -1001,8 +1001,18 @@ const upsertSections = tool({
 		const cover = coverage(after.value.diff, after.value.state, {
 			sections: after.value.sections.map((s) => s.id)
 		});
+		// A removal of a section that was already gone is a success, as when the call was sent twice.
+		const before = new Set<string>(page.value.sections.map((s) => s.id));
+		const removed = (input.remove ?? []).filter((id) => before.has(id));
+		const gone = (input.remove ?? []).filter((id) => !before.has(id));
 		const out = [
 			headingLine(headingOf(after.value)),
+			...(removed.length === 0 ? [] : [`Removed: ${removed.join(', ')}.`]),
+			...(gone.length === 0
+				? []
+				: [
+						`Already gone, so there was nothing to remove: ${gone.join(', ')}. That is what a call sent again finds.`
+					]),
 			`${counted(after.value.sections.length, 'section', 'sections')}, in reading order:`
 		];
 		for (const section of after.value.sections) {

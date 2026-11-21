@@ -215,6 +215,10 @@ describe('a whole section change', () => {
 	it('removes a section that holds nothing, with its cross-references, and refuses one that holds lines', () => {
 		const removed = applySectionChange(existing, { sections: [], remove: ['empty'] }, context);
 		expect(removed.ok && removed.value.sections.map((s) => s.id)).toEqual(['auth', 'ui']);
+		// Removing it again, as a call sent twice does, changes nothing and is no refusal.
+		if (!removed.ok) return;
+		const again = applySectionChange(removed.value, { sections: [], remove: ['empty'] }, context);
+		expect(again).toEqual(removed);
 		const refused = applySectionChange(
 			existing,
 			{
@@ -222,7 +226,7 @@ describe('a whole section change', () => {
 					{ id: 'ui', references: [{ file: 'src/b.ts', lines: '+40' }] },
 					{ id: 'empty', title: 'x' }
 				],
-				remove: ['auth', 'nope', 'empty']
+				remove: ['auth', 'Not An Id', 'empty']
 			},
 			context
 		);
@@ -231,7 +235,7 @@ describe('a whole section change', () => {
 		expect(refused.error.map(describeSectionProblem)).toEqual([
 			"Item 0, reference 0: src/b.ts: +40 holds no changed line, so nothing was assigned for this item. A range takes the changed lines inside it and may span unchanged ones, but an item's ranges must hold at least one between them. Nearby: +3..+4. Use the +/- labels from get_diff.",
 			'auth cannot be removed: it still holds 3 changed lines. Move them to another section with assign first, naming them with "lines", then remove it.',
-			'"nope" cannot be removed: there is no such section. The sections are auth, ui, empty.',
+			'"Not An Id" cannot be removed: it is not a section id, so it never named a section. The sections are auth, ui, empty.',
 			'empty is both changed and removed in the same call. Do one or the other.'
 		]);
 	});

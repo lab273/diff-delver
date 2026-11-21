@@ -254,7 +254,7 @@
 						}
 					},
 					"remove": {
-						"description": "Ids of sections to remove. Only a section that holds no lines can be removed; move its lines first.",
+						"description": "Ids of sections to remove. Only a section that holds no lines can be removed; move its lines first. One that is already gone is passed over.",
 						"maxItems": 50,
 						"type": "array",
 						"items": {

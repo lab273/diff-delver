@@ -427,6 +427,33 @@ describe('the agent interface, through the stdio shim', () => {
 			'Item 2: nothing more to take, everything it names is already in section "discounts".'
 		);
 		expect(resent.text).toContain('Item 1: took 4 change lines into section "discounts".');
+		// A removal sent again, as the shim sends a call again when its daemon stopped mid-call.
+		const version = 1;
+		await session.call('upsert_sections', {
+			report: done.report,
+			version,
+			sections: [{ id: 'spare', title: 'Spare' }]
+		});
+		const remove = { report: done.report, version, sections: [], remove: ['spare'] };
+		const removed = await session.call('upsert_sections', remove);
+		expect(removed.refused).toBe(false);
+		expect(removed.text).toMatch(/^Removed: spare\.$/m);
+		const removedAgain = await session.call('upsert_sections', remove);
+		expect(removedAgain.refused).toBe(false);
+		expect(removedAgain.text).toMatch(
+			/^Already gone, so there was nothing to remove: spare\. That is what a call sent again finds\.$/m
+		);
+		// The same order, the same overview, the same section again: each a success, answered the same.
+		const sections = await session.call('get_manifest', { report: done.report });
+		const order = [...sections.text.matchAll(/^ {2}([a-z0-9._-]+): "/gm)].map((m) => m[1]);
+		for (const args of [
+			{ report: done.report, version, sections: [], order },
+			{ report: done.report, version, sections: [{ id: 'rounding' }] }
+		]) {
+			const first = await session.call('upsert_sections', args);
+			expect(first.refused, first.text).toBe(false);
+			expect(await session.call('upsert_sections', args)).toEqual(first);
+		}
 	});
 
 	it('refuses a write on a version that has moved on, and says how to carry on', async () => {

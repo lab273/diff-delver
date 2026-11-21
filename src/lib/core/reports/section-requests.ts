@@ -16,6 +16,9 @@
  *   keeps the ones it had; an empty list clears them.
  * - `remove` names sections to remove. Only a section that holds nothing can
  *   go, so no line is ever left without a home; its cross-references go with it.
+ *   One that is already gone is passed over, so a removal sent again, as the
+ *   stdio shim sends a message again when its daemon stopped mid-call, is
+ *   answered as a success; only an id that could never name a section is refused.
  *
  * All or nothing: when any item, the order or a removal has a problem, nothing
  * changes. A section that holds nothing and is not removed stays, and
@@ -166,8 +169,8 @@ export function describeSectionProblem(problem: SectionProblem): ReviewerMessage
 		case 'RemoveUnknown':
 			return reviewerMessage(
 				problem.known.length > 0
-					? `"${echo(problem.id)}" cannot be removed: there is no such section. The sections are ${problem.known.join(', ')}.`
-					: `"${echo(problem.id)}" cannot be removed: there are no sections yet.`
+					? `"${echo(problem.id)}" cannot be removed: it is not a section id, so it never named a section. The sections are ${problem.known.join(', ')}.`
+					: `"${echo(problem.id)}" cannot be removed: it is not a section id, and there are no sections yet.`
 			);
 		case 'RemoveNotEmpty':
 			return reviewerMessage(
@@ -322,11 +325,12 @@ export function applySectionChange(
 
 	const changed = new Set(change.sections.map((s) => s.id));
 	for (const text of change.remove ?? []) {
-		const section = kept.find((s) => s.id === text);
-		if (section === undefined) {
+		if (!parseSectionId(text).ok) {
 			problems.push({ kind: 'RemoveUnknown', id: text, known: kept.map((s) => s.id) });
 			continue;
 		}
+		const section = kept.find((s) => s.id === text);
+		if (section === undefined) continue; // Already gone, or never made: nothing to remove.
 		if (changed.has(text)) {
 			problems.push({ kind: 'RemovedAndChanged', id: section.id });
 			continue;
