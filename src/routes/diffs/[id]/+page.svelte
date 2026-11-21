@@ -589,24 +589,59 @@
 		await putReaderBack();
 	}
 
-	/** Scrolls the current match to the middle of the screen, once it is drawn, and until it stays there. */
+	/** How long, at most, a match moved to is kept in the middle while what is above it settles. */
+	const SETTLE_FRAMES_AT_MOST = 300;
+
+	/**
+	 * Scrolls the current match to the middle of the screen once it is drawn,
+	 * and keeps it there while what is above it settles: parts coming near the
+	 * screen are laid out and their lines come, which moves everything below.
+	 */
 	async function showMatch(match: CurrentMatch): Promise<void> {
-		let still = 0;
-		for (let turn = 0; turn < 20 && still < 2; turn += 1) {
-			await tick();
-			await nextFrame();
-			const element =
-				match.place.kind === 'path'
-					? document.getElementById(`part-${String(match.at)}-name`)
-					: document.querySelector(`#part-${String(match.at)} [data-current-match]`);
-			if (element === null) continue;
+		if (viewer === undefined) return;
+		const shown = viewer;
+		// The search has the part's lines already: one turn draws them, and another
+		// the chunk of a long hunk that holds the match.
+		await tick();
+		await tick();
+		const element =
+			match.place.kind === 'path'
+				? document.getElementById(`part-${String(match.at)}-name`)
+				: document.querySelector<HTMLElement>(`#part-${String(match.at)} [data-current-match]`);
+		if (element === null) {
+			// Never silently: the part at least is shown, and the error is seen.
+			console.error(`The match moved to in part ${String(match.at)} was not drawn.`);
+			document.getElementById(`part-${String(match.at)}`)?.scrollIntoView({ block: 'start' });
+			return;
+		}
+		const centre = (): void => {
 			const box = element.getBoundingClientRect();
-			const offset = box.top + box.height / 2 - window.innerHeight / 2;
-			if (Math.abs(offset) < 1) still += 1;
-			else {
-				still = 0;
+			if (Math.abs(box.top + box.height / 2 - window.innerHeight / 2) >= 1) {
 				element.scrollIntoView({ block: 'center' });
 			}
+		};
+		centre();
+		// Centred again whenever the diff's size changes, until a frame passes with
+		// no change and no part above still fetching its lines, or the reader moves
+		// on. The bound only ends the keeping of a match already centred, if a part's
+		// lines never come.
+		const diff = element.closest('.content') ?? document.body;
+		const since = { resized: false };
+		const observer = new ResizeObserver(() => {
+			since.resized = true;
+			if (element.isConnected) centre();
+		});
+		observer.observe(diff);
+		try {
+			for (let frame = 0; frame < SETTLE_FRAMES_AT_MOST; frame += 1) {
+				await nextFrame();
+				if (movesAsked > 1 || viewer !== shown || !shown.search.open) return;
+				const fetching = shown.parts.some((p) => p.index < match.at && p.lines.kind === 'loading');
+				if (!since.resized && !fetching) return;
+				since.resized = false;
+			}
+		} finally {
+			observer.disconnect();
 		}
 	}
 
