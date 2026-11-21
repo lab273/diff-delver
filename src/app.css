@@ -160,6 +160,23 @@ button[aria-disabled='true'] {
 	opacity: 0.6;
 }
 
+/*
+ * A primary button that cannot be pressed: faded, it is white on pale green,
+ * which is hard to read in either theme. It is drawn as a plain button with
+ * quiet text and a dashed edge instead, so it reads and is plainly not
+ * pressable, by more than its colour. (Each page styles its own `.primary`.)
+ */
+button.primary:disabled,
+button.primary[aria-disabled='true'],
+button.primary:disabled:hover,
+button.primary[aria-disabled='true']:hover {
+	background: var(--color-button);
+	border: 1px dashed var(--color-muted);
+	color: var(--color-muted);
+	opacity: 1;
+	cursor: not-allowed;
+}
+
 button.danger {
 	background: var(--color-danger-button);
 	border-color: var(--color-danger-button);
