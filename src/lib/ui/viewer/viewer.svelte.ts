@@ -64,6 +64,7 @@ import {
 	type Quieted
 } from '#lib/core/viewer/white-space.ts';
 import { AskedLines, COLOUR_REQUESTS_AT_ONCE, PART_REQUESTS_AT_ONCE, Turns } from './requests.ts';
+import { hiddenIn } from './white-space-notice.ts';
 
 /** How many parts are drawn at first, and how many more after each frame. */
 export const FIRST_BATCH = 40;
@@ -141,15 +142,6 @@ function forWhiteSpace(line: ShownLineView): LineForWhiteSpace {
 		text: line.text,
 		group: line.kind === 'context' || line.home.kind === 'here' ? '' : groupKeyId(line.home.group)
 	};
-}
-
-/** How many of a part's own changes the lines drawn show as unchanged lines. */
-export function hiddenIn(drawn: readonly Quieted<ShownLineView>[]): number {
-	return (
-		drawn.filter(
-			(d) => d.kind === 'quiet' && d.removed.kind !== 'context' && d.removed.home.kind === 'here'
-		).length * 2
-	);
 }
 
 /** Puts the colours of one side's lines that came where the page draws them from. */

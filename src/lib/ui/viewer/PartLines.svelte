@@ -19,6 +19,7 @@
 	import type { BlockState, LineColours, OpenLine, Viewer } from './viewer.svelte.ts';
 	import { hiddenCount, nextStep } from './viewer.svelte.ts';
 	import { drawLine } from './draw-line.ts';
+	import { wholeHunkHidden } from './white-space-notice.ts';
 	import { tick } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { chunksOf } from '#lib/core/viewer/chunks.ts';
@@ -525,8 +526,8 @@
 				{#each block.bottom as line (line.new)}{@render opened(line)}{/each}
 			{:else if block.kind === 'hunk'}
 				{@const shown = viewer.drawnLines(block)}
-				{#if shown.some((d) => d.kind === 'quiet') && !shown.some((d) => d.kind === 'line' && d.line.kind !== 'context')}
-					{@const hidden = shown.filter((d) => d.kind === 'quiet').length * 2}
+				{@const hidden = wholeHunkHidden(shown)}
+				{#if hidden !== undefined}
 					<tr class="hidden white-space">
 						<td colspan={columns}>
 							<div class="hidden-row">
