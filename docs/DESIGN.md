@@ -328,7 +328,8 @@ this state is grouped into reviews.
 
 Three things nest inside each other:
 
-- A **report** is one source followed over time, for example one pull request.
+- A **Delve** follows one source over time, such as a pull request. The data
+  model and MCP API call it a **report**.
 - A **revision** is one frozen state of that report: a snapshot of the diff plus
   the breakdown of it into sections.
 - A **review** is one round of human feedback, submitted as a batch against one

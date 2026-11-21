@@ -194,8 +194,8 @@ Usage:
                               and output, which lets an agent sort the diff into
                               sections for you. Add it to your agent's MCP
                               servers with this command. It starts diff delver
-                              if need be, and opens in your browser each report
-                              the agent makes, unless given --no-open.
+                              if needed and opens each Delve the agent makes in
+                              your browser, unless given --no-open.
 
 Options:
   --no-open                   Print the address instead of opening a browser.
