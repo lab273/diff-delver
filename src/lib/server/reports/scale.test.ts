@@ -118,7 +118,7 @@ describe('the report service at full scale', () => {
 		expect(page.diff.unitCount).toBe(200_000);
 
 		value(
-			later.upsertSections(id, FIRST, [
+			await later.upsertSections(id, FIRST, [
 				{ id: 'first', title: 'First half' },
 				{ id: 'second', title: 'Second half' }
 			])

@@ -407,6 +407,45 @@ class CarryOver {
 		}
 	}
 
+	/** The units of `set`, a set of the previous version's units, that are the same units in the new one. */
+	unitSet(set: UnitSet): UnitSet {
+		const files = new Map<RepoPath, FileUnitSet>();
+		for (const file of this.#input.diff.files) {
+			const sides: Record<Side, number[]> = { old: [], new: [] };
+			for (const hunk of file.hunks.values()) {
+				for (const line of hunk.lines) {
+					const found = this.#candidate(file, line);
+					if (found === undefined || found.weak) continue;
+					const before = set.files.get(found.previous.file.path);
+					if (before === undefined) continue;
+					switch (line.kind) {
+						case 'added':
+							if (before.new.has(found.line)) sides.new.push(line.new);
+							break;
+						case 'deleted':
+							if (before.old.has(found.line)) sides.old.push(line.old);
+							break;
+						case 'context':
+							break;
+					}
+				}
+			}
+			const previous = this.#input.previous.diff.byPath.get(file.file.path);
+			const own =
+				file.hasFileUnit &&
+				previous !== undefined &&
+				sameFileUnit(previous, file) &&
+				fileUnitInSet(set, previous.file.path);
+			const units = fileUnitsOf(
+				RangeSet.fromNumbers(sides.old),
+				RangeSet.fromNumbers(sides.new),
+				own
+			);
+			if (units !== undefined) files.set(file.file.path, units);
+		}
+		return { files };
+	}
+
 	/** Where a change line of the new diff was a change line of the previous one, if anywhere. */
 	#candidate(file: DiffFile, line: DiffLine): Candidate | undefined {
 		switch (line.kind) {
@@ -495,6 +534,27 @@ class CarryOver {
 /** Carries the previous version's state and marks over to the new diff (see the top of this file). */
 export function carryOver(input: CarryOverInput): CarriedOver {
 	return new CarryOver(input).run();
+}
+
+/**
+ * Sets of units of the previous version, such as each section's
+ * cross-references, as the same units of the new one: a line goes with it when
+ * it is the same line by the rule `carryOver` matches lines by, and was firmly
+ * placed (a weak match is dropped, as when in doubt); a file-level unit when the
+ * file's own change is the same. What has no match is left out.
+ */
+export function carryUnitSets<K>(
+	input: CarryOverInput,
+	sets: ReadonlyMap<K, UnitSet>
+): ReadonlyMap<K, UnitSet> {
+	const carried = new Map<K, UnitSet>();
+	if (sets.size === 0) return carried;
+	const carry = new CarryOver(input);
+	for (const [key, set] of sets) {
+		const out = carry.unitSet(set);
+		if (out.files.size > 0) carried.set(key, out);
+	}
+	return carried;
 }
 
 /** How many of a file's new units are to review, and how many a rule or pattern ignored. */

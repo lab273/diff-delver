@@ -19,7 +19,9 @@ export type TableName =
 	| 'unmarked_units'
 	| 'revisions_to_check'
 	| 'unreferenced_snapshots'
-	| 'settings';
+	| 'settings'
+	| 'overviews'
+	| 'section_references';
 
 /**
  * The file could not be opened or made (a missing folder, no permission, a full
@@ -174,6 +176,10 @@ function tableInWords(table: TableName): string {
 			return 'the list of saved changes to remove';
 		case 'settings':
 			return 'how you like diffs shown';
+		case 'overviews':
+			return 'the agent’s overview of a diff';
+		case 'section_references':
+			return 'which lines a diff’s sections point to in other sections';
 	}
 }
 
@@ -189,6 +195,8 @@ function storedRowAdvice(table: TableName): string {
 		case 'new_units':
 		case 'unmarked_units':
 		case 'revisions_to_check':
+		case 'overviews':
+		case 'section_references':
 			return 'Delete that diff from the list of diffs, where it shows as damaged, or restore the database from a backup.';
 		case 'settings':
 			return 'Change any setting on a diff’s page, which stores it again.';

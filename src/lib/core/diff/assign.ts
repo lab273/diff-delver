@@ -50,6 +50,7 @@ import { changedLines, type Diff, type DiffFile, type SideLines } from './diff.t
 import { describeBucket } from './coverage.ts';
 import { parseUnitSpec, type MalformedLinesProblem } from './line-spec.ts';
 import { countUncategorised } from './totals.ts';
+import type { FileUnitSet } from './unit-set.ts';
 import {
 	assignedUnits,
 	fileAssignment,
@@ -418,6 +419,37 @@ function withDiffContext(diff: Diff, rejection: AssignRejection): AssignRejectio
 		case 'InvalidRole':
 			return rejection;
 	}
+}
+
+/**
+ * The changed units a file and a `lines` value name, as `assign` reads them,
+ * for what else an agent points at with them, such as a section's
+ * cross-references (DESIGN 4.3): only changed lines and the file-level unit,
+ * never the unchanged lines a range spans. Refused as an `assign` item with
+ * the same target would be, with the same rejections.
+ */
+export function resolveUnits(
+	diff: Diff,
+	file: string,
+	lines: string
+): Result<{ readonly path: RepoPath; readonly units: FileUnitSet }, AssignRejection> {
+	const target = parseTarget({ file, lines });
+	if (!target.ok) return err(withDiffContext(diff, target.error));
+	const resolved = resolveTarget(diff, target.value);
+	if (!resolved.ok) return resolved;
+	for (const [found, wanted] of resolved.value.files) {
+		const changed = found.changed;
+		const units =
+			wanted.kind === 'whole'
+				? { old: changed.old, new: changed.new, file: found.hasFileUnit }
+				: {
+						old: wanted.lines.old.intersect(changed.old),
+						new: wanted.lines.new.intersect(changed.new),
+						file: wanted.file && found.hasFileUnit
+					};
+		return ok({ path: found.file.path, units });
+	}
+	return err({ kind: 'InvalidItem', problem: 'no-target' });
 }
 
 // --- Applying an item ----------------------------------------------------------

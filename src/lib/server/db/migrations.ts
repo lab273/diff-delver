@@ -250,6 +250,33 @@ CREATE TABLE settings (
 	value TEXT NOT NULL
 ) STRICT;
 `
+	},
+	{
+		version: schemaVersionOf(7),
+		name: "the agent's overview of each version, and each section's cross-references",
+		sql: `
+-- What the change does, in reading order, as the agent wrote it (DESIGN 7.1),
+-- stored as given and never trusted: it is sanitised when a page shows it.
+CREATE TABLE overviews (
+	revision_id TEXT PRIMARY KEY REFERENCES revisions (id) ON DELETE CASCADE,
+	markdown TEXT NOT NULL
+) STRICT;
+
+-- Changed lines that live in another section and matter to this one (DESIGN
+-- 4.3), as runs of units like new_units. They affect neither coverage nor ticks.
+CREATE TABLE section_references (
+	revision_id TEXT NOT NULL,
+	section_id TEXT NOT NULL,
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new', 'file')),
+	first_line INTEGER NOT NULL,
+	last_line INTEGER NOT NULL,
+	PRIMARY KEY (revision_id, section_id, path, side, first_line),
+	FOREIGN KEY (revision_id, section_id) REFERENCES sections (revision_id, id) ON DELETE CASCADE,
+	CHECK ((side = 'file') = (first_line = 0 AND last_line = 0)),
+	CHECK (side = 'file' OR (first_line >= 1 AND last_line >= first_line))
+) STRICT, WITHOUT ROWID;
+`
 	}
 ];
 

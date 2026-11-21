@@ -73,7 +73,14 @@ import {
 } from '#lib/core/reports/nothing-left.ts';
 import { gitReportIdentity } from '#lib/core/reports/report-identity.ts';
 import type { Report, ReportState, Revision, Section } from '#lib/core/reports/report.ts';
-import { applySectionRequests, type SectionRequest } from '#lib/core/reports/section-requests.ts';
+import {
+	applySectionChange,
+	type SectionReferences,
+	type SectionRequest
+} from '#lib/core/reports/section-requests.ts';
+import type { AgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
+import { overviewOf, setOverview as storeOverview } from '../db/tables/overviews.ts';
+import { referenceRowsFor, replaceReferenceRows } from '../db/tables/section-references.ts';
 import { markReviewed, type ReviewTarget } from '#lib/core/review/mark-reviewed.ts';
 import { reviewProgress, unitProgressOf, type Progress } from '#lib/core/review/progress.ts';
 import { NO_MARKS, type ReviewedMarks } from '#lib/core/review/reviewed-marks.ts';
@@ -102,7 +109,9 @@ import {
 	type UnitRow
 } from '#lib/core/storage/stored-units.ts';
 import { withoutUnits, type UnitSet } from '#lib/core/diff/unit-set.ts';
-import { carryOver } from '#lib/core/update/carry-over.ts';
+import { carryOver, carryUnitSets } from '#lib/core/update/carry-over.ts';
+import { coverage } from '#lib/core/diff/coverage.ts';
+import type { SectionId } from '#lib/core/section-id.tiny.ts';
 import type { TreeChanges } from '#lib/core/update/line-map.ts';
 import type { UpdateSummary } from '#lib/core/update/update-summary.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
@@ -110,7 +119,7 @@ import type { StoreId } from '#lib/core/store-id.tiny.ts';
 import { timeBetween } from '#lib/core/timestamp.tiny.ts';
 import { fileCountOf, type FileCount } from '#lib/core/file-count.tiny.ts';
 import { snapshotCountOf, type SnapshotCount } from '#lib/core/snapshot-count.tiny.ts';
-import type { UnitCount } from '#lib/core/unit-count.tiny.ts';
+import { NO_UNITS, type UnitCount } from '#lib/core/unit-count.tiny.ts';
 import { Database, type DatabaseError, type Queries } from '../db/index.ts';
 import { assignmentRowsFor, replaceAssignmentRows } from '../db/tables/assignments.ts';
 import {
@@ -318,6 +327,10 @@ export interface LoadedReport {
 	readonly diff: Diff;
 	/** In reading order. */
 	readonly sections: readonly Section[];
+	/** Each section's cross-references (DESIGN 4.3); a section with none has no entry. */
+	readonly references: SectionReferences;
+	/** What the change does, as the agent wrote it; undefined until it has. */
+	readonly overview: AgentMarkdown | undefined;
 	readonly state: AssignmentState;
 	readonly reviewed: ReviewedMarks;
 	/**
@@ -604,6 +617,36 @@ function stateOf(
 	);
 }
 
+/** Each section's cross-references, as rows to store. */
+function referenceRowsOf(
+	references: SectionReferences
+): ReadonlyMap<SectionId, readonly UnitRow[]> {
+	return new Map([...references].map(([section, set]) => [section, unitRowsOf(set)]));
+}
+
+/** The cross-references the rows describe, checked against the diff. */
+function referencesFromRows(
+	diff: Diff,
+	rows: ReadonlyMap<SectionId, readonly UnitRow[]>
+): Result<SectionReferences, ReportError> {
+	const references = new Map<SectionId, UnitSet>();
+	for (const [section, list] of rows) {
+		const set = unitSetFromRows(diff, list, 'cross-references');
+		if (!set.ok) return set;
+		references.set(section, set.value);
+	}
+	return ok(references);
+}
+
+/** A revision's cross-references, read and checked against its diff. */
+function referencesOf(
+	q: Queries,
+	revision: RevisionId,
+	diff: Diff
+): Result<SectionReferences, ReportError> {
+	return andThen(referenceRowsFor(q, revision), (rows) => referencesFromRows(diff, rows));
+}
+
 /** What writing an update did: made the next revision, or found the current one had changed. */
 type Written =
 	| 'stale'
@@ -789,6 +832,8 @@ export class ReportService {
 					fresh: readonly UnitRow[];
 					unmarked: readonly UnitRow[];
 					summary: UpdateSummary | undefined;
+					referenceRows: ReadonlyMap<SectionId, readonly UnitRow[]>;
+					overview: AgentMarkdown | undefined;
 				},
 				ReportError
 			> =>
@@ -798,7 +843,20 @@ export class ReportService {
 							andThen(newUnitRowsFor(q, revision.id), (fresh) =>
 								andThen(unmarkedUnitRowsFor(q, revision.id), (unmarked) =>
 									andThen(revisionUpdateFor(q, revision.id), (summary) =>
-										ok({ sections, rows, marked, fresh, unmarked, summary })
+										andThen(referenceRowsFor(q, revision.id), (referenceRows) =>
+											andThen(overviewOf(q, revision.id), (overview) =>
+												ok({
+													sections,
+													rows,
+													marked,
+													fresh,
+													unmarked,
+													summary,
+													referenceRows,
+													overview
+												})
+											)
+										)
 									)
 								)
 							)
@@ -816,6 +874,8 @@ export class ReportService {
 		if (!fresh.ok) return fresh;
 		const unmarked = unitSetFromRows(diff, found.value.unmarked, 'unmarked changes');
 		if (!unmarked.ok) return unmarked;
+		const references = referencesFromRows(diff, found.value.referenceRows);
+		if (!references.ok) return references;
 		return ok({
 			summary: summaryOf(report, revision),
 			report,
@@ -823,6 +883,8 @@ export class ReportService {
 			snapshot,
 			diff: diff,
 			sections,
+			references: references.value,
+			overview: found.value.overview,
 			state: state.value,
 			reviewed: reviewed.value,
 			progress: reviewProgress(
@@ -872,27 +934,70 @@ export class ReportService {
 	}
 
 	/**
-	 * The agent's `upsert_sections`: creates, retitles, summarises and reorders
-	 * the sections of the current revision, all or nothing. Returns them in
+	 * The agent's `upsert_sections`: creates, retitles, summarises, reorders and
+	 * removes the sections of the current revision, and sets their
+	 * cross-references, all or nothing (`applySectionChange`). Returns them in
 	 * reading order. `seen` is the version the caller worked on; when the report
 	 * has been updated since, nothing changes and the answer is `VersionOutOfDate`.
 	 */
-	upsertSections(
+	async upsertSections(
 		id: ReportId,
 		seen: RevisionNumber,
 		requests: readonly SectionRequest[],
-		order?: readonly string[]
-	): Result<readonly Section[], ReportError> {
+		order?: readonly string[],
+		remove?: readonly string[]
+	): Promise<Result<readonly Section[], ReportError>> {
+		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
+		if (!found.ok) return found;
+		const content = await this.#contentOf(found.value.report, found.value.revision);
+		if (!content.ok) return content;
+		const { diff, revision } = content.value;
 		return this.#db.write((q) =>
-			andThen(currentAsSeen(q, id, seen), ({ revision }) =>
-				andThen(sectionsOf(q, revision.id), (existing): Result<readonly Section[], ReportError> => {
-					const next = applySectionRequests(existing, requests, order);
-					if (!next.ok) return err({ kind: 'SectionsRefused', problems: next.error });
-					replaceSections(q, revision.id, next.value);
-					touchReport(q, id, this.#clock.now());
-					return ok(next.value);
-				})
-			)
+			andThen(currentAsSeen(q, id, seen), (now): Result<readonly Section[], ReportError> => {
+				if (now.revision.id !== revision.id) {
+					return err({ kind: 'RevisionChangedWhileSaving', report: id });
+				}
+				return andThen(sectionsOf(q, revision.id), (sections) =>
+					andThen(referencesOf(q, revision.id, diff), (references) =>
+						andThen(stateOf(q, revision, diff), ({ state }) => {
+							const totals = coverage(diff, state).sections;
+							const next = applySectionChange(
+								{ sections, references },
+								{
+									sections: requests,
+									...(order === undefined ? {} : { order }),
+									...(remove === undefined ? {} : { remove })
+								},
+								{ diff, unitsIn: (section) => totals.get(section)?.units ?? NO_UNITS }
+							);
+							if (!next.ok) return err({ kind: 'SectionsRefused', problems: next.error });
+							replaceSections(q, revision.id, next.value.sections);
+							replaceReferenceRows(q, revision.id, referenceRowsOf(next.value.references));
+							touchReport(q, id, this.#clock.now());
+							return ok(next.value.sections);
+						})
+					)
+				);
+			})
+		);
+	}
+
+	/**
+	 * The agent's `set_overview`: what the change does, in reading order, for
+	 * the current revision, replacing the one it had. `seen` as for
+	 * `upsertSections`.
+	 */
+	setOverview(
+		id: ReportId,
+		seen: RevisionNumber,
+		markdown: AgentMarkdown
+	): Result<AgentMarkdown, ReportError> {
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), ({ revision }): Result<AgentMarkdown, ReportError> => {
+				storeOverview(q, revision.id, markdown);
+				touchReport(q, id, this.#clock.now());
+				return ok(markdown);
+			})
 		);
 	}
 
@@ -1845,7 +1950,12 @@ export class ReportService {
 				if (now.revision.id !== found.revision.id) return ok('stale');
 				return andThen(sectionsOf(q, now.revision.id), (sections) =>
 					andThen(stateOf(q, now.revision, before), ({ state, marks }) => {
-						const carried = carryOver(carryOverInput(before, state, marks, prepared));
+						const references = referencesOf(q, now.revision.id, before);
+						if (!references.ok) return references;
+						const overview = overviewOf(q, now.revision.id);
+						if (!overview.ok) return overview;
+						const input = carryOverInput(before, state, marks, prepared);
+						const carried = carryOver(input);
 						const at = this.#clock.now();
 						const revision: Revision = {
 							id: this.#ids.revisionId(),
@@ -1867,6 +1977,12 @@ export class ReportService {
 						};
 						insertRevision(q, revision);
 						replaceSections(q, revision.id, sections);
+						replaceReferenceRows(
+							q,
+							revision.id,
+							referenceRowsOf(carryUnitSets(input, references.value))
+						);
+						if (overview.value !== undefined) storeOverview(q, revision.id, overview.value);
 						replaceAssignmentRows(q, revision.id, 'all', assignmentRowsOf(diff, carried.state));
 						replaceReviewedRows(q, revision.id, 'all', reviewedRowsOf(carried.marks));
 						insertNewUnitRows(q, revision.id, unitRowsOf(carried.fresh));

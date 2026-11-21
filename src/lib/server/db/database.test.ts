@@ -160,6 +160,11 @@ describe('the database', () => {
 				version: 6,
 				name: 'how the person likes diffs shown',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 7,
+				name: "the agent's overview of each version, and each section's cross-references",
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -220,6 +225,8 @@ describe('the database', () => {
 			new_units: [],
 			unmarked_units: [],
 			settings: [],
+			overviews: [],
+			section_references: [],
 			revision_updates: [],
 			revisions_to_check: [{ revision_id: 'v_1' }]
 		});

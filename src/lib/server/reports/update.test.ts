@@ -30,6 +30,8 @@ import {
 	type OpenOutcome
 } from './index.ts';
 import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
+import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 
 /** The first version of a diff, which changes are made on until it is updated. */
 const FIRST = value(parseRevisionNumber(1));
@@ -148,8 +150,8 @@ function bucket(page: LoadedReport, file: string, side: Side, line: number): str
 
 /** Sorts r_1: app.ts in a section, a line of new.ts ignored by the agent; and marks app.ts and new.ts. */
 async function sortAndMark(service: ReportService, id: ReportId): Promise<void> {
-	value(service.upsertSections(id, FIRST, [{ id: 'app', title: 'The app' }]));
-	value(service.upsertSections(id, FIRST, [{ id: 'empty', title: 'Nothing left in here' }]));
+	value(await service.upsertSections(id, FIRST, [{ id: 'app', title: 'The app' }]));
+	value(await service.upsertSections(id, FIRST, [{ id: 'empty', title: 'Nothing left in here' }]));
 	const assigned = value(
 		await service.assign(id, FIRST, [
 			{ file: 'src/app.ts', section: 'app' },
@@ -225,6 +227,48 @@ describe('updating a diff', () => {
 		// The first version and its snapshot stay; nothing else was left behind.
 		expect(await snapshotCount(data)).toBe(2);
 		expect(everyRow(data)['revisions']).toHaveLength(2);
+		service.close();
+	});
+
+	it('keeps the overview, and moves cross-references with their lines, dropping those that changed', async () => {
+		const { repo, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		await sortAndMark(service, id);
+		value(service.setOverview(id, FIRST, value(parseAgentMarkdown('What *changed*'))));
+		value(
+			await service.upsertSections(id, FIRST, [
+				{
+					id: 'empty',
+					references: [
+						{ file: 'src/app.ts', lines: '+6,+11,-10' },
+						{ file: 'src/new.ts', lines: '+3' }
+					]
+				}
+			])
+		);
+		const first = value(await service.load(id));
+		const refs = (page: LoadedReport, file: string, side: Side): readonly number[] => [
+			...linesInSet(
+				page.references.get(value(parseSectionId('empty'))) ?? { files: new Map() },
+				path(file),
+				side
+			).values()
+		];
+		expect([refs(first, 'src/app.ts', 'new'), refs(first, 'src/app.ts', 'old')]).toEqual([
+			[6, 11],
+			[10]
+		]);
+
+		// Everything moves down one; line 11 of app.ts is edited, so its reference goes.
+		const now = edited(numbered(20)).map((line, i) => (i === 10 ? 'changed 10 again' : line));
+		await repo.write('src/app.ts', lines('top', ...now));
+		value(await service.update(id));
+		const page = value(await service.load(id));
+		expect(page.overview).toBe('What *changed*');
+		expect([refs(page, 'src/app.ts', 'new'), refs(page, 'src/app.ts', 'old')]).toEqual([[7], [10]]);
+		expect(refs(page, 'src/new.ts', 'new')).toEqual([3]);
+		// The earlier version keeps its own.
+		expect(refs(value(await service.load(id, FIRST)), 'src/app.ts', 'new')).toEqual([6, 11]);
 		service.close();
 	});
 
@@ -507,7 +551,7 @@ describe('updating a diff', () => {
 		const refusals = [
 			await service.markReviewed(id, FIRST, app, true),
 			await service.assign(id, FIRST, [{ file: 'src/new.ts', section: 'ignored', reason: 'x' }]),
-			service.upsertSections(id, FIRST, [{ id: 'app', title: 'The app' }])
+			await service.upsertSections(id, FIRST, [{ id: 'app', title: 'The app' }])
 		];
 		for (const refused of refusals) {
 			expect(refused.ok ? undefined : refused.error).toEqual({

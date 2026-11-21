@@ -5,6 +5,7 @@ import { assign } from '#lib/core/diff/assign.ts';
 import { autoIgnore } from '#lib/core/diff/auto-ignore.ts';
 import { parseGlobPattern } from '#lib/core/glob-pattern.tiny.ts';
 import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
+import { parseLineRange } from '#lib/core/line-range.ts';
 import { makeDiff, type Diff } from '#lib/core/diff/diff.ts';
 import { initialState, type AssignmentState } from '#lib/core/diff/state.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
@@ -44,6 +45,8 @@ import { everyReport, insertReport, reportById, setReportState } from './tables/
 import { replaceReviewedRows, reviewedRowsFor } from './tables/reviewed-marks.ts';
 import { currentRevision, insertRevision } from './tables/revisions.ts';
 import { replaceSections, sectionsOf } from './tables/sections.ts';
+import { overviewOf, setOverview } from './tables/overviews.ts';
+import { referenceRowsFor, replaceReferenceRows } from './tables/section-references.ts';
 
 async function database(): Promise<Database> {
 	return value(await Database.open(await tempDirectory(), settableClock(at(0))));
@@ -151,6 +154,72 @@ describe('the tables', () => {
 		expect(after.all).toEqual([
 			ok({ ...report, state: { kind: 'closed', reason: 'reviewer' }, lastActivityAt: 9_000 })
 		]);
+	});
+
+	it('give back an overview and cross-references, removed with their section, and refuse a damaged overview', async () => {
+		const db = await database();
+		const ids = sequentialIds();
+		const report = aReport(ids.reportId());
+		const revision = aRevision(ids.revisionId(), report.id);
+		const alpha = value(parseSectionId('alpha'));
+		const rows = new Map([
+			[
+				alpha,
+				[
+					{ path: value(parseRepoPath('a.ts')), units: { kind: 'file' } as const },
+					{
+						path: value(parseRepoPath('a.ts')),
+						units: { kind: 'lines', range: value(parseLineRange('new', 3, 9)) } as const
+					}
+				]
+			]
+		]);
+		value(
+			db.write((q) => {
+				insertReport(q, report);
+				insertRevision(q, revision);
+				replaceSections(q, revision.id, SECTIONS);
+				replaceReferenceRows(q, revision.id, rows);
+				setOverview(q, revision.id, value(parseAgentMarkdown('First')));
+				setOverview(q, revision.id, value(parseAgentMarkdown('Second <b>raw</b>')));
+				return ok(undefined);
+			})
+		);
+		const read = value(
+			db.read((q) =>
+				andThen(referenceRowsFor(q, revision.id), (r) =>
+					andThen(overviewOf(q, revision.id), (o) => ok({ r, o }))
+				)
+			)
+		);
+		expect(read).toEqual({ r: rows, o: 'Second <b>raw</b>' });
+
+		value(
+			db.write((q) => {
+				replaceSections(q, revision.id, SECTIONS.slice(1));
+				return ok(undefined);
+			})
+		);
+		expect(value(db.read((q) => referenceRowsFor(q, revision.id))).size).toBe(0);
+
+		value(
+			db.write((q) => {
+				q.run(
+					"INSERT INTO section_references VALUES (?, 'beta', ?, 'new', 5, 5)",
+					revision.id,
+					repoPathBytes(value(parseRepoPath('a.ts')))
+				);
+				q.run("UPDATE overviews SET markdown = ' ' WHERE revision_id = ?", revision.id);
+				return ok(undefined);
+			})
+		);
+		expect([...value(db.read((q) => referenceRowsFor(q, revision.id))).keys()]).toEqual(['beta']);
+		const blank = db.read((q) => overviewOf(q, revision.id));
+		db.close();
+		expect(blank.ok ? undefined : blank.error).toMatchObject({
+			kind: 'StoredRowInvalid',
+			table: 'overviews'
+		});
 	});
 
 	it('store every path exactly, including paths that are not UTF-8 and differ only in such a byte', async () => {

@@ -196,7 +196,7 @@ describe('the report service', () => {
 		const { repo, who, data, clock, service } = await setUp();
 		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
 		value(
-			service.upsertSections(id, FIRST, [
+			await service.upsertSections(id, FIRST, [
 				{ id: 'app', title: 'The app', summary: 'What it *does*' }
 			])
 		);
@@ -243,7 +243,7 @@ describe('the report service', () => {
 		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
 		clock.advance(1_000);
 		const sections = value(
-			service.upsertSections(
+			await service.upsertSections(
 				id,
 				FIRST,
 				[
@@ -318,7 +318,7 @@ describe('the report service', () => {
 		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
 		const before = value(await service.load(id));
 
-		const sections = failure(service.upsertSections(id, FIRST, [{ id: 'app' }]));
+		const sections = failure(await service.upsertSections(id, FIRST, [{ id: 'app' }]));
 		expect(sections.kind).toBe('SectionsRefused');
 		expect(describeReportError(sections)).toMatch(/app is a new section, so it needs a title/);
 		const empty = failure(
@@ -416,7 +416,7 @@ describe('the report service', () => {
 		const errors = [
 			failure(await service.markReviewed(id, second, app, true)),
 			failure(await service.assign(id, second, [{ file: 'src/app.ts', section: 'app' }])),
-			failure(service.upsertSections(id, second, [{ id: 'app', title: 'App' }]))
+			failure(await service.upsertSections(id, second, [{ id: 'app', title: 'App' }]))
 		];
 		for (const error of errors) {
 			expect(error).toEqual({ kind: 'VersionNotFound', report: id, seen: 2, current: 1 });
@@ -465,7 +465,7 @@ describe('the report service', () => {
 		expect(value(service.list())[0]).toMatchObject({ kind: 'report', state: { kind: 'open' } });
 		expect(value(await service.load(id)).diff.files).toHaveLength(3);
 		const current = value(await service.load(id)).revision.number;
-		value(service.upsertSections(id, current, [{ id: 'app', title: 'App' }]));
+		value(await service.upsertSections(id, current, [{ id: 'app', title: 'App' }]));
 
 		// Opening the source again, with nothing to review, closes it and says where the changes went.
 		const reopened = value(await service.open(repo.dir, spec('working-tree')));
@@ -738,7 +738,7 @@ describe('the report service', () => {
 		const who = await reviewer();
 		const service = await serviceOn(await tempDirectory(), settableClock(at(0)), who);
 		const id = created(value(await service.open(repo.dir, spec('HEAD'))));
-		value(service.upsertSections(id, FIRST, [{ id: 'odd', title: 'Odd names' }]));
+		value(await service.upsertSections(id, FIRST, [{ id: 'odd', title: 'Odd names' }]));
 		const outcome = value(
 			await service.assign(id, FIRST, [{ file: 'caf\\xE9.txt', section: 'odd' }])
 		);
@@ -763,7 +763,7 @@ describe('the report service', () => {
 			value(await service.open(repo.dir, spec('main...HEAD')));
 			value(await service.load(id));
 			value(service.list());
-			value(service.upsertSections(id, FIRST, [{ id: 'app', title: 'App' }]));
+			value(await service.upsertSections(id, FIRST, [{ id: 'app', title: 'App' }]));
 			value(await service.assign(id, FIRST, [{ file: 'src/app.ts', section: 'app' }]));
 			value(
 				await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/app.ts') }, true)
@@ -789,7 +789,7 @@ describe('the report service', () => {
 			expect(failure(await service.open(repo.dir, spec('main...no-such-branch'))).kind).toBe(
 				'UnknownRevision'
 			);
-			expect(failure(service.upsertSections(id, FIRST, [{ id: 'app' }])).kind).toBe(
+			expect(failure(await service.upsertSections(id, FIRST, [{ id: 'app' }])).kind).toBe(
 				'SectionsRefused'
 			);
 			const refused = value(

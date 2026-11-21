@@ -59,7 +59,8 @@ export type ReviewedRow = UnitRow;
 /** Rows that do not fit the diff they are stored for. */
 export interface StoredStateMismatch {
 	readonly kind: 'StoredStateMismatch';
-	readonly what: 'assignments' | 'reviewed marks' | 'new changes' | 'unmarked changes';
+	readonly what:
+		'assignments' | 'reviewed marks' | 'new changes' | 'unmarked changes' | 'cross-references';
 	readonly path: RepoPath;
 	readonly problem:
 		/** A row names a file the diff does not have. */
@@ -260,7 +261,7 @@ export function reviewedMarksFromRows(
 export function unitSetFromRows(
 	diff: Diff,
 	rows: readonly UnitRow[],
-	what: 'reviewed marks' | 'new changes' | 'unmarked changes'
+	what: 'reviewed marks' | 'new changes' | 'unmarked changes' | 'cross-references'
 ): Result<UnitSet, StoredStateMismatch> {
 	const mismatch = (path: RepoPath, problem: StoredStateMismatch['problem']) =>
 		err<StoredStateMismatch>({ kind: 'StoredStateMismatch', what, path, problem });

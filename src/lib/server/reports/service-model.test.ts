@@ -232,7 +232,7 @@ describe('the report service against the pure model', () => {
 								throw new Error('This property makes no updates.');
 							case 'sections':
 								value(
-									service.upsertSections(
+									await service.upsertSections(
 										id,
 										FIRST,
 										call.ids.map((s) => ({ id: s, title: `Section ${s}` }))
@@ -369,7 +369,7 @@ describe('the report service against the pure model', () => {
 							}
 							case 'sections':
 								value(
-									service.upsertSections(
+									await service.upsertSections(
 										id,
 										page.revision.number,
 										call.ids.map((x) => ({ id: x, title: `Section ${x}` }))

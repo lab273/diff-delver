@@ -53,7 +53,7 @@ describe('searching a diff', () => {
 			const opened = value(await service.open(repo.dir, value(parseGitSourceSpec('working-tree'))));
 			if (opened.kind !== 'created') throw new Error(opened.kind);
 			const id = opened.report.id;
-			value(service.upsertSections(id, FIRST, [{ id: 'early', title: 'Early' }]));
+			value(await service.upsertSections(id, FIRST, [{ id: 'early', title: 'Early' }]));
 			// The first hunk's added line goes to a section; its removed line stays unsorted.
 			value(
 				await service.assign(id, FIRST, [{ file: 'src/sum.ts', lines: '+4', section: 'early' }])
