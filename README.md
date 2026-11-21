@@ -28,7 +28,7 @@ repository. `diff-delver --help` (after the same `npx` address) lists the rest:
 its data somewhere other than this machine's usual place (`~/.local/share/diff-delver`
 on Linux).
 
-`pnpm dlx` with the same address works too, and does not fetch it again on later runs.
+`pnpm dlx` with the same address works too.
 
 From a clone instead: `pnpm install` (which builds it; after pulling changes, `pnpm build`), then run
 `node <clone>/bin/diff-delver.js` in the repository you want to review.
@@ -47,8 +47,11 @@ the folder to delete.
 
 To keep diff delver installed instead, `npm install --global
 https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz` and then
-run `diff-delver`; running the same install again moves to the newest release. `pnpm dlx`
-keeps its copy for a day by default, then fetches the newest.
+run `diff-delver`; running the same install again moves to the newest release.
+
+`pnpm dlx` is like npx: a later run fetches the address and the tarball again, then
+runs the copy it already had. To move to the newest release, delete its copies, the
+folder `~/.cache/pnpm/dlx` on Linux, and run the same command again.
 
 When a newer diff delver starts and an older one is running, the newer one replaces it
 and says so; pages the old one had open need opening again.
