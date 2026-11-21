@@ -241,10 +241,11 @@ export class ApiClient {
 		return this.#call('GET', `/api/history?${params.toString()}`, HistorySchema);
 	}
 
-	/** A page of a branch's commits, from `from` (a page's `next`) or its newest. */
+	/** A page of a branch's commits, from `from` and `onMain` (a page's `next`) or its newest. */
 	commits(query: CommitsQuery): Promise<Result<CommitsView, ApiError>> {
 		const params = new URLSearchParams({ directory: query.directory, branch: query.branch });
 		if (query.from !== undefined) params.set('from', query.from);
+		if (query.onMain !== undefined) params.set('onMain', String(query.onMain));
 		return this.#call('GET', `/api/history/commits?${params.toString()}`, CommitsSchema);
 	}
 

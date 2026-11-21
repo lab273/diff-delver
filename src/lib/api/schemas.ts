@@ -716,12 +716,17 @@ export const HistorySchema = z.object({
 export type HistoryView = z.output<typeof HistorySchema>;
 export type BranchView = HistoryView['branches'][number];
 
-/** GET /api/history/commits?directory=…&branch=…&from=…: a page of a branch's commits. */
+/**
+ * GET /api/history/commits?directory=…&branch=…&from=…&onMain=…: a page of a
+ * branch's commits. `from` and `onMain` are the `next` of the page before.
+ */
 export const CommitsQuerySchema = z.object({
 	directory: absolutePath,
 	branch: branchRef,
-	/** Where the page starts: the `next` of the page before; the branch's newest commit when absent. */
-	from: commitId.optional()
+	/** Where the page starts; the branch's newest commit when absent. */
+	from: commitId.optional(),
+	/** Whether the main branch has `from`, as the page before said: then it has all that follow. */
+	onMain: flagInQuery.optional()
 });
 export type CommitsQuery = z.output<typeof CommitsQuerySchema>;
 
@@ -747,8 +752,8 @@ export const CommitsSchema = z.object({
 			onMain: z.boolean()
 		})
 	),
-	/** Where the next page starts; null after the last. */
-	next: commitId.nullable()
+	/** Where the next page starts, and whether the main branch has that commit; null after the last. */
+	next: z.object({ commit: commitId, onMain: z.boolean() }).nullable()
 });
 export type CommitsView = z.output<typeof CommitsSchema>;
 export type CommitView = CommitsView['commits'][number];

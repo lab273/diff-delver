@@ -9,7 +9,7 @@ import { absolutePath, GitRepo } from '../../../../../tests/support/git-repo.ts'
 import { value } from '../../../../../tests/support/git-source-helpers.ts';
 import { reviewer } from '../../../../../tests/support/reviewer-git.ts';
 import { checkRemote, type RemoteOutcome } from './check-remote.ts';
-import { listBranches } from './history.ts';
+import { trackedBranches } from './history.ts';
 import { locateRepository } from './index.ts';
 
 const origin = value(parseRemoteName('origin'));
@@ -30,7 +30,7 @@ async function cloned(): Promise<{ repo: GitRepo; server: string }> {
 async function check(repo: GitRepo, remote: RemoteName = origin, seconds?: number) {
 	const who = await reviewer();
 	const found = value(await locateRepository(repo.dir, { gitEnv: who.gitEnv }));
-	const { tracked } = value(await listBranches(found, ''));
+	const tracked = value(await trackedBranches(found));
 	const { before, after, result } = await listingsAround([repo.dir], () =>
 		checkRemote(found, remote, tracked, seconds)
 	);

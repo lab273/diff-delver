@@ -14,14 +14,23 @@
 export type { RemoteOutcome } from './check-remote.ts';
 export { checkRemote, REMOTE_CHECK_SECONDS } from './check-remote.ts';
 export { commitsSince } from './commits-since.ts';
-export type { BranchSummary, Branches, CommitPage, CommitSize, CommitSummary } from './history.ts';
+export type {
+	BranchSummary,
+	Branches,
+	CommitPage,
+	CommitSize,
+	CommitSummary,
+	PageStart
+} from './history.ts';
 export {
 	BRANCHES_SHOWN,
 	COMMITS_PER_PAGE,
 	lastFetch,
 	listBranches,
 	listCommits,
-	rangeSize
+	rangeSize,
+	remotesOf,
+	trackedBranches
 } from './history.ts';
 export type { LocalRepository, RepositoryOptions } from './local-repository.ts';
 export { locateRepository, storeIdFor } from './local-repository.ts';
@@ -30,7 +39,7 @@ export { snapshotGitSource } from './snapshot-git-source.ts';
 export { sourceHasChanges } from './source-has-changes.ts';
 export { sourceIdentity } from './source-identity.ts';
 export type { SourceCandidate, SourceSuggestion, SuggestedSource } from './suggest-source.ts';
-export { candidateSourceText, suggestSource } from './suggest-source.ts';
+export { candidateSourceText, mainBranch, suggestSource } from './suggest-source.ts';
 export type {
 	GitSourceError,
 	NoCommitsYet,

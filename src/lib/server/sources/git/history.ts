@@ -62,8 +62,6 @@ export interface Branches {
 	readonly shown: readonly BranchSummary[];
 	/** How many branches match what was asked for, shown or not. */
 	readonly matching: BranchCount;
-	/** Every remote-tracking branch with the commit it is at, to compare with a remote. */
-	readonly tracked: readonly TrackedBranch[];
 	readonly remotes: readonly RemoteName[];
 }
 
@@ -153,7 +151,6 @@ export async function listBranches(
 	]);
 	if (!listed.ok) return listed;
 	const all: BranchSummary[] = [];
-	const tracked: TrackedBranch[] = [];
 	for (const line of lines(listed.value.stdout)) {
 		const text = utf8(line);
 		if (text === undefined) continue;
@@ -165,7 +162,6 @@ export async function listBranches(
 		if (!ref.ok || !commit.ok) continue;
 		// for-each-ref writes 0, or nothing, for a commit whose time it cannot read.
 		const committedAt = date === '0' ? undefined : timestampOfSeconds(date);
-		if (isRemoteBranch(ref.value)) tracked.push({ ref: ref.value, commit: commit.value });
 		const ahead = /^([0-9]+) [0-9]+$/.exec(aheadBehind)?.[1];
 		all.push({
 			ref: ref.value,
@@ -209,9 +205,34 @@ export async function listBranches(
 		main: main.value,
 		shown: matching.slice(0, BRANCHES_SHOWN),
 		matching: branchCountOf(matching.length),
-		tracked,
 		remotes: remotes.value
 	});
+}
+
+/**
+ * Every remote-tracking branch and the commit it is at, which is what the last
+ * fetch left: what a remote's answer is compared with. One `for-each-ref`
+ * over the remote branches alone, with nothing measured against the main
+ * branch.
+ */
+export async function trackedBranches(
+	repo: LocalRepository
+): Promise<Result<readonly TrackedBranch[], GitSourceError>> {
+	const listed = await gitIn(repo, gitCwd(repo), [
+		'for-each-ref',
+		'--format=%(refname)%00%(symref)%00%(objectname)',
+		'refs/remotes/'
+	]);
+	if (!listed.ok) return listed;
+	const tracked: TrackedBranch[] = [];
+	for (const line of lines(listed.value.stdout)) {
+		const [name = '', symref = '', object = ''] = (utf8(line) ?? '').split('\0');
+		const ref = parseBranchRef(name);
+		const commit = parseCommitId(object);
+		if (symref === '' && ref.ok && commit.ok)
+			tracked.push({ ref: ref.value, commit: commit.value });
+	}
+	return ok(tracked);
 }
 
 /** One commit of a branch's list. */
@@ -236,10 +257,21 @@ export interface CommitSize {
 	readonly removed: LineCount;
 }
 
+/** Where a page of a branch's commits starts. */
+export interface PageStart {
+	readonly commit: CommitId;
+	/**
+	 * Whether the main branch has this commit. It then has every commit from here
+	 * on, since they are its ancestors, so the page is listed without walking the
+	 * main branch's history down to it to find out.
+	 */
+	readonly onMain: boolean;
+}
+
 export interface CommitPage {
 	readonly commits: readonly CommitSummary[];
 	/** Where the next page starts, or undefined when this is the last. */
-	readonly next: CommitId | undefined;
+	readonly next: PageStart | undefined;
 }
 
 /**
@@ -340,16 +372,16 @@ function readLog(
 
 /**
  * One page of a branch's commits: its first-parent history, newest first,
- * from `from` (a commit a previous page gave as `next`) or the branch's newest
+ * from `from` (what a previous page gave as `next`) or the branch's newest
  * commit. Each commit has its size against its first parent, a merge too.
  */
 export async function listCommits(
 	repo: LocalRepository,
 	branch: BranchRef,
-	from: CommitId | undefined,
+	from: PageStart | undefined,
 	main: BranchRef | undefined
 ): Promise<Result<CommitPage, GitSourceError>> {
-	const start = from ?? branch;
+	const start = from?.commit ?? branch;
 	const header = '--format=%H%x00%P%x00%ct%x00%an%x00%s';
 	const walk = [
 		'log',
@@ -390,31 +422,32 @@ export async function listCommits(
 	}
 	const read = readLog(logged.value.stdout, sized, await shallowBoundary(repo));
 	const page = read.slice(0, COMMITS_PER_PAGE);
-	const notOnMain = await notOn(repo, start, branch, main);
+	// The main branch's own commits are all on it, and so is all that follows a commit it has.
+	const allOnMain = main !== undefined && (branch === main || from?.onMain === true);
+	const notOnMain = allOnMain ? ok(new Set<string>()) : await notOn(repo, start, main);
 	if (!notOnMain.ok) return notOnMain;
+	const lacking = notOnMain.value;
+	const onMain = (commit: CommitId): boolean => lacking !== undefined && !lacking.has(commit);
+	const after = read[COMMITS_PER_PAGE]?.commit;
 	return ok({
-		commits: page.map((c) => ({
-			...c,
-			onMain: notOnMain.value !== undefined && !notOnMain.value.has(c.commit)
-		})),
-		next: read[COMMITS_PER_PAGE]?.commit
+		commits: page.map((c) => ({ ...c, onMain: onMain(c.commit) })),
+		next: after === undefined ? undefined : { commit: after, onMain: onMain(after) }
 	});
 }
 
 /**
- * Which of the page's commits, along first parents from `start`, the main
- * branch lacks; undefined with no main branch, when every commit counts as
- * the branch's own. Walks no further than a page.
+ * Which of the page's commits, and the one after it, along first parents from
+ * `start`, the main branch lacks; undefined with no main branch, when every
+ * commit counts as the branch's own. Lists no more than a page, but git walks
+ * the main branch's history down to where the two meet to tell, which is why a
+ * page that starts on the main branch never asks.
  */
 async function notOn(
 	repo: LocalRepository,
 	start: string,
-	branch: BranchRef,
 	main: BranchRef | undefined
 ): Promise<Result<ReadonlySet<string> | undefined, GitSourceError>> {
 	if (main === undefined) return ok(undefined);
-	// The main branch's own commits are all on it: nothing to walk.
-	if (branch === main) return ok(new Set());
 	const listed = await gitIn(repo, gitCwd(repo), [
 		'rev-list',
 		'--first-parent',

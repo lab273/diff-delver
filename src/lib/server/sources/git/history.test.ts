@@ -15,7 +15,8 @@ import {
 	listBranches,
 	listCommits,
 	rangeSize,
-	remotesOf
+	remotesOf,
+	trackedBranches
 } from './history.ts';
 import { locateRepository } from './index.ts';
 
@@ -89,9 +90,10 @@ describe('a repository’s branches', () => {
 		]);
 		expect(branches.matching).toBe(3);
 		expect(branches.remotes).toEqual(['origin']);
-		expect(branches.tracked.map((t) => t.ref).toSorted()).toEqual([
-			'refs/remotes/origin/main',
-			'refs/remotes/origin/prices'
+		const tracked = value(await readOnly(repo, () => trackedBranches(found)));
+		expect(tracked.map((t) => [t.ref, t.commit])).toEqual([
+			['refs/remotes/origin/main', (await repo.git('rev-parse', 'origin/main')).trim()],
+			['refs/remotes/origin/prices', (await repo.git('rev-parse', 'origin/prices')).trim()]
 		]);
 		const feature = branches.shown[0];
 		expect(feature?.committedAt).toBe(fixtureTime(3));
@@ -208,6 +210,42 @@ describe('a branch’s commits', () => {
 			kind: 'commit',
 			commit: second.commits[0]?.commit
 		});
+
+		// Compared with a branch at the first commit: a page says whether the next starts on it.
+		await repo.git('branch', 'base', `main~${String(total - 1)}`);
+		const base = ref('refs/heads/base');
+		const own = value(await listCommits(found, ref('refs/heads/main'), undefined, base));
+		expect(own.commits.every((c) => !c.onMain)).toBe(true);
+		expect(own.next?.onMain).toBe(false);
+		const rest = value(await listCommits(found, ref('refs/heads/main'), own.next, base));
+		expect(rest.commits.map((c) => c.onMain)).toEqual([...Array<boolean>(6).fill(false), true]);
+
+		// A branch with three commits of its own: the next page starts on the main branch,
+		// and is listed as all on it without asking git again.
+		await repo.git('checkout', '--quiet', '-b', 'feature');
+		for (let i = 0; i < 3; i += 1) {
+			await repo.write('f.txt', `${String(i)}\n`);
+			await repo.commit(`Feature ${String(i)}`);
+		}
+		const main = ref('refs/heads/main');
+		const top = value(await listCommits(found, ref('refs/heads/feature'), undefined, main));
+		expect(top.commits.map((c) => c.onMain)).toEqual([
+			...Array<boolean>(3).fill(false),
+			...Array<boolean>(COMMITS_PER_PAGE - 3).fill(true)
+		]);
+		expect(top.next?.onMain).toBe(true);
+		const below = value(await listCommits(found, ref('refs/heads/feature'), top.next, main));
+		expect(below.commits).toHaveLength(10);
+		expect(below.commits.every((c) => c.onMain)).toBe(true);
+		const asked = value(
+			await listCommits(
+				found,
+				ref('refs/heads/feature'),
+				top.next === undefined ? undefined : { ...top.next, onMain: false },
+				main
+			)
+		);
+		expect(asked).toEqual(below);
 	});
 
 	it('lists a commit whose date git cannot read, between its neighbours, and the branch it is newest on', async () => {

@@ -168,10 +168,14 @@ import {
 	lastFetch,
 	listBranches,
 	listCommits,
+	mainBranch,
 	rangeSize,
+	remotesOf,
+	trackedBranches,
 	type Branches,
 	type CommitPage,
 	type CommitSize,
+	type PageStart,
 	type RemoteOutcome,
 	locateRepository,
 	snapshotGitSource,
@@ -844,17 +848,20 @@ export class ReportService {
 		});
 	}
 
-	/** A page of a branch's commits, from `from` (a previous page's `next`) or its newest. */
+	/**
+	 * A page of a branch's commits, from `from` (a previous page's `next`) or its
+	 * newest. Finds the main branch alone: no page measures the other branches.
+	 */
 	async commits(
 		directory: AbsolutePath,
 		branch: BranchRef,
-		from: CommitId | undefined
+		from: PageStart | undefined
 	): Promise<Result<CommitPage, ReportError>> {
 		const repo = await locateRepository(directory, this.#repository);
 		if (!repo.ok) return repo;
-		const branches = await listBranches(repo.value, '');
-		if (!branches.ok) return branches;
-		return listCommits(repo.value, branch, from, branches.value.main);
+		const main = await mainBranch(repo.value);
+		if (!main.ok) return main;
+		return listCommits(repo.value, branch, from, main.value);
 	}
 
 	/** The size of the diff a run of commits makes: `from` (undefined for nothing before) to `to`. */
@@ -877,10 +884,15 @@ export class ReportService {
 	): Promise<Result<readonly RemoteOutcome[], ReportError>> {
 		const repo = await locateRepository(directory, this.#repository);
 		if (!repo.ok) return repo;
-		const branches = await listBranches(repo.value, '');
-		if (!branches.ok) return branches;
-		const { remotes, tracked } = branches.value;
-		return ok(await Promise.all(remotes.map((remote) => checkRemote(repo.value, remote, tracked))));
+		const remotes = await remotesOf(repo.value);
+		if (!remotes.ok) return remotes;
+		const tracked = await trackedBranches(repo.value);
+		if (!tracked.ok) return tracked;
+		return ok(
+			await Promise.all(
+				remotes.value.map((remote) => checkRemote(repo.value, remote, tracked.value))
+			)
+		);
 	}
 
 	/**

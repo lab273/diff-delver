@@ -7,8 +7,12 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ locals, url }) => {
 	const query = readQuery(url, CommitsQuerySchema);
 	if (!query.ok) return query.error;
-	const { directory, branch, from } = query.value;
-	const page = await locals.daemon.service.commits(directory, branch, from);
+	const { directory, branch, from, onMain } = query.value;
+	const page = await locals.daemon.service.commits(
+		directory,
+		branch,
+		from === undefined ? undefined : { commit: from, onMain: onMain ?? false }
+	);
 	if (!page.ok) return serviceFailure(page.error);
 	const body: CommitsView = commitsView(page.value);
 	return Response.json(body);

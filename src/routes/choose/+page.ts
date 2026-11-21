@@ -17,7 +17,7 @@ export const load: PageLoad = async ({ fetch, url }) => {
 			? undefined
 			: {
 					branch: first.ref,
-					page: await client.commits({ directory, branch: first.ref, from: undefined })
+					page: await client.commits({ directory, branch: first.ref })
 				};
 	return { directory, history, commits };
 };

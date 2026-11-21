@@ -36,8 +36,7 @@ describe('the chooser’s routes', () => {
 			const commits = value(
 				await client.commits({
 					directory: repo.dir,
-					branch: value(parseBranchRef('refs/heads/main')),
-					from: undefined
+					branch: value(parseBranchRef('refs/heads/main'))
 				})
 			);
 			const checked = value(await client.checkRemotes({ directory: repo.dir }));
@@ -85,8 +84,7 @@ describe('the chooser’s routes', () => {
 		await repo.commit('Start');
 		const missing = await client.commits({
 			directory: repo.dir,
-			branch: value(parseBranchRef('refs/heads/gone')),
-			from: undefined
+			branch: value(parseBranchRef('refs/heads/gone'))
 		});
 		expect(missing.ok ? 'listed' : describeApiError(missing.error)).toContain(
 			'git does not know "refs/heads/gone"'

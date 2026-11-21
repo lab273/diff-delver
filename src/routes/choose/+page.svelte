@@ -133,7 +133,7 @@
 		problem = '';
 		loadingCommits = true;
 		const asked = (commitLoads += 1);
-		const page = await pageClient().commits({ directory, branch: ref, from: undefined });
+		const page = await pageClient().commits({ directory, branch: ref });
 		if (asked !== commitLoads) return;
 		loadingCommits = false;
 		if (!page.ok) {
@@ -151,7 +151,12 @@
 		if (directory === undefined || branch === undefined || next === null || loadingMore) return;
 		loadingMore = true;
 		const asked = commitLoads;
-		const page = await pageClient().commits({ directory, branch, from: next });
+		const page = await pageClient().commits({
+			directory,
+			branch,
+			from: next.commit,
+			onMain: next.onMain
+		});
 		loadingMore = false;
 		if (asked !== commitLoads) return;
 		if (!page.ok) {

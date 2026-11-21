@@ -1,30 +1,33 @@
 /**
- * The chooser's git calls at the size the design allows for: a repository of
- * 100,000 commits and 3,000 branches. Listing the branches, a page of commits
- * at the top or deep in the history, and the size of a run, should each take a
- * fraction of a second, because none reads the whole history. The times are
- * guidance, which `pnpm verify` reports when one is exceeded; a call that read
- * everything would still fail on the hang timeout.
+ * What the page that chooses commits asks of the report service, at the size
+ * the design allows for: a repository of 100,000 commits and 3,000 branches.
+ * Listing the branches, a page of commits at the top or deep in the history,
+ * of the main branch or of another, and the size of a run, should each take a
+ * fraction of a second, because none reads the whole history, and only the
+ * list of branches measures every branch. The times are guidance, which `pnpm
+ * verify` reports when one is exceeded; a call that read everything would
+ * still fail on the hang timeout.
  */
 import { describe, expect, it } from 'vitest';
+import { settableClock } from '#lib/core/clock.ts';
 import { parseCommitId } from '#lib/core/commit-id.tiny.ts';
+import { sequentialIds } from '#lib/core/ids.ts';
 import { parseBranchRef } from '#lib/core/history/branch-ref.tiny.ts';
 import { measurementName } from '#lib/core/measurement-name.tiny.ts';
 import { millisecondsOf } from '#lib/core/milliseconds.tiny.ts';
 import { runGit } from '#lib/server/git/run-git.ts';
-import { defineFixture, useFixture } from '../../../../../tests/support/fixture-repos.ts';
+import {
+	defineFixture,
+	tempDirectory,
+	useFixture
+} from '../../../../../tests/support/fixture-repos.ts';
 import { value } from '../../../../../tests/support/git-source-helpers.ts';
 import { recordTime } from '../../../../../tests/support/measured-time.ts';
+import { at } from '../../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../../tests/support/reviewer-git.ts';
 import { now } from '../../../../../tests/support/stopwatch.ts';
-import {
-	BRANCHES_SHOWN,
-	COMMITS_PER_PAGE,
-	listBranches,
-	listCommits,
-	rangeSize
-} from './history.ts';
-import { locateRepository } from './index.ts';
+import { ReportService } from '../../reports/index.ts';
+import { BRANCHES_SHOWN, COMMITS_PER_PAGE } from './history.ts';
 
 const COMMITS = 100_000;
 const BRANCHES = 3_000;
@@ -63,7 +66,14 @@ describe('choosing commits in a large repository', () => {
 		task
 	}) => {
 		const repo = await useFixture(large);
-		const found = value(await locateRepository(repo.dir, { gitEnv: (await reviewer()).gitEnv }));
+		const service = value(
+			await ReportService.open({
+				dataDirectory: await tempDirectory(),
+				clock: settableClock(at(0)),
+				ids: sequentialIds(''),
+				repository: { gitEnv: (await reviewer()).gitEnv }
+			})
+		);
 		const measure = async <T>(what: string, guidance: number, work: () => Promise<T>) => {
 			const started = now();
 			const result = await work();
@@ -76,26 +86,30 @@ describe('choosing commits in a large repository', () => {
 			return result;
 		};
 
-		const branches = value(
-			await measure('listing 3,000 branches', 1_500, () => listBranches(found, ''))
+		const { branches } = value(
+			await measure('listing 3,000 branches', 1_500, () => service.branches(repo.dir, ''))
 		);
 		expect(branches.matching).toBe(BRANCHES + 1);
 		expect(branches.shown).toHaveLength(BRANCHES_SHOWN);
 		expect(branches.shown[0]?.ref).toBe('refs/heads/main');
 		expect(branches.shown[1]?.ahead).toBe(1);
-		const found2 = value(
-			await measure('finding a branch by name', 1_500, () => listBranches(found, 'branch-2999'))
+		const found = value(
+			await measure('finding a branch by name', 1_500, () =>
+				service.branches(repo.dir, 'branch-2999')
+			)
 		);
-		expect(found2.shown.map((b) => b.ref)).toEqual(['refs/heads/branch-2999']);
+		expect(found.branches.shown.map((b) => b.ref)).toEqual(['refs/heads/branch-2999']);
 
+		// A page of commits finds the main branch alone: it measures no other branch.
 		const main = value(parseBranchRef('refs/heads/main'));
 		const top = value(
-			await measure('the first page of 100,000 commits', 1_000, () =>
-				listCommits(found, main, undefined, main)
+			await measure('the first page of 100,000 commits', 300, () =>
+				service.commits(repo.dir, main, undefined)
 			)
 		);
 		expect(top.commits).toHaveLength(COMMITS_PER_PAGE);
 		expect(top.commits[0]?.size).toEqual({ files: 1, added: 1, removed: 1 });
+		expect(top.next?.onMain).toBe(true);
 
 		// A page deep in the history, from a commit 90,000 down.
 		const deep = await runGit({
@@ -106,20 +120,50 @@ describe('choosing commits in a large repository', () => {
 			parseCommitId(deep.ok ? deep.value.stdout.toString('utf8').trim() : '')
 		);
 		const later = value(
-			await measure('a page 90,000 commits down', 1_000, () =>
-				listCommits(found, main, deepCommit, main)
+			await measure('a page 90,000 commits down', 300, () =>
+				service.commits(repo.dir, main, { commit: deepCommit, onMain: true })
 			)
 		);
 		expect(later.commits[0]?.subject).toBe(`Commit ${String(COMMITS - 90_000)}`);
+
+		// Another branch: its first page finds where it left the main branch, and
+		// says the next page starts on the main branch, so a page deep down, which
+		// the page asks for with that, never walks the main branch down to it.
+		const other = value(parseBranchRef('refs/heads/branch-0'));
+		const own = value(
+			await measure('the first page of another branch', 300, () =>
+				service.commits(repo.dir, other, undefined)
+			)
+		);
+		expect(own.commits.map((c) => c.onMain).slice(0, 3)).toEqual([false, true, true]);
+		expect(own.next?.onMain).toBe(true);
+		const below = value(
+			await measure('a page 90,000 commits down another branch', 300, () =>
+				service.commits(repo.dir, other, { commit: deepCommit, onMain: true })
+			)
+		);
+		expect(below.commits).toEqual(later.commits);
+
+		// A branch that left the main branch 90,000 commits ago: git walks the main
+		// branch down to there to tell which commits are the branch's own, once,
+		// for its first page.
+		const old = value(parseBranchRef(`refs/heads/branch-${String(BRANCHES - 1)}`));
+		const stale = value(
+			await measure('the first page of a branch 90,000 commits behind', 1_000, () =>
+				service.commits(repo.dir, old, undefined)
+			)
+		);
+		expect(stale.commits.map((c) => c.onMain).slice(0, 3)).toEqual([false, true, true]);
 
 		const newest = top.commits[0]?.commit;
 		const oldest = top.commits.at(-1)?.parent;
 		if (newest === undefined || oldest?.kind !== 'commit') throw new Error('no run to measure');
 		const size = value(
 			await measure('the size of a run of 50 commits', 1_000, () =>
-				rangeSize(found, oldest.commit, newest)
+				service.runSize(repo.dir, oldest.commit, newest)
 			)
 		);
 		expect(size?.files).toBe(50);
+		service.close();
 	});
 });
