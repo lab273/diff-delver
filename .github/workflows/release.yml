@@ -1,0 +1,201 @@
+# Makes a release of diff delver on GitHub: the only way one is made (README,
+# "How we work" and "Releasing"). It runs only when a person starts it by hand,
+# from main, and runs every test (pnpm verify) on the commit before packing it.
+# Packing waits for the tests to pass, releasing waits for the packed package to
+# be installed and run, and only the last job may write to the repository.
+# Nothing here touches npm: diff delver is not published there.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version to release: three whole numbers with no v, such as 0.2.0, after the newest release.'
+        required: true
+        type: string
+      commit:
+        description: "The commit you mean to release: at least the first 7 characters of its id, from main's history. The release stops if main has moved on."
+        required: true
+        type: string
+
+permissions: {}
+
+# One release at a time; a second waits rather than racing the first for a version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check what was asked
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: List the tags and releases there are
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          git ls-remote --tags --refs origin | sed 's|.*refs/tags/||' > "$RUNNER_TEMP/tags.txt"
+          gh release list --limit 1000 --json tagName --jq '.[].tagName' > "$RUNNER_TEMP/releases.txt"
+
+      # The checks and their messages are in the script; its tests are next to it.
+      - id: check
+        name: Check the version and the commit
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          EXPECTED_COMMIT: ${{ inputs.commit }}
+          COMMIT: ${{ github.sha }}
+          REF: ${{ github.ref }}
+          TAGS_FILE: ${{ runner.temp }}/tags.txt
+          RELEASES_FILE: ${{ runner.temp }}/releases.txt
+        run: node scripts/release-preflight.ts
+
+  verify:
+    name: Run every test
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      # Reads the pnpm version from package.json "packageManager".
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm verify
+
+      - name: Keep the journey traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: journeys-${{ github.sha }}
+          path: test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  package:
+    name: Pack and try the package
+    # Only after every test passed on this commit.
+    needs: [check, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The same commit and lockfile as the tests ran, built with the version
+      # written in, so diff-delver --version says it.
+      - name: Build the release
+        env:
+          DIFF_DELVER_RELEASE_VERSION: ${{ needs.check.outputs.version }}
+        run: pnpm build
+
+      - name: Pack it
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: pnpm release:package --version "$VERSION" --out release
+
+      # Installs it with npx from a local address, with only Node and git, opens
+      # a diff and stops it. If this fails, nothing is released.
+      - name: Try the packed package
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: pnpm release:check release/diff-delver.tgz --version "$VERSION"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: release
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Release it on GitHub
+    needs: [check, verify, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.check.outputs.tag }}
+      VERSION: ${{ needs.check.outputs.version }}
+      COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+          path: release
+
+      - name: Check the package is the one that was tried
+        working-directory: release
+        run: sha256sum -c diff-delver.tgz.sha256
+
+      # Checked again here, since the first check: a tag or release made
+      # meanwhile is never overwritten.
+      - name: Check the version is still free
+        run: |
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            echo "::error title=The release was refused::A tag named $TAG was made while this run was testing. Start the release again with a later version."
+            exit 1
+          fi
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "::error title=The release was refused::A release for $TAG was made while this run was testing. Start the release again with a later version."
+            exit 1
+          fi
+
+      - name: Create the release
+        run: |
+          gh release create "$TAG" \
+            --target "$COMMIT" \
+            --title "diff delver $VERSION" \
+            --notes-file release/release-notes.md \
+            --latest \
+            release/diff-delver.tgz release/diff-delver.tgz.sha256
+
+      - name: Check what was released
+        run: |
+          mkdir "$RUNNER_TEMP/released"
+          gh release download "$TAG" --dir "$RUNNER_TEMP/released"
+          cd "$RUNNER_TEMP/released"
+          sha256sum -c diff-delver.tgz.sha256
+          echo "Released diff delver $VERSION: https://github.com/$GH_REPO/releases/tag/$TAG"
