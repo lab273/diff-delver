@@ -10,11 +10,15 @@ sections, in the order they should read it, and to explain each section. The per
 does the reviewing. diff delver reads the diff from git itself: you send only labels
 (paths and line ranges), never code.
 
-A **change line** is one added line or one deleted line. A file whose change has
-no lines of its own (a rename, a mode change, a binary file) has one **file**
-change instead, labelled `file`. Every change line ends up in exactly one place: a
-section, `ignored` (with a reason), or not sorted yet. diff delver counts what is
-left, so nothing can be skipped unseen.
+A **change line** is one added line or one deleted line. A file also has one
+**file** change, labelled `file`, when something about the file itself changed:
+its name, its mode or its kind (a rename, a script made executable, a file that
+became a link). It sits beside the file's lines when it has both
+(`"file,+3..+9"`). A file whose change has no lines at all (a binary file, an
+empty file) has only the `file` change, which stands for the whole change. Every
+change line, and every `file` change, ends up in exactly one place: a section,
+`ignored` (with a reason), or not sorted yet. diff delver counts what is left, so
+nothing can be skipped unseen.
 
 ## Steps
 
@@ -33,12 +37,15 @@ left, so nothing can be skipped unseen.
    ("Changes to pricing.ts"). Three to eight sections suit most diffs; one
    section for a small diff with one idea is fine. Make them all with one
    `upsert_sections` call, each with a title and a summary.
-4. **Sort it with one `assign` call of many items.** A file that belongs to one
-   section is one item, `{ "file" }` (or a glob for many). For a file split
-   across sections, first name the lines that belong elsewhere, with `lines`
-   copied from the labels `get_diff` printed (`+40..+62,-38..-45`) or with hunk
-   ids (`"hunks": ["h2"]`), then the whole file for the rest: items apply in
-   order, and a whole file takes only what is not sorted yet.
+4. **Sort it with one `assign` call of many items, whole files first.** Each file
+   is one item, `{ "file" }` (or a glob for many), in the section most of it
+   belongs to: a whole file takes only what is not sorted yet, so it never undoes
+   finer work. Then, for a file whose lines belong to more than one section, move
+   the lines that belong elsewhere, with `lines` copied from the labels
+   `get_diff` printed (`+40..+62,-38..-45`) or with hunk ids
+   (`"hunks": ["h2"]`): these move exactly what they name, wherever it was.
+   Items apply in order, so the whole files and then the lines can go in the
+   same call.
    - Put each test with the section whose code it tests, with `"role": "test"`. A
      test that covers nothing in particular goes in a section of its own.
    - A re-recorded snapshot or fixture goes with the test that uses it, with

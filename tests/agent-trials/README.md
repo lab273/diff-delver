@@ -102,11 +102,14 @@ them out of Ignored into the API section, saying why.
    sorting takes 30 to 90 seconds. Codex called `create_report` a second time at
    the end of four of its five runs only to get a fresh address; Claude Code
    told the person to ask for a new one if it had expired.
-2. The skill's sorting advice contradicted itself: "a whole file takes only
-   what is not sorted yet, so do those first". Claude Code did the efficient
-   thing anyway (the lines of a mixed file that belong elsewhere, then the
-   whole file for the rest); the skill now says that. After the change, Codex
-   (run 7) sorted the same way.
+2. The skill's sorting advice was unclear: "a whole file takes only what is not
+   sorted yet, so do those first". Claude Code named the lines of a mixed file
+   that belong elsewhere, then the whole file for the rest, and the skill was
+   changed to say that; Codex (run 7) then sorted the same way. That order
+   contradicted the server's instructions and `assign`'s description (whole
+   files first, then line ranges), so the skill now gives the server's order:
+   both work, since a whole file takes only what is not sorted yet and lines
+   move exactly what they name. No run has had the skill as it is now.
 3. Codex read the same page of the diff twice with the same cursor (run 7; bead
    `dd-1qq.13`).
 4. Without the skill, both agents did about as well on both fixtures: the
@@ -142,9 +145,11 @@ page itself, none of which a scripted categorisation had shown:
 
 ## Changed because of the trials
 
-- The skill: sort the lines of a mixed file that belong elsewhere first, then the
-  whole file; an address opens the report once within two minutes, and calling
-  `create_report` again gives a fresh one.
+- The skill: an address opens the report once within two minutes, and calling
+  `create_report` again gives a fresh one; whole files first, then the lines of a
+  mixed file that belong elsewhere, as the server says (first changed to the
+  opposite order, then back, see 2 above); and a `file` change also sits beside a
+  file's lines when its name, mode or kind changed.
 - The page: a group's heading goes to the top of the screen.
 
 ## Still open
