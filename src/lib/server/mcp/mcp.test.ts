@@ -785,7 +785,7 @@ describe('the agent interface, through the stdio shim', () => {
 		const huge = await session.call('get_file', { report, path: 'data/huge.txt' });
 		expect(huge.refused).toBe(true);
 		expect(huge.text).toMatch(
-			/^data\/huge\.txt is 8\.6 MB on the new side \(after the change\), larger than the 8 MB get_file reads, so none of it was read\. get_diff shows its changed lines/m
+			/^data\/huge\.txt is 8\.5 MiB \(9,000,000 bytes\) on the new side \(after the change\), larger than the 8 MiB \(8,388,608 bytes\) get_file reads, so none of it was read\. get_diff shows its changed lines/m
 		);
 		const old = await session.call('get_file', { report, path: 'data/huge.txt', side: 'old' });
 		expect(old.text).toMatch(

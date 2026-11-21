@@ -134,7 +134,7 @@
 		{
 			"name": "get_file",
 			"title": "Read any file of the diff's two sides",
-			"description": "Reads lines of any file in the repository as the diff has it, for context beyond the diff: the new side (after the change, the default) or the old side (before it). Files the diff does not change can be read too. Lines are numbered as get_diff numbers them, so \"+120\" in the diff is line 120 of the new side.\n\nAt most 1,000 lines at once: give \"lines\" such as \"1..200\" or \"+120..+180\", and the answer says what to ask for next. A folder's path lists what is in it, and \".\" lists the repository's root. Only the repository's own files at the diff's two versions can be read, and none larger than 8 MB: nothing outside the repository, and nothing changed since the report's version was taken.",
+			"description": "Reads lines of any file in the repository as the diff has it, for context beyond the diff: the new side (after the change, the default) or the old side (before it). Files the diff does not change can be read too. Lines are numbered as get_diff numbers them, so \"+120\" in the diff is line 120 of the new side.\n\nAt most 1,000 lines at once: give \"lines\" such as \"1..200\" or \"+120..+180\", and the answer says what to ask for next. A folder's path lists what is in it, and \".\" lists the repository's root. Only the repository's own files at the diff's two versions can be read, and none larger than 8 MiB: nothing outside the repository, and nothing changed since the report's version was taken.",
 			"inputSchema": {
 				"type": "object",
 				"properties": {

@@ -3,6 +3,7 @@
  * for context, numbered as get_diff numbers them, at most `MAX_FILE_LINES` at
  * once and never longer than a page, with the range to ask for next.
  */
+import type { ByteSize } from '../byte-size.tiny.ts';
 import type { LineText } from '../line-text.tiny.ts';
 import type { LineNumber } from '../line-number.tiny.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
@@ -21,6 +22,25 @@ export interface FileAnswerInput {
 	readonly lines: readonly { readonly number: LineNumber; readonly text: LineText | string }[];
 	/** How many lines the file has in all. */
 	readonly lineCount: number;
+}
+
+/**
+ * A size, true to the byte: "512 bytes", "8 MiB (8,388,608 bytes)", "8.6 MiB
+ * (9,000,000 bytes)", in units of 1,024 named as such, so a size one byte
+ * over a limit never reads as the limit.
+ */
+export function bytesInWords(size: ByteSize): string {
+	if (size < 1024) return counted(size, 'byte', 'bytes');
+	const units = ['KiB', 'MiB', 'GiB', 'TiB'];
+	let value = size / 1024;
+	let unit = 0;
+	while (value >= 1024 && unit < units.length - 1) {
+		value /= 1024;
+		unit += 1;
+	}
+	const whole = Number.isInteger(value);
+	const shown = whole ? grouped(value) : (Math.floor(value * 10) / 10).toFixed(1);
+	return `${shown} ${units[unit] ?? 'TiB'} (${counted(size, 'byte', 'bytes')})`;
 }
 
 export function sideInWords(side: Side): string {

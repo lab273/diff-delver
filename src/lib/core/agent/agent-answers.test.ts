@@ -12,6 +12,8 @@ import { MAX_SECTION_TITLE_LENGTH, parseSectionTitle } from '../section-title.ti
 import { MAX_SECTIONS } from '../reports/section-requests.ts';
 import type { Section } from '../reports/report.ts';
 import { agentPath } from '../diff/agent-text.ts';
+import { parseByteSize } from '../byte-size.tiny.ts';
+import { bytesInWords } from './file-answer.ts';
 import { decodePathBytes } from '../path-bytes.ts';
 import { parseRepoPath } from '../repo-path.tiny.ts';
 import {
@@ -352,6 +354,17 @@ describe('answers for an agent', () => {
 		expect(sentences.join('\n').length).toBeLessThanOrEqual(MAX_LIST_LENGTH + 100);
 		expect(sentences.at(-1)).toMatch(/^Left out: and \d+ more like these\.$/);
 		expect(namesListed(['a', 'b', 'c'])).toBe('a, b, c');
+	});
+
+	it('say a size true to the byte, in units of 1,024 named as such', () => {
+		const size = (n: number) => bytesInWords(value(parseByteSize(n)));
+		const limit = 8 * 1024 * 1024;
+		expect(size(limit)).toBe('8 MiB (8,388,608 bytes)');
+		expect(size(limit + 1)).toBe('8.0 MiB (8,388,609 bytes)');
+		expect(size(9_000_000)).toBe('8.5 MiB (9,000,000 bytes)');
+		expect(size(512)).toBe('512 bytes');
+		expect(size(1)).toBe('1 byte');
+		expect(size(1536)).toBe('1.5 KiB (1,536 bytes)');
 	});
 
 	it('cut an answer that would be too long, at a line, and say so', () => {
