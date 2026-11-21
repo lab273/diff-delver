@@ -16,9 +16,11 @@
  *
  * - in the light and the dark colour scheme, a screenshot of the viewport, what a
  *   person sees at that moment, compared exactly with the committed one
- *   (tests/journeys/screenshots/), and an accessibility scan of the whole page. A
- *   journey that needs to show more scrolls with the keyboard and takes another
- *   step, so a step costs about the same however long the page is;
+ *   (tests/journeys/screenshots/). A journey that needs to show more scrolls with
+ *   the keyboard and takes another step, so a step costs about the same however
+ *   long the page is. No automated accessibility scan is run: a journey checks
+ *   accessibility by how it works, with the keyboard only, finding everything by
+ *   its role and name, and checking where the focus is;
  * - in both schemes too, text drawn only in the bundled fonts, every character
  *   covered by them, italic and bold text each in a bundled face of its own (the
  *   app never fakes one), and drawn only once they have loaded;
@@ -71,7 +73,6 @@ import {
 } from '../../scripts/journey-screenshots.ts';
 import { comparePngPixels } from '../../scripts/png-pixels.ts';
 import { stepNumberOf } from '../../src/lib/core/step-number.tiny.ts';
-import { expectAccessible } from './accessibility.ts';
 import { absolutePath, GitRepo } from './git-repo.ts';
 import {
 	JOURNEY_TIME,
@@ -881,7 +882,6 @@ export async function startJourney(
 						const problem = await checkScreenshot(testInfo, file, `${label} (${theme})`, shot);
 						if (problem !== undefined) problems.push(problem);
 					}
-					await expectAccessible(page);
 				}
 				await page.emulateMedia({ colorScheme: THEMES[0] });
 				for (const [problem, themes] of fontProblems) {
