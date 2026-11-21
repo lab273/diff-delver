@@ -27,6 +27,8 @@ export interface Lock {
 	readonly port: PortNumber;
 	readonly pid: ProcessId;
 	readonly token: DaemonToken;
+	/** Old daemon lockfiles have only one token. */
+	readonly mcpToken?: DaemonToken | undefined;
 	readonly version: CodeVersion;
 	readonly startedAt: Timestamp;
 }
@@ -44,6 +46,7 @@ const LockSchema = z.object({
 	port: parsed(z.number(), parsePortNumber),
 	pid: parsed(z.number(), parseProcessId),
 	token: parsed(z.string(), parseDaemonToken),
+	mcpToken: parsed(z.string(), parseDaemonToken).optional(),
 	version: parsed(z.string(), parseCodeVersion),
 	startedAt: parsed(z.number(), parseTimestamp)
 });

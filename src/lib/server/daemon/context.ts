@@ -15,7 +15,8 @@ export interface DaemonContext {
 	readonly service: ReportService;
 	readonly clock: Clock;
 	readonly version: CodeVersion;
-	readonly isBrowserSession: (cookieHeader: string | undefined) => boolean;
+	readonly isCommand: (authorization: string | undefined) => boolean;
+	readonly isReviewBrowser: (cookieHeader: string | undefined) => boolean;
 	/** A new single-use code that lets a browser in, for the address the command opens. */
 	readonly entryCode: () => EntryCode;
 	/** Asks the daemon to stop once the current response is sent. */

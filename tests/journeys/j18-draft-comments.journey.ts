@@ -84,5 +84,16 @@ test.describe('J18 Draft comments', () => {
 		await journey.expectVisible(journey.byText('Keep the heading on the after side.'));
 		await journey.expectVisible(journey.byText('After, line 1'));
 		await journey.step('Draft comments after reopening');
+
+		const drafts = journey.byRole('button', { name: 'Draft comments', exact: true });
+		await journey.activate(expand);
+		await journey.activate(comment);
+		await journey.press('Enter');
+		await journey.expectFocused(body);
+		await journey.type('Discard this text.');
+		await journey.activate(form.byRole('button', { name: 'Discard unsaved comment' }));
+		await journey.expectFocused(drafts);
+		await journey.activate(drafts);
+		await journey.expectState(drafts, { expanded: false });
 	});
 });

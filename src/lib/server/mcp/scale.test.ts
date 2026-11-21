@@ -51,7 +51,7 @@ describe('the agent interface at full scale', () => {
 		const daemon = await testDaemon();
 		const session = await mcpOverHttp({
 			origin: daemon.origin,
-			token: daemon.token,
+			token: daemon.mcpToken,
 			directory: repo.dir
 		});
 		try {

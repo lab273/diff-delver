@@ -30,6 +30,7 @@
 	import type { Layout } from '#lib/core/settings.ts';
 	import type { Mark } from '#lib/core/search/marks.ts';
 	import { ROWS_PER_CHUNK } from '#lib/core/viewer/chunks.ts';
+	import { GutterLines, type GutterLine, type GutterRow } from './gutter-lines.ts';
 	import type { CommentDraft } from './draft-comment.svelte.ts';
 	import { parseLineNumber, type LineNumber } from '#lib/core/line-number.tiny.ts';
 	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
@@ -243,11 +244,47 @@
 	function isElsewhere(line: ShownLineView): boolean {
 		return line.kind !== 'context' && line.home.kind === 'elsewhere';
 	}
-	type GutterLine = { readonly side: Side; readonly line: LineNumber };
 	let cursor = $state.raw<GutterLine>();
 	let first = $state<LineNumber>();
 	let drag = $state<number>();
 	let selectionProblem = $state(false);
+	let buildingGutter = $state(false);
+	const gutter = $derived(buildingGutter ? new GutterLines(gutterRows()) : undefined);
+
+	function numberOn(item: Drawn | undefined, side: Side): LineNumber | undefined {
+		if (item?.kind === 'quiet')
+			return numberOnLine(side === 'old' ? item.removed : item.added, side);
+		return numberOnLine(item?.line, side);
+	}
+
+	function numberOnLine(line: ShownLineView | undefined, side: Side): LineNumber | undefined {
+		return side === 'old'
+			? line?.kind === 'added'
+				? undefined
+				: line?.old
+			: line?.kind === 'deleted'
+				? undefined
+				: line?.new;
+	}
+
+	/** The same code rows the table draws, with chunk positions from the line model. */
+	function* gutterRows(): Iterable<GutterRow> {
+		for (const [b, block] of blocks.entries()) {
+			if (block.kind === 'hidden') {
+				yield* block.top;
+				yield* block.bottom;
+			} else if (block.kind === 'hunk') {
+				const shown = viewer.drawnLines(block);
+				if (wholeHunkHidden(shown) !== undefined) continue;
+				const rows = split ? pairedRows(shown) : shown;
+				for (const [at, row] of rows.entries()) {
+					const chunk = `${String(b)}:${String(Math.floor(at / ROWS_PER_CHUNK) * ROWS_PER_CHUNK)}`;
+					if ('kind' in row) yield { old: numberOn(row, 'old'), new: numberOn(row, 'new'), chunk };
+					else yield { old: numberOn(row.old, 'old'), new: numberOn(row.new, 'new'), chunk };
+				}
+			}
+		}
+	}
 	let commentButton = $state<HTMLButtonElement>();
 	let table: HTMLTableElement;
 	const canPick = $derived(
@@ -284,24 +321,29 @@
 	}
 
 	async function startComment(): Promise<void> {
-		// Buttons are rendered only for the file where the reviewer is selecting.
-		for (const cell of table.querySelectorAll<HTMLTableCellElement>('td.number[data-side]')) {
-			const side = parseSide(cell.dataset['side'] ?? '');
-			const line = parseLineNumber(Number(cell.textContent));
-			if (!side.ok || !line.ok) continue;
-			const initial = { side: side.value, line: line.value };
-			cursor = initial;
-			first = line.value;
-			selectionProblem = false;
-			await tick();
-			buttonFor(initial)?.focus();
+		buildingGutter = true;
+		const initial = gutter?.first;
+		selectionProblem = initial === undefined;
+		if (initial === undefined) {
+			buildingGutter = false;
 			return;
 		}
-		selectionProblem = true;
+		cursor = initial;
+		first = initial.line;
+		await drawAndFocus(initial);
+	}
+
+	async function drawAndFocus(
+		line: GutterLine & { readonly chunk: string | undefined }
+	): Promise<void> {
+		if (line.chunk !== undefined) drawn.add(line.chunk);
+		await tick();
+		if (picking && cursor === line) buttonFor(line)?.focus();
 	}
 
 	async function stopPicking(): Promise<void> {
 		cursor = undefined;
+		buildingGutter = false;
 		first = undefined;
 		drag = undefined;
 		await tick();
@@ -312,6 +354,7 @@
 		if (!picking || range === undefined) return;
 		draft.compose({ version: viewer.version, anchor: { path, ...range } });
 		cursor = undefined;
+		buildingGutter = false;
 		first = undefined;
 		drag = undefined;
 	}
@@ -319,52 +362,6 @@
 	function move(next: GutterLine, extend: boolean): void {
 		if (!extend || cursor?.side !== next.side) first = next.line;
 		cursor = next;
-	}
-
-	/** Vertical movement follows the same side, drawing the next chunk if it is still a placeholder. */
-	async function vertical(
-		button: HTMLButtonElement,
-		side: Side,
-		step: number
-	): Promise<HTMLButtonElement | undefined> {
-		const items = Array.from(
-			table.querySelectorAll<HTMLElement>(
-				`button.pick-line[data-side="${side}"], [data-pending-key]`
-			)
-		);
-		const position = items.indexOf(button);
-		if (position < 0) return undefined;
-		for (let i = position + step; i >= 0 && i < items.length; i += step) {
-			const next = items[i];
-			if (next instanceof HTMLButtonElement) return next;
-			const key = next?.dataset['pendingKey'];
-			if (key !== undefined) {
-				drawn.add(key);
-				await tick();
-				return vertical(button, side, step);
-			}
-		}
-		return undefined;
-	}
-
-	/** In a unified diff a replacement may show the other side on a separate row. */
-	function across(button: HTMLButtonElement, side: Side): HTMLButtonElement | undefined {
-		const row = button.closest('tr')?.rowIndex;
-		if (row === undefined) return undefined;
-		let nearest: HTMLButtonElement | undefined;
-		let distance = Infinity;
-		for (const candidate of table.querySelectorAll<HTMLButtonElement>(
-			`button.pick-line[data-side="${side}"]`
-		)) {
-			const at = candidate.closest('tr')?.rowIndex;
-			if (at === undefined) continue;
-			const steps = Math.abs(at - row);
-			if (steps === 0) return candidate;
-			if (steps >= distance) continue;
-			distance = steps;
-			nearest = candidate;
-		}
-		return nearest;
 	}
 
 	async function arrow(event: KeyboardEvent, line: GutterLine): Promise<void> {
@@ -375,30 +372,13 @@
 			await stopPicking();
 			return;
 		}
-		const button = event.currentTarget;
-		if (!(button instanceof HTMLButtonElement)) return;
-		let next: HTMLButtonElement | null | undefined;
-		switch (key) {
-			case 'ArrowUp':
-			case 'ArrowDown':
-				event.preventDefault();
-				next = await vertical(button, line.side, key === 'ArrowUp' ? -1 : 1);
-				break;
-			case 'ArrowLeft':
-			case 'ArrowRight': {
-				event.preventDefault();
-				const side = key === 'ArrowLeft' ? 'old' : 'new';
-				if (line.side === side) return;
-				next = across(button, side);
-				break;
-			}
-			default:
-				return;
-		}
-		const target = lineOfButton(next);
-		if (target === undefined || !picking) return;
+		if (key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'ArrowLeft' && key !== 'ArrowRight')
+			return;
+		event.preventDefault();
+		const target = gutter?.destination(line, key);
+		if (target === undefined) return;
 		move(target, event.shiftKey);
-		next?.focus();
+		await drawAndFocus(target);
 	}
 
 	function beginDrag(event: PointerEvent, line: GutterLine): void {
@@ -467,10 +447,10 @@
 		class:fresh={isFresh(line)}
 		data-current-match={holdsCurrent(line) ? '' : undefined}
 	>
-		<td class="number" data-side="old">
+		<td class="number">
 			{@render lineNumber('old', line.kind === 'added' ? undefined : line.old)}
 		</td>
-		<td class="number" data-side="new">
+		<td class="number">
 			{@render lineNumber('new', line.kind === 'deleted' ? undefined : line.new)}
 		</td>
 		{#if hasFresh}
@@ -516,10 +496,10 @@
 		class:fresh={isFresh(removed) || isFresh(added)}
 		data-current-match={holdsCurrent(added) || holdsCurrent(removed) ? '' : undefined}
 	>
-		<td class="number" data-side="old">
+		<td class="number">
 			{@render lineNumber('old', removed.kind === 'deleted' ? removed.old : undefined)}
 		</td>
-		<td class="number" data-side="new">
+		<td class="number">
 			{@render lineNumber('new', added.kind === 'added' ? added.new : undefined)}
 		</td>
 		{#if hasFresh}
@@ -561,7 +541,7 @@
 
 {#snippet pending(key: string, rows: number)}
 	<!-- Drawn when it comes near the screen; until then, the room it will take. -->
-	<tr class="pending" aria-hidden="true" data-pending-key={key} use:drawWhenNear={key}>
+	<tr class="pending" aria-hidden="true" use:drawWhenNear={key}>
 		<td colspan={columns} style:height="{rows * ROW_HEIGHT}px"></td>
 	</tr>
 {/snippet}
@@ -614,17 +594,8 @@
 					: item.added}
 	{@const kind = line === undefined ? 'empty' : quiet ? 'context' : line.kind}
 	{@const cellClass = `cell-${kind}${line !== undefined && isElsewhere(line) ? ' cell-elsewhere' : ''}${line !== undefined && isFresh(line) ? ' cell-fresh' : ''}`}
-	<td class="number {cellClass}" data-side={side} class:side-start={side === 'new'}>
-		{@render lineNumber(
-			side,
-			side === 'old'
-				? line?.kind === 'added'
-					? undefined
-					: line?.old
-				: line?.kind === 'deleted'
-					? undefined
-					: line?.new
-		)}
+	<td class="number {cellClass}" class:side-start={side === 'new'}>
+		{@render lineNumber(side, numberOnLine(line, side))}
 	</td>
 	{#if hasFresh}
 		<td class="badge {cellClass}">
@@ -691,7 +662,7 @@
 	{#if split}
 		<tr class="pair opened">
 			{#each ['old', 'new'] as side (side)}
-				<td class="number cell-context" data-side={side} class:side-start={side === 'new'}>
+				<td class="number cell-context" class:side-start={side === 'new'}>
 					{@render lineNumber(side === 'old' ? 'old' : 'new', side === 'old' ? line.old : line.new)}
 				</td>
 				{#if hasFresh}<td class="badge cell-context"></td>{/if}
@@ -710,8 +681,8 @@
 		</tr>
 	{:else}
 		<tr class="context opened" data-current-match={holdsCurrent(line) ? '' : undefined}>
-			<td class="number" data-side="old">{@render lineNumber('old', line.old)}</td>
-			<td class="number" data-side="new">{@render lineNumber('new', line.new)}</td>
+			<td class="number">{@render lineNumber('old', line.old)}</td>
+			<td class="number">{@render lineNumber('new', line.new)}</td>
 			{#if hasFresh}<td class="badge"></td>{/if}
 			<td class="marker"></td>
 			<td

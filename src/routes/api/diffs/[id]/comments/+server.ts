@@ -14,26 +14,26 @@ const privateResponse = { 'cache-control': 'no-store' };
 
 function browserOnly(
 	request: Request,
-	isBrowserSession: (cookieHeader: string | undefined) => boolean
+	isReviewBrowser: (cookieHeader: string | undefined) => boolean
 ): Response | undefined {
 	// The daemon's gate checks the Origin for changes made with a cookie.
 	// Require that path through the gate, even when the caller also has a bearer token.
 	if (
 		!request.headers.has('authorization') &&
-		isBrowserSession(request.headers.get('cookie') ?? undefined)
+		isReviewBrowser(request.headers.get('cookie') ?? undefined)
 	)
 		return;
 	return failure(
 		403,
 		'BrowserSessionRequired',
 		reviewerMessage(
-			'To read or save draft comments, open this Delve in your browser from the link diff delver gives you.'
+			'To read or save draft comments, run diff-delver in a terminal in your repository and use the browser it opens.'
 		)
 	);
 }
 
 export const GET: RequestHandler = ({ locals, params, request }) => {
-	const refused = browserOnly(request, locals.daemon.isBrowserSession);
+	const refused = browserOnly(request, locals.daemon.isReviewBrowser);
 	if (refused !== undefined) return refused;
 	const id = diffId(params.id);
 	if (!id.ok) return id.error;
@@ -44,7 +44,7 @@ export const GET: RequestHandler = ({ locals, params, request }) => {
 };
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {
-	const refused = browserOnly(request, locals.daemon.isBrowserSession);
+	const refused = browserOnly(request, locals.daemon.isReviewBrowser);
 	if (refused !== undefined) return refused;
 	const id = diffId(params.id);
 	if (!id.ok) return id.error;

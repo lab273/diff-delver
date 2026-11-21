@@ -23,6 +23,8 @@ function made<T>(result: { ok: true; value: T } | { ok: false }): T {
 }
 
 const token: DaemonToken = made(parseDaemonToken('ab'.repeat(32)));
+const mcpToken = made(parseDaemonToken('01'.repeat(32)));
+const viewToken = made(parseDaemonToken('23'.repeat(32)));
 const browserToken = made(parseDaemonToken('ef'.repeat(32)));
 const other: DaemonToken = made(parseDaemonToken('cd'.repeat(32)));
 const port: PortNumber = made(parsePortNumber(43210));
@@ -32,7 +34,9 @@ const settings: GateSettings = {
 	port,
 	token,
 	browserToken,
-	redeemEntryCode: (given) => given === code
+	mcpToken,
+	viewToken,
+	redeemEntryCode: (given) => (given === code ? 'review' : undefined)
 };
 const host = '127.0.0.1:43210';
 const cookie = `${tokenCookieName(port)}=${browserToken}`;
@@ -89,11 +93,13 @@ describe('the request gate', () => {
 		const time = parseTimestamp(1000);
 		const codes = entryCodes(settableClock(made(time)));
 		const issued = made(parseEntryCode('d'.repeat(32)));
-		codes.issue(issued);
+		codes.issue(issued, 'review');
 		const once: GateSettings = {
 			port,
 			token,
 			browserToken,
+			mcpToken,
+			viewToken,
 			redeemEntryCode: (given) => codes.redeem(given)
 		};
 		const target = `/diffs/r_1?entry=${issued}`;
@@ -230,7 +236,7 @@ describe('the request gate', () => {
 	});
 
 	it('serves MCP only to a program that sends the token itself, never on the cookie', () => {
-		const bearer = `Bearer ${token}`;
+		const bearer = `Bearer ${mcpToken}`;
 		const mcp = (overrides: Partial<GateRequest>) =>
 			gateRequest(request({ method: 'POST', target: '/mcp', ...overrides }), settings);
 		expect(mcp({ authorization: bearer })).toEqual({ kind: 'serve' });

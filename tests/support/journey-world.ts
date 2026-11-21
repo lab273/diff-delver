@@ -687,7 +687,7 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 			const recording = await committedRecording(name);
 			const session = await mcpOverHttp({
 				origin: daemon.origin,
-				token: daemon.token,
+				token: daemon.mcpToken,
 				directory
 			});
 			const data = join(dir, 'data');

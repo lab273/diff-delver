@@ -64,7 +64,12 @@ describe('finding a daemon of another release', () => {
 		expect(launched).toEqual({
 			ok: true,
 			value: {
-				connection: { port: daemon.port, token: daemon.token, origin: daemon.origin },
+				connection: {
+					port: daemon.port,
+					token: daemon.token,
+					mcpToken: daemon.mcpToken,
+					origin: daemon.origin
+				},
 				found: { kind: 'newer', version: '0.3.0+aaaaaaaaaaaa' }
 			}
 		});

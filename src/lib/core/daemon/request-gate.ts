@@ -5,7 +5,8 @@
  *
  * - its `Host` names the daemon itself (`127.0.0.1:<port>` or `localhost:<port>`),
  *   so a web page whose name was pointed at 127.0.0.1 cannot read the answers;
- * - it carries the browser's session cookie or the command's bearer token;
+ * - it carries a browser session cookie, the command bearer token for the app,
+ *   or the MCP bearer token for `/mcp`;
  * - when it changes anything and the token came in the cookie, its `Origin` is
  *   the daemon's own, so no other page can make the browser act. A browser sends
  *   `Origin` with every such request; a program that sends the token itself
@@ -23,7 +24,7 @@
  * (`localPath`), whatever the request said.
  *
  * MCP (`/mcp`, DESIGN 3) is for programs only: the stdio shim and clients that
- * speak HTTP MCP. It is served only with the token in `Authorization`, never
+ * speak HTTP MCP. It is served only with its separate bearer token, never
  * on the cookie alone, so no page the person's browser visits can reach it,
  * even one the browser would send the cookie with; and like any change asked
  * with the token, a request that comes from a page (`Origin`) must come from
@@ -34,6 +35,7 @@
  * this daemon's cookie. For a tool one person runs on their own machine, that
  * is accepted rather than guarded against.
  */
+import type { BrowserGrant } from './entry-codes.ts';
 import { isToken, type DaemonToken } from '../daemon-token.tiny.ts';
 import type { PortNumber } from '../port-number.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
@@ -52,9 +54,11 @@ export interface GateRequest {
 export interface GateSettings {
 	readonly port: PortNumber;
 	readonly token: DaemonToken;
+	readonly mcpToken: DaemonToken;
 	readonly browserToken: DaemonToken;
+	readonly viewToken: DaemonToken;
 	/** Whether `given` is an entry code that may be used now; using it means it never works again. */
-	readonly redeemEntryCode: (given: string) => boolean;
+	readonly redeemEntryCode: (given: string) => BrowserGrant | undefined;
 }
 
 /** Why a request is not served. */
@@ -167,16 +171,20 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 	const reading = READING.has(request.method.toUpperCase());
 
 	const cookie = cookieValue(request.cookie, tokenCookieName(settings.port));
+	const review = cookie !== undefined && isToken(settings.browserToken, cookie);
+	const view = cookie !== undefined && isToken(settings.viewToken, cookie);
 	if (reading && hasEntryCode(request.target)) {
 		const { location, code } = withoutEntryCode(request.target);
-		if (settings.redeemEntryCode(code)) {
+		const grant = settings.redeemEntryCode(code);
+		if (grant === 'review' || (grant === 'view' && !review)) {
+			const token = grant === 'review' ? settings.browserToken : settings.viewToken;
 			return {
 				kind: 'enter',
 				location: localPath(location),
-				setCookie: `${tokenCookieName(settings.port)}=${settings.browserToken}; Path=/; HttpOnly; SameSite=Strict`
+				setCookie: `${tokenCookieName(settings.port)}=${token}; Path=/; HttpOnly; SameSite=Strict`
 			};
 		}
-		if (cookie !== undefined && isToken(settings.browserToken, cookie)) {
+		if (review || view) {
 			return { kind: 'enter', location: localPath(location), setCookie: undefined };
 		}
 		return { kind: 'refuse', refusal: 'entry-used' };
@@ -184,7 +192,8 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 
 	const bearer = /^Bearer (.+)$/.exec(request.authorization ?? '')?.[1];
 	if (bearer !== undefined) {
-		if (!isToken(settings.token, bearer)) return { kind: 'refuse', refusal: 'wrong-token' };
+		if (!isToken(isMcpTarget(request.target) ? settings.mcpToken : settings.token, bearer))
+			return { kind: 'refuse', refusal: 'wrong-token' };
 		// A program sending the token itself is not acting for a page; a page cannot
 		// send this header to another origin without the token, which it lacks.
 		if (!reading && request.origin !== undefined && request.origin !== `http://${host}`) {
@@ -196,7 +205,7 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 	// MCP is served only to programs that bring the token themselves.
 	if (isMcpTarget(request.target)) return { kind: 'refuse', refusal: 'no-token' };
 	if (cookie === undefined) return { kind: 'refuse', refusal: 'no-token' };
-	if (!isToken(settings.browserToken, cookie)) return { kind: 'refuse', refusal: 'wrong-token' };
+	if (!review && !view) return { kind: 'refuse', refusal: 'wrong-token' };
 	if (!reading && request.origin !== `http://${host}`) {
 		return { kind: 'refuse', refusal: 'wrong-origin' };
 	}

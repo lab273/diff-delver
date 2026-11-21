@@ -12,25 +12,27 @@ export const ENTRY_CODE_LIFETIME_MS = 120_000;
 /** The same, as an address that works for that long says it. */
 export const ENTRY_CODE_LIFETIME_TEXT = 'two minutes';
 
+export type BrowserGrant = 'view' | 'review';
+
 export interface EntryCodes {
 	/** Records a new code, made by the caller, as usable from now. */
-	issue(code: EntryCode): void;
+	issue(code: EntryCode, grant: BrowserGrant): void;
 	/** Whether `given` is a code that may be used now; using it means it never works again. */
-	redeem(given: string): boolean;
+	redeem(given: string): BrowserGrant | undefined;
 }
 
 export function entryCodes(clock: Clock): EntryCodes {
-	const until = new Map<string, number>();
+	const codes = new Map<string, { end: number; grant: BrowserGrant }>();
 	return {
-		issue(code) {
+		issue(code, grant) {
 			const now = clock.now();
-			for (const [old, end] of until) if (end <= now) until.delete(old);
-			until.set(code, now + ENTRY_CODE_LIFETIME_MS);
+			for (const [old, { end }] of codes) if (end <= now) codes.delete(old);
+			codes.set(code, { end: now + ENTRY_CODE_LIFETIME_MS, grant });
 		},
 		redeem(given) {
-			const end = until.get(given);
-			until.delete(given);
-			return end !== undefined && clock.now() < end;
+			const found = codes.get(given);
+			codes.delete(given);
+			return found !== undefined && clock.now() < found.end ? found.grant : undefined;
 		}
 	};
 }

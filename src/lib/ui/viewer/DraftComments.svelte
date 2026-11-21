@@ -9,11 +9,13 @@
 	let {
 		id,
 		version,
-		changes
+		changes,
+		control = $bindable()
 	}: {
 		id: ReportId;
 		version: RevisionNumber;
 		changes: number;
+		control?: HTMLButtonElement | undefined;
 	} = $props();
 
 	let open = $state<boolean>(false);
@@ -44,7 +46,13 @@
 </script>
 
 <div class="drafts">
-	<button type="button" aria-expanded={open} aria-controls={panelId} onclick={() => (open = !open)}>
+	<button
+		type="button"
+		bind:this={control}
+		aria-expanded={open}
+		aria-controls={panelId}
+		onclick={() => (open = !open)}
+	>
 		Draft comments
 	</button>
 	<div id={panelId} aria-busy={open && loading} hidden={!open}>

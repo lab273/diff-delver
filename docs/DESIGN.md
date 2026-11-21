@@ -763,11 +763,13 @@ The quoted code is inserted by the server from the snapshot.
   and export text, and an append-only event log that feeds live updates.
 - One git object store per reviewed repository in the data directory (3.2).
 - Review state is personal and never written into the repository.
-- The daemon binds to `127.0.0.1`, checks `Host` and `Origin`, and requires its
-  token. The token never appears on a command line or in an address: the command
-  opens the browser with a single-use code, good for two minutes, which the daemon
-  exchanges for a cookie. Pages are sent with a content security policy, so nothing
-  loads from outside the daemon and only its own scripts run.
+- The daemon binds to `127.0.0.1`, checks `Host` and `Origin`, and requires a
+  bearer token or browser session cookie. Neither token appears on a command line
+  or in an address. Browser links carry a single-use code, good for two minutes,
+  which the daemon exchanges for a session cookie. A link opened by the local
+  `diff-delver` command grants access to private drafts. Links from MCP open the
+  Delve and preserve any review access the browser already has. Pages load only
+  the daemon's own resources and scripts.
 - Browsers send a cookie to every port of a host, so another server on the same
   machine that the person visits would receive this cookie. That is accepted for a
   tool one person runs on their own machine.
@@ -775,8 +777,8 @@ The quoted code is inserted by the server from the snapshot.
 - Diff content is untrusted input to the agent. The skill says to treat it as data.
 - Human-only state (reviewed marks, comments, flags, the review) has no MCP write
   path. An agent cannot close or delete a report either.
-- `/mcp` accepts the token only in `Authorization`, never the cookie, so no page in
-  the person's browser can reach it.
+- `/mcp` requires its own bearer token. That token grants access only to MCP.
+  The command's separate bearer token can issue a link that grants draft access.
 - The daemon runs git in the repository being opened with that repository's own
   settings, as the person's own git does there, so opening it can run commands those
   settings name, such as a clean filter. For the command, that is the folder the

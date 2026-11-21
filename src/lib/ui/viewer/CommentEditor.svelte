@@ -11,13 +11,15 @@
 		id,
 		version,
 		open,
-		showNewer
+		showNewer,
+		ondiscard
 	}: {
 		draft: CommentDraft;
 		id: ReportId;
 		version: RevisionNumber;
 		open: boolean;
 		showNewer: () => void;
+		ondiscard: () => void;
 	} = $props();
 
 	let input = $state<HTMLTextAreaElement>();
@@ -95,8 +97,11 @@
 			<button
 				type="button"
 				aria-disabled={draft.saving}
-				onclick={() => {
+				onclick={async () => {
+					if (draft.saving) return;
 					draft.discard();
+					await tick();
+					ondiscard();
 				}}
 			>
 				Discard unsaved comment

@@ -847,6 +847,7 @@
 		if (reviewed === units) return `Everything reviewed: ${describeChanges(units)}`;
 		return `${formatCount(reviewed)} of ${describeChanges(units)} reviewed`;
 	}
+	let draftsControl = $state<HTMLButtonElement>();
 	const drafts = new SvelteMap<ReportId, CommentDraft>();
 	function draftFor(id: ReportId): CommentDraft {
 		return untrack(() => {
@@ -1133,13 +1134,21 @@
 				/>
 			{/if}
 			{#key summary.id}
-				<DraftComments id={summary.id} version={summary.version} changes={draft.changes} />
+				<DraftComments
+					id={summary.id}
+					version={summary.version}
+					changes={draft.changes}
+					bind:control={draftsControl}
+				/>
 				<CommentEditor
 					{draft}
 					id={summary.id}
 					version={summary.version}
 					open={summary.state.kind === 'open'}
 					{showNewer}
+					ondiscard={() => {
+						draftsControl?.focus();
+					}}
 				/>
 			{/key}
 

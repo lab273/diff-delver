@@ -110,7 +110,7 @@ export async function runShim(options: ShimOptions): Promise<number> {
 		const headers: Record<string, string> = {
 			'content-type': 'application/json',
 			accept: 'application/json, text/event-stream',
-			authorization: `Bearer ${connection.token}`,
+			authorization: `Bearer ${connection.mcpToken ?? connection.token}`,
 			[DIRECTORY_HEADER]: encodeURIComponent(options.directory)
 		};
 		const ask = callsCreateReport(message) ? await browser.lend() : 'not-asked';

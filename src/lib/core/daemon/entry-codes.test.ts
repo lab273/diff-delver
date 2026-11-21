@@ -21,20 +21,26 @@ describe('entry codes', () => {
 
 	it('work once', () => {
 		const codes = entryCodes(settableClock(made(parseTimestamp(1000))));
-		codes.issue(code('a'));
-		expect(codes.redeem(code('b'))).toBe(false);
-		expect(codes.redeem(code('a'))).toBe(true);
-		expect(codes.redeem(code('a'))).toBe(false);
+		codes.issue(code('a'), 'review');
+		expect(codes.redeem(code('b'))).toBeUndefined();
+		expect(codes.redeem(code('a'))).toBe('review');
+		expect(codes.redeem(code('a'))).toBeUndefined();
+	});
+
+	it('keeps the session grant the code was issued with', () => {
+		const codes = entryCodes(settableClock(made(parseTimestamp(1000))));
+		codes.issue(code('a'), 'view');
+		expect(codes.redeem(code('a'))).toBe('view');
 	});
 
 	it('work only until their time is up', () => {
 		const clock = settableClock(made(parseTimestamp(1000)));
 		const codes = entryCodes(clock);
-		codes.issue(code('a'));
-		codes.issue(code('b'));
+		codes.issue(code('a'), 'review');
+		codes.issue(code('b'), 'view');
 		clock.advance(ENTRY_CODE_LIFETIME_MS - 1);
-		expect(codes.redeem(code('a'))).toBe(true);
+		expect(codes.redeem(code('a'))).toBe('review');
 		clock.advance(1);
-		expect(codes.redeem(code('b'))).toBe(false);
+		expect(codes.redeem(code('b'))).toBeUndefined();
 	});
 });

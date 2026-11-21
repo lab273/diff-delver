@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { absolutePath, GitRepo } from './git-repo.ts';
 import { makeJourneyWorld } from './journey-world.ts';
 
 // Journeys drive the keyboard. Exercise the browser's pointer capture here.
@@ -37,6 +38,37 @@ test('dragging line numbers selects a range on the starting side', async ({ page
 		await expect(page.getByRole('form', { name: 'Unsaved comment' })).toContainText(
 			'Before, lines 1–3'
 		);
+	} finally {
+		await world.close();
+	}
+});
+
+test('horizontal navigation draws the far side of a long replacement without drawing the intervening chunks', async ({
+	page
+}) => {
+	const world = await makeJourneyWorld();
+	try {
+		const directory = await world.repository('long-file');
+		const repo = GitRepo.open(absolutePath(directory));
+		await repo.write('data/rows.txt', 'new first line\nnew second line\n');
+		await page.goto((await world.command([], directory)).address);
+		await expect(page.locator('html[data-ready]')).toHaveCount(1);
+		const file = page.getByRole('article', { name: 'data/rows.txt' });
+		await file.getByRole('button', { name: 'Show this large change' }).click();
+		await file.getByRole('button', { name: 'Comment on lines' }).click();
+		const first = file.getByRole('button', { name: 'Before, line 1', exact: true });
+		const far = file.getByRole('button', { name: 'After, line 1', exact: true });
+		const middle = file.getByRole('button', { name: 'Before, line 10000', exact: true });
+		await expect(first).toBeFocused();
+		await expect(far).toHaveCount(0);
+		await page.keyboard.press('ArrowRight');
+		await expect(far).toBeFocused();
+		await expect(middle).toHaveCount(0);
+		await page.keyboard.press('ArrowLeft');
+		await expect(
+			file.getByRole('button', { name: 'Before, line 40000', exact: true })
+		).toBeFocused();
+		await expect(middle).toHaveCount(0);
 	} finally {
 		await world.close();
 	}

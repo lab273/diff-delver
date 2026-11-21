@@ -32,8 +32,8 @@ import type { Server } from 'node:http';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { Clock } from '#lib/core/clock.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
-import { parseDaemonToken, type DaemonToken } from '#lib/core/daemon-token.tiny.ts';
-import { entryCodes } from '#lib/core/daemon/entry-codes.ts';
+import { isToken, parseDaemonToken, type DaemonToken } from '#lib/core/daemon-token.tiny.ts';
+import { entryCodes, type BrowserGrant } from '#lib/core/daemon/entry-codes.ts';
 import {
 	cookieValue,
 	ENTRY_PARAMETER,
@@ -115,11 +115,13 @@ function everyFewSeconds(check: () => Promise<void>): () => void {
 export interface DaemonConnection {
 	readonly port: PortNumber;
 	readonly token: DaemonToken;
+	readonly mcpToken?: DaemonToken | undefined;
 	/** `http://127.0.0.1:<port>`. */
 	readonly origin: string;
 }
 
 export interface RunningDaemon extends DaemonConnection {
+	readonly mcpToken: DaemonToken;
 	readonly lock: Lock;
 	/** A new single-use code that lets a browser in, for an address to open (`entryAddress`). */
 	entryCode(): EntryCode;
@@ -165,8 +167,13 @@ export function describeDaemonStartError(error: DaemonStartError): ReviewerMessa
 	}
 }
 
-export function connectionOf(lock: Pick<Lock, 'port' | 'token'>): DaemonConnection {
-	return { port: lock.port, token: lock.token, origin: `http://127.0.0.1:${String(lock.port)}` };
+export function connectionOf(lock: Pick<Lock, 'port' | 'token' | 'mcpToken'>): DaemonConnection {
+	return {
+		port: lock.port,
+		token: lock.token,
+		...(lock.mcpToken === undefined ? {} : { mcpToken: lock.mcpToken }),
+		origin: `http://127.0.0.1:${String(lock.port)}`
+	};
 }
 
 /**
@@ -254,9 +261,9 @@ export async function startDaemon(
 	// Nothing is served until the lock is taken and the daemon registered.
 	const gate: { settings: GateSettings | undefined } = { settings: undefined };
 	const codes = entryCodes(options.clock);
-	const entryCode = (): EntryCode => {
+	const issue = (grant: BrowserGrant): EntryCode => {
 		const code = randomEntryCode();
-		codes.issue(code);
+		codes.issue(code, grant);
 		return code;
 	};
 	// Set once the port is known, before anything is served.
@@ -267,7 +274,7 @@ export async function startDaemon(
 		mcpHandler({
 			service,
 			version: options.version,
-			entryAddress: (page) => entryAddress(origin.value, page, entryCode()),
+			entryAddress: (page) => entryAddress(origin.value, page, issue('view')),
 			open: options.openBrowser ?? (() => Promise.resolve(false))
 		})
 	);
@@ -279,10 +286,12 @@ export async function startDaemon(
 	origin.value = `http://127.0.0.1:${String(port.value)}`;
 	const pid = parseProcessId(process.pid);
 	if (!pid.ok) throw new Error('This process has no id.');
+	const mcpToken = newToken();
 	const lock: Lock = {
 		port: port.value,
 		pid: pid.value,
 		token: newToken(),
+		mcpToken,
 		version: options.version,
 		startedAt: options.clock.now()
 	};
@@ -338,8 +347,17 @@ export async function startDaemon(
 	};
 
 	const browserToken = newToken();
+	const viewToken = newToken();
+	const entryCode = (): EntryCode => issue('review');
 	registerDaemon(lock.port, {
-		isBrowserSession: (header) => cookieValue(header, tokenCookieName(lock.port)) === browserToken,
+		isReviewBrowser: (header) => {
+			const token = cookieValue(header, tokenCookieName(lock.port));
+			return token !== undefined && isToken(browserToken, token);
+		},
+		isCommand: (authorization) => {
+			const bearer = /^Bearer (.+)$/.exec(authorization ?? '')?.[1];
+			return bearer !== undefined && isToken(lock.token, bearer);
+		},
 		service,
 		clock: options.clock,
 		version: options.version,
@@ -368,8 +386,10 @@ export async function startDaemon(
 	gate.settings = {
 		port: lock.port,
 		token: lock.token,
+		mcpToken,
 		browserToken,
+		viewToken,
 		redeemEntryCode: (given) => codes.redeem(given)
 	};
-	return ok({ ...connectionOf(lock), lock, entryCode, cleaned, stop, stopped });
+	return ok({ ...connectionOf(lock), mcpToken, lock, entryCode, cleaned, stop, stopped });
 }

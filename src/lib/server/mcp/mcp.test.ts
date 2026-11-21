@@ -851,7 +851,7 @@ describe('/mcp over HTTP', () => {
 		});
 		const session = await mcpOverHttp({
 			origin: daemon.origin,
-			token: daemon.token,
+			token: daemon.mcpToken,
 			directory: repo.dir,
 			openBrowser: true
 		});
@@ -874,6 +874,59 @@ describe('/mcp over HTTP', () => {
 		});
 		expect(again.status).toBe(403);
 		expect(again.body).toMatch(/if a coding agent gave you the link, ask it for a new one/);
+		const view = first.headers['set-cookie']?.[0]?.split(';', 1)[0] ?? '';
+		const report = new URL(address).pathname;
+		const comments = `/api${report}/comments`;
+		expect(
+			(await rawRequest(daemon.port, { path: report, headers: { cookie: view } })).status
+		).toBe(200);
+		for (const [method, path] of [
+			['GET', comments],
+			['POST', comments],
+			['POST', '/api/entry']
+		] as const) {
+			expect(
+				(
+					await rawRequest(daemon.port, {
+						method,
+						path,
+						headers: { cookie: view, origin: daemon.origin }
+					})
+				).status
+			).toBe(403);
+			expect(
+				(
+					await rawRequest(daemon.port, {
+						method,
+						path,
+						headers: { authorization: `Bearer ${daemon.mcpToken}` }
+					})
+				).status
+			).toBe(403);
+		}
+
+		// The command can upgrade this browser on the same Delve.
+		const reviewCode = value(await clientOf(daemon).entryCode()).code;
+		const upgrade = await rawRequest(daemon.port, {
+			path: `${report}?entry=${reviewCode}`,
+			headers: { cookie: view }
+		});
+		expect(upgrade.status).toBe(303);
+		const review = upgrade.headers['set-cookie']?.[0]?.split(';', 1)[0] ?? '';
+		expect(review).not.toBe(view);
+		expect(
+			(await rawRequest(daemon.port, { path: comments, headers: { cookie: review } })).status
+		).toBe(200);
+
+		// Opening an MCP link in that browser leaves its existing review access in place.
+		const offered = new URL(opened[0] ?? '');
+		const openInReview = await rawRequest(daemon.port, {
+			path: offered.pathname + offered.search,
+			headers: { cookie: review }
+		});
+		expect(openInReview.status).toBe(303);
+		expect(openInReview.headers['set-cookie']).toBeUndefined();
+
 		// The same source again resumes it, and opens nothing more.
 		const resumed = await session.call('create_report', {});
 		expect(resumed.text).toMatch(
@@ -893,7 +946,7 @@ describe('/mcp over HTTP', () => {
 		});
 		const session = await mcpOverHttp({
 			origin: daemon.origin,
-			token: daemon.token,
+			token: daemon.mcpToken,
 			directory: repo.dir,
 			openBrowser: 'already'
 		});
@@ -910,7 +963,7 @@ describe('/mcp over HTTP', () => {
 			headers: {
 				'content-type': 'application/json',
 				accept: 'application/json, text/event-stream',
-				authorization: `Bearer ${daemon.token}`,
+				authorization: `Bearer ${daemon.mcpToken}`,
 				'x-diff-delver-directory': encodeURIComponent(repo.dir),
 				'x-diff-delver-open-browser': 'yes',
 				'mcp-protocol-version': '2025-06-18'
@@ -932,7 +985,8 @@ describe('/mcp over HTTP', () => {
 		await session.call('list_reports', {});
 		const lock = await readLockfile(data);
 		if (lock.kind !== 'lock') throw new Error('no daemon');
-		const { port, token } = lock.lock;
+		const { port, token, mcpToken } = lock.lock;
+		if (mcpToken === undefined) throw new Error('no MCP credential');
 		const initialize = JSON.stringify({
 			jsonrpc: '2.0',
 			id: 1,
@@ -954,8 +1008,9 @@ describe('/mcp over HTTP', () => {
 				},
 				body: initialize
 			});
-		const served = await post({ authorization: `Bearer ${token}` });
+		const served = await post({ authorization: `Bearer ${mcpToken}` });
 		expect(served.status).toBe(200);
+		expect((await post({ authorization: `Bearer ${token}` })).status).toBe(403);
 		expect(served.body).toMatch(/"name":"diff-delver"/);
 		const origin = `http://127.0.0.1:${String(port)}`;
 		const entry = value(await clientOf({ origin, token }).entryCode());
@@ -972,9 +1027,9 @@ describe('/mcp over HTTP', () => {
 		expect((await post({})).status).toBe(403);
 		expect((await post({ authorization: `Bearer ${'0'.repeat(64)}` })).status).toBe(403);
 		expect(
-			(await post({ authorization: `Bearer ${token}`, origin: 'http://evil.example' })).status
+			(await post({ authorization: `Bearer ${mcpToken}`, origin: 'http://evil.example' })).status
 		).toBe(403);
-		expect((await post({ authorization: `Bearer ${token}`, host: 'evil.example' })).status).toBe(
+		expect((await post({ authorization: `Bearer ${mcpToken}`, host: 'evil.example' })).status).toBe(
 			421
 		);
 	});
