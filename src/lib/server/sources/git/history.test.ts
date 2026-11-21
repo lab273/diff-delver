@@ -129,6 +129,23 @@ describe('a repository’s branches', () => {
 			['Not pushed yet', false],
 			['Merge the side', true]
 		]);
+
+		// A local branch named as the remote's main is, and one named HEAD, are listed
+		// beside the ones they read like, each under its own full name.
+		const tip = (await repo.git('rev-parse', 'feature')).trim();
+		await repo.git('update-ref', 'refs/heads/origin/main', tip);
+		await repo.git('update-ref', 'refs/heads/HEAD', tip);
+		const alike = value(await listBranches(found, ''));
+		expect(alike.shown.map((b) => b.ref).toSorted()).toEqual([
+			'refs/heads/HEAD',
+			'refs/heads/feature',
+			'refs/heads/main',
+			'refs/heads/origin/main',
+			'refs/remotes/origin/main',
+			'refs/remotes/origin/prices'
+		]);
+		const local = value(await listCommits(found, ref('refs/heads/HEAD'), undefined, branches.main));
+		expect(local.commits[0]?.subject).toBe('Make the sale big');
 	});
 
 	it('shows a bounded number of many branches, keeps every name exact and never reads one as an option', async () => {

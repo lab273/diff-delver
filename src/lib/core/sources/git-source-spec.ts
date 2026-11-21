@@ -116,6 +116,34 @@ export function shortRevisionName(revision: Revision): string {
 	return /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(revision) ? revision.slice(0, 7) : revision;
 }
 
+/**
+ * Whether a branch's short name would be read as something else: `HEAD`, the
+ * checked-out commit, or one of the words that name a source, such as
+ * `staged`. Such a branch is never called by its short name alone.
+ */
+export function isMisleadingBranchName(name: string): boolean {
+	return name === 'HEAD' || WORDS.has(name.toLowerCase());
+}
+
+const LOCAL_BRANCH = 'refs/heads/';
+
+/**
+ * A revision as a title or a sentence names it: `shortRevisionName`, but a
+ * local branch whose short name would be read as something else is "the local
+ * branch HEAD", so that it is never taken for the checked-out commit.
+ */
+export function revisionInWords(revision: Revision): string {
+	const short = shortRevisionName(revision);
+	return revision.startsWith(LOCAL_BRANCH) && isMisleadingBranchName(short)
+		? `the local branch ${short}`
+		: short;
+}
+
+/** `text` with its first letter a capital, to start a title or a sentence with a phrase. */
+function capitalised(text: string): string {
+	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** Whether a range end is git's empty tree, in either object format: a range from nothing. */
 export function isEmptyTreeRevision(revision: Revision): boolean {
 	const text: string = revision;
@@ -131,12 +159,17 @@ export function describeGitSource(spec: GitSourceSpec): ReviewerMessage {
 			return reviewerMessage('Uncommitted changes');
 		case 'staged':
 			return reviewerMessage('Staged changes');
-		case 'commit':
+		case 'commit': {
+			if (spec.revision === HEAD || spec.revision === '@')
+				return reviewerMessage('The last commit');
+			const named = revisionInWords(spec.revision);
 			return reviewerMessage(
-				spec.revision === HEAD || spec.revision === '@'
-					? 'The last commit'
-					: `Commit ${shortRevisionName(spec.revision)}`
+				// A phrase, not a name: "The last commit of the local branch HEAD".
+				named === shortRevisionName(spec.revision)
+					? `Commit ${named}`
+					: `The last commit of ${named}`
 			);
+		}
 		case 'range': {
 			// A run of commits chosen from a list, written as commit ids.
 			if (FULL_ID.test(spec.to) && isEmptyTreeRevision(spec.from)) {
@@ -147,9 +180,13 @@ export function describeGitSource(spec: GitSourceSpec): ReviewerMessage {
 					`The commits after ${shortRevisionName(spec.from)}, up to ${shortRevisionName(spec.to)}`
 				);
 			}
-			const to =
-				spec.to === HEAD || spec.to === '@' ? 'The checked-out commit' : shortRevisionName(spec.to);
-			return reviewerMessage(`${to} compared with ${shortRevisionName(spec.from)}`);
+			const checkedOut = spec.to === HEAD || spec.to === '@';
+			const named = checkedOut ? 'the checked-out commit' : revisionInWords(spec.to);
+			// A branch's name is kept as it is written; a phrase starts with a capital.
+			const isName = !checkedOut && named === shortRevisionName(spec.to);
+			return reviewerMessage(
+				`${isName ? named : capitalised(named)} compared with ${revisionInWords(spec.from)}`
+			);
 		}
 	}
 }

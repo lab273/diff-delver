@@ -8,7 +8,11 @@ import type { CommitId } from '../commit-id.tiny.ts';
 import type { CommitSubject } from '../commit-subject.tiny.ts';
 import { parseRevision, type Revision } from '../revision.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
-import { shortRevisionName, type GitSourceSpec } from '../sources/git-source-spec.ts';
+import {
+	revisionInWords,
+	shortRevisionName,
+	type GitSourceSpec
+} from '../sources/git-source-spec.ts';
 
 /**
  * Where uncommitted or staged changes went, as the repository shows it now,
@@ -57,14 +61,14 @@ export function nothingLeft(spec: GitSourceSpec, since: CommitsSince): NothingLe
 		case 'commit':
 			return {
 				reason: reviewerMessage(
-					`Nothing is left to review here: ${shortRevisionName(spec.revision)} now names a commit that changes no files. What you were reading is still shown.`
+					`Nothing is left to review here: ${revisionInWords(spec.revision)} now names a commit that changes no files. What you were reading is still shown.`
 				),
 				next: undefined
 			};
 		case 'range':
 			return {
 				reason: reviewerMessage(
-					`Nothing is left to review here: ${shortRevisionName(spec.to)} has no changes compared with ${shortRevisionName(spec.from)} any more, most likely because it was merged. What you were reading is still shown.`
+					`Nothing is left to review here: ${revisionInWords(spec.to)} has no changes compared with ${revisionInWords(spec.from)} any more, most likely because it was merged. What you were reading is still shown.`
 				),
 				next: undefined
 			};

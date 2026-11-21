@@ -87,6 +87,22 @@ describe('describeGitSource', () => {
 		expect(describeGitSource(parsed('main...'))).toBe('The checked-out commit compared with main');
 	});
 
+	it('never names a local branch called HEAD, or staged, as if it were something else', () => {
+		expect(describeGitSource(parsed('refs/remotes/origin/main...refs/heads/HEAD'))).toBe(
+			'The local branch HEAD compared with origin/main'
+		);
+		expect(describeGitSource(parsed('refs/heads/staged...refs/heads/feature-x'))).toBe(
+			'feature-x compared with the local branch staged'
+		);
+		expect(describeGitSource(parsed('refs/heads/HEAD'))).toBe(
+			'The last commit of the local branch HEAD'
+		);
+		// A remote's HEAD is named with its remote, so it cannot be taken for the checked-out commit.
+		expect(describeGitSource(parsed('refs/remotes/origin/HEAD...refs/heads/x'))).toBe(
+			'x compared with origin/HEAD'
+		);
+	});
+
 	it('says what a run of commits chosen from a list is, from a commit or from nothing', () => {
 		const to = 'abcdef0123456789abcdef0123456789abcdef01';
 		expect(describeGitSource(parsed(`0123456789abcdef0123456789abcdef01234567...${to}`))).toBe(

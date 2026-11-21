@@ -27,6 +27,7 @@
 	} from '#lib/core/history/commit-selection.ts';
 	import {
 		describeAhead,
+		describeBranchPlace,
 		describeCheckButton,
 		describeExactTime,
 		describeForkPoint,
@@ -92,6 +93,7 @@
 	let checkProblem = $state('');
 
 	const main = loaded?.main ?? undefined;
+	const remotes = loaded?.remotes ?? [];
 	const isMain = $derived(chosen?.main ?? false);
 	/**
 	 * The first row the main branch has too, where the branch's own commits end.
@@ -347,6 +349,7 @@
 					<fieldset>
 						<legend class="visually-hidden">Branch to show</legend>
 						{#each branches as listed (listed.ref)}
+							{@const place = describeBranchPlace(listed.ref, remotes)}
 							<label class="branch" class:chosen={listed.ref === branch}>
 								<input
 									type="radio"
@@ -360,12 +363,13 @@
 								<span class="branch-text">
 									<span class="branch-name">
 										<VisibleText text={branchName(listed.ref)} />
+										{#if place !== undefined}<span class="tag">{place}</span>{/if}
 										{#if listed.current}<span class="tag">Checked out</span>{/if}
 										{#if listed.main}<span class="tag">Main branch</span>{/if}
 									</span>
 									<span class="branch-details">
 										{#if listed.ahead !== null && main !== undefined && !listed.main}
-											{describeAhead(listed.ahead, main)},
+											{describeAhead(listed.ahead, main, remotes)},
 										{/if}
 										{describeLastCommit(listed.committedAt ?? undefined, now)}
 									</span>
@@ -385,7 +389,11 @@
 
 		<section class="commits" aria-labelledby="commits-heading" aria-busy={loadingCommits}>
 			{#if branch !== undefined}
-				<h2 id="commits-heading">Commits on <VisibleText text={branchName(branch)} /></h2>
+				{@const place = describeBranchPlace(branch, remotes)}
+				<h2 id="commits-heading">
+					Commits on <VisibleText text={branchName(branch)} />
+					{#if place !== undefined}<span class="tag">{place}</span>{/if}
+				</h2>
 				{#if main !== undefined && !isMain && chosen?.ahead != null}
 					{#if chosen.ahead > 0}
 						<button
@@ -394,11 +402,11 @@
 							aria-disabled={opening}
 							onclick={reviewWholeBranch}
 						>
-							{describeWholeBranch(main, chosen.ahead)}
+							{describeWholeBranch(main, chosen.ahead, remotes)}
 						</button>
 						<p class="quiet">Or tick commits below to review only those.</p>
 					{:else}
-						<p class="quiet">{describeNothingAhead(branch, main)}</p>
+						<p class="quiet">{describeNothingAhead(branch, main, remotes)}</p>
 					{/if}
 				{/if}
 
@@ -432,7 +440,7 @@
 				<ol class="rows">
 					{#each rows as row, index (row.commit)}
 						{#if index === forkAt && index > 0 && main !== undefined}
-							<li class="fork">{describeForkPoint(branch, main)}</li>
+							<li class="fork">{describeForkPoint(branch, main, remotes)}</li>
 						{/if}
 						<li class="row" class:ticked={isSelected(selection, itemIndexAt(index))}>
 							<label>
@@ -621,7 +629,8 @@
 
 	.tag {
 		display: inline-block;
-		margin-left: 0.25rem;
+		/* After the tag, not before it, so a tag that wraps starts level with the name. */
+		margin-right: 0.25rem;
 		font-size: 0.75rem;
 		font-weight: 700;
 		border: 1px solid var(--color-border);

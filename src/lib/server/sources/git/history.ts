@@ -23,6 +23,7 @@ import {
 	parseBranchRef,
 	type BranchRef
 } from '#lib/core/history/branch-ref.tiny.ts';
+import { branchPlace } from '#lib/core/history/branch-place.ts';
 import { branchCountOf, type BranchCount } from '#lib/core/history/branch-count.tiny.ts';
 import { commitCountOf, type CommitCount } from '#lib/core/history/commit-count.tiny.ts';
 import type { CommitParent } from '#lib/core/history/commit-selection.ts';
@@ -112,16 +113,6 @@ function timestampOfSeconds(text: string): Timestamp | undefined {
 		: undefined;
 }
 
-/** The name a remote-tracking branch has on its remote, `refs/remotes/origin/x` → `x`, for the remote it is of. */
-function remoteLocalName(ref: BranchRef, remotes: readonly RemoteName[]): string | undefined {
-	const rest = ref.slice('refs/remotes/'.length);
-	// The longest remote name that fits, since a remote's name may hold a slash.
-	const remote = remotes
-		.filter((r) => rest.startsWith(`${r}/`))
-		.toSorted((a, b) => b.length - a.length)[0];
-	return remote === undefined ? undefined : rest.slice(remote.length + 1);
-}
-
 /**
  * The repository's branches: local ones, remote-tracking ones that have no
  * local branch of the same name, and the main branch itself whichever it is,
@@ -178,8 +169,9 @@ export async function listBranches(
 	const offered = all
 		.filter((branch) => {
 			if (!isRemoteBranch(branch.ref) || branch.ref === main.value) return true;
-			const local = remoteLocalName(branch.ref, remotes.value);
-			return local === undefined || !locals.has(local);
+			const place = branchPlace(branch.ref, remotes.value);
+			const there = place.kind === 'remote' ? place.nameThere : undefined;
+			return there === undefined || !locals.has(there);
 		})
 		// Only the branch the others are compared with is the main branch: a local
 		// `main` beside `origin/main` is a branch like any other, with its own count.

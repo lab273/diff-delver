@@ -4,13 +4,15 @@ import { parseBranchRef, type BranchRef } from './branch-ref.tiny.ts';
 import { commitCountOf } from './commit-count.tiny.ts';
 import {
 	describeAhead,
+	describeBranchPlace,
 	describeCheckButton,
 	describeExactTime,
 	describeForkPoint,
 	describeLastCommit,
 	describeLastFetch,
 	describeNothingAhead,
-	describeWholeBranch
+	describeWholeBranch,
+	shownBranch
 } from './history-words.ts';
 import { parseRemoteName, type RemoteName } from './remote-name.tiny.ts';
 
@@ -47,19 +49,55 @@ describe('the chooser’s words', () => {
 	});
 
 	it('says how far a branch has gone from the main branch, and what reviewing it opens', () => {
+		const origin = [remote('origin')];
 		const main = branch('refs/remotes/origin/main');
-		expect(describeAhead(commitCountOf(0), main)).toBe('No commits that origin/main lacks');
-		expect(describeAhead(commitCountOf(1), main)).toBe('1 commit not on origin/main');
-		expect(describeNothingAhead(branch('refs/heads/main'), main)).toBe(
+		expect(describeAhead(commitCountOf(0), main, origin)).toBe('No commits that origin/main lacks');
+		expect(describeAhead(commitCountOf(1), main, origin)).toBe('1 commit not on origin/main');
+		expect(describeNothingAhead(branch('refs/heads/main'), main, origin)).toBe(
 			'main has no commits that origin/main lacks: every commit below is on origin/main too. Tick commits to review them.'
 		);
-		expect(describeAhead(commitCountOf(1200), main)).toBe('1,200 commits not on origin/main');
-		expect(describeWholeBranch(main, commitCountOf(3))).toBe(
+		expect(describeAhead(commitCountOf(1200), main, origin)).toBe(
+			'1,200 commits not on origin/main'
+		);
+		expect(describeWholeBranch(main, commitCountOf(3), origin)).toBe(
 			'Review the whole branch: 3 commits, compared with origin/main'
 		);
-		expect(describeForkPoint(branch('refs/heads/discounts'), branch('refs/heads/main'))).toBe(
-			'discounts started from main here: the commits below are on main too.'
+		expect(
+			describeForkPoint(branch('refs/heads/discounts'), branch('refs/heads/main'), origin)
+		).toBe('discounts started from main here: the commits below are on main too.');
+	});
+
+	it('tells apart branches whose names read the same', () => {
+		const remotes = [remote('origin'), remote('team/shared')];
+		const tracked = branch('refs/remotes/origin/main');
+		const lookAlike = branch('refs/heads/origin/main');
+		// Both are "origin/main" as people say them: a tag says which is which.
+		expect(describeBranchPlace(tracked, remotes)).toBe('On origin');
+		expect(describeBranchPlace(lookAlike, remotes)).toBe('Local branch');
+		expect(describeBranchPlace(branch('refs/heads/feature/x'), remotes)).toBeUndefined();
+		expect(describeBranchPlace(branch('refs/remotes/team/shared/x'), remotes)).toBe(
+			'On team/shared'
 		);
+		expect(describeBranchPlace(branch('refs/remotes/gone/x'), remotes)).toBe('Remote branch');
+		expect(shownBranch(tracked, remotes)).toBe('origin/main');
+		expect(shownBranch(lookAlike, remotes)).toBe('the local branch origin/main');
+		expect(describeAhead(commitCountOf(2), lookAlike, remotes)).toBe(
+			'2 commits not on the local branch origin/main'
+		);
+		expect(describeForkPoint(lookAlike, tracked, remotes)).toBe(
+			'The local branch origin/main started from origin/main here: the commits below are on origin/main too.'
+		);
+	});
+
+	it('never names a local branch called HEAD as if it were the checked-out commit', () => {
+		const head = branch('refs/heads/HEAD');
+		expect(describeBranchPlace(head, [])).toBe('Local branch');
+		expect(shownBranch(head, [])).toBe('the local branch HEAD');
+		expect(describeNothingAhead(head, branch('refs/heads/main'), [])).toBe(
+			'The local branch HEAD has no commits that main lacks: every commit below is on main too. Tick commits to review them.'
+		);
+		expect(shownBranch(branch('refs/heads/staged'), [])).toBe('the local branch staged');
+		expect(shownBranch(branch('refs/remotes/origin/HEAD'), [remote('origin')])).toBe('origin/HEAD');
 	});
 
 	it('says when the repository last fetched, and nothing when it has no remote', () => {

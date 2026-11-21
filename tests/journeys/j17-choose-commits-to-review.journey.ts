@@ -97,7 +97,10 @@ test.describe('J17 Choose commits to review', () => {
 				name: 'Review the whole branch: 1 commit, compared with origin/main'
 			})
 		);
-		await journey.expectVisible(journey.byRole('radio', { name: /^origin\/main Main branch/ }));
+		// The main branch is the remote's: its tag says so, as a remote branch's does.
+		await journey.expectVisible(
+			journey.byRole('radio', { name: /^origin\/main On origin Main branch/ })
+		);
 		await journey.step('A local main ahead of the main branch');
 
 		// The whole branch, compared with the main branch.
@@ -128,7 +131,7 @@ test.describe('J17 Choose commits to review', () => {
 		// A branch found by name, and its commits shown.
 		await journey.tabTo(journey.byRole('searchbox', { name: 'Find a branch' }));
 		await journey.type('menu');
-		const menu = journey.byRole('radio', { name: /^origin\/new-menu/ });
+		const menu = journey.byRole('radio', { name: /^origin\/new-menu On origin/ });
 		await journey.expectVisible(menu);
 		await journey.expectHidden(discounts);
 		// The commits shown, and what can be done with them, stay as they were.
