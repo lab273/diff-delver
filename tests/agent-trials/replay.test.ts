@@ -11,11 +11,10 @@
  * public.
  */
 import { cp, readFile } from 'node:fs/promises';
-import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, onTestFinished } from 'vitest';
-import { ALLOWED_EMAILS } from '../../scripts/issue-tracker-identity.ts';
-import { scanText } from '../../scripts/private-data-scan.ts';
+import { ALLOWED_EMAILS, PRIVATE_TERMS_FILE } from '../../scripts/issue-tracker-identity.ts';
+import { parsePrivateTerms, scanText } from '../../scripts/private-data-scan.ts';
 import { defineFixture, tempDirectory, useFixture } from '../support/fixture-repos.ts';
 import { absolutePath } from '../support/git-repo.ts';
 import { mcpThroughShim } from '../support/mcp-client.ts';
@@ -117,12 +116,21 @@ describe('agent trial recordings', () => {
 
 	it('hold no personal or machine-specific data', async () => {
 		const findings: string[] = [];
-		const user = userInfo().username;
+		// The same private terms `pnpm bd push` checks for: a file of the developer's own,
+		// never committed. Where there is none, as in CI, the patterns below still hold.
+		// Never the name of whoever runs the test: on another machine that is another
+		// word, which the fixtures may well contain.
+		const privateTerms = await readFile(
+			join(import.meta.dirname, '../..', PRIVATE_TERMS_FILE),
+			'utf8'
+		)
+			.then(parsePrivateTerms)
+			.catch(() => []);
 		for (const { name } of recordings) {
 			const text = await readFile(join(import.meta.dirname, 'recordings', name), 'utf8');
 			for (const found of scanText(text, {
 				allowedEmails: [...ALLOWED_EMAILS, 'fixture@example.invalid', 'accounts@example.com'],
-				privateTerms: user.length >= 3 ? [user] : []
+				privateTerms
 			})) {
 				findings.push(`${name}: ${found.kind} ${found.shown}`);
 			}
