@@ -36,7 +36,7 @@
 	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
 	import type { PartMarks } from './search.svelte.ts';
 
-	import type { BookmarkLine } from './bookmark.ts';
+	import { bookmarkContext, openedContext, type BookmarkLine } from './bookmark.ts';
 
 	let {
 		bookmarkLine,
@@ -275,11 +275,10 @@
 	function* gutterRows(includeElsewhere = false): Iterable<GutterRow> {
 		for (const [b, block] of blocks.entries()) {
 			if (block.kind === 'hidden') {
-				yield* block.top;
-				yield* block.bottom;
+				yield* openedContext(block);
 			} else if (block.kind === 'hunk' || (includeElsewhere && block.shown)) {
 				const shown = viewer.drawnLines(block);
-				if (wholeHunkHidden(shown) !== undefined) continue;
+				if (block.kind === 'hunk' && wholeHunkHidden(shown) !== undefined) continue;
 				const rows = split ? pairedRows(shown) : shown;
 				for (const [at, row] of rows.entries()) {
 					const chunk = `${String(b)}:${String(Math.floor(at / ROWS_PER_CHUNK) * ROWS_PER_CHUNK)}`;
@@ -789,7 +788,13 @@
 	<tbody>
 		{#each blocks as block, b (b)}
 			{#if block.kind === 'hidden'}
+				{@const saved = bookmarkContext(block)}
 				{@const left = hiddenCount(block)}
+				{@const before =
+					(saved[0]?.new ?? block.new.first + block.top.length + left) -
+					block.new.first -
+					block.top.length}
+				{@const after = left - before}
 				{@const isTop = b === 0}
 				{@const isEnd = b === blocks.length - 1}
 				{#each block.top as line (line.new)}{@render opened(line)}{/each}
@@ -801,7 +806,13 @@
 						<td colspan={columns}>
 							<div class="hidden-row">
 								<span class="hidden-count">
-									{countOf(left, 'unchanged line', 'unchanged lines')}
+									{countOf(
+										saved.length === 0 || before === 0 ? left : before,
+										'unchanged line',
+										'unchanged lines'
+									)}
+									{#if saved.length > 0}
+										{before === 0 ? 'below the bookmark' : 'above the bookmark'}{/if}
 								</span>
 								{#if !isTop && down !== undefined && left > EXPANSION_STEP}
 									<button type="button" class="open" onclick={() => open(b, 'down')}>
@@ -837,6 +848,16 @@
 								{/if}
 							</div>
 							{#if block.problem !== ''}<p class="problem" role="alert">{block.problem}</p>{/if}
+						</td>
+					</tr>
+				{/if}
+				{#each saved as line (line.new)}{@render opened(line)}{/each}
+				{#if before > 0 && after > 0}
+					<tr class="hidden">
+						<td colspan={columns}>
+							<div class="hidden-row">
+								{countOf(after, 'unchanged line', 'unchanged lines')} below the bookmark
+							</div>
 						</td>
 					</tr>
 				{/if}
@@ -911,6 +932,10 @@
 </table>
 
 <style>
+	table :global(tr[tabindex='-1']) {
+		scroll-margin-top: 0.5rem;
+	}
+
 	.comment-action {
 		display: flex;
 		align-items: center;

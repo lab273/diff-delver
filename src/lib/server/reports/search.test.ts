@@ -76,7 +76,7 @@ describe('searching a diff', () => {
 					const blocks = partLinesView(content.value).blocks.map((block): BlockState => {
 						switch (block.kind) {
 							case 'hidden':
-								return { ...block, top: [], bottom: [], busy: false, problem: '' };
+								return { ...block, top: [], bottom: [], bookmark: [], busy: false, problem: '' };
 							case 'hunk':
 								return { ...block, showWhiteSpace: false };
 							case 'elsewhere':

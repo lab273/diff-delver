@@ -667,10 +667,13 @@ needed for a first review.
 
 - Unified or split, syntax highlighted, optional whitespace hiding.
 - **Bookmark this spot** saves one place per Delve in the current browser tab and
-  keeps it across reloads. **Return to bookmark** names the file and goes back
-  to the saved line when available. If it can only find the file, it explains
-  why it is showing the start. A filter that hides the file can be turned off
-  before returning.
+  keeps it across reloads. On narrow screens the controls stay at the bottom of
+  the screen while you read. **Return to bookmark** names the file and goes back
+  to the saved line, even if the agent moved it to another section in the same
+  version. For a line in expanded context, it opens a small window around it.
+  If the line is unavailable or the version changed, it explains why it is
+  showing the start of the file. If a filter hides the destination, it asks
+  you to show everything before returning.
 - Expand context above or below a hunk, or expand to the whole file.
 - Open any file in the repo at the base or head tree, not only changed files.
   Search the tree (`git grep` against the snapshot). Jump from an identifier to its

@@ -10,6 +10,7 @@ import type { ShownLineView } from '#lib/api/schemas.ts';
 import { findIn } from '#lib/core/search/find-text.ts';
 import { readsLine, type DiffSearchOptions } from '#lib/core/search/diff-search.ts';
 import type { BlockState, OpenLine } from './viewer.svelte.ts';
+import { openedContext } from './bookmark.ts';
 
 /** Where a match is in a part. */
 export type MatchPlace =
@@ -48,8 +49,7 @@ export function placesIn(
 		switch (block.kind) {
 			case 'hidden':
 				if (options.changedOnly) break;
-				for (const line of block.top) inLine(b, line, true);
-				for (const line of block.bottom) inLine(b, line, true);
+				for (const line of openedContext(block)) inLine(b, line, true);
 				break;
 			case 'hunk':
 				for (const line of block.lines) {
@@ -73,7 +73,7 @@ export function openedMatches(
 	let count = 0;
 	for (const block of blocks) {
 		if (block.kind !== 'hidden') continue;
-		for (const line of [...block.top, ...block.bottom]) {
+		for (const line of openedContext(block)) {
 			count += findIn(line.text, query, options.matchCase).length;
 		}
 	}

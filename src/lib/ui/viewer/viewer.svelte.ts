@@ -38,11 +38,13 @@ import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { unitCountOf } from '#lib/core/unit-count.tiny.ts';
 import {
+	EXPANSION_STEP,
 	linesToOpen,
 	stillHidden,
 	type Direction,
 	type Opened
 } from '#lib/core/viewer/expansion.ts';
+import { bookmarkContext, openedContext, type BookmarkLine } from './bookmark.ts';
 import type { LineSpan } from '#lib/core/viewer/part-lines.ts';
 import {
 	nextShown,
@@ -90,6 +92,8 @@ export type BlockState =
 			top: OpenLine[];
 			/** Opened at the bottom, above the hunk below, in order. */
 			bottom: OpenLine[];
+			/** A bounded stretch opened around a bookmark, between the two edges. */
+			bookmark: OpenLine[];
 			busy: boolean;
 			problem: string;
 	  }
@@ -164,7 +168,7 @@ export function shownLineNumbers(blocks: readonly BlockState[]): {
 	const now: LineNumber[] = [];
 	for (const block of blocks) {
 		if (block.kind === 'hidden') {
-			for (const line of [...block.top, ...block.bottom]) now.push(line.new);
+			for (const line of openedContext(block)) now.push(line.new);
 			continue;
 		}
 		for (const line of block.lines) {
@@ -622,7 +626,7 @@ export class Viewer {
 			blocks: read.value.blocks.map((block): BlockState => {
 				switch (block.kind) {
 					case 'hidden':
-						return { ...block, top: [], bottom: [], busy: false, problem: '' };
+						return { ...block, top: [], bottom: [], bookmark: [], busy: false, problem: '' };
 					case 'hunk':
 						return { ...block, showWhiteSpace: false };
 					case 'elsewhere':
@@ -687,6 +691,39 @@ export class Viewer {
 		const opened = openedOf(hidden);
 		const range = linesToOpen(opened, direction);
 		if (range === undefined) return;
+		const lines = await this.#readContext(state, hidden, range);
+		if (lines === undefined) return;
+		if (direction === 'up') hidden.bottom = [...lines, ...hidden.bottom];
+		else hidden.top = [...hidden.top, ...lines];
+	}
+
+	/** Opens a bounded window around a saved line in the middle of unchanged context. */
+	async openBookmarkContext(at: PartIndex, block: number, target: BookmarkLine): Promise<void> {
+		const state = this.parts[at];
+		if (state?.lines.kind !== 'loaded') return;
+		const hidden = state.lines.blocks[block];
+		if (hidden?.kind !== 'hidden' || hidden.busy) return;
+		const line = target.line - hidden[target.side].first + hidden.new.first;
+		const firstHidden = hidden.new.first + hidden.top.length;
+		const lastHidden = hidden.new.last - hidden.bottom.length;
+		if (
+			line < firstHidden ||
+			line > lastHidden ||
+			hidden.bookmark.some((item) => item.new === line)
+		)
+			return;
+		const lines = await this.#readContext(state, hidden, {
+			first: lineNumberOf(Math.max(firstHidden, line - EXPANSION_STEP)),
+			last: lineNumberOf(Math.min(lastHidden, line + EXPANSION_STEP))
+		});
+		if (lines !== undefined) hidden.bookmark = lines;
+	}
+
+	async #readContext(
+		state: PartState,
+		hidden: Extract<BlockState, { kind: 'hidden' }>,
+		range: LineSpan
+	): Promise<OpenLine[] | undefined> {
 		hidden.busy = true;
 		hidden.problem = '';
 		const read = await this.client.readLines(this.id, {
@@ -699,16 +736,14 @@ export class Viewer {
 		hidden.busy = false;
 		if (!read.ok) {
 			hidden.problem = describeApiError(read.error);
-			return;
+			return undefined;
 		}
 		const offset = hidden.old.first - hidden.new.first;
-		const lines = read.value.lines.map((l): OpenLine => ({
+		return read.value.lines.map((l): OpenLine => ({
 			old: lineNumberOf(l.number + offset),
 			new: l.number,
 			text: l.text
 		}));
-		if (direction === 'up') hidden.bottom = [...lines, ...hidden.bottom];
-		else hidden.top = [...hidden.top, ...lines];
 	}
 
 	/** A hunk's lines as drawn: with the white-space changes as unchanged lines, when they are hidden. */
@@ -774,6 +809,7 @@ export class Viewer {
 				if (block.kind === 'hidden') {
 					block.top = [];
 					block.bottom = [];
+					block.bookmark = [];
 				}
 			}
 			return;
@@ -985,7 +1021,7 @@ function openedOf(block: Extract<BlockState, { kind: 'hidden' }>): Opened {
 
 /** How many lines of a hidden block are still hidden. */
 export function hiddenCount(block: Extract<BlockState, { kind: 'hidden' }>): number {
-	return stillHidden(openedOf(block));
+	return stillHidden(openedOf(block)) - bookmarkContext(block).length;
 }
 
 /** The lines the next step in a direction would open, for its label. */

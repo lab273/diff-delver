@@ -70,6 +70,8 @@ test.describe('Regrouping a large change', () => {
 		for (let i = 0; i < 8; i += 1) await journey.press('PageDown');
 		await expect.poll(() => journey.verticalPosition(original)).toBeLessThan(-4_500);
 		const bookmarkedDepth = await journey.verticalPosition(original);
+		const savedLine = { name: /old line 262$/ };
+		await journey.expectInView(journey.within(original).byRole('row', savedLine));
 		await journey.press('b');
 		const bookmark = journey.byRole('button', { name: `Return to bookmark ${file}` });
 		await journey.expectVisible(bookmark);
@@ -79,18 +81,15 @@ test.describe('Regrouping a large change', () => {
 		await expect
 			.poll(async () => Math.abs((await journey.verticalPosition(original)) - bookmarkedDepth))
 			.toBeLessThan(21);
+		await journey.expectFocused(journey.within(original).byRole('row', savedLine));
 		await journey.step('A bookmark deep in a large change');
 
 		await moveTo('after');
 		await journey.returnToPage();
 		await journey.expectVisible(moved);
 		await journey.press('Shift+KeyB');
-		await journey.expectVisible(
-			journey.byText(
-				`The bookmarked part of ${file} is unavailable. Showing the file where it appears now.`
-			)
-		);
-		await journey.expectFocused(journey.within(moved).byRole('button', { name: file }));
+		await journey.expectFocused(journey.within(moved).byRole('row', savedLine));
+		await journey.expectInView(journey.within(moved).byRole('row', savedLine));
 		await journey.step('A bookmark after its file moves sections');
 	});
 });

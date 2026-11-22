@@ -1,6 +1,7 @@
 /** A tab-local reading place, using file identity and line numbers within one version. */
 import { z } from 'zod';
 import { GroupKeySchema, PartQuerySchema } from '#lib/api/schemas.ts';
+import type { BlockState, OpenLine, PartState } from './viewer.svelte.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 
 const lineSchema = z.object({ side: z.enum(['old', 'new']), line: z.number().int().positive() });
@@ -46,7 +47,7 @@ export function bookmarkedRow(part: HTMLElement, line: BookmarkLine): HTMLTableR
 }
 
 /** Find the first readable row in view, without measuring every row of a long part. */
-export function lineInView(part: HTMLElement, top: number): BookmarkLine | null {
+export function lineInView(part: HTMLElement, top: number, bottom: number): BookmarkLine | null {
 	const rows = part.querySelector('table')?.rows;
 	if (rows === undefined) return null;
 	let first = 0;
@@ -58,7 +59,7 @@ export function lineInView(part: HTMLElement, top: number): BookmarkLine | null 
 	}
 	for (let i = first; i < rows.length; i += 1) {
 		const row = rows[i];
-		if (row === undefined || row.getBoundingClientRect().top >= window.innerHeight) break;
+		if (row === undefined || row.getBoundingClientRect().top >= bottom) break;
 		const marker =
 			row.querySelector('[data-reading-line^="new:"]') ??
 			row.querySelector('[data-reading-line^="old:"]');
@@ -66,4 +67,60 @@ export function lineInView(part: HTMLElement, top: number): BookmarkLine | null 
 		if (side === 'old' || side === 'new') return { side, line: Number(line) };
 	}
 	return null;
+}
+
+export interface BookmarkDestination {
+	readonly part: PartState;
+	readonly block: BlockState;
+	readonly index: number;
+	/** Prefer the part that owns the change, then context drawn with its own hunk. */
+	readonly priority: number;
+}
+
+export function bookmarkDestination(
+	part: PartState,
+	target: BookmarkLine
+): BookmarkDestination | undefined {
+	if (part.lines.kind !== 'loaded') return undefined;
+	for (const [index, block] of part.lines.blocks.entries()) {
+		if (block.kind === 'hidden') {
+			const span = block[target.side];
+			if (target.line >= span.first && target.line <= span.last) {
+				return { part, block, index, priority: 1 };
+			}
+			continue;
+		}
+		for (const line of block.lines) {
+			if (line.kind === 'context') {
+				if (line[target.side] === target.line) {
+					return { part, block, index, priority: block.kind === 'hunk' ? 2 : 1 };
+				}
+			} else if (
+				line.home.kind === 'here' &&
+				(line.kind === 'added'
+					? target.side === 'new' && line.new === target.line
+					: target.side === 'old' && line.old === target.line)
+			) {
+				return { part, block, index, priority: 3 };
+			}
+		}
+	}
+	return undefined;
+}
+
+/** The saved stretch still between the lines opened from the ends. */
+export function bookmarkContext(
+	block: Extract<BlockState, { kind: 'hidden' }>
+): readonly OpenLine[] {
+	return block.bookmark.filter(
+		(line) =>
+			line.new >= block.new.first + block.top.length &&
+			line.new <= block.new.last - block.bottom.length
+	);
+}
+
+export function* openedContext(block: Extract<BlockState, { kind: 'hidden' }>): Iterable<OpenLine> {
+	yield* block.top;
+	yield* bookmarkContext(block);
+	yield* block.bottom;
 }
