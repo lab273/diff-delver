@@ -158,6 +158,34 @@ test('one change of 80,000 rows is shown and ticked quickly', async ({ page }, t
 		const reached = await timeNextMatch(page);
 		record(testInfo, 'time to reach a match deep in a change of 80,000 rows', reached, 1_500);
 		await expect(page.locator('mark.match.current')).toHaveText('new line 39999');
+		await page.keyboard.press('Escape');
+		await page.keyboard.press('t');
+		await expect(page.getByRole('option', { name: /data\/rows.txt/ })).toBeVisible();
+		const openingFile = performance.now();
+		await page.keyboard.press('Enter');
+		const reader = page.getByRole('dialog', { name: 'data/rows.txt' });
+		await expect(reader.locator('code').first()).toHaveText('new line 1');
+		record(
+			testInfo,
+			'time to open a 40,000-line snapshot file',
+			performance.now() - openingFile,
+			750
+		);
+		await expect(reader.locator('code')).toHaveCount(200);
+		await reader.getByRole('spinbutton', { name: 'Go to line' }).fill('39999');
+		await reader.getByRole('button', { name: 'Go', exact: true }).press('Enter');
+		await expect(reader.locator('code').last()).toHaveText('new line 40000');
+		await expect(reader.locator('code')).toHaveCount(200);
+
+		// A single dense line remains readable without a DOM node for every tab.
+		await page.keyboard.press('Escape');
+		await expect(reader).toBeHidden();
+		await page.keyboard.press('t');
+		await page.getByRole('combobox', { name: 'File name or path' }).fill('dense');
+		await expect(page.getByRole('option', { name: 'data/dense.txt' })).toBeVisible();
+		await page.keyboard.press('Enter');
+		const dense = page.getByRole('dialog', { name: 'data/dense.txt' });
+		await expect(dense.locator('code')).toHaveText(/^a\\x09.*end$/);
 	} finally {
 		await world.close();
 	}
@@ -301,6 +329,27 @@ test('a diff of 2,000 files and 200,000 changed lines opens and moves at once', 
 			slowestMatch = Math.max(slowestMatch, await timeNextMatch(page));
 		}
 		record(testInfo, 'time to move to the next match, 2,000 files', slowestMatch, 300);
+		await page.keyboard.press('Escape');
+		const openingFiles = performance.now();
+		await page.keyboard.press('t');
+		const name = page.getByRole('combobox', { name: 'File name or path' });
+		await expect(name).toBeFocused();
+		await expect(page.getByRole('option').first()).toBeVisible();
+		record(
+			testInfo,
+			'time to open the file picker, 2,000 files',
+			performance.now() - openingFiles,
+			500
+		);
+		const matching = performance.now();
+		await name.fill('m14f1499');
+		await expect(page.getByRole('option').first()).toHaveText(/src\/module-14\/file-1499.ts/);
+		record(
+			testInfo,
+			'time to match a fuzzy filename, 2,000 files',
+			performance.now() - matching,
+			500
+		);
 	} finally {
 		await world.close();
 	}

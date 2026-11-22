@@ -248,6 +248,8 @@ export interface Journey extends Finder {
 	holdPartRead(path: string): Promise<{ requested: Promise<void>; release: () => void }>;
 	/** Opens a page of the app by its path, as a person does from a link: `/`, `/reports/1`. */
 	open(path: string): Promise<void>;
+	/** Returns to the previous entry, including an in-page history entry. */
+	back(): Promise<void>;
 	/**
 	 * Checks the screen as it is now, as the next numbered step (see above), and
 	 * that the app's API refused nothing since the last step but what `expected`
@@ -872,6 +874,10 @@ export async function startJourney(
 	const journey: Journey = {
 		async open(path) {
 			await page.goto(new URL(path, origin).href);
+			await ready();
+		},
+		async back() {
+			await page.goBack();
 			await ready();
 		},
 		async repository(name) {

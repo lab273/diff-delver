@@ -27,6 +27,11 @@
  * and makes the next revision in one transaction. Earlier revisions stay
  * stored, with their snapshots.
  */
+import { isUtf8 } from 'node:buffer';
+import { escapedRepoPath } from '#lib/core/path-bytes.ts';
+import { FILE_MATCHES, MOST_FILE_BYTES, fileMatchScore } from '#lib/core/viewer/file-reader.ts';
+import { MOST_BYTES_TO_COLOUR } from '#lib/core/highlight/limits.ts';
+import type { FileMatch, FileReaderView } from '#lib/api/schemas.ts';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { Clock } from '#lib/core/clock.ts';
 import type { CommitId } from '#lib/core/commit-id.tiny.ts';
@@ -37,7 +42,7 @@ import { autoIgnore, type AutoIgnored } from '#lib/core/diff/auto-ignore.ts';
 import type { ByteSize } from '#lib/core/byte-size.tiny.ts';
 import { makeDiff, type Diff, type DiffFile } from '#lib/core/diff/diff.ts';
 import { fileSlices, groupKeyId, type GroupKey, type ViewKind } from '#lib/core/diff/slices.ts';
-import type { LineCount } from '#lib/core/line-count.tiny.ts';
+import { lineCountOf, type LineCount } from '#lib/core/line-count.tiny.ts';
 import { lineNumberOf, type LineNumber } from '#lib/core/line-number.tiny.ts';
 import type { Side } from '#lib/core/side.tiny.ts';
 import { partBlocks, type LineSpan, type PartBlock } from '#lib/core/viewer/part-lines.ts';
@@ -206,6 +211,8 @@ import {
 	generatedPaths,
 	GRACE_PERIOD,
 	listSnapshots,
+	listSnapshotPaths,
+	snapshotEntry,
 	listStores,
 	openSnapshotRef,
 	openStore,
@@ -1416,6 +1423,109 @@ export class ReportService {
 		}
 	}
 
+	#headPaths: { key: string; rows: ReturnType<typeof listSnapshotPaths> } | undefined;
+
+	async searchFiles(
+		id: ReportId,
+		version: RevisionNumber,
+		name: string
+	): Promise<Result<FileMatch[], ReportError>> {
+		const shown = this.#db.read((q) => asOf(q, id, version));
+		if (!shown.ok) return shown;
+		const snapshot = await this.#snapshotOf(shown.value.report, shown.value.revision);
+		if (!snapshot.ok) return snapshot;
+		const key = `${snapshot.value.store.id}/${snapshot.value.head}`;
+		const cached =
+			this.#headPaths?.key === key
+				? this.#headPaths
+				: { key, rows: listSnapshotPaths(snapshot.value, 'new') };
+		this.#headPaths = cached;
+		const [paths, diff] = await Promise.all([cached.rows, this.#diffOf(snapshot.value)]);
+		if (!paths.ok) {
+			if (this.#headPaths === cached) this.#headPaths = undefined;
+			return paths;
+		}
+		if (!diff.ok) return diff;
+		const query = name.trim().toLowerCase();
+		const ranked: { match: FileMatch; score: number }[] = [];
+		const include = (path: RepoPath, side: Side, changed: boolean): void => {
+			const escaped = escapedRepoPath(path);
+			const score = fileMatchScore(escaped.toLowerCase(), query);
+			if (score !== Infinity) ranked.push({ match: { path: escaped, side, changed }, score });
+		};
+		for (const entry of paths.value) {
+			include(entry.path, 'new', diff.value.byPath.get(entry.path)?.file.new !== undefined);
+		}
+		for (const { file } of diff.value.files) {
+			if (file.status === 'deleted') include(file.path, 'old', true);
+		}
+		ranked.sort((a, b) => Number(b.match.changed) - Number(a.match.changed) || a.score - b.score);
+		return ok(ranked.slice(0, FILE_MATCHES).map(({ match }) => match));
+	}
+
+	async readFile(
+		id: ReportId,
+		version: RevisionNumber,
+		side: Side,
+		path: RepoPath,
+		first: LineNumber,
+		last: LineNumber
+	): Promise<Result<FileReaderView, ReportError>> {
+		const shown = this.#db.read((q) => asOf(q, id, version));
+		if (!shown.ok) return shown;
+		const snapshot = await this.#snapshotOf(shown.value.report, shown.value.revision);
+		if (!snapshot.ok) return snapshot;
+		const [entry, diff] = await Promise.all([
+			snapshotEntry(snapshot.value, side, path),
+			this.#diffOf(snapshot.value)
+		]);
+		if (!entry.ok) return entry;
+		if (!diff.ok) return diff;
+		if (entry.value.kind === 'missing') return err({ kind: 'PathNotFound', side, path });
+		if (entry.value.kind === 'folder') return err({ kind: 'PathIsDirectory', side, path });
+
+		const direct = diff.value.byPath.get(path);
+		const changed =
+			direct?.file[side]?.path === path
+				? direct
+				: side === 'old'
+					? diff.value.files.find(
+							({ file }) => file.status === 'renamed' && file.old?.path === path
+						)
+					: undefined;
+		const other = side === 'old' ? 'new' : 'old';
+		let otherPath = changed?.file[other]?.path;
+		if (changed === undefined) {
+			const counterpart = await snapshotEntry(snapshot.value, other, path);
+			if (!counterpart.ok) return counterpart;
+			if (counterpart.value.kind === 'file' || counterpart.value.kind === 'submodule')
+				otherPath = path;
+		}
+		const frame = {
+			diffPath: changed === undefined ? null : escapedRepoPath(changed.file.path),
+			otherPath: otherPath === undefined ? null : escapedRepoPath(otherPath),
+			nonUtf8: false,
+			lineCount: lineCountOf(0),
+			lines: []
+		};
+		if (entry.value.kind === 'submodule') return ok({ ...frame, kind: 'submodule' });
+		if (entry.value.size > MOST_FILE_BYTES) return ok({ ...frame, kind: 'large' });
+		const file = await readSnapshotFile(snapshot.value, side, path);
+		if (!file.ok) return file;
+		if (file.value.binary) return ok({ ...frame, kind: 'binary' });
+		const all = linesOf(file.value.bytes);
+		return ok({
+			...frame,
+			kind: file.value.kind === 'symlink' ? 'symlink' : 'text',
+			nonUtf8: !isUtf8(file.value.bytes),
+			lineCount: lineCountOf(all.length),
+			lines: all.slice(first - 1, last).map((text, i) => {
+				const number = lineNumberOf(first + i);
+				return { number, text, changed: changed?.changed[side].has(number) ?? false };
+			})
+		});
+	}
+
 	/**
 	 * Lines `first` to `last` of one side of a file of the revision numbered
 	 * `version`, as its snapshot holds them, for unchanged lines a part opens;
@@ -1489,13 +1599,14 @@ export class ReportService {
 	 * side is read at its own path, so a renamed or copied file's old side is
 	 * its old file, in that file's language. A side the file does not have, or
 	 * that no line was asked of, is undefined; a path not in the diff is
-	 * `FileNotInDiff`.
+	 * `FileNotInDiff` unless the caller asks for the exact path on both sides.
 	 */
 	async readColours(
 		id: ReportId,
 		version: RevisionNumber,
 		path: RepoPath,
-		wanted: Readonly<Record<Side, readonly LineSpan[]>>
+		wanted: Readonly<Record<Side, readonly LineSpan[]>>,
+		exact = false
 	): Promise<Result<PartColours, ReportError>> {
 		const shown = this.#db.read((q) => asOf(q, id, version));
 		if (!shown.ok) return shown;
@@ -1503,13 +1614,20 @@ export class ReportService {
 		if (!content.ok) return content;
 		const { snapshot, diff } = content.value;
 		const inDiff = diff.byPath.get(path);
-		if (inDiff === undefined) return err({ kind: 'FileNotInDiff', path });
+		if (!exact && inDiff === undefined) return err({ kind: 'FileNotInDiff', path });
 		const side = async (which: Side): Promise<Result<SideColours | undefined, ReportError>> => {
 			const spans = wanted[which];
-			const at = inDiff.file[which]?.path;
+			const at = exact ? path : inDiff?.file[which]?.path;
 			if (spans.length === 0 || at === undefined) return ok(undefined);
+			if (exact) {
+				const entry = await snapshotEntry(snapshot, which, at);
+				if (!entry.ok) return entry;
+				if (entry.value.kind !== 'file') return ok(undefined);
+				if (entry.value.size > MOST_BYTES_TO_COLOUR) return ok({ kind: 'plain', reason: 'large' });
+			}
 			const file = await readSnapshotFile(snapshot, which, at);
 			if (!file.ok) return file.error.kind === 'PathNotFound' ? ok(undefined) : file;
+			if (exact && file.value.kind === 'symlink') return ok(undefined);
 			if (file.value.binary) return ok({ kind: 'plain', reason: 'binary' });
 			const lines = linesOf(file.value.bytes);
 			const colours = await this.#colours.colours(

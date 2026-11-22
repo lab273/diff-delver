@@ -14,13 +14,19 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	if (!id.ok) return id.error;
 	const query = readQuery(url, ColoursQuerySchema);
 	if (!query.ok) return query.error;
-	const { version, path, old, new: now } = query.value;
+	const { version, path, old, new: now, exact } = query.value;
 	const repoPath = resolveEscapedPath(path);
 	if (repoPath === undefined) return unknownPath();
-	const read = await locals.daemon.service.readColours(id.value, version, repoPath, {
-		old,
-		new: now
-	});
+	const read = await locals.daemon.service.readColours(
+		id.value,
+		version,
+		repoPath,
+		{
+			old,
+			new: now
+		},
+		exact === '1'
+	);
 	if (!read.ok) return serviceFailure(read.error);
 	const body: ColoursView = coloursView(read.value);
 	return Response.json(body);

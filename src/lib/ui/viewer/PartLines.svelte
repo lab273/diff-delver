@@ -1163,32 +1163,6 @@
 		box-shadow: inset 0 -2px 0 var(--color-removed);
 	}
 
-	/* Code coloured by language; comments are in italics too, so they stand apart without colour. */
-	.code :global(.code-keyword) {
-		color: var(--color-code-keyword);
-	}
-
-	.code :global(.code-string) {
-		color: var(--color-code-string);
-	}
-
-	.code :global(.code-comment) {
-		color: var(--color-code-comment);
-		font-style: italic;
-	}
-
-	.code :global(.code-function) {
-		color: var(--color-code-function);
-	}
-
-	.code :global(.code-constant) {
-		color: var(--color-code-constant);
-	}
-
-	.code :global(.code-parameter) {
-		color: var(--color-code-parameter);
-	}
-
 	.lines :global(.escape) {
 		border: 1px solid var(--color-border);
 		border-radius: 3px;

@@ -14,7 +14,12 @@
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { ChangeCheckResponse, DiffPage, NextSourceOffer } from '#lib/api/schemas.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
-	import type { EscapedPath } from '#lib/core/path-bytes.ts';
+	import { parseEscapedPath, type EscapedPath } from '#lib/core/path-bytes.ts';
+	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
+	import type { LineNumber } from '#lib/core/line-number.tiny.ts';
+	import FileOpener from '#lib/ui/viewer/FileOpener.svelte';
+	import FileReader from '#lib/ui/viewer/FileReader.svelte';
+	import type { FileMatch } from '#lib/api/schemas.ts';
 	import { shownPath } from '#lib/core/shown-path.tiny.ts';
 	import { previousRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import Notice from '#lib/ui/Notice.svelte';
@@ -165,7 +170,15 @@
 
 	/** Shows the version the page now has and moves focus to what the update did. */
 	async function showNewVersion(): Promise<void> {
-		await invalidate('app:diff');
+		if (readerUrl.searchParams.has('version')) {
+			await goto(resolve('/diffs/[id]', { id: data.id }), {
+				replace: true,
+				reset: false,
+				invalidate: ['app:diff']
+			});
+		} else {
+			await invalidate('app:diff');
+		}
 		await tick();
 		document.getElementById(UPDATED_HEADING)?.focus();
 	}
@@ -1098,8 +1111,156 @@
 			});
 	}
 
+	let fileOpener = $state(false);
+	let fileMenuButton: HTMLButtonElement | undefined = $state();
+	let fileFocus: HTMLElement | undefined;
+	const readerUrl = $derived(shownPage.shallow?.url ?? shownPage.url);
+	const readerPath = $derived(parseEscapedPath(readerUrl.searchParams.get('file') ?? ''));
+	const readerSide = $derived(parseSide(readerUrl.searchParams.get('side') ?? 'new'));
+	let pendingChange: { path: EscapedPath; side: Side; line: LineNumber | undefined } | undefined;
+	let hadFileReader = false;
+
+	function openFileMenu(): void {
+		fileFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+		fileOpener = true;
+	}
+
+	function focusAfterFile(): void {
+		const from = fileFocus;
+		fileFocus = undefined;
+		(from?.isConnected === true ? from : fileMenuButton)?.focus({ preventScroll: true });
+	}
+
+	async function cancelFileMenu(): Promise<void> {
+		fileOpener = false;
+		await tick();
+		focusAfterFile();
+	}
+
+	function fileAddress(path: EscapedPath, side: Side): URL {
+		const url = new URL(readerUrl.href);
+		url.searchParams.set('file', path);
+		url.searchParams.set('side', side);
+		if (viewer !== undefined) url.searchParams.set('version', String(viewer.version));
+		return url;
+	}
+
+	async function pickFile(file: FileMatch): Promise<void> {
+		fileOpener = false;
+		const url = fileAddress(file.path, file.side);
+		await goto(
+			resolve(url.search === '' ? '/diffs/[id]' : `/diffs/[id]?${url.searchParams}`, {
+				id: data.id
+			}),
+			{
+				shallow: true,
+				state: { fileOpenedFromDelve: true },
+				persistState: true
+			}
+		);
+	}
+
+	async function switchFile(path: EscapedPath, side: Side): Promise<void> {
+		const url = fileAddress(path, side);
+		await goto(
+			resolve(url.search === '' ? '/diffs/[id]' : `/diffs/[id]?${url.searchParams}`, {
+				id: data.id
+			}),
+			{
+				shallow: true,
+				replace: true,
+				state: shownPage.state,
+				persistState: true
+			}
+		);
+	}
+
+	async function closeFile(): Promise<void> {
+		if (shownPage.state.fileOpenedFromDelve === true) {
+			history.back();
+		} else {
+			const url = new URL(readerUrl.href);
+			url.searchParams.delete('file');
+			url.searchParams.delete('side');
+			await goto(
+				resolve(url.search === '' ? '/diffs/[id]' : `/diffs/[id]?${url.searchParams}`, {
+					id: data.id
+				}),
+				{
+					shallow: true,
+					replace: true
+				}
+			);
+		}
+	}
+
+	function jumpFromFile(path: EscapedPath, side: Side, line?: LineNumber): void {
+		pendingChange = { path, side, line };
+		void closeFile();
+	}
+
+	$effect(() => {
+		const open = readerPath.ok && readerSide.ok && viewer !== undefined;
+		if (!open && hadFileReader) {
+			const jump = pendingChange;
+			pendingChange = undefined;
+			void tick().then(() => {
+				if (jump === undefined) focusAfterFile();
+				else return showFileChange(jump.path, jump.side, jump.line);
+			});
+		}
+		hadFileReader = open;
+	});
+
+	async function showFileChange(path: EscapedPath, side: Side, number?: LineNumber): Promise<void> {
+		const shown = viewer;
+		if (shown === undefined) return;
+		const parts = shown.parts.filter(({ part }) => part.path === path);
+		const fallback = parts[0];
+		if (fallback === undefined) {
+			focusAfterFile();
+			return;
+		}
+		if (number === undefined) {
+			await goToPart(fallback.index, true);
+			return;
+		}
+
+		const line: BookmarkLine = { side, line: number };
+		for (const part of parts) {
+			await shown.load(part.index);
+			if (viewer !== shown) return;
+			const destination = bookmarkDestination(part, line);
+			if (destination?.priority !== 3 || destination.block.kind !== 'hunk') continue;
+			const block = destination.block;
+			viewportRestore?.stop();
+			part.showLarge = true;
+			part.measuring = true;
+			if (settings.hideWhiteSpace) block.showWhiteSpace = true;
+			try {
+				await goToPart(part.index, true);
+				bookmarkTarget = { part, line };
+				await tick();
+				await tick();
+				if (viewer !== shown) return;
+				const element = document.getElementById(`part-${part.index}`);
+				const row = element === null ? null : bookmarkedRow(element, line);
+				if (row !== null) {
+					row.tabIndex = -1;
+					row.focus({ preventScroll: true });
+					scrollToTop(row);
+				}
+			} finally {
+				bookmarkTarget = undefined;
+				part.measuring = false;
+			}
+			return;
+		}
+		await goToPart(fallback.index, true);
+	}
+
 	function onKey(event: KeyboardEvent): void {
-		if (viewer === undefined || helpOpen) return;
+		if (viewer === undefined || helpOpen || fileOpener || (readerPath.ok && readerSide.ok)) return;
 		const target = event.target instanceof HTMLElement ? event.target : null;
 		if (isFindKey(event, target?.id === SEARCH_INPUT)) {
 			event.preventDefault();
@@ -1172,6 +1333,9 @@
 				return;
 			case 'search':
 				void openSearch();
+				return;
+			case 'open-file':
+				openFileMenu();
 				return;
 			case 'help':
 				helpOpen = true;
@@ -1381,6 +1545,9 @@
 			<div class="finders">
 				<button type="button" onclick={openSearch}>
 					Search <kbd aria-hidden="true">/</kbd>
+				</button>
+				<button type="button" bind:this={fileMenuButton} onclick={openFileMenu}>
+					Open file <kbd aria-hidden="true">t</kbd>
 				</button>
 				<div class="desktop-bookmarks">{@render bookmarkButtons()}</div>
 			</div>
@@ -1642,6 +1809,28 @@
 		</div>
 	</div>
 	<div class="visually-hidden" aria-live="polite">{viewer.announcement}</div>
+	{#if fileOpener}
+		<FileOpener
+			id={viewer.id}
+			version={viewer.version}
+			onpick={pickFile}
+			onclose={cancelFileMenu}
+		/>
+	{/if}
+	{#if readerPath.ok && readerSide.ok}
+		{#key `${viewer.id}:${viewer.version}:${readerSide.value}:${readerPath.value}`}
+			<FileReader
+				id={viewer.id}
+				version={viewer.version}
+				path={readerPath.value}
+				side={readerSide.value}
+				colour={settings.colours}
+				onclose={closeFile}
+				onswitch={switchFile}
+				onjump={jumpFromFile}
+			/>
+		{/key}
+	{/if}
 	<Shortcuts bind:open={helpOpen} />
 {/if}
 

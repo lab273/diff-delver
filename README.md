@@ -56,6 +56,7 @@ On the page you can:
   shows how far you have got.
 - **Move on** to the next file you have not reviewed (`n`).
 - **Search** the whole diff (`/`), including files that are closed.
+- **Open file** (`t`) to find a filename and read it as of this Delve, before or after the changes.
 - **See every key** with `?`. Everything works from the keyboard.
 
 <picture>

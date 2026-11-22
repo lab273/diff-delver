@@ -207,3 +207,29 @@ mark.match.current {
 	white-space: nowrap;
 	border: 0;
 }
+
+/* Code coloured by language; comments are in italics too, so they stand apart without colour. */
+:is(.lines .code, .reader-code) .code-keyword {
+	color: var(--color-code-keyword);
+}
+
+:is(.lines .code, .reader-code) .code-string {
+	color: var(--color-code-string);
+}
+
+:is(.lines .code, .reader-code) .code-comment {
+	color: var(--color-code-comment);
+	font-style: italic;
+}
+
+:is(.lines .code, .reader-code) .code-function {
+	color: var(--color-code-function);
+}
+
+:is(.lines .code, .reader-code) .code-constant {
+	color: var(--color-code-constant);
+}
+
+:is(.lines .code, .reader-code) .code-parameter {
+	color: var(--color-code-parameter);
+}

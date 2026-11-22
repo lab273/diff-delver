@@ -9,6 +9,7 @@
  * have the same keys.
  */
 import { z } from 'zod';
+import { FILE_PAGE_LINES, FILE_QUERY_LENGTH } from '#lib/core/viewer/file-reader.ts';
 import { MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
@@ -482,6 +483,34 @@ export const LinesSchema = z.object({
 });
 export type LinesView = z.output<typeof LinesSchema>;
 
+/** Filename matches in the pinned snapshot. */
+export const FileSearchQuerySchema = z.object({
+	version: inQuery(parseRevisionNumber),
+	name: z.string().max(FILE_QUERY_LENGTH)
+});
+export const FileMatchesSchema = z.array(
+	z.object({
+		path: escapedPath,
+		side: z.enum(['old', 'new']),
+		changed: z.boolean()
+	})
+);
+export type FileMatch = z.output<typeof FileMatchesSchema>[number];
+
+export const FileReaderQuerySchema = LinesQuerySchema.refine(
+	(q) => q.last - q.first < FILE_PAGE_LINES,
+	'too many lines for one page'
+);
+export const FileReaderSchema = z.object({
+	kind: z.enum(['text', 'symlink', 'binary', 'large', 'submodule']),
+	otherPath: escapedPath.nullable(),
+	diffPath: escapedPath.nullable(),
+	nonUtf8: z.boolean(),
+	lineCount,
+	lines: z.array(z.object({ number: lineNumber, text: lineText, changed: z.boolean() }))
+});
+export type FileReaderView = z.output<typeof FileReaderSchema>;
+
 /** Text a person searches for, as typed (`search-text.tiny.ts`). */
 const searchText = parsed(z.string(), parseSearchText);
 const matchCount = parsed(z.number(), parseMatchCount);
@@ -547,7 +576,8 @@ export const ColoursQuerySchema = z.object({
 	version: inQuery(parseRevisionNumber),
 	path: escapedPath,
 	old: spansInQuery.default([]),
-	new: spansInQuery.default([])
+	new: spansInQuery.default([]),
+	exact: z.literal('1').optional()
 });
 export type ColoursQuery = z.output<typeof ColoursQuerySchema>;
 

@@ -362,6 +362,10 @@ export const JOURNEY_REPOSITORIES = {
 			);
 		await repo.write('src/lexer.ts', lexer('Numbers are words too.'));
 		await repo.write(
+			'src/format-price.ts',
+			'export const formatPrice = (price: number) => price.toFixed(2);\n'
+		);
+		await repo.write(
 			'app/models.py',
 			basket('    def add(self, item: str) -> None:', '        self.items.append(item)')
 		);
@@ -452,6 +456,7 @@ export const JOURNEY_REPOSITORIES = {
 		const numbered = (prefix: string): string =>
 			Array.from({ length: 40_000 }, (_, i) => `${prefix} line ${String(i + 1)}\n`).join('');
 		await repo.write('data/rows.txt', numbered('old'));
+		await repo.write('data/dense.txt', 'a' + '\t'.repeat(140_000) + 'end\n');
 		await repo.commit('base');
 		await repo.write('data/rows.txt', numbered('new'));
 	}),

@@ -276,5 +276,45 @@ test.describe('J16 Reading and finding', () => {
 		);
 		await journey.expectInView(savedRow);
 		await journey.step('The bookmark after reopening the page');
+
+		await journey.press('t');
+		const filename = journey.byRole('combobox', { name: 'File name or path' });
+		await journey.expectFocused(filename);
+		await journey.type('fmtprc');
+		await journey.expectVisible(journey.byRole('option', { name: 'src/format-price.ts' }));
+		await journey.step('A fuzzy filename match');
+		await journey.press('Enter');
+		const unchanged = journey.byRole('dialog', { name: 'src/format-price.ts' });
+		await journey.expectVisible(unchanged);
+		await journey.expectText(unchanged, 'This file is unchanged in this diff.');
+		await journey.expectText(unchanged, 'price.toFixed(2)');
+		await journey.step('An unchanged file from the snapshot');
+		await journey.back();
+		await journey.expectHidden(unchanged);
+		await journey.expectFocused(savedRow);
+		await journey.expectInView(savedRow);
+
+		await journey.activate(journey.byRole('button', { name: 'Open file' }));
+		await journey.expectFocused(filename);
+		await journey.type('lexer');
+		await journey.expectVisible(journey.byRole('option', { name: 'src/lexer.ts Changed' }));
+		await journey.press('Enter');
+		const reader = journey.byRole('dialog', { name: 'src/lexer.ts' });
+		const gutter = journey
+			.within(reader)
+			.byRole('button', { name: 'Show change at line 12 in the diff' });
+		await journey.expectVisible(gutter);
+		await journey.step('A changed file with a change in the margin');
+		await journey.activate(journey.within(reader).byRole('button', { name: 'Show base' }));
+		await journey.expectText(reader, 'Numbers are words too.');
+		await journey.step('The same file before the change');
+		await journey.activate(gutter);
+		await journey.expectHidden(reader);
+		const oldLine = journey.within(lexer).byRole('row', { name: /Numbers are words too/ });
+		await journey.expectFocused(oldLine);
+		await journey.expectInView(oldLine);
+		await journey.expectVisible(bookmark);
+		await journey.press('Shift+KeyB');
+		await journey.expectFocused(savedRow);
 	});
 });

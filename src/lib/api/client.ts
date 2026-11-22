@@ -39,6 +39,10 @@ import {
 	DiffPageSchema,
 	DiffRefreshSchema,
 	LinesSchema,
+	FileMatchesSchema,
+	FileReaderSchema,
+	type FileMatch,
+	type FileReaderView,
 	MarkedSchema,
 	PartLinesSchema,
 	ColoursSchema,
@@ -333,7 +337,28 @@ export class ApiClient {
 			old: writeSpans(colours.old),
 			new: writeSpans(colours.new)
 		});
+		if (colours.exact !== undefined) query.set('exact', colours.exact);
 		return this.#call('GET', `/api/diffs/${id}/colours?${query.toString()}`, ColoursSchema);
+	}
+
+	searchFiles(
+		id: ReportId,
+		version: RevisionNumber,
+		name: string
+	): Promise<Result<FileMatch[], ApiError>> {
+		const query = new URLSearchParams({ version: String(version), name });
+		return this.#call('GET', `/api/diffs/${id}/files?${query}`, FileMatchesSchema);
+	}
+
+	readFile(id: ReportId, file: LinesQuery): Promise<Result<FileReaderView, ApiError>> {
+		const query = new URLSearchParams({
+			version: String(file.version),
+			path: file.path,
+			side: file.side,
+			first: String(file.first),
+			last: String(file.last)
+		});
+		return this.#call('GET', `/api/diffs/${id}/file?${query}`, FileReaderSchema);
 	}
 
 	/** Lines of one side of a file, of the version the page shows, for unchanged lines a part opens. */

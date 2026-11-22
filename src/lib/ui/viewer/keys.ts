@@ -21,6 +21,7 @@ export type KeyAction =
 	| 'bookmark'
 	| 'return-to-bookmark'
 	| 'search'
+	| 'open-file'
 	| 'help';
 
 /** Each shortcut, as the help lists it. */
@@ -62,6 +63,7 @@ export const SHORTCUTS: readonly {
 		does: 'Search the diff: Enter and Shift+Enter go from match to match, Escape closes it. In the search box, Ctrl+F (Command+F on a Mac) is the browser’s own find',
 		action: 'search'
 	},
+	{ keys: ['t'], does: 'Open a file by name', action: 'open-file' },
 	{ keys: ['b'], does: 'Bookmark where you are reading', action: 'bookmark' },
 	{ keys: ['B'], does: 'Return to your bookmark', action: 'return-to-bookmark' },
 	{ keys: ['?'], does: 'Show these shortcuts', action: 'help' }

@@ -675,8 +675,10 @@ needed for a first review.
   showing the start of the file. If a filter hides the destination, it asks
   you to show everything before returning.
 - Expand context above or below a hunk, or expand to the whole file.
-- Open any file in the repo at the base or head tree, not only changed files.
-  Search the tree (`git grep` against the snapshot). Jump from an identifier to its
+- **Open file** (`t`) finds files by name or path in the Delve’s snapshot, with
+  changed files first. Read a file before or after the changes, jump from a
+  marked line to its change in the diff, or use Back to resume reading.
+- Search the tree (`git grep` against the snapshot). Jump from an identifier to its
   other occurrences. Proper symbol navigation is out of v1.
 - Non-diff lines can be selected, commented on and flagged like any other.
 - Drag in the gutter to select a range, then comment, flag or raise a request.
@@ -869,7 +871,7 @@ guidance says [how journeys are tested](DEVELOPING.md#testing).
 | J13 | Visual changes | compare a changed image in each mode and see a snapshot image beside its test |
 | J14 | Agent notes | hide all notes, dismiss one, promote one into the review |
 | J15 | Disk space | see what each report and snapshot takes, delete a report and see the space freed |
-| J16 | Reading and finding | read code coloured by language or plain, in one column or side by side, with white-space changes hidden, and search the whole diff, moving from match to match |
+| J16 | Reading and finding | read code coloured by language or plain, in one column or side by side, with white-space changes hidden, search the whole diff, move from match to match, and open changed and unchanged files by name |
 | J17 | Choose commits to review | open the choose page for a repository, see its branches and commits with their times and sizes, pick a run of commits or a whole branch with the keyboard, open it, and see when the repository last fetched and whether origin has moved on |
 
 The agent interface is also tried with real coding agents. Recorded sessions of

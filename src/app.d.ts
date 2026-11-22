@@ -11,7 +11,9 @@ declare global {
 			daemon: DaemonContext;
 		}
 		// interface PageData {}
-		// interface PageState {}
+		interface PageState {
+			fileOpenedFromDelve?: boolean;
+		}
 		// interface Platform {}
 	}
 

@@ -163,6 +163,141 @@ describe('the viewer’s routes', () => {
 		expect(never).toMatchObject({ ok: false, error: { status: 409, reason: 'VersionNotFound' } });
 	});
 
+	it('opens only files of the pinned snapshot and keeps paths byte-exact', async () => {
+		const reading = defineFixture('file-reader-routes', async (repo) => {
+			await repo.write('src/format-price.ts', 'export const price = 1;\n');
+			await repo.write('notes/format-price.ts', 'export const price = 2;\n');
+			await repo.write('src/deleted.txt', 'Only in the base.\n');
+			await repo.write('src/empty.txt', '');
+			await repo.write('src/binary.bin', Uint8Array.of(1, 0, 255));
+			await repo.write('src/huge.txt', 'x'.repeat(4_000_001));
+			await repo.writeRaw(Buffer.from('src/oddÿ.txt', 'latin1'), Uint8Array.of(0x68, 0xff));
+			await repo.write(String.raw`src/odd\xFF.txt`, 'Literal backslash');
+			await repo.symlink('src/link', '../../outside.txt');
+			const base = await repo.commit('Initial files');
+			repo.setGitlink('submodule', base.commit);
+			await repo.write('src/format-price.ts', 'export const price = 3;\n');
+			await repo.remove('src/deleted.txt');
+			await repo.commit('Change the price');
+		});
+		const repo = await useFixture(reading);
+		const daemon = await testDaemon();
+		const client = clientOf(daemon);
+		await repo.write('src/format-price.ts', 'export const price = 4;\n');
+		const opened = value(await client.start({ directory: repo.dir }));
+		if (opened.kind !== 'opened') throw new Error(opened.kind);
+		const id = opened.diff.id;
+		const version = revision(1);
+		const read = (at: string, side: 'old' | 'new' = 'new', seen = version) =>
+			client.readFile(id, {
+				version: seen,
+				side,
+				path: path(at),
+				first: lineNumberOf(1),
+				last: lineNumberOf(1)
+			});
+		await repo.write('src/format-price.ts', 'export const price = 5;\n');
+		await repo.write('src/live-only.txt', 'Never in version one.');
+		value(await client.updateDiff(id));
+		expect(value(await client.searchFiles(id, version, 'fmtprc'))).toEqual([
+			{ path: 'src/format-price.ts', side: 'new', changed: true },
+			{ path: 'notes/format-price.ts', side: 'new', changed: false }
+		]);
+		expect(value(await client.searchFiles(id, version, 'live-only'))).toEqual([]);
+		expect(value(await read('src/format-price.ts'))).toMatchObject({
+			diffPath: 'src/format-price.ts',
+			otherPath: 'src/format-price.ts',
+			lines: [{ text: 'export const price = 4;', changed: true }]
+		});
+		expect(value(await read('src/format-price.ts', 'old')).lines[0]?.text).toBe(
+			'export const price = 3;'
+		);
+		expect(value(await read('src/format-price.ts', 'new', revision(2))).lines[0]?.text).toBe(
+			'export const price = 5;'
+		);
+		expect(value(await read('notes/format-price.ts'))).toMatchObject({
+			diffPath: null,
+			otherPath: 'notes/format-price.ts'
+		});
+		expect(value(await read('src/binary.bin')).kind).toBe('binary');
+		expect(value(await read('src/huge.txt')).kind).toBe('large');
+		expect(value(await read('src/empty.txt')).lineCount).toBe(0);
+		expect(value(await read('submodule', 'old')).kind).toBe('submodule');
+		expect(value(await read('src/link'))).toMatchObject({
+			kind: 'symlink',
+			lines: [{ text: '../../outside.txt' }]
+		});
+		expect(value(await read('src/odd\udcff.txt'))).toMatchObject({
+			nonUtf8: true,
+			lines: [{ text: 'h�' }]
+		});
+		expect(value(await read(String.raw`src/odd\xFF.txt`)).lines[0]?.text).toBe('Literal backslash');
+		expect(await read('src/link/outside.txt')).toMatchObject({ ok: false, error: { status: 404 } });
+		expect(await read('src')).toMatchObject({ ok: false, error: { reason: 'PathIsDirectory' } });
+		expect(await read('src/live-only.txt')).toMatchObject({ ok: false, error: { status: 404 } });
+
+		const coloured = value(
+			await client.readColours(id, {
+				version,
+				path: path('notes/format-price.ts'),
+				exact: '1',
+				old: [],
+				new: [{ first: lineNumberOf(1), last: lineNumberOf(1) }]
+			})
+		);
+		expect(coloured.new).toMatchObject({ kind: 'coloured', lines: [{ number: 1 }] });
+		const raw = (route: string, query: URLSearchParams) =>
+			rawRequest(daemon.port, {
+				path: `/api/diffs/${id}/${route}?${query}`,
+				headers: { authorization: `Bearer ${daemon.token}` }
+			});
+		for (const unsafe of [
+			'../outside.txt',
+			'/etc/passwd',
+			'./src/link',
+			'src/../src/link',
+			'src/a\0b',
+			'src//link'
+		]) {
+			const query = new URLSearchParams({ version: '1', path: unsafe });
+			expect(
+				(
+					await raw(
+						'file',
+						new URLSearchParams({
+							...Object.fromEntries(query),
+							side: 'new',
+							first: '1',
+							last: '2'
+						})
+					)
+				).status
+			).toBe(400);
+			expect(
+				(
+					await raw(
+						'colours',
+						new URLSearchParams({ ...Object.fromEntries(query), exact: '1', new: '1' })
+					)
+				).status
+			).toBe(400);
+		}
+		expect(
+			(
+				await raw(
+					'file',
+					new URLSearchParams({
+						version: '1',
+						path: 'src/format-price.ts',
+						side: 'new',
+						first: '1',
+						last: '201'
+					})
+				)
+			).status
+		).toBe(400);
+	});
+
 	it('search the version shown, part by part, and refuse text that is not one line to find', async () => {
 		const repo = await useFixture(viewed);
 		const daemon = await testDaemon();

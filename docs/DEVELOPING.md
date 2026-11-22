@@ -472,6 +472,12 @@ changed because of them, are in [tests/agent-trials/README.md](../tests/agent-tr
 
 ## Checking the experience
 
+**Open file** uses the pinned revision’s trees. The daemon matches names from
+the head tree and includes deleted files from the base. The file route returns
+at most 200 lines per request and the colours route can colour an exact path on
+either side. The reader uses a shallow history entry so Back restores the Delve
+and its current place.
+
 The first principle is checked, not assumed.
 
 - **Journey tests read the page as a person does.** They find controls by their
