@@ -40,19 +40,19 @@
 		problem = '';
 		active = 0;
 		results = [];
-		const timer = setTimeout(
-			() => {
-				void pageClient()
-					.searchFiles(report, seen, term)
-					.then((found) => {
-						if (!live) return;
-						waiting = false;
-						if (found.ok) results = found.value;
-						else problem = describeApiError(found.error);
-					});
-			},
-			term === '' ? 0 : 80
-		);
+		const find = (): void => {
+			void pageClient()
+				.searchFiles(report, seen, term)
+				.then((found) => {
+					if (!live) return;
+					waiting = false;
+					if (found.ok) results = found.value;
+					else problem = describeApiError(found.error);
+				});
+		};
+		// Show the initial choices immediately, with a short debounce while typing.
+		const timer = term === '' ? undefined : setTimeout(find, 80);
+		if (timer === undefined) find();
 		return () => {
 			live = false;
 			clearTimeout(timer);

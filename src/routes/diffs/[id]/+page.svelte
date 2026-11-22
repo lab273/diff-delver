@@ -21,7 +21,11 @@
 	import FileReader from '#lib/ui/viewer/FileReader.svelte';
 	import type { FileMatch } from '#lib/api/schemas.ts';
 	import { shownPath } from '#lib/core/shown-path.tiny.ts';
-	import { previousRevisionNumber } from '#lib/core/revision-number.tiny.ts';
+	import {
+		parseRevisionNumber,
+		previousRevisionNumber,
+		type RevisionNumber
+	} from '#lib/core/revision-number.tiny.ts';
 	import Notice from '#lib/ui/Notice.svelte';
 	import { ChangeChecks, type Shown } from '#lib/ui/change-checks.ts';
 	import { pageClient } from '#lib/ui/client.ts';
@@ -551,7 +555,7 @@
 	}
 
 	/** Moves to a part: shown, opened if asked, focused and at the top of the screen. */
-	async function goToPart(at: PartIndex, open: boolean): Promise<void> {
+	async function goToPart(at: PartIndex, open: boolean, stillGoing?: () => boolean): Promise<void> {
 		if (viewer === undefined) return;
 		const state = viewer.parts[at];
 		if (state === undefined) return;
@@ -565,6 +569,7 @@
 		if (open) state.open = true;
 		if (state.open && !viewer.isLarge(state)) void viewer.load(at);
 		await tick();
+		if (stillGoing?.() === false) return;
 		const toggle = document.getElementById(`part-${String(at)}-toggle`);
 		toggle?.focus({ preventScroll: true });
 		const part = document.getElementById(`part-${String(at)}`);
@@ -1117,10 +1122,22 @@
 	const readerUrl = $derived(shownPage.shallow?.url ?? shownPage.url);
 	const readerPath = $derived(parseEscapedPath(readerUrl.searchParams.get('file') ?? ''));
 	const readerSide = $derived(parseSide(readerUrl.searchParams.get('side') ?? 'new'));
-	let pendingChange: { path: EscapedPath; side: Side; line: LineNumber | undefined } | undefined;
+	const readerVersion = $derived(
+		parseRevisionNumber(Number(readerUrl.searchParams.get('version') ?? viewer?.version))
+	);
+	const fileReaderOpen = $derived(readerPath.ok && readerSide.ok && readerVersion.ok);
+	interface FileJump {
+		readonly id: ReportId;
+		readonly version: RevisionNumber;
+		readonly path: EscapedPath;
+		readonly side: Side;
+		readonly line: LineNumber | undefined;
+	}
+	let fileJump: FileJump | undefined;
 	let hadFileReader = false;
 
 	function openFileMenu(): void {
+		fileJump = undefined;
 		fileFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
 		fileOpener = true;
 	}
@@ -1137,55 +1154,50 @@
 		focusAfterFile();
 	}
 
-	function fileAddress(path: EscapedPath, side: Side): URL {
-		const url = new URL(readerUrl.href);
-		url.searchParams.set('file', path);
-		url.searchParams.set('side', side);
-		if (viewer !== undefined) url.searchParams.set('version', String(viewer.version));
-		return url;
+	function fileQuery(path: EscapedPath, side: Side, version: RevisionNumber): URLSearchParams {
+		const query = new URL(readerUrl.href).searchParams;
+		query.set('file', path);
+		query.set('side', side);
+		query.set('version', String(version));
+		return query;
 	}
 
 	async function pickFile(file: FileMatch): Promise<void> {
+		if (viewer === undefined) return;
 		fileOpener = false;
-		const url = fileAddress(file.path, file.side);
-		await goto(
-			resolve(url.search === '' ? '/diffs/[id]' : `/diffs/[id]?${url.searchParams}`, {
-				id: data.id
-			}),
-			{
-				shallow: true,
-				state: { fileOpenedFromDelve: true },
-				persistState: true
-			}
-		);
+		const query = fileQuery(file.path, file.side, viewer.version);
+		await goto(resolve(`/diffs/[id]?${query}`, { id: data.id }), {
+			shallow: true,
+			state: { fileOpenedFromDelve: true },
+			persistState: true
+		});
 	}
 
 	async function switchFile(path: EscapedPath, side: Side): Promise<void> {
-		const url = fileAddress(path, side);
-		await goto(
-			resolve(url.search === '' ? '/diffs/[id]' : `/diffs/[id]?${url.searchParams}`, {
-				id: data.id
-			}),
-			{
-				shallow: true,
-				replace: true,
-				state: shownPage.state,
-				persistState: true
-			}
-		);
+		if (!readerVersion.ok) return;
+		const query = fileQuery(path, side, readerVersion.value);
+		await goto(resolve(`/diffs/[id]?${query}`, { id: data.id }), {
+			shallow: true,
+			replace: true,
+			state: shownPage.state,
+			persistState: true
+		});
+	}
+
+	function addressWithoutFile(): URLSearchParams {
+		const query = new URL(readerUrl.href).searchParams;
+		query.delete('file');
+		query.delete('side');
+		return query;
 	}
 
 	async function closeFile(): Promise<void> {
 		if (shownPage.state.fileOpenedFromDelve === true) {
 			history.back();
 		} else {
-			const url = new URL(readerUrl.href);
-			url.searchParams.delete('file');
-			url.searchParams.delete('side');
+			const query = addressWithoutFile();
 			await goto(
-				resolve(url.search === '' ? '/diffs/[id]' : `/diffs/[id]?${url.searchParams}`, {
-					id: data.id
-				}),
+				resolve(query.size === 0 ? '/diffs/[id]' : `/diffs/[id]?${query}`, { id: data.id }),
 				{
 					shallow: true,
 					replace: true
@@ -1194,42 +1206,67 @@
 		}
 	}
 
-	function jumpFromFile(path: EscapedPath, side: Side, line?: LineNumber): void {
-		pendingChange = { path, side, line };
-		void closeFile();
+	async function jumpFromFile(path: EscapedPath, side: Side, line?: LineNumber): Promise<void> {
+		if (!readerVersion.ok || viewer === undefined || fileJump !== undefined) return;
+		const version = readerVersion.value;
+		fileJump = { id: viewer.id, version, path, side, line };
+		if (version === viewer.version && !shownPage.url.searchParams.has('file')) {
+			await closeFile();
+			return;
+		}
+
+		// Forward and reloading an open reader can put it over a different
+		// version than the preceding history entry. Jump to an explicitly pinned diff.
+		const query = addressWithoutFile();
+		query.set('version', String(version));
+		await goto(resolve(`/diffs/[id]?${query}`, { id: viewer.id }), { reset: false });
 	}
 
 	$effect(() => {
-		const open = readerPath.ok && readerSide.ok && viewer !== undefined;
+		const open = fileReaderOpen;
+		if (open && !hadFileReader) fileJump = undefined;
 		if (!open && hadFileReader) {
-			const jump = pendingChange;
-			pendingChange = undefined;
-			void tick().then(() => {
-				if (jump === undefined) focusAfterFile();
-				else return showFileChange(jump.path, jump.side, jump.line);
+			const jump = fileJump;
+			void tick().then(async () => {
+				if (fileOpener || new URL(window.location.href).searchParams.has('file')) return;
+				if (jump === undefined) {
+					focusAfterFile();
+				} else if (fileJump === jump) {
+					try {
+						await showFileChange(jump);
+					} finally {
+						if (fileJump === jump) fileJump = undefined;
+					}
+				}
 			});
 		}
 		hadFileReader = open;
 	});
 
-	async function showFileChange(path: EscapedPath, side: Side, number?: LineNumber): Promise<void> {
+	async function showFileChange(jump: FileJump): Promise<void> {
 		const shown = viewer;
-		if (shown === undefined) return;
-		const parts = shown.parts.filter(({ part }) => part.path === path);
+		if (shown?.id !== jump.id || shown.version !== jump.version) return;
+		const stillGoing = (): boolean =>
+			fileJump === jump &&
+			viewer === shown &&
+			!fileReaderOpen &&
+			!new URLSearchParams(window.location.search).has('file');
+		if (!stillGoing()) return;
+		const parts = shown.parts.filter(({ part }) => part.path === jump.path);
 		const fallback = parts[0];
 		if (fallback === undefined) {
 			focusAfterFile();
 			return;
 		}
-		if (number === undefined) {
-			await goToPart(fallback.index, true);
+		if (jump.line === undefined) {
+			await goToPart(fallback.index, true, stillGoing);
 			return;
 		}
 
-		const line: BookmarkLine = { side, line: number };
+		const line: BookmarkLine = { side: jump.side, line: jump.line };
 		for (const part of parts) {
 			await shown.load(part.index);
-			if (viewer !== shown) return;
+			if (!stillGoing()) return;
 			const destination = bookmarkDestination(part, line);
 			if (destination?.priority !== 3 || destination.block.kind !== 'hunk') continue;
 			const block = destination.block;
@@ -1237,12 +1274,14 @@
 			part.showLarge = true;
 			part.measuring = true;
 			if (settings.hideWhiteSpace) block.showWhiteSpace = true;
+			const target = { part, line };
 			try {
-				await goToPart(part.index, true);
-				bookmarkTarget = { part, line };
+				await goToPart(part.index, true, stillGoing);
+				if (!stillGoing()) return;
+				bookmarkTarget = target;
 				await tick();
 				await tick();
-				if (viewer !== shown) return;
+				if (!stillGoing()) return;
 				const element = document.getElementById(`part-${part.index}`);
 				const row = element === null ? null : bookmarkedRow(element, line);
 				if (row !== null) {
@@ -1251,16 +1290,16 @@
 					scrollToTop(row);
 				}
 			} finally {
-				bookmarkTarget = undefined;
+				if (bookmarkTarget === target) bookmarkTarget = undefined;
 				part.measuring = false;
 			}
 			return;
 		}
-		await goToPart(fallback.index, true);
+		await goToPart(fallback.index, true, stillGoing);
 	}
 
 	function onKey(event: KeyboardEvent): void {
-		if (viewer === undefined || helpOpen || fileOpener || (readerPath.ok && readerSide.ok)) return;
+		if (viewer === undefined || helpOpen || fileOpener || fileReaderOpen) return;
 		const target = event.target instanceof HTMLElement ? event.target : null;
 		if (isFindKey(event, target?.id === SEARCH_INPUT)) {
 			event.preventDefault();
@@ -1283,7 +1322,10 @@
 		});
 		if (action === undefined) return;
 		event.preventDefault();
-		const at = currentPart();
+		const at =
+			action === 'toggle-reviewed' || action === 'toggle-open' || action === 'whole-file'
+				? currentPart()
+				: undefined;
 		const state = at === undefined ? undefined : viewer.parts[at];
 		switch (action) {
 			case 'next-unread':
@@ -1817,11 +1859,11 @@
 			onclose={cancelFileMenu}
 		/>
 	{/if}
-	{#if readerPath.ok && readerSide.ok}
-		{#key `${viewer.id}:${viewer.version}:${readerSide.value}:${readerPath.value}`}
+	{#if readerPath.ok && readerSide.ok && readerVersion.ok}
+		{#key `${viewer.id}:${readerVersion.value}:${readerSide.value}:${readerPath.value}`}
 			<FileReader
 				id={viewer.id}
-				version={viewer.version}
+				version={readerVersion.value}
 				path={readerPath.value}
 				side={readerSide.value}
 				colour={settings.colours}

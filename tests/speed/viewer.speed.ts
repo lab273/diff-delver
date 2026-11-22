@@ -124,6 +124,77 @@ function timeClick(
 	);
 }
 
+/** Separate the picker opening, the HTTP round trip, and painting the options. */
+async function measureFilePicker(page: Page, testInfo: TestInfo): Promise<void> {
+	const measured = await page.evaluate(async () => {
+		const frame = (): Promise<void> =>
+			new Promise((ready) => {
+				requestAnimationFrame(() => {
+					ready();
+				});
+			});
+		const waitForOptions = async (name: string, after: number, expectedPath?: string) => {
+			for (;;) {
+				await frame();
+				const option = document.querySelector<HTMLElement>('#file-matches [role="option"]');
+				if (
+					option?.offsetHeight !== undefined &&
+					option.offsetHeight > 0 &&
+					(expectedPath === undefined || option.textContent.includes(expectedPath))
+				) {
+					const resource = performance.getEntriesByType('resource').findLast((entry) => {
+						const url = new URL(entry.name);
+						return (
+							entry.startTime >= after &&
+							url.pathname.endsWith('/files') &&
+							url.searchParams.get('name') === name
+						);
+					});
+					if (resource instanceof PerformanceResourceTiming) {
+						const now = performance.now();
+						return {
+							response: resource.duration,
+							render: now - resource.responseEnd,
+							total: now - after
+						};
+					}
+				}
+			}
+		};
+
+		performance.clearResourceTimings();
+		const started = performance.now();
+		(document.activeElement ?? document.body).dispatchEvent(
+			new KeyboardEvent('keydown', { key: 't', bubbles: true, cancelable: true })
+		);
+		await frame();
+		const input = document.querySelector<HTMLInputElement>('#file-name');
+		if (input === null || document.activeElement !== input)
+			throw new Error('File picker did not focus its input');
+		const focus = performance.now() - started;
+		const initial = await waitForOptions('', started);
+		const typed = performance.now();
+		input.value = 'm14f1499';
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		const fuzzy = await waitForOptions(input.value, typed, 'src/module-14/file-1499.ts');
+		return { focus, initial, fuzzy };
+	});
+	record(testInfo, 'time to focus the file picker, 2,000 files', measured.focus, 250);
+	for (const [name, timing] of [
+		['initial', measured.initial],
+		['fuzzy', measured.fuzzy]
+	] as const) {
+		record(testInfo, `${name} filename response, 2,000 files`, timing.response, 500);
+		record(
+			testInfo,
+			`time from response to ${name} filename options, 2,000 files`,
+			timing.render,
+			250
+		);
+		record(testInfo, `time to show ${name} filename options, 2,000 files`, timing.total, 500);
+	}
+}
+
 test('one change of 80,000 rows is shown and ticked quickly', async ({ page }, testInfo) => {
 	const world = await makeJourneyWorld();
 	try {
@@ -330,26 +401,7 @@ test('a diff of 2,000 files and 200,000 changed lines opens and moves at once', 
 		}
 		record(testInfo, 'time to move to the next match, 2,000 files', slowestMatch, 300);
 		await page.keyboard.press('Escape');
-		const openingFiles = performance.now();
-		await page.keyboard.press('t');
-		const name = page.getByRole('combobox', { name: 'File name or path' });
-		await expect(name).toBeFocused();
-		await expect(page.getByRole('option').first()).toBeVisible();
-		record(
-			testInfo,
-			'time to open the file picker, 2,000 files',
-			performance.now() - openingFiles,
-			500
-		);
-		const matching = performance.now();
-		await name.fill('m14f1499');
-		await expect(page.getByRole('option').first()).toHaveText(/src\/module-14\/file-1499.ts/);
-		record(
-			testInfo,
-			'time to match a fuzzy filename, 2,000 files',
-			performance.now() - matching,
-			500
-		);
+		await measureFilePicker(page, testInfo);
 	} finally {
 		await world.close();
 	}

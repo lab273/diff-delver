@@ -476,7 +476,9 @@ changed because of them, are in [tests/agent-trials/README.md](../tests/agent-tr
 the head tree and includes deleted files from the base. The file route returns
 at most 200 lines per request and the colours route can colour an exact path on
 either side. The reader uses a shallow history entry so Back restores the Delve
-and its current place.
+and its current place. Forward reads the revision in the file address. A jump
+from that reader opens the matching revision of the diff if it differs from
+the one already on screen.
 
 The first principle is checked, not assumed.
 
