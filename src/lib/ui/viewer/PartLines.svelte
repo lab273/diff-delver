@@ -798,6 +798,9 @@
 				{@const isTop = b === 0}
 				{@const isEnd = b === blocks.length - 1}
 				{#each block.top as line (line.new)}{@render opened(line)}{/each}
+				{#if before === 0}
+					{#each saved as line (line.new)}{@render opened(line)}{/each}
+				{/if}
 				{#if left > 0}
 					{@const down = nextStep(block, 'down')}
 					{@const up = nextStep(block, 'up')}
@@ -851,7 +854,9 @@
 						</td>
 					</tr>
 				{/if}
-				{#each saved as line (line.new)}{@render opened(line)}{/each}
+				{#if before > 0}
+					{#each saved as line (line.new)}{@render opened(line)}{/each}
+				{/if}
 				{#if before > 0 && after > 0}
 					<tr class="hidden">
 						<td colspan={columns}>
