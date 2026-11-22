@@ -1210,13 +1210,18 @@
 		if (!readerVersion.ok || viewer === undefined || fileJump !== undefined) return;
 		const version = readerVersion.value;
 		fileJump = { id: viewer.id, version, path, side, line };
-		if (version === viewer.version && !shownPage.url.searchParams.has('file')) {
+		if (
+			version === viewer.version &&
+			data.requestedVersion === null &&
+			!shownPage.url.searchParams.has('file')
+		) {
 			await closeFile();
 			return;
 		}
 
-		// Forward and reloading an open reader can put it over a different
-		// version than the preceding history entry. Jump to an explicitly pinned diff.
+		// Forward can restore the pinned page that opened the reader, even
+		// after the preceding history entry was replaced with the latest Delve.
+		// Navigate to the pinned diff so it still shows this version on reload.
 		const query = addressWithoutFile();
 		query.set('version', String(version));
 		await goto(resolve(`/diffs/[id]?${query}`, { id: viewer.id }), { reset: false });
@@ -1228,8 +1233,16 @@
 		if (!open && hadFileReader) {
 			const jump = fileJump;
 			void tick().then(async () => {
-				if (fileOpener || new URL(window.location.href).searchParams.has('file')) return;
+				const address = new URL(window.location.href);
+				const stillHere = (): boolean => !fileOpener && window.location.href === address.href;
+				if (address.searchParams.has('file') || !stillHere()) return;
 				if (jump === undefined) {
+					// A shallow Back can reuse data from the reader's original page
+					// even when that earlier history entry now asks for another version.
+					if (data.requestedVersion !== address.searchParams.get('version')) {
+						await invalidate('app:diff', true);
+						if (!stillHere()) return;
+					}
 					focusAfterFile();
 				} else if (fileJump === jump) {
 					try {

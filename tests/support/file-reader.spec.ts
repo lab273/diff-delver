@@ -12,10 +12,16 @@ async function openFile(page: Page, path: string, query: string): Promise<void> 
 	await expect(page.getByRole('dialog', { name: path })).toBeVisible();
 }
 
-for (const reload of [false, true]) {
-	test(`Forward opens the reader’s own version after an update${reload ? ' and reload' : ''}`, async ({
-		page
-	}) => {
+for (const { reload, startPinned, name } of [
+	{ reload: false, startPinned: false, name: 'after an update' },
+	{ reload: true, startPinned: false, name: 'after an update and reload' },
+	{
+		reload: true,
+		startPinned: true,
+		name: 'after updating and reloading an initially pinned Delve'
+	}
+]) {
+	test(`Forward opens the reader’s own version ${name}`, async ({ page }) => {
 		const world = await makeJourneyWorld();
 		try {
 			const directory = await world.repository('reading');
@@ -24,7 +30,9 @@ for (const reload of [false, true]) {
 			await repo.write(path, 'export const original = 0;\n');
 			await repo.commit('Start price file');
 			await repo.write(path, 'export const first = "one";\n');
-			await page.goto((await world.command([], directory)).address);
+			const address = new URL((await world.command([], directory)).address);
+			if (startPinned) address.searchParams.set('version', '1');
+			await page.goto(address.href);
 			await expect(page.locator('html[data-ready]')).toHaveCount(1);
 			const part = page.getByRole('article', { name: path });
 			const first = part.getByRole('row', { name: /export const first/ });
@@ -55,6 +63,7 @@ for (const reload of [false, true]) {
 			const changed = page.getByRole('region', { name: 'Your files have changed' });
 			await changed.getByRole('button', { name: 'Update' }).click();
 			await expect(page.getByRole('heading', { name: /Updated to version 2/ })).toBeVisible();
+			if (startPinned) expect(new URL(page.url()).searchParams.has('version')).toBe(false);
 			if (reload) await page.reload();
 			await expect(part.getByRole('row', { name: /export const second/ })).toBeVisible();
 
@@ -62,17 +71,25 @@ for (const reload of [false, true]) {
 			await expect(page).toHaveURL(originalAddress);
 			await expect(reader.locator('code')).toHaveText('export const first = "one";');
 			await expect(reader.locator('.code-string')).toHaveText('"one"');
-			await reader.getByRole('button', { name: 'Show base' }).click();
-			await expect(reader.locator('code')).toHaveText('export const original = 0;');
-			expect(new URL(page.url()).searchParams.get('version')).toBe('1');
-			await reader.getByRole('button', { name: 'Show head' }).click();
-			await expect(page).toHaveURL(originalAddress);
+			if (!startPinned) {
+				await reader.getByRole('button', { name: 'Show base' }).click();
+				await expect(reader.locator('code')).toHaveText('export const original = 0;');
+				expect(new URL(page.url()).searchParams.get('version')).toBe('1');
+				await reader.getByRole('button', { name: 'Show head' }).click();
+				await expect(page).toHaveURL(originalAddress);
+			}
 			await reader.getByRole('button', { name: 'Show change at line 1 in the diff' }).click();
 			await expect(reader).toBeHidden();
 			expect(new URL(page.url()).searchParams.get('version')).toBe('1');
 			await expect(first).toBeFocused();
 			await expect(bookmark).toBeVisible();
 			if (!reload) await expect(draft).toHaveValue('Keep this draft through history.');
+			if (startPinned) {
+				await page.reload();
+				expect(new URL(page.url()).searchParams.get('version')).toBe('1');
+				await expect(first).toBeVisible();
+				await expect(part.getByRole('row', { name: /export const second/ })).toHaveCount(0);
+			}
 			await page.goBack();
 			await expect(page).toHaveURL(originalAddress);
 			await expect(reader.locator('.code-string')).toHaveText('"one"');

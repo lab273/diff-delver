@@ -18,5 +18,10 @@ export const load: PageLoad = async ({ fetch, params, depends, url }) => {
 		client.readSettings()
 	]);
 	// Settings that cannot be read are the defaults: the diff can still be read.
-	return { id: id.value, loaded, settings: settings.ok ? settings.value : DEFAULT_SETTINGS };
+	return {
+		id: id.value,
+		loaded,
+		requestedVersion: pinned,
+		settings: settings.ok ? settings.value : DEFAULT_SETTINGS
+	};
 };
