@@ -36,7 +36,10 @@
 	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
 	import type { PartMarks } from './search.svelte.ts';
 
+	import type { BookmarkLine } from './bookmark.ts';
+
 	let {
+		bookmarkLine,
 		viewer,
 		at,
 		blocks,
@@ -50,6 +53,7 @@
 		draft,
 		canComment
 	}: {
+		bookmarkLine?: BookmarkLine | undefined;
 		viewer: Viewer;
 		at: PartIndex;
 		blocks: BlockState[];
@@ -268,12 +272,12 @@
 	}
 
 	/** The same code rows the table draws, with chunk positions from the line model. */
-	function* gutterRows(): Iterable<GutterRow> {
+	function* gutterRows(includeElsewhere = false): Iterable<GutterRow> {
 		for (const [b, block] of blocks.entries()) {
 			if (block.kind === 'hidden') {
 				yield* block.top;
 				yield* block.bottom;
-			} else if (block.kind === 'hunk') {
+			} else if (block.kind === 'hunk' || (includeElsewhere && block.shown)) {
 				const shown = viewer.drawnLines(block);
 				if (wholeHunkHidden(shown) !== undefined) continue;
 				const rows = split ? pairedRows(shown) : shown;
@@ -285,6 +289,16 @@
 			}
 		}
 	}
+	$effect(() => {
+		const target = bookmarkLine;
+		if (target === undefined) return;
+		for (const row of gutterRows(true)) {
+			if (row[target.side] !== target.line) continue;
+			if (row.chunk !== undefined) drawn.add(row.chunk);
+			break;
+		}
+	});
+
 	let commentButton = $state<HTMLButtonElement>();
 	let table: HTMLTableElement;
 	const canPick = $derived(
@@ -417,6 +431,7 @@
 				class="pick-line"
 				data-side={side}
 				data-line={line}
+				data-reading-line={`${side}:${line}`}
 				tabindex={cursor?.side === side && cursor.line === line ? 0 : -1}
 				aria-label="{side === 'old' ? 'Before' : 'After'}, line {line}"
 				aria-pressed={marked}
@@ -433,9 +448,9 @@
 				{line}
 			</button>
 		{:else if marked}
-			<span class="marked">{line}</span>
+			<span class="marked" data-reading-line={`${side}:${line}`}>{line}</span>
 		{:else}
-			{line}
+			<span data-reading-line={`${side}:${line}`}>{line}</span>
 		{/if}
 	{/if}
 {/snippet}

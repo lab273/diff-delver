@@ -64,5 +64,33 @@ test.describe('Regrouping a large change', () => {
 		await journey.expectInView(journey.within(original).byText('old line 1', { exact: true }));
 		await journey.expectInView(title);
 		await journey.step('Scrolling while the lines load keeps the new place');
+
+		// A restored bookmark must also open the large change and draw its chunk
+		// when the fresh page only has the file header.
+		for (let i = 0; i < 8; i += 1) await journey.press('PageDown');
+		await expect.poll(() => journey.verticalPosition(original)).toBeLessThan(-4_500);
+		const bookmarkedDepth = await journey.verticalPosition(original);
+		await journey.press('b');
+		const bookmark = journey.byRole('button', { name: `Return to bookmark ${file}` });
+		await journey.expectVisible(bookmark);
+		await journey.open(await journey.address());
+		await journey.expectVisible(bookmark);
+		await journey.press('Shift+KeyB');
+		await expect
+			.poll(async () => Math.abs((await journey.verticalPosition(original)) - bookmarkedDepth))
+			.toBeLessThan(21);
+		await journey.step('A bookmark deep in a large change');
+
+		await moveTo('after');
+		await journey.returnToPage();
+		await journey.expectVisible(moved);
+		await journey.press('Shift+KeyB');
+		await journey.expectVisible(
+			journey.byText(
+				`The bookmarked part of ${file} is unavailable. Showing the file where it appears now.`
+			)
+		);
+		await journey.expectFocused(journey.within(moved).byRole('button', { name: file }));
+		await journey.step('A bookmark after its file moves sections');
 	});
 });

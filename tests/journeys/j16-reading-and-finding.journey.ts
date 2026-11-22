@@ -236,5 +236,45 @@ test.describe('J16 Reading and finding', () => {
 		await journey.expectHidden(search);
 		await journey.expectInView(updated);
 		await journey.expectFocused(updated);
+
+		// Bookmark the code in view, then expand context, move away and search.
+		const pairsToggle = journey.byRole('button', { name: 'src/pairs.ts', exact: true });
+		await journey.tabTo(pairsToggle);
+		await journey.press('o');
+		await journey.press('o');
+		const savedRow = journey.within(pairs).byRole('row', { name: /export const price2 = 20;/ });
+		await journey.expectInView(savedRow);
+		await journey.press('b');
+		const bookmark = journey.byRole('button', { name: 'Return to bookmark src/pairs.ts' });
+		await journey.expectVisible(bookmark);
+		await journey.step('A bookmarked reading place');
+
+		await journey.activate(
+			journey.within(pairs).byRole('button', { name: 'Show all 7 unchanged lines' })
+		);
+		await journey.expectVisible(journey.nth(price13, 1));
+		await journey.press('j');
+		await journey.press('/');
+		await journey.type('Math.round');
+		await journey.expectText(found, '1 match in 1 file. Press Enter to go to the first.');
+		await journey.press('Enter');
+		await journey.expectInView(journey.within(total).byText('Math.round', { exact: false }));
+		await journey.activate(bookmark);
+		await journey.expectHidden(search);
+		await journey.expectFocused(savedRow);
+		await journey.expectInView(savedRow);
+		await journey.step('Returned from search to the bookmarked line');
+
+		// A fresh page in the same tab keeps the bookmark, even with a different layout.
+		await journey.open(await journey.address());
+		await journey.expectVisible(bookmark);
+		await journey.press('s');
+		await journey.press('Shift+KeyB');
+		await journey.expectFocused(savedRow);
+		await journey.expectVisible(
+			journey.within(pairs).byRole('table', { name: 'Lines of src/pairs.ts' })
+		);
+		await journey.expectInView(savedRow);
+		await journey.step('The bookmark after reopening the page');
 	});
 });

@@ -15,6 +15,7 @@
 	import type { ChangeCheckResponse, DiffPage, NextSourceOffer } from '#lib/api/schemas.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import type { EscapedPath } from '#lib/core/path-bytes.ts';
+	import { shownPath } from '#lib/core/shown-path.tiny.ts';
 	import { previousRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import Notice from '#lib/ui/Notice.svelte';
 	import { ChangeChecks, type Shown } from '#lib/ui/change-checks.ts';
@@ -39,6 +40,15 @@
 	import { isFindKey, shortcutOf } from '#lib/ui/viewer/keys.ts';
 	import SearchBar from '#lib/ui/viewer/SearchBar.svelte';
 	import type { CurrentMatch } from '#lib/ui/viewer/search.svelte.ts';
+	import {
+		bookmarkedRow,
+		lineInView,
+		readBookmark,
+		saveBookmark,
+		type Bookmark,
+		type BookmarkLine
+	} from '#lib/ui/viewer/bookmark.ts';
+	import { EXPANSION_STEP } from '#lib/core/viewer/expansion.ts';
 	import { whenReaderMoves } from '#lib/ui/viewer/reader-input.ts';
 	import {
 		done,
@@ -546,6 +556,148 @@
 		if (part !== null) scrollToTop(part);
 	}
 
+	let bookmark = $state.raw<Bookmark>();
+	let bookmarkMessage = $state('');
+	let bookmarkTarget = $state.raw<{ part: PartState; line: BookmarkLine }>();
+	const bookmarkReport = $derived(viewer?.id);
+
+	$effect(() => {
+		const id = bookmarkReport;
+		bookmark = id === undefined ? undefined : readBookmark(id);
+		bookmarkMessage = '';
+	});
+
+	function markReadingPlace(): void {
+		const shown = viewer;
+		if (shown === undefined) return;
+		const top = Math.max(
+			0,
+			document.querySelector('[role="search"]')?.getBoundingClientRect().bottom ?? 0
+		);
+		const element = [...document.querySelectorAll<HTMLElement>('article.part')].find(
+			(part) => part.getBoundingClientRect().bottom > top && onScreen(part)
+		);
+		const part = partAtElement(shown, element);
+		if (part === undefined || element === undefined) {
+			bookmarkMessage = 'Move to a file in By section to bookmark your place.';
+			return;
+		}
+		const place: Bookmark = {
+			path: part.part.path,
+			group: part.part.group,
+			version: shown.version,
+			line: lineInView(element, Math.max(top, element.getBoundingClientRect().top)),
+			open: part.open
+		};
+		bookmark = place;
+		saveBookmark(shown.id, place);
+		bookmarkMessage = '';
+		shown.announcement = `Bookmarked ${shownPath(place.path)}.`;
+	}
+
+	async function returnToBookmark(): Promise<void> {
+		const shown = viewer;
+		const place = bookmark;
+		if (shown === undefined) return;
+		if (place === undefined) {
+			bookmarkMessage = 'Use Bookmark this spot to save your place first.';
+			return;
+		}
+
+		const at = shown.partOf(place.group, place.path);
+		const same = at === undefined ? undefined : shown.parts[at];
+		const part =
+			(same !== undefined && shown.shows(same.index) ? same : undefined) ??
+			shown.parts.find(
+				(candidate) => candidate.part.path === place.path && shown.shows(candidate.index)
+			);
+		const name = shownPath(place.path);
+		if (part === undefined) {
+			bookmarkMessage = shown.parts.some((candidate) => candidate.part.path === place.path)
+				? `The filters hide ${name}. Show everything to return to it.`
+				: `${name} is no longer in this diff. Bookmark another spot to replace it.`;
+			return;
+		}
+
+		// Returning is a new destination. Closing search here leaves its former place behind.
+		shown.search.close();
+		beforeSearch = undefined;
+		searchOpenedFrom = null;
+		bookmarkMessage = '';
+		const line = shown.version === place.version && part === same ? place.line : null;
+		if (shown.version !== place.version) {
+			bookmarkMessage = `This diff has a newer or different version. Showing the start of ${name}.`;
+		} else if (part !== same) {
+			bookmarkMessage = `The bookmarked part of ${name} is unavailable. Showing the file where it appears now.`;
+		}
+
+		viewportRestore?.stop();
+		if (line !== null) {
+			part.showLarge = true;
+			part.measuring = true;
+		}
+		const stop = (): void => {
+			stopListening();
+			if (viewportRestore?.stop === stop) {
+				part.measuring = false;
+				bookmarkTarget = undefined;
+				viewportRestore = undefined;
+			}
+		};
+		const stopListening = whenReaderMoves(window, stop);
+		viewportRestore = { viewer: shown, stop };
+		const stillReturning = (): boolean =>
+			viewportRestore?.stop === stop && viewer === shown && shown.shows(part.index);
+		try {
+			await goToPart(part.index, place.open);
+			if (line === null || !stillReturning()) return;
+			await shown.load(part.index);
+			if (!stillReturning()) return;
+			await openBookmarkedContext(shown, part, line);
+			if (!stillReturning()) return;
+			bookmarkTarget = { part, line };
+			await tick();
+			await tick();
+			if (!stillReturning()) return;
+			const element = document.getElementById(`part-${String(part.index)}`);
+			const row = element === null ? null : bookmarkedRow(element, line);
+			if (row === null) {
+				bookmarkMessage = `The bookmarked line is unavailable. Showing the start of ${name}.`;
+				if (element !== null) scrollToTop(element);
+				return;
+			}
+			row.tabIndex = -1;
+			row.focus({ preventScroll: true });
+			scrollToTop(row);
+			shown.announcement = `Returned to ${name}, line ${String(line.line)}.`;
+		} finally {
+			stop();
+		}
+	}
+
+	/** Restore a nearby stretch of context without opening a potentially huge gap. */
+	async function openBookmarkedContext(
+		shown: Viewer,
+		part: PartState,
+		line: BookmarkLine
+	): Promise<void> {
+		if (part.lines.kind !== 'loaded') return;
+		const found = part.lines.blocks.findIndex(
+			(block) =>
+				block.kind === 'hidden' &&
+				line.line >= block[line.side].first &&
+				line.line <= block[line.side].last
+		);
+		const block = part.lines.blocks[found];
+		if (block?.kind !== 'hidden') return;
+		const span = block[line.side];
+		const down = line.line - span.first - block.top.length;
+		const up = span.last - line.line - block.bottom.length;
+		if (down < 0 || up < 0) return;
+		if (down < EXPANSION_STEP) await shown.openLines(part.index, found, 'down');
+		else if (up < EXPANSION_STEP) await shown.openLines(part.index, found, 'up');
+	}
+
 	async function nextUnread(): Promise<void> {
 		if (viewer === undefined) return;
 		const at = viewer.nextUnread();
@@ -799,7 +951,7 @@
 		// the chunk of a long hunk that holds the match.
 		await tick();
 		await tick();
-		if (viewer !== shown) return;
+		if (viewer !== shown || !shown.search.open) return;
 		const element =
 			match.place.kind === 'path'
 				? document.getElementById(`part-${String(match.at)}-name`)
@@ -891,7 +1043,7 @@
 		beforeSearch ??= { ...readerPlace(), byFile };
 		const moved = await search.step(forward);
 		// The part numbers of an older version are not this one's: show nothing.
-		if (moved === undefined || viewer !== shown) return;
+		if (moved === undefined || viewer !== shown || !search.open) return;
 		if (byFile) {
 			byFile = false;
 			remember();
@@ -990,6 +1142,12 @@
 				return;
 			case 'side-by-side':
 				setLayout(settings.layout === 'side-by-side' ? 'unified' : 'side-by-side');
+				return;
+			case 'bookmark':
+				markReadingPlace();
+				return;
+			case 'return-to-bookmark':
+				void returnToBookmark();
 				return;
 			case 'search':
 				void openSearch();
@@ -1203,7 +1361,19 @@
 				<button type="button" onclick={openSearch}>
 					Search <kbd aria-hidden="true">/</kbd>
 				</button>
+				<button type="button" onclick={markReadingPlace}>
+					Bookmark this spot <kbd aria-hidden="true">b</kbd>
+				</button>
+				{#if bookmark !== undefined}
+					<button type="button" class="bookmark-return" onclick={returnToBookmark}>
+						<span>
+							Return to bookmark <span class="bookmark-path">{shownPath(bookmark.path)}</span>
+						</span>
+						<kbd aria-hidden="true">Shift+B</kbd>
+					</button>
+				{/if}
 			</div>
+			<div aria-live="polite" class="bookmark-message">{bookmarkMessage}</div>
 			{#if viewer.overview !== null}
 				<details class="agent-overview" open>
 					<summary>Agent overview</summary>
@@ -1432,6 +1602,7 @@
 									<Part
 										{viewer}
 										{state}
+										bookmarkLine={bookmarkTarget?.part === state ? bookmarkTarget.line : undefined}
 										{previousVersion}
 										canComment={data.canReview && summary.state.kind === 'open'}
 										{draft}
@@ -1593,6 +1764,21 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+	}
+
+	.bookmark-return {
+		max-width: 100%;
+		text-align: left;
+	}
+
+	.bookmark-path {
+		display: block;
+		overflow-wrap: anywhere;
+	}
+
+	.bookmark-message:not(:empty) {
+		margin-top: 0.5rem;
+		overflow-wrap: anywhere;
 	}
 
 	.agent-overview {

@@ -666,6 +666,11 @@ needed for a first review.
 ### 8.3 Reading the diff
 
 - Unified or split, syntax highlighted, optional whitespace hiding.
+- **Bookmark this spot** saves one place per Delve in the current browser tab and
+  keeps it across reloads. **Return to bookmark** names the file and goes back
+  to the saved line when available. If it can only find the file, it explains
+  why it is showing the start. A filter that hides the file can be turned off
+  before returning.
 - Expand context above or below a hunk, or expand to the whole file.
 - Open any file in the repo at the base or head tree, not only changed files.
   Search the tree (`git grep` against the snapshot). Jump from an identifier to its

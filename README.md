@@ -155,7 +155,8 @@ diff delver keeps your Delves and ticks in one folder of its own,
   from a local git repository. Builds from `main` also let you choose commits or a
   branch from a page.
 - Reading a diff: code coloured by language, one column or side by side, white-space
-  changes hidden, unchanged lines opened, search.
+  changes hidden, unchanged lines opened, search, and a reading bookmark that
+  survives reload in the same tab.
 - Saving private draft comments on either side of a diff, including unchanged lines,
   in a browser opened by the local `diff-delver` command.
 - Ticking files and sections as reviewed, with progress, across restarts.

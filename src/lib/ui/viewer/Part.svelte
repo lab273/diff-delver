@@ -26,7 +26,10 @@
 		type Viewer
 	} from './viewer.svelte.ts';
 
+	import type { BookmarkLine } from './bookmark.ts';
+
 	let {
+		bookmarkLine,
 		viewer,
 		state,
 		previousVersion,
@@ -37,6 +40,7 @@
 		draft,
 		canComment
 	}: {
+		bookmarkLine?: BookmarkLine | undefined;
 		viewer: Viewer;
 		state: PartState;
 		previousVersion: RevisionNumber | null;
@@ -342,6 +346,7 @@
 						<p class="about plain">{plainText(state.plain)}</p>
 					{/if}
 					<PartLines
+						{bookmarkLine}
 						{draft}
 						{canComment}
 						{viewer}
