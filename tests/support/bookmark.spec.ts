@@ -26,7 +26,8 @@ test('bookmarks an expanded unchanged line by touch and restores a bounded windo
 		await expect(row).toBeVisible();
 		await row.evaluate((element) => {
 			element.scrollIntoView({ block: 'start' });
-			window.scrollBy(0, 1);
+			const header = element.closest('article')?.querySelector('header');
+			window.scrollBy(0, 1 - (header?.getBoundingClientRect().height ?? 0));
 		});
 		const save = page.getByRole('button', { name: 'Bookmark this spot' });
 		await expect(save).toBeInViewport({ ratio: 1 });

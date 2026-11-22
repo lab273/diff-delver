@@ -34,7 +34,9 @@
 	import { nextShown, previousShown } from '#lib/core/viewer/reading-order.ts';
 	import { parsePartIndex, type PartIndex } from '#lib/core/part-index.tiny.ts';
 	import FileList from '#lib/ui/viewer/FileList.svelte';
-	import { SvelteMap } from 'svelte/reactivity';
+	import SectionFiles from '#lib/ui/viewer/SectionFiles.svelte';
+	import { collapseReviewedPart } from '#lib/ui/viewer/collapse-reviewed.ts';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import CopyCommand from '#lib/ui/CopyCommand.svelte';
 	import { RUN_COMMAND } from '#lib/ui/run-command.ts';
 	import CommentEditor from '#lib/ui/viewer/CommentEditor.svelte';
@@ -555,7 +557,11 @@
 	}
 
 	/** Moves to a part: shown, opened if asked, focused and at the top of the screen. */
-	async function goToPart(at: PartIndex, open: boolean, stillGoing?: () => boolean): Promise<void> {
+	async function goToPart(
+		at: PartIndex,
+		open: boolean,
+		{ stillGoing, scroll = true }: { stillGoing?: () => boolean; scroll?: boolean } = {}
+	): Promise<void> {
 		if (viewer === undefined) return;
 		const state = viewer.parts[at];
 		if (state === undefined) return;
@@ -573,7 +579,7 @@
 		const toggle = document.getElementById(`part-${String(at)}-toggle`);
 		toggle?.focus({ preventScroll: true });
 		const part = document.getElementById(`part-${String(at)}`);
-		if (part !== null) scrollToTop(part);
+		if (part !== null && scroll) scrollToTop(part);
 	}
 
 	let bookmark = $state.raw<Bookmark>();
@@ -602,7 +608,8 @@
 		for (const visible of document.querySelectorAll<HTMLElement>('article.part')) {
 			const box = visible.getBoundingClientRect();
 			if (box.bottom <= top || box.top >= bottom) continue;
-			const row = lineInView(visible, Math.max(top, box.top), bottom);
+			const headerBottom = visible.querySelector('header')?.getBoundingClientRect().bottom ?? top;
+			const row = lineInView(visible, Math.max(top, box.top, headerBottom), bottom);
 			element ??= visible;
 			if (row === null) continue;
 			line = row;
@@ -773,7 +780,8 @@
 
 	async function afterTick(
 		target: TickTarget,
-		outcome: Awaited<ReturnType<Viewer['tick']>>
+		outcome: Awaited<ReturnType<Viewer['tick']>>,
+		readerMoved: boolean
 	): Promise<void> {
 		if (viewer === undefined) return;
 		switch (outcome.kind) {
@@ -795,13 +803,14 @@
 				if (outcome.refresh) await refreshReview(true);
 				await tick();
 				if (viewer !== beforeRefresh) return;
+				if (readerMoved && !focusLost()) return;
 				if (outcome.allDone) {
-					document.getElementById(EVERYTHING_REVIEWED)?.focus();
+					document.getElementById(EVERYTHING_REVIEWED)?.focus({ preventScroll: readerMoved });
 					return;
 				}
 				// Finishing a group moves on to the next one that still waits.
 				const finished = outcome.groupFinished;
-				if (finished !== undefined) {
+				if (finished !== undefined && !readerMoved) {
 					const next = viewer.groups.find(
 						(g) =>
 							g.first > finished.first && g.key.kind !== 'ignored' && !done(viewer.groupTally(g))
@@ -813,19 +822,88 @@
 				// to the part shown after where it was, or before it when it was the last.
 				const place = target.kind === 'part' ? target.at : viewer.current;
 				const shown = viewer.shown;
-				const next = nextShown(shown, place) ?? previousShown(shown, place);
-				if (next !== undefined) await goToPart(next, false);
-				else document.getElementById(EVERYTHING_REVIEWED)?.focus();
+				const reading = readerMoved ? partAtElement(viewer, viewportPart(undefined)) : undefined;
+				const next = reading?.index ?? nextShown(shown, place) ?? previousShown(shown, place);
+				if (next !== undefined) await goToPart(next, false, { scroll: !readerMoved });
+				else document.getElementById(EVERYTHING_REVIEWED)?.focus({ preventScroll: readerMoved });
 			}
 		}
 	}
+
+	const closingParts = new SvelteSet<PartState>();
 
 	async function tickTarget(target: TickTarget, reviewed: boolean): Promise<void> {
 		const shown = viewer;
 		if (shown === undefined) return;
 		staleTick = undefined;
-		const outcome = await shown.tick(target, reviewed);
-		if (viewer === shown) await afterTick(target, outcome);
+		const animations: { part: PartState; animation: Animation }[] = [];
+		let inputAt: number | undefined;
+		let scrolled = false;
+		const stop = whenReaderMoves(window, () => {
+			inputAt = window.scrollY;
+		});
+		const recordScroll = (): void => {
+			if (inputAt !== undefined && window.scrollY !== inputAt) scrolled = true;
+		};
+		window.addEventListener('scroll', recordScroll);
+		let kept: ReturnType<typeof readerPlace> | undefined;
+		const keepPlace = (): void => {
+			recordScroll();
+			if (!scrolled || byFile || !onlyWaiting || viewer !== shown) return;
+			// Anchor surviving code before the filter removes the reviewed parts.
+			kept = readerPlace((element) => {
+				const state = partAtElement(shown, element);
+				if (state === undefined || !shown.shows(state.index) || !onScreen(element)) return false;
+				switch (target.kind) {
+					case 'part':
+						return state.index !== target.at;
+					case 'file':
+						return state.part.path !== target.path;
+					case 'group':
+						return (
+							state.index < target.group.first ||
+							state.index >= target.group.first + target.group.count
+						);
+				}
+			});
+		};
+		const animatePart = (part: PartState): void => {
+			if (kept === undefined) keepPlace();
+			if (
+				viewer !== shown ||
+				inputAt !== undefined ||
+				byFile ||
+				!part.near ||
+				closingParts.has(part)
+			)
+				return;
+			const animation = collapseReviewedPart(part.index, onlyWaiting, stickyTop);
+			if (animation === undefined) return;
+			closingParts.add(part);
+			animations.push({ part, animation });
+		};
+		try {
+			const outcome = await shown.tick(target, reviewed, reviewed ? animatePart : undefined);
+			if (animations.length > 0) {
+				await Promise.allSettled(animations.map(({ animation }) => animation.finished));
+				keepPlace();
+				for (const { part } of animations) closingParts.delete(part);
+				await tick();
+				for (const { animation } of animations) animation.cancel();
+			}
+			await tick();
+			if (viewer === shown) {
+				if (kept !== undefined) {
+					const anchor = document.getElementById(kept.anchor);
+					if (anchor === null) window.scrollTo(0, kept.y);
+					else window.scrollBy(0, anchor.getBoundingClientRect().top - kept.top);
+				}
+				await afterTick(target, outcome, inputAt !== undefined);
+			}
+		} finally {
+			stop();
+			window.removeEventListener('scroll', recordScroll);
+		}
 	}
 
 	async function tickPart(at: PartIndex, reviewed: boolean): Promise<void> {
@@ -840,6 +918,10 @@
 		await tickTarget({ kind: 'file', path: file.path }, reviewed);
 	}
 
+	function goToSectionFile(at: PartIndex): void {
+		void goToPart(at, true);
+	}
+
 	async function goTo(path: EscapedPath, group: GroupKeyView): Promise<void> {
 		const at = viewer?.partOf(group, path);
 		if (at !== undefined) await goToPart(at, true);
@@ -848,6 +930,8 @@
 	// ── Searching the diff ──────────────────────────────────────────────────────
 
 	const SEARCH_INPUT = 'search-input';
+	let searchHeight = $state(0);
+	const stickyTop = $derived(viewer?.search.open ? searchHeight : 0);
 	/** What had focus when the search was opened, to go back to when it closes. */
 	let searchOpenedFrom: HTMLElement | null = null;
 	/** Where the reader was before the search first moved them, to put them back. */
@@ -902,18 +986,23 @@
 	 */
 	function scrollToTop(element: HTMLElement): void {
 		element.scrollIntoView({ block: 'start' });
-		const search = document.querySelector('[role="search"]');
-		if (search === null) return;
+		const part = element.closest('article.part');
+		const header = part === element ? null : part?.querySelector('header');
+		const clearance = header?.getBoundingClientRect().height ?? 0;
+		if (stickyTop + clearance === 0) return;
 		const margin = parseFloat(getComputedStyle(element).scrollMarginTop) || 0;
-		const under =
-			search.getBoundingClientRect().bottom + margin - element.getBoundingClientRect().top;
+		const under = stickyTop + clearance + margin - element.getBoundingClientRect().top;
 		if (under > 0) window.scrollBy(0, -under);
 	}
 
 	/** Where the reader is: the part at the top of the screen and how far down it is. */
-	function readerPlace(): { readonly anchor: string; readonly top: number; readonly y: number } {
+	function readerPlace(accepts: (element: HTMLElement) => boolean = () => true): {
+		readonly anchor: string;
+		readonly top: number;
+		readonly y: number;
+	} {
 		const parts = [...document.querySelectorAll<HTMLElement>('article.part')];
-		const anchor = parts.find((p) => p.getBoundingClientRect().bottom > 0);
+		const anchor = parts.find((p) => p.getBoundingClientRect().bottom > 0 && accepts(p));
 		return {
 			anchor: anchor?.id ?? '',
 			top: anchor?.getBoundingClientRect().top ?? 0,
@@ -1003,11 +1092,26 @@
 			document.getElementById(`part-${String(match.at)}`)?.scrollIntoView({ block: 'start' });
 			return;
 		}
-		const centre = (): void => {
+		const part = element.closest('article.part');
+		const header = part?.querySelector('header');
+		const searchBar = document.querySelector('[role="search"]');
+		const centre = (): boolean => {
+			const before = window.scrollY;
 			const box = element.getBoundingClientRect();
-			if (Math.abs(box.top + box.height / 2 - window.innerHeight / 2) >= 1) {
-				element.scrollIntoView({ block: 'center' });
-			}
+			const head = header?.getBoundingClientRect();
+			const pathMatch = match.place.kind === 'path';
+			const searchHeight = searchBar?.getBoundingClientRect().height ?? 0;
+			const top = searchHeight + (pathMatch ? 0 : (head?.height ?? 0));
+			const bottom = narrowBookmarks?.getClientRects()[0]?.top ?? window.innerHeight;
+			const middle = Math.max(top + box.height / 2, (top + bottom) / 2);
+			// A sticky path's place in the document is the start of its article.
+			const matchTop =
+				pathMatch && head !== undefined && part !== null
+					? part.getBoundingClientRect().top + box.top - head.top
+					: box.top;
+			const distance = matchTop + box.height / 2 - middle;
+			if (Math.abs(distance) >= 1) window.scrollBy(0, distance);
+			return window.scrollY !== before;
 		};
 		centre();
 		// Centred again whenever the diff's size changes, until a frame passes with
@@ -1032,12 +1136,18 @@
 			since.readerMoved = true;
 		});
 		observer.observe(diff);
+		if (header != null) observer.observe(header);
+		if (searchBar !== null) observer.observe(searchBar);
+		if (narrowBookmarks !== undefined) observer.observe(narrowBookmarks);
 		try {
+			let settledFrames = 0;
 			for (let frame = 0; frame < SETTLE_FRAMES_AT_MOST; frame += 1) {
 				await nextFrame();
-				if (!keeping()) return;
+				if (!keeping() || !element.isConnected) return;
 				const fetching = shown.parts.some((p) => p.index < match.at && p.lines.kind === 'loading');
-				if (!since.resized && !fetching) return;
+				const moved = centre();
+				settledFrames = since.resized || fetching || moved ? 0 : settledFrames + 1;
+				if (settledFrames === 2) return;
 				since.resized = false;
 			}
 		} finally {
@@ -1272,7 +1382,7 @@
 			return;
 		}
 		if (jump.line === undefined) {
-			await goToPart(fallback.index, true, stillGoing);
+			await goToPart(fallback.index, true, { stillGoing });
 			return;
 		}
 
@@ -1289,7 +1399,7 @@
 			if (settings.hideWhiteSpace) block.showWhiteSpace = true;
 			const target = { part, line };
 			try {
-				await goToPart(part.index, true, stillGoing);
+				await goToPart(part.index, true, { stillGoing });
 				if (!stillGoing()) return;
 				bookmarkTarget = target;
 				await tick();
@@ -1308,7 +1418,7 @@
 			}
 			return;
 		}
-		await goToPart(fallback.index, true, stillGoing);
+		await goToPart(fallback.index, true, { stillGoing });
 	}
 
 	function onKey(event: KeyboardEvent): void {
@@ -1358,7 +1468,20 @@
 				}
 				void (async () => {
 					const shown = viewer;
-					await goToPart(at, false);
+					const part = document.getElementById(`part-${at}`);
+					const toggle = document.getElementById(`part-${at}-toggle`);
+					if (
+						part !== null &&
+						toggle !== null &&
+						onScreen(toggle) &&
+						part.getBoundingClientRect().top < stickyTop
+					) {
+						// The sticky header is already in view while reading deep in the file.
+						viewer.current = at;
+						toggle.focus({ preventScroll: true });
+					} else {
+						await goToPart(at, false);
+					}
 					if (viewer === shown) await tickPart(at, !done(state.part.tally));
 				})();
 				return;
@@ -1401,8 +1524,18 @@
 	/** Which part has focus, so keys act on the part the person is in. */
 	function onFocusIn(event: FocusEvent): void {
 		if (viewer === undefined || !(event.target instanceof Element)) return;
-		const part = partAtElement(viewer, event.target);
-		if (part !== undefined) viewer.current = part.index;
+		const target = event.target;
+		const part = partAtElement(viewer, target);
+		if (part === undefined) return;
+		viewer.current = part.index;
+		if (target.closest('.body') === null) return;
+		const header = target.closest('article.part')?.querySelector('header');
+		const pinned = header?.getBoundingClientRect();
+		if (pinned === undefined || pinned.top > stickyTop + 1) return;
+		const focused = target.getBoundingClientRect();
+		if (focused.bottom > pinned.top && focused.top < pinned.bottom) {
+			window.scrollBy(0, focused.top - pinned.bottom - 4);
+		}
 	}
 
 	/** How far a group has got, after its name: "all reviewed", "2 of 5 changes reviewed". */
@@ -1635,6 +1768,9 @@
 									? `${fileCount(group.count)}, not counted`
 									: groupProgress(tally)}
 							</span>
+							{#if group.count > 0}
+								<SectionFiles {viewer} {group} ongo={goToSectionFile} />
+							{/if}
 						</li>
 					{/each}
 				</ol>
@@ -1716,13 +1852,19 @@
 			<div aria-live="polite" class="bookmark-message">{bookmarkMessage}</div>
 		</div>
 
-		<div class="content" role="presentation" onfocusin={onFocusIn}>
+		<div
+			class="content"
+			style:--search-height="{stickyTop}px"
+			role="presentation"
+			onfocusin={onFocusIn}
+		>
 			{#if stale !== undefined && (byFile || (staleAt === undefined && staleGroup === undefined))}
 				<TickRefused message={stale.message} behind={false} onshownewer={showNewer} />
 			{/if}
 			{#if viewer.search.open}
 				<SearchBar
 					search={viewer.search}
+					bind:height={searchHeight}
 					busy={movingToMatch}
 					ontext={searchTyped}
 					onstep={stepSearch}
@@ -1791,7 +1933,9 @@
 					{#each viewer.groups as group (group.id)}
 						{@const tally = viewer.groupTally(group)}
 						{@const parts = viewer.parts.slice(group.first, group.first + group.count)}
-						{@const shown = parts.filter((p) => viewer.shows(p.index) && viewer.drawn(p.index))}
+						{@const shown = parts.filter(
+							(p) => (viewer.shows(p.index) && viewer.drawn(p.index)) || closingParts.has(p)
+						)}
 						{#if shown.length > 0 || (!onlyWaiting && group.count === 0)}
 							<section class="group" id={group.anchor} aria-labelledby="{group.anchor}-heading">
 								<div class="group-head">
@@ -1845,6 +1989,7 @@
 									<Part
 										{viewer}
 										{state}
+										closing={closingParts.has(state)}
 										bookmarkLine={bookmarkTarget?.part === state ? bookmarkTarget.line : undefined}
 										{previousVersion}
 										canComment={data.canReview && summary.state.kind === 'open'}

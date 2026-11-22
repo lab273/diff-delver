@@ -655,6 +655,7 @@ needed for a first review.
 
 - **Left rail**: the overview, then sections in reading order with progress,
   then `Tests` (in separate mode), `Uncategorised` (if any) and `Ignored`.
+  Open a section’s file list to jump straight to its part of a file.
 - **Main pane**: the section summary, then its slices. Each slice has a tick, the
   file path, chips for the file's other sections, and the diff.
 - **Side panel**: threads, agent notes, the request queue and the draft review.
@@ -666,6 +667,9 @@ needed for a first review.
 ### 8.3 Reading the diff
 
 - Unified or split, syntax highlighted, optional whitespace hiding.
+- The file path and Reviewed checkbox stay below search while its changes scroll.
+  Marking a file or section as reviewed briefly folds away its visible changes,
+  with an immediate close when reduced motion is enabled.
 - **Bookmark this spot** saves one place per Delve in the current browser tab and
   keeps it across reloads. On narrow screens the controls stay at the bottom of
   the screen while you read. **Return to bookmark** names the file and goes back

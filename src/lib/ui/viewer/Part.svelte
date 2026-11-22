@@ -30,6 +30,7 @@
 
 	let {
 		bookmarkLine,
+		closing = false,
 		viewer,
 		state,
 		previousVersion,
@@ -40,6 +41,7 @@
 		draft,
 		canComment
 	}: {
+		closing?: boolean;
 		bookmarkLine?: BookmarkLine | undefined;
 		viewer: Viewer;
 		state: PartState;
@@ -248,8 +250,8 @@
 			<TickRefused message={sortingProblem ?? state.problem} behind={state.behind} {onshownewer} />
 		</div>
 	{/if}
-	<div class="body" id="part-{at}-body" hidden={!state.open}>
-		{#if state.open}
+	<div class="body" id="part-{at}-body" hidden={!state.open && !closing}>
+		{#if state.open || closing}
 			{#if part.tally.unmarked > 0}
 				<p class="unmarked">
 					You had marked {countOf(part.tally.unmarked, 'change', 'changes')} here as reviewed. {part
@@ -393,6 +395,10 @@
 	}
 
 	header {
+		position: sticky;
+		top: var(--search-height, 0px);
+		overflow-anchor: none;
+		z-index: 1;
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;

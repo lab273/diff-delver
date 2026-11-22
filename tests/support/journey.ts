@@ -261,6 +261,14 @@ export interface Journey extends Finder {
 	 * `PageDown` and `End` to scroll a long page.
 	 */
 	press(key: string): Promise<void>;
+	/** Presses a scrolling key and waits until the page has stopped at its new position. */
+	scroll(key: 'PageDown' | 'PageUp'): Promise<void>;
+	/** Checks whether a disclosure’s content is animated when it is closed by an action. */
+	expectCollapse(
+		disclosure: Target,
+		motion: 'reduce' | 'no-preference',
+		close: () => Promise<void>
+	): Promise<void>;
 	/** Types text key by key into what has focus. */
 	type(text: string): Promise<void>;
 	/** Moves focus to the target with Tab, as a keyboard user does, then presses `key`. */
@@ -972,6 +980,26 @@ export async function startJourney(
 			await ready();
 			await page.keyboard.press(key);
 		},
+		async scroll(key) {
+			await ready();
+			const scroll = await page.evaluateHandle(() => ({
+				finished: new Promise<void>((resolve) => {
+					document.addEventListener(
+						'scrollend',
+						() => {
+							resolve();
+						},
+						{ once: true }
+					);
+				})
+			}));
+			try {
+				await page.keyboard.press(key);
+				await scroll.evaluate(({ finished }) => finished);
+			} finally {
+				await scroll.dispose();
+			}
+		},
 		async type(text) {
 			await ready();
 			await page.keyboard.type(text);
@@ -1035,6 +1063,25 @@ export async function startJourney(
 			const box = await locatorOf(target).boundingBox();
 			if (box === null) throw new Error(`${target.description} has no place on the screen.`);
 			return box.y;
+		},
+		async expectCollapse(disclosure, motion, close) {
+			await page.emulateMedia({ reducedMotion: motion });
+			const control = locatorOf(disclosure);
+			await control.evaluate((element) => {
+				const id = element.getAttribute('aria-controls');
+				const body = id === null ? null : document.getElementById(id);
+				if (body === null) throw new Error('The disclosure must name the content it controls.');
+				element.removeAttribute('data-observed-collapse');
+				const observer = new MutationObserver(() => {
+					if (element.getAttribute('aria-expanded') !== 'false') return;
+					element.setAttribute('data-observed-collapse', String(body.getAnimations().length > 0));
+					observer.disconnect();
+				});
+				observer.observe(element, { attributeFilter: ['aria-expanded'] });
+			});
+			await close();
+			await expect(control).toHaveAttribute('data-observed-collapse', String(motion !== 'reduce'));
+			await page.emulateMedia({ reducedMotion: 'reduce' });
 		},
 		async expectUncovered(target) {
 			const locator = locatorOf(target);

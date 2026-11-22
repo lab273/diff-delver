@@ -57,9 +57,32 @@ test.describe('Trial shop sorted by Codex', () => {
 		await journey.step('A heading below the search');
 
 		await journey.press('Escape');
-		await journey.activate(journey.within(groups).byRole('link', { name: split, exact: true }));
+		const files = journey.within(groups).byRole('button', { name: `Files in ${split}` });
+		const discountPart = journey
+			.within(groups)
+			.byRole('link', { name: 'src/pricing.ts Part 2 of 2' });
+		await journey.expectHidden(discountPart);
+		await journey.activate(files);
+		await journey.expectVisible(discountPart);
+		await journey.activate(journey.byRole('button', { name: 'By file' }));
+		await journey.activate(discountPart);
+		await journey.expectFocused(
+			journey.within(section).byRole('button', { name: 'src/pricing.ts, part 2 of 2' })
+		);
+		await journey.step('A file part reached from the section list');
+
 		const part = journey.within(section).byRole('article', { name: 'src/pricing.ts' });
 		const tools = journey.within(part);
+		const reviewed = tools.byRole('checkbox', { name: `Reviewed: src/pricing.ts in ${split}` });
+		const pricing = tools.byRole('button', { name: 'src/pricing.ts, part 2 of 2' });
+		await journey.tabTo(reviewed);
+		const reviewTop = await journey.verticalPosition(pricing);
+		await journey.expectCollapse(pricing, 'no-preference', () => journey.press('Space'));
+		await journey.expectFocused(reviewed);
+		await journey.expectUncovered(reviewed);
+		expect(await journey.verticalPosition(pricing)).toBeCloseTo(reviewTop, 0);
+		await journey.press('Space');
+		await journey.expectState(pricing, { expanded: true });
 		await journey.activate(tools.byRole('button', { name: 'Show the whole file: src/pricing.ts' }));
 		const collapse = tools.byRole('button', { name: 'Show only the changes: src/pricing.ts' });
 		await journey.expectFocused(collapse);
@@ -138,5 +161,15 @@ test.describe('Trial shop sorted by Codex', () => {
 		await journey.activate(journey.byRole('button', { name: 'Draft comments', exact: true }));
 		await journey.expectVisible(journey.byText(draftText, { exact: true }));
 		await journey.expectVisible(journey.byText('Before, lines 6–7'));
+
+		await journey.activate(journey.within(groups).byRole('link', { name: split, exact: true }));
+		const groupTick = journey
+			.within(section)
+			.byRole('checkbox', { name: `All reviewed: ${split}` });
+		const cart = journey.within(section).byRole('button', { name: 'src/cart.ts', exact: true });
+		await journey.expectCollapse(cart, 'no-preference', () => journey.activate(groupTick, 'Space'));
+		await journey.expectFocused(
+			journey.byRole('heading', { name: /Make the deploy script executable/ })
+		);
 	});
 });

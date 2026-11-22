@@ -19,9 +19,11 @@
 		ontext,
 		onstep,
 		onclose,
-		onoption
+		onoption,
+		height = $bindable(0)
 	}: {
 		search: DiffSearch;
+		height?: number;
 		/** Moving to a match is under way. */
 		busy: boolean;
 		ontext: (text: string) => void;
@@ -71,6 +73,7 @@
 >
 	<div
 		class="search"
+		bind:offsetHeight={height}
 		role="search"
 		aria-label="Search the diff"
 		aria-busy={busy || search.found.kind === 'searching'}

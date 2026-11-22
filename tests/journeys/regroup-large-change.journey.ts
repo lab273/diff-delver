@@ -30,7 +30,7 @@ test.describe('Regrouping a large change', () => {
 			journey.within(original).byRole('button', { name: 'Show this large change' })
 		);
 		await journey.expectVisible(journey.within(original).byText('old line 1', { exact: true }));
-		for (let i = 0; i < 4; i += 1) await journey.press('PageDown');
+		for (let i = 0; i < 4; i += 1) await journey.scroll('PageDown');
 		await expect.poll(() => journey.verticalPosition(original)).toBeLessThan(-2_000);
 		const deep = await journey.verticalPosition(original);
 
@@ -67,20 +67,23 @@ test.describe('Regrouping a large change', () => {
 
 		// A restored bookmark must also open the large change and draw its chunk
 		// when the fresh page only has the file header.
-		for (let i = 0; i < 8; i += 1) await journey.press('PageDown');
+		for (let i = 0; i < 8; i += 1) await journey.scroll('PageDown');
 		await expect.poll(() => journey.verticalPosition(original)).toBeLessThan(-4_500);
-		const savedLine = { name: /old line 262$/ };
-		const savedRow = journey.within(original).byRole('row', savedLine);
-		await journey.expectInView(savedRow);
 		await journey.press('b');
+		const announcement = journey.byText(/^Bookmarked data\/rows\.txt, line \d+\.$/);
+		await journey.expectVisible(announcement);
+		const line = (await journey.textOf(announcement)).match(/line (\d+)\./)?.[1];
+		expect(Number(line)).toBeGreaterThan(250);
+		const savedLine = { name: new RegExp(`old line ${line ?? ''}$`) };
+		await journey.expectInView(journey.within(original).byRole('row', savedLine));
 		const bookmark = journey.byRole('button', { name: `Return to bookmark ${file}` });
 		await journey.expectVisible(bookmark);
 		await journey.open(await journey.address());
 		await journey.expectVisible(bookmark);
 		await journey.press('Shift+KeyB');
-		// A bookmark returns to a line, even if its exact offset before the reload varied.
-		await journey.expectFocused(savedRow);
-		await journey.expectInView(savedRow);
+		const restored = journey.within(original).byRole('row', savedLine);
+		await journey.expectFocused(restored);
+		await journey.expectUncovered(restored);
 		await journey.step('A bookmark deep in a large change');
 
 		await moveTo('after');
@@ -88,7 +91,28 @@ test.describe('Regrouping a large change', () => {
 		await journey.expectVisible(moved);
 		await journey.press('Shift+KeyB');
 		await journey.expectFocused(journey.within(moved).byRole('row', savedLine));
-		await journey.expectInView(journey.within(moved).byRole('row', savedLine));
+		await journey.expectUncovered(journey.within(moved).byRole('row', savedLine));
 		await journey.step('A bookmark after its file moves sections');
+
+		await journey.press('/');
+		const search = journey.byRole('search', { name: 'Search the diff' });
+		const reviewed = journey.within(moved).byRole('checkbox', { name: `Reviewed: ${file}` });
+		const toggle = journey.within(moved).byRole('button', { name: file });
+		await journey.expectInView(toggle);
+		expect(await journey.verticalPosition(moved)).toBeLessThan(-2_000);
+		await journey.expectUncovered(reviewed);
+		expect(await journey.verticalPosition(reviewed)).toBeGreaterThan(
+			await journey.verticalPosition(search)
+		);
+		await journey.step('The file header stays below search');
+
+		await journey.expectCollapse(toggle, 'no-preference', () =>
+			journey.activate(reviewed, 'Space')
+		);
+		await journey.expectFocused(journey.byRole('heading', { name: 'Everything is reviewed' }));
+
+		await journey.activate(reviewed, 'Space');
+		await journey.expectState(toggle, { expanded: true });
+		await journey.expectCollapse(toggle, 'reduce', () => journey.activate(reviewed, 'Space'));
 	});
 });

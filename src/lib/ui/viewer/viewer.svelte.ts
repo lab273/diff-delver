@@ -822,7 +822,11 @@ export class Viewer {
 	}
 
 	/** Marks a part, a file or a group reviewed, or not, on the version the page shows. */
-	async tick(target: TickTarget, reviewed: boolean): Promise<TickOutcome> {
+	async tick(
+		target: TickTarget,
+		reviewed: boolean,
+		beforeClose?: (part: PartState) => void
+	): Promise<TickOutcome> {
 		const busy = this.#partsOf(target);
 		for (const part of busy) {
 			part.busy = true;
@@ -859,6 +863,7 @@ export class Viewer {
 			const state = at === undefined ? undefined : this.parts[at];
 			if (state === undefined) continue;
 			const wasDone = done(state.part.tally);
+			if (!wasDone && done(part.tally)) beforeClose?.(state);
 			state.part = part;
 			// A part just ticked is put away, and one just unticked is opened again, as
 			// GitHub does; its lines are fetched when it comes near the screen, as any
