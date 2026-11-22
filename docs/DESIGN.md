@@ -456,9 +456,15 @@ resolves it or replies, and that action is part of the current review.
 Drafts are private. No MCP tool returns an unsubmitted review, so an agent never
 acts on half-written comments. For now, saved comments stay at their original
 file, side and line range when a Delve is updated. The draft lists them with
-the version they were written on. If the Delve changes before a comment is
-saved, its text and original range stay in the open page until the reviewer
-chooses new lines or discards the comment.
+the version they were written on. A saved comment's lines never change; its words
+can be edited, and it can be deleted, from a page that shows the current version.
+A comment's id is never given to another, and a change or deletion says which
+edit of the comment the page saw, so a second tab cannot overwrite the first
+unseen.
+If the Delve changes before a comment is saved, its words stay in the open page
+and wait for the next line the reviewer presses, or until the reviewer discards
+them. Nothing typed is lost to a refused save, an update, or an agent sorting the
+diff again.
 
 ### 6.4 History
 
@@ -632,6 +638,13 @@ line, with shift-click or a drag to extend. By keyboard it is the same thing:
 move to a line with the arrow keys, hold Shift with the arrow keys to extend the
 selection, and press Enter to open the menu.
 
+Commenting is the one of the three built so far, so for now there is no menu: a
+line's number is the control, a `+` shows on it on hover and focus, and pressing it
+opens the comment box under the line. `c` goes from a file to its lines and, on a
+line, opens the box. A saved comment is drawn under the last of its lines, as plain
+text, with **Edit** and **Delete**; a list above the diff counts every comment and
+goes to each. The menu comes back when flags and questions do.
+
 **States explained in place.** Wherever something could puzzle a newcomer, the
 page says what it is, once and briefly:
 
@@ -778,15 +791,28 @@ The quoted code is inserted by the server from the snapshot.
 - One git object store per reviewed repository in the data directory (3.2).
 - Review state is personal and never written into the repository.
 - The daemon binds to `127.0.0.1`, checks `Host` and `Origin`, and requires a
-  bearer token or browser session cookie. Neither token appears on a command line
-  or in an address. Browser links carry a single-use code, good for two minutes,
-  which the daemon exchanges for a session cookie. A link opened by the local
-  `diff-delver` command grants access to private drafts. Links from MCP open the
-  Delve and preserve any review access the browser already has. The grants use
-  separate Strict cookies. A cross-site entry commits a local page before
-  continuing to the Delve, so the browser can send those cookies. The daemon
-  requires a review grant to read or save drafts or delete a Delve. Pages load
-  only the daemon's own resources and scripts.
+  bearer token or browser session cookie. No token appears on a command line or in
+  an address. A browser is let in by a single-use code, good for two minutes, which
+  the daemon exchanges for a session cookie. There are two grants, each with its
+  own Strict cookie. A link written into an agent's answer lets a browser read and
+  tick. Reading and writing drafts, and deleting a Delve, need review access, which
+  only a window diff delver opens in the person's own browser has: the one the
+  command opens, the one opened for an agent's new report, and the one a page asks
+  for with **Turn on comments in this browser**. Whoever asks for such a window
+  names a page of the daemon and learns only whether a browser could be asked; the
+  code goes to the system's browser opener and nowhere else. So an agent can make a
+  window appear in front of the person, at most one every few seconds, and cannot
+  receive the grant. A cross-site
+  entry commits a local page before continuing to the Delve, so the browser can
+  send those cookies. Pages load only the daemon's own resources and scripts.
+- The review cookie's token belongs to the data folder and is kept there, readable
+  only by the person, so a browser keeps review access when the daemon restarts.
+  Every other token and code is one daemon's and ends with it. Stopping diff
+  delver, deleting that file and starting it again takes review access from every
+  browser. Accepted: a
+  review cookie that reached another server on the machine stays good until then,
+  not only until the daemon stops; and anything that can drive the person's own
+  browser can press the button, as it could already do anything else there.
 - Browsers send a cookie to every port of a host, so another server on the same
   machine that the person visits would receive this cookie. That is accepted for a
   tool one person runs on their own machine.
@@ -877,6 +903,7 @@ guidance says [how journeys are tested](DEVELOPING.md#testing).
 | J15 | Disk space | see what each report and snapshot takes, delete a report and see the space freed |
 | J16 | Reading and finding | read code coloured by language or plain, in one column or side by side, with white-space changes hidden, search the whole diff, move from match to match, and open changed and unchanged files by name |
 | J17 | Choose commits to review | open the choose page for a repository, see its branches and commits with their times and sizes, pick a run of commits or a whole branch with the keyboard, open it, and see when the repository last fetched and whether origin has moved on |
+| J18 | Draft comments | open a Delve from an agent's link and turn comments on in one press, comment on a line or a run of lines from the line itself, see each comment at its lines and in a list that goes to it, edit and delete one, and keep what was typed through a refused save and an update |
 
 The agent interface is also tried with real coding agents. Recorded sessions of
 Claude Code and Codex sorting fixture diffs through the MCP server are kept in the
