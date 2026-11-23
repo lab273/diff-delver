@@ -25,6 +25,7 @@ import {
 } from './index.ts';
 import { sqliteError } from './database.ts';
 import { schemaVersionOf } from '#lib/core/schema-version.tiny.ts';
+import { draftCommentsOf } from './tables/draft-comments.ts';
 import { insertReport, reportById, setReportState } from './tables/reports.ts';
 import { insertRevision } from './tables/revisions.ts';
 
@@ -175,6 +176,11 @@ describe('the database', () => {
 				version: 9,
 				name: 'private draft comments on lines of a revision',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 10,
+				name: 'when a draft comment was written, and when its words were last changed',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -253,6 +259,41 @@ describe('the database', () => {
 		);
 		db.close();
 		expect(checked).toEqual({ problems: [], reason: 'snapshot-gone', revisions: [] });
+	});
+
+	it('says a comment saved before its time was kept was written when its version was taken', async () => {
+		const dir = await tempDirectory();
+		const ids = sequentialIds();
+		const id = ids.reportId();
+		const revision = aRevision(ids.revisionId(), id);
+		const before = value(await Database.open(dir, clock(), MIGRATIONS.slice(0, 9)));
+		value(
+			before.write((q) => {
+				insertReport(q, aReport(id));
+				insertRevision(q, revision);
+				q.run(
+					`INSERT INTO draft_comments (revision_id, path, side, first_line, last_line, body)
+					 VALUES (?, ?, 'new', 2, 3, 'Written before the upgrade.')`,
+					revision.id,
+					new TextEncoder().encode('src/a.ts')
+				);
+				return ok(undefined);
+			})
+		);
+		before.close();
+
+		const db = await opened(dir);
+		const comments = value(db.read((q) => draftCommentsOf(q, id)));
+		db.close();
+		expect(comments).toMatchObject([
+			{
+				version: revision.number,
+				anchor: { path: 'src/a.ts', side: 'new', first: 2, last: 3 },
+				body: 'Written before the upgrade.',
+				writtenAt: revision.takenAt,
+				editedAt: undefined
+			}
+		]);
 	});
 
 	it('upgrades a version 1 file through every migration and a next one that adds a table and a column', async () => {

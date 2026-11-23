@@ -523,6 +523,7 @@ export function statusOf(error: ReportError): number {
 		case 'SnapshotGone':
 		case 'PartNotFound':
 		case 'PathNotFound':
+		case 'CommentNotFound':
 			return 404;
 		case 'ReportClosed':
 		case 'AnotherReportOpen':

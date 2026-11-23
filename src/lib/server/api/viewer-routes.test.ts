@@ -9,6 +9,7 @@ import type { AddDraftComment, DiffPage, PartQuery } from '#lib/api/schemas.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseRevisionNumber, type RevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import { parseDraftCommentId, type DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import { settableClock } from '#lib/core/clock.ts';
@@ -48,6 +49,14 @@ const viewed = defineFixture('viewer-routes', async (repo) => {
 	await repo.write('logo.png', new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 9, 9, 9, 9, 9]));
 	await repo.write('pnpm-lock.yaml', 'lockfileVersion: 10\n');
 });
+
+function commentId(n: number): DraftCommentId {
+	return value(parseDraftCommentId(n));
+}
+
+function at(time: number) {
+	return value(parseTimestamp(time));
+}
 
 function revision(n: number): RevisionNumber {
 	return value(parseRevisionNumber(n));
@@ -721,7 +730,7 @@ describe('private draft comments', () => {
 		const started = value(await client.start({ directory: repo.dir }));
 		if (started.kind !== 'opened') throw new Error(started.kind);
 		const id = started.diff.id;
-		expect(value(await client.draftComments(id))).toEqual([]);
+		expect(value(await client.draftComments(id)).comments).toEqual([]);
 
 		const request: AddDraftComment = {
 			version: revision(1),
@@ -797,12 +806,171 @@ describe('private draft comments', () => {
 			error: { status: 409, reason: 'VersionOutOfDate' }
 		});
 		const reopened = await browserClient(daemon);
-		expect(value(await reopened.draftComments(id))).toEqual([after, before]);
+		expect(value(await reopened.draftComments(id)).comments).toEqual([after, before]);
 		value(await reopened.closeDiff(id));
-		expect(value(await reopened.draftComments(id))).toEqual([after, before]);
+		expect(value(await reopened.draftComments(id)).comments).toEqual([after, before]);
 		expect(await reopened.addDraftComment(id, { ...request, version: revision(2) })).toMatchObject({
 			ok: false,
 			error: { status: 409, reason: 'ReportClosed' }
 		});
+	});
+
+	it('changes and deletes a comment only from a page that shows the current version', async () => {
+		const repo = await useFixture(viewed);
+		const clock = settableClock(at(Date.UTC(2026, 0, 15, 9, 30)));
+		const daemon = await testDaemon({ clock });
+		const client = await browserClient(daemon);
+		const started = value(await client.start({ directory: repo.dir }));
+		if (started.kind !== 'opened') throw new Error(started.kind);
+		const id = started.diff.id;
+		const add = (body: string, first: number) =>
+			client.addDraftComment(id, {
+				version: revision(1),
+				anchor: {
+					path: path('src/long.ts'),
+					side: 'new',
+					first: lineNumberOf(first),
+					last: lineNumberOf(first)
+				},
+				body
+			});
+		const written = clock.now();
+		const first = value(await add('Is ten the right number?', 10));
+		const second = value(await add('And this one.', 11));
+		expect(first).toMatchObject({ writtenAt: written, editedAt: null });
+		expect(value(await client.draftComments(id))).toEqual({
+			now: written,
+			comments: [first, second]
+		});
+
+		// Its words change; its lines, its version and when it was written do not.
+		clock.advance(90_000);
+		const edited = value(
+			await client.editDraftComment(id, first.id, {
+				version: revision(1),
+				body: 'Is ten the right number?\nIt was nine before.'
+			})
+		);
+		expect(edited).toEqual({
+			...first,
+			body: 'Is ten the right number?\nIt was nine before.',
+			editedAt: clock.now()
+		});
+		// The same words again change nothing, not even when they were edited.
+		clock.advance(1_000);
+		expect(
+			value(
+				await client.editDraftComment(id, first.id, { version: revision(1), body: edited.body })
+			)
+		).toEqual(edited);
+		expect(value(await client.draftComments(id))).toEqual({
+			now: clock.now(),
+			comments: [edited, second]
+		});
+
+		const refusals = [
+			[await client.editDraftComment(id, first.id, { version: revision(1), body: ' \n' }), 400],
+			[
+				await client.editDraftComment(id, first.id, {
+					version: revision(1),
+					body: 'x'.repeat(10_001)
+				}),
+				400
+			],
+			// No such comment, in this Delve or at all.
+			[await client.editDraftComment(id, commentId(99), { version: revision(1), body: 'x' }), 404],
+			[await client.deleteDraftComment(id, commentId(99), { version: revision(1) }), 404],
+			// A version the Delve never had.
+			[await client.editDraftComment(id, first.id, { version: revision(2), body: 'x' }), 409],
+			[await client.deleteDraftComment(id, first.id, { version: revision(2) }), 409]
+		] as const;
+		for (const [answer, status] of refusals) {
+			expect(answer).toMatchObject({ ok: false, error: { status } });
+		}
+
+		// A comment belongs to its own Delve: another Delve's address does not reach it.
+		const another = await useFixture(viewed);
+		const other = value(await client.start({ directory: another.dir }));
+		if (other.kind !== 'opened') throw new Error(other.kind);
+		for (const answer of [
+			await client.editDraftComment(other.diff.id, first.id, { version: revision(1), body: 'x' }),
+			await client.deleteDraftComment(other.diff.id, first.id, { version: revision(1) })
+		]) {
+			expect(answer).toMatchObject({
+				ok: false,
+				error: { status: 404, reason: 'CommentNotFound' }
+			});
+		}
+
+		// Only a browser that may write drafts, from the daemon's own pages.
+		const endpoint = `/api/diffs/${id}/comments/${String(first.id)}`;
+		const cookie = await browserCookie(daemon);
+		const body = JSON.stringify({ version: 1, body: 'From somewhere else.' });
+		// Said outright: Node sends no length of its own with a DELETE.
+		const json = { 'content-type': 'application/json', 'content-length': String(body.length) };
+		for (const method of ['POST', 'DELETE']) {
+			for (const headers of [
+				{ authorization: `Bearer ${daemon.token}`, ...json },
+				{ authorization: `Bearer ${daemon.mcpToken}`, ...json },
+				{ cookie, origin: 'http://example.test', ...json },
+				{ cookie, ...json },
+				{ origin: daemon.origin, ...json }
+			]) {
+				expect(
+					(await rawRequest(daemon.port, { method, path: endpoint, headers, body })).status,
+					`${method} ${JSON.stringify(Object.keys(headers))}`
+				).toBe(403);
+			}
+			expect(
+				(
+					await rawRequest(daemon.port, {
+						method,
+						path: `/api/diffs/${id}/comments/first`,
+						headers: { cookie, origin: daemon.origin, ...json },
+						body
+					})
+				).status
+			).toBe(404);
+		}
+		expect(value(await client.draftComments(id)).comments).toEqual([edited, second]);
+
+		// The Delve moves on: a page still on version 1 changes nothing, and is told why.
+		await repo.write('src/new.ts', 'export const n = 2;\n');
+		expect(value(await client.updateDiff(id)).kind).toBe('updated');
+		const stale = await client.editDraftComment(id, first.id, {
+			version: revision(1),
+			body: 'Typed on the old page.'
+		});
+		expect(stale).toMatchObject({ ok: false, error: { status: 409, reason: 'VersionOutOfDate' } });
+		expect(await client.deleteDraftComment(id, second.id, { version: revision(1) })).toMatchObject({
+			ok: false,
+			error: { status: 409, reason: 'VersionOutOfDate' }
+		});
+		expect(value(await client.draftComments(id)).comments).toEqual([edited, second]);
+
+		// From the new version, a comment whose lines are in the old one can still be changed and deleted.
+		clock.advance(60_000);
+		const later = value(
+			await client.editDraftComment(id, first.id, { version: revision(2), body: 'Shorter.' })
+		);
+		expect(later).toMatchObject({ version: 1, body: 'Shorter.', editedAt: clock.now() });
+		expect(value(await client.deleteDraftComment(id, second.id, { version: revision(2) }))).toEqual(
+			second
+		);
+		expect(value(await client.draftComments(id)).comments).toEqual([later]);
+		expect(await client.deleteDraftComment(id, second.id, { version: revision(2) })).toMatchObject({
+			ok: false,
+			error: { status: 404, reason: 'CommentNotFound' }
+		});
+
+		// A closed Delve can be read, not changed.
+		value(await client.closeDiff(id));
+		for (const answer of [
+			await client.editDraftComment(id, first.id, { version: revision(2), body: 'x' }),
+			await client.deleteDraftComment(id, first.id, { version: revision(2) })
+		]) {
+			expect(answer).toMatchObject({ ok: false, error: { status: 409, reason: 'ReportClosed' } });
+		}
+		expect(value(await client.draftComments(id)).comments).toEqual([later]);
 	});
 });

@@ -311,6 +311,18 @@ CREATE TABLE draft_comments (
 ) STRICT;
 CREATE INDEX draft_comments_by_revision ON draft_comments (revision_id);
 `
+	},
+	{
+		version: schemaVersionOf(10),
+		name: 'when a draft comment was written, and when its words were last changed',
+		sql: `
+-- A comment written before these columns says it was written when its version
+-- was taken: the earliest it can have been, since nothing kept the moment.
+ALTER TABLE draft_comments ADD COLUMN written_at INTEGER NOT NULL DEFAULT 0 CHECK (written_at >= 0);
+ALTER TABLE draft_comments ADD COLUMN edited_at INTEGER CHECK (edited_at >= 0);
+UPDATE draft_comments
+SET written_at = (SELECT taken_at FROM revisions WHERE revisions.id = draft_comments.revision_id);
+`
 	}
 ];
 

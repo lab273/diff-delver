@@ -977,7 +977,7 @@ describe('/mcp over HTTP', () => {
 		expect(refused.status).toBe(403);
 		expect(JSON.parse(refused.body)).toMatchObject({ error: { kind: 'BrowserSessionRequired' } });
 		const stored = await rawRequest(daemon.port, { path: comments, headers: { cookie: review } });
-		expect(JSON.parse(stored.body)).toEqual([JSON.parse(post.body)]);
+		expect(JSON.parse(stored.body)).toMatchObject({ comments: [JSON.parse(post.body)] });
 		expect((await remove(review)).status).toBe(200);
 		expect(
 			(await rawRequest(daemon.port, { path: comments, headers: { cookie: review } })).status

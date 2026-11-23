@@ -54,6 +54,7 @@ export function describeForAgent(error: ReportError): TextForAgent {
 		case 'FileIsBinary':
 		case 'InvalidCommentRange':
 		case 'InvalidCommentBody':
+		case 'CommentNotFound':
 		case 'FileNotInDiff':
 		case 'NothingToMark':
 		case 'SortingChanged':

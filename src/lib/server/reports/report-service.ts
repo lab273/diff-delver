@@ -89,12 +89,19 @@ import {
 import type { AgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { overviewOf, setOverview as storeOverview } from '../db/tables/overviews.ts';
 import { referenceRowsFor, replaceReferenceRows } from '../db/tables/section-references.ts';
+import type { DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 import {
-	MAX_COMMENT_LENGTH,
+	isCommentBody,
 	type CommentAnchor,
 	type DraftComment
 } from '#lib/core/review/draft-comment.ts';
-import { draftCommentsOf, insertDraftComment } from '../db/tables/draft-comments.ts';
+import {
+	deleteDraftComment,
+	draftCommentOf,
+	draftCommentsOf,
+	insertDraftComment,
+	updateDraftComment
+} from '../db/tables/draft-comments.ts';
 import { markReviewed, type ReviewTarget } from '#lib/core/review/mark-reviewed.ts';
 import { reviewProgress, unitProgressOf, type Progress } from '#lib/core/review/progress.ts';
 import { NO_MARKS, type ReviewedMarks } from '#lib/core/review/reviewed-marks.ts';
@@ -1558,9 +1565,7 @@ export class ReportService {
 		anchor: CommentAnchor,
 		body: string
 	): Promise<Result<DraftComment, ReportError>> {
-		if (body.trim() === '' || body.length > MAX_COMMENT_LENGTH) {
-			return err({ kind: 'InvalidCommentBody' });
-		}
+		if (!isCommentBody(body)) return err({ kind: 'InvalidCommentBody' });
 		if (anchor.last < anchor.first) return err({ kind: 'InvalidCommentRange' });
 		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
 		if (!found.ok) return found;
@@ -1581,14 +1586,60 @@ export class ReportService {
 				if (now.revision.id !== revision.id) {
 					return err({ kind: 'RevisionChangedWhileSaving', report: id });
 				}
+				const at = this.#clock.now();
 				return andThen(
-					insertDraftComment(q, revision.id, seen, { ...anchor, path: side.path }, body),
+					insertDraftComment(q, revision.id, { ...anchor, path: side.path }, body, at),
 					(saved) => {
-						touchReport(q, id, this.#clock.now());
+						touchReport(q, id, at);
 						return ok(saved);
 					}
 				);
 			})
+		);
+	}
+
+	/**
+	 * Changes the words of a comment of the draft, whichever version its lines
+	 * are in. Like every change the reviewer makes, it is made only from a page
+	 * that shows the Delve's current version (`seen`) and only while it is open:
+	 * otherwise nothing changes and the answer says why.
+	 */
+	editDraftComment(
+		id: ReportId,
+		seen: RevisionNumber,
+		comment: DraftCommentId,
+		body: string
+	): Result<DraftComment, ReportError> {
+		if (!isCommentBody(body)) return err({ kind: 'InvalidCommentBody' });
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), () =>
+				andThen(draftCommentOf(q, id, comment), (found): Result<DraftComment, ReportError> => {
+					if (found === undefined) return err({ kind: 'CommentNotFound' });
+					if (found.body === body) return ok(found);
+					const at = this.#clock.now();
+					updateDraftComment(q, comment, body, at);
+					touchReport(q, id, at);
+					return ok({ ...found, body, editedAt: at });
+				})
+			)
+		);
+	}
+
+	/** Deletes a comment of the draft, under the same rule as `editDraftComment`. */
+	deleteDraftComment(
+		id: ReportId,
+		seen: RevisionNumber,
+		comment: DraftCommentId
+	): Result<DraftComment, ReportError> {
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), () =>
+				andThen(draftCommentOf(q, id, comment), (found): Result<DraftComment, ReportError> => {
+					if (found === undefined) return err({ kind: 'CommentNotFound' });
+					deleteDraftComment(q, comment);
+					touchReport(q, id, this.#clock.now());
+					return ok(found);
+				})
+			)
 		);
 	}
 

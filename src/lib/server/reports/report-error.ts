@@ -145,6 +145,8 @@ export type ReportError =
 	| PartNotFound
 	| { readonly kind: 'InvalidCommentRange' }
 	| { readonly kind: 'InvalidCommentBody' }
+	/** The Delve's draft has no comment with that id: it was deleted, as from another tab. */
+	| { readonly kind: 'CommentNotFound' }
 	| PathNotFound
 	| PathIsDirectory
 	| PathIsSubmodule
@@ -215,6 +217,10 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 			);
 		case 'InvalidCommentBody':
 			return reviewerMessage(`Write a comment of up to ${String(MAX_COMMENT_LENGTH)} characters.`);
+		case 'CommentNotFound':
+			return reviewerMessage(
+				'This comment is no longer in your draft: it was deleted, perhaps in another tab, so nothing was changed. If you still want what you wrote, copy it and write it as a new comment.'
+			);
 		case 'PartNotFound':
 			return reviewerMessage(
 				`This part of ${shownRepoPath(error.path)} is not where the page showed it any more: the Delve was sorted again since. Reload the page to see where it is now.`

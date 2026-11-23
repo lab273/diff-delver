@@ -2,7 +2,7 @@
 	import { tick } from 'svelte';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
-	import { MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
+	import { MAX_COMMENT_LENGTH, describeCommentLines } from '#lib/core/review/draft-comment.ts';
 	import PathText from '#lib/ui/PathText.svelte';
 	import type { CommentDraft } from './draft-comment.svelte.ts';
 
@@ -50,10 +50,7 @@
 		<p>
 			<strong>Unsaved comment</strong>
 			· <PathText path={anchor.path} />
-			· {anchor.side === 'old' ? 'Before' : 'After'},
-			{anchor.first === anchor.last
-				? `line ${String(anchor.first)}`
-				: `lines ${String(anchor.first)}–${String(anchor.last)}`}
+			· {describeCommentLines(anchor)}
 			· Version {original}
 		</p>
 		{#if stale}

@@ -23,6 +23,7 @@ import { parseRemoteName } from '#lib/core/history/remote-name.tiny.ts';
 import { parseSubjectLine } from '#lib/core/history/subject-line.tiny.ts';
 import { parseFileCount } from '#lib/core/file-count.tiny.ts';
 import { parseFileMode } from '#lib/core/file-mode.tiny.ts';
+import { parseDraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 import { parseEntryCode } from '#lib/core/entry-code.tiny.ts';
 import { parseByteSize } from '#lib/core/byte-size.tiny.ts';
 import { parseLineCount } from '#lib/core/line-count.tiny.ts';
@@ -887,6 +888,34 @@ export const AddDraftCommentSchema = z.strictObject({
 });
 export type AddDraftComment = z.infer<typeof AddDraftCommentSchema>;
 
-export const DraftCommentSchema = AddDraftCommentSchema.extend({ id: z.number().int().positive() });
-export const DraftCommentsSchema = z.array(DraftCommentSchema);
+/** POST /api/diffs/[id]/comments/[comment]: a comment's new words, from a page that shows `version`. */
+export const EditDraftCommentSchema = z.strictObject({ version, body: commentBody });
+export type EditDraftComment = z.infer<typeof EditDraftCommentSchema>;
+
+/** DELETE /api/diffs/[id]/comments/[comment], from a page that shows `version`. */
+export const DeleteDraftCommentSchema = z.strictObject({ version });
+export type DeleteDraftComment = z.infer<typeof DeleteDraftCommentSchema>;
+
+const draftCommentId = parsed(z.number(), parseDraftCommentId);
+
+/** One saved comment: the version its lines are in, its words, and when they were written. */
+export const DraftCommentSchema = AddDraftCommentSchema.extend({
+	id: draftCommentId,
+	writtenAt: timestamp,
+	/** When its words were last changed, or null while they are as first written. */
+	editedAt: timestamp.nullable()
+});
 export type DraftCommentView = z.infer<typeof DraftCommentSchema>;
+
+/** GET /api/diffs/[id]/comments: the whole draft, with the daemon's time to say how long ago. */
+export const DraftCommentsSchema = z.strictObject({
+	now: timestamp,
+	comments: z.array(DraftCommentSchema)
+});
+export type DraftCommentsView = z.infer<typeof DraftCommentsSchema>;
+
+/** A comment's id in an address, where it is text. */
+export const DraftCommentIdInAddressSchema = parsed(
+	z.string().regex(/^[1-9][0-9]{0,15}$/),
+	(text) => parseDraftCommentId(Number(text))
+);

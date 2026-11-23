@@ -18,7 +18,10 @@ import {
 	DraftCommentSchema,
 	DraftCommentsSchema,
 	type DraftCommentView,
+	type DraftCommentsView,
 	type AddDraftComment,
+	type DeleteDraftComment,
+	type EditDraftComment,
 	ChangeCheckSchema,
 	CommitsSchema,
 	HistorySchema,
@@ -84,6 +87,7 @@ import {
 	type SuggestResponse,
 	type UpdateResponse
 } from './schemas.ts';
+import type { DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { groupKeyId } from '#lib/core/group-key-id.tiny.ts';
 import { writeSpans } from '#lib/core/viewer/line-spans.ts';
@@ -375,7 +379,8 @@ export class ApiClient {
 		return this.#call('GET', `/api/diffs/${id}/lines?${query.toString()}`, LinesSchema);
 	}
 
-	draftComments(id: ReportId): Promise<Result<DraftCommentView[], ApiError>> {
+	/** The reviewer's whole draft: every comment, on whichever version, oldest first. */
+	draftComments(id: ReportId): Promise<Result<DraftCommentsView, ApiError>> {
 		return this.#call('GET', `/api/diffs/${id}/comments`, DraftCommentsSchema);
 	}
 
@@ -384,6 +389,34 @@ export class ApiClient {
 		request: AddDraftComment
 	): Promise<Result<DraftCommentView, ApiError>> {
 		return this.#call('POST', `/api/diffs/${id}/comments`, DraftCommentSchema, request);
+	}
+
+	/** Changes a comment's words, from a page that shows the Delve's current version. */
+	editDraftComment(
+		id: ReportId,
+		comment: DraftCommentId,
+		request: EditDraftComment
+	): Promise<Result<DraftCommentView, ApiError>> {
+		return this.#call(
+			'POST',
+			`/api/diffs/${id}/comments/${String(comment)}`,
+			DraftCommentSchema,
+			request
+		);
+	}
+
+	/** Deletes a comment, from a page that shows the Delve's current version; gives what it was. */
+	deleteDraftComment(
+		id: ReportId,
+		comment: DraftCommentId,
+		request: DeleteDraftComment
+	): Promise<Result<DraftCommentView, ApiError>> {
+		return this.#call(
+			'DELETE',
+			`/api/diffs/${id}/comments/${String(comment)}`,
+			DraftCommentSchema,
+			request
+		);
 	}
 
 	/** Marks a part, a file or a group of the version the page shows as reviewed, or not. */

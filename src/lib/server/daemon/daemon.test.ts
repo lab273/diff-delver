@@ -253,7 +253,9 @@ describe('the daemon’s gate', () => {
 		expect((await rawRequest(second.port, { path: delve, headers: { cookie } })).status).toBe(200);
 		const stored = await rawRequest(second.port, { path: comments, headers: { cookie } });
 		expect(stored.status).toBe(200);
-		expect(JSON.parse(stored.body)).toEqual([JSON.parse(JSON.stringify(saved))]);
+		expect(JSON.parse(stored.body)).toMatchObject({
+			comments: [JSON.parse(JSON.stringify(saved))]
+		});
 		// A link, and the command's own credential, are one daemon's and end with it.
 		expect((await rawRequest(second.port, { path: `${delve}?entry=${unused}` })).status).toBe(403);
 		expect(

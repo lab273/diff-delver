@@ -2,6 +2,7 @@
 	import type { DraftCommentView } from '#lib/api/schemas.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
+	import { describeCommentLines } from '#lib/core/review/draft-comment.ts';
 	import PathText from '#lib/ui/PathText.svelte';
 	import { describeApiError } from '#lib/api/client.ts';
 	import { pageClient } from '#lib/ui/client.ts';
@@ -36,7 +37,7 @@
 			.then((result) => {
 				if (!current || changes !== saved || id !== report) return;
 				loading = false;
-				if (result.ok) comments = result.value;
+				if (result.ok) comments = result.value.comments;
 				else problem = describeApiError(result.error);
 			});
 		return () => {
@@ -68,10 +69,7 @@
 					<li>
 						<strong><PathText path={anchor.path} /></strong>
 						<span>
-							· {anchor.side === 'old' ? 'Before' : 'After'},
-							{anchor.first === anchor.last
-								? `line ${String(anchor.first)}`
-								: `lines ${String(anchor.first)}–${String(anchor.last)}`}
+							· {describeCommentLines(anchor)}
 							· {original < version ? 'Earlier version' : 'Version'}
 							{original}
 						</span>
