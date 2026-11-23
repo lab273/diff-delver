@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { describeApiError } from '#lib/api/client.ts';
@@ -6,7 +6,6 @@ import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseAbsolutePath } from '#lib/core/absolute-path.tiny.ts';
-import { tokenCookieName } from '#lib/core/daemon/request-gate.ts';
 import {
 	defineFixture,
 	emptyRepo,
@@ -34,6 +33,7 @@ import { snapshotGitSource } from '#lib/server/sources/git/index.ts';
 import { located } from '../../../../tests/support/git-source-helpers.ts';
 import { at } from '../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../tests/support/reviewer-git.ts';
+import { BROWSER_ACCESS_FILE } from './browser-access.ts';
 import { lockfilePath, readLockfile } from './lockfile.ts';
 
 /** A committed file, edited, and a new one: uncommitted changes to open. */
@@ -186,9 +186,7 @@ describe('the daemon’s gate', () => {
 		expect(entered.headers['location']).toBe('/');
 		const session = entered.headers['set-cookie']?.[0];
 		expect(session).toMatch(
-			new RegExp(
-				`^${tokenCookieName(daemon.port)}=[a-f0-9]{64}; Path=/; HttpOnly; SameSite=Strict$`
-			)
+			new RegExp(`^${daemon.reviewCookie}=[a-f0-9]{64}; Path=/; HttpOnly; SameSite=Strict$`)
 		);
 		expect(session).not.toContain(daemon.token);
 		expect(entered.headers['referrer-policy']).toBe('no-referrer');
@@ -217,7 +215,7 @@ describe('the daemon’s gate', () => {
 		expect(token.headers['set-cookie']).toBeUndefined();
 	});
 
-	it('opens the same stored draft with a new CLI link after a daemon restart', async () => {
+	it('keeps a browser’s review access through a restart, and nothing else it gave out', async () => {
 		const dataDirectory = await tempDirectory();
 		const repo = await useFixture(edited);
 		const first = await testDaemon({ dataDirectory });
@@ -240,16 +238,23 @@ describe('the daemon’s gate', () => {
 		);
 		const cookie = await browserCookie(first);
 		const unused = value(await command.entryCode()).code;
+		// Only the person may read what is kept, as with the lockfile beside it.
+		const kept = join(dataDirectory, BROWSER_ACCESS_FILE);
+		expect((await stat(kept)).mode & 0o777).toBe(0o600);
+		expect(await readFile(kept, 'utf8')).toContain(cookie.split('=', 2)[1] ?? 'none');
 		await first.stop();
+		expect((await stat(kept)).mode & 0o777).toBe(0o600);
 
 		const second = await testDaemon({ dataDirectory });
 		const delve = `/diffs/${id}`;
-		// Even if a port is reused, the two daemons have different grants.
-		const oldToken = cookie.split('=', 2)[1] ?? '';
-		const oldCookie = `${tokenCookieName(second.port)}=${oldToken}`;
-		expect(
-			(await rawRequest(second.port, { path: delve, headers: { cookie: oldCookie } })).status
-		).toBe(403);
+		const comments = `/api/diffs/${id}/comments`;
+		// The same browser may still read and write the drafts, with no new link.
+		expect(second.reviewCookie).toBe(first.reviewCookie);
+		expect((await rawRequest(second.port, { path: delve, headers: { cookie } })).status).toBe(200);
+		const stored = await rawRequest(second.port, { path: comments, headers: { cookie } });
+		expect(stored.status).toBe(200);
+		expect(JSON.parse(stored.body)).toEqual([JSON.parse(JSON.stringify(saved))]);
+		// A link, and the command's own credential, are one daemon's and end with it.
 		expect((await rawRequest(second.port, { path: `${delve}?entry=${unused}` })).status).toBe(403);
 		expect(
 			(
@@ -259,8 +264,35 @@ describe('the daemon’s gate', () => {
 				})
 			).status
 		).toBe(403);
-		const renewed = await browserClient(second);
-		expect(value(await renewed.draftComments(id))).toEqual([saved]);
+		expect(second.token).not.toBe(first.token);
+		expect(second.mcpToken).not.toBe(first.mcpToken);
+	});
+
+	it('keeps two data folders’ browsers apart, and forgets a browser when its file is deleted', async () => {
+		const dataDirectory = await tempDirectory();
+		const first = await testDaemon({ dataDirectory });
+		const other = await testDaemon();
+		const cookie = await browserCookie(first);
+		// Cookies go to every port of the host: another folder's daemon must not take this one's.
+		expect(other.reviewCookie).not.toBe(first.reviewCookie);
+		expect((await rawRequest(other.port, { path: '/', headers: { cookie } })).status).toBe(403);
+		const renamed = `${other.reviewCookie}=${cookie.split('=', 2)[1] ?? ''}`;
+		expect((await rawRequest(other.port, { path: '/', headers: { cookie: renamed } })).status).toBe(
+			403
+		);
+		await first.stop();
+
+		// Deleting the file takes review access from every browser.
+		await rm(join(dataDirectory, BROWSER_ACCESS_FILE));
+		const second = await testDaemon({ dataDirectory });
+		expect((await rawRequest(second.port, { path: '/', headers: { cookie } })).status).toBe(403);
+		const again = `${second.reviewCookie}=${cookie.split('=', 2)[1] ?? ''}`;
+		expect((await rawRequest(second.port, { path: '/', headers: { cookie: again } })).status).toBe(
+			403
+		);
+		expect((await rawRequest(second.port, { path: `/?entry=${second.entryCode()}` })).status).toBe(
+			303
+		);
 	});
 
 	it('gives the command an entry code, and only with its token', async () => {

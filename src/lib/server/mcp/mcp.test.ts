@@ -39,7 +39,7 @@ import { value } from '../../../../tests/support/git-source-helpers.ts';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import { connectionOf } from '../daemon/daemon.ts';
 import { readLockfile } from '../daemon/lockfile.ts';
-import { tokenCookieName, viewCookieName } from '#lib/core/daemon/request-gate.ts';
+import { viewCookieName } from '#lib/core/daemon/request-gate.ts';
 import { AGENT_SURFACE_FILE } from './agent-surface.ts';
 import { TOOLS } from './tools.ts';
 
@@ -928,7 +928,7 @@ describe('/mcp over HTTP', () => {
 		const window = await rawRequest(daemon.port, { path: offered.pathname + offered.search });
 		expect(window.status).toBe(303);
 		const windowCookie = window.headers['set-cookie']?.[0]?.split(';', 1)[0] ?? '';
-		expect(windowCookie.split('=', 1)[0]).toBe(tokenCookieName(daemon.port));
+		expect(windowCookie.split('=', 1)[0]).toBe(daemon.reviewCookie);
 		expect(
 			(await rawRequest(daemon.port, { path: comments, headers: { cookie: windowCookie } })).status
 		).toBe(200);

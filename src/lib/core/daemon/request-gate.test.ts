@@ -1,5 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
+import { parseBrowserAccessId } from '../browser-access-id.tiny.ts';
 import { settableClock } from '../clock.ts';
 import { isToken, parseDaemonToken, type DaemonToken } from '../daemon-token.tiny.ts';
 import { parseEntryCode } from '../entry-code.tiny.ts';
@@ -11,7 +12,7 @@ import {
 	describeRefusal,
 	gateRequest,
 	isMcpTarget,
-	tokenCookieName,
+	reviewCookieName,
 	viewCookieName,
 	type GateRequest,
 	type GateSettings,
@@ -29,18 +30,20 @@ const viewToken = made(parseDaemonToken('23'.repeat(32)));
 const browserToken = made(parseDaemonToken('ef'.repeat(32)));
 const other: DaemonToken = made(parseDaemonToken('cd'.repeat(32)));
 const port: PortNumber = made(parsePortNumber(43210));
+const browserId = made(parseBrowserAccessId('9'.repeat(16)));
 const code = 'c'.repeat(32);
 /** The gate as a daemon that has given out `code` and will take any number of times. */
 const settings: GateSettings = {
 	port,
 	token,
+	browserId,
 	browserToken,
 	mcpToken,
 	viewToken,
 	redeemEntryCode: (given) => (given === code ? 'review' : undefined)
 };
 const host = '127.0.0.1:43210';
-const cookie = `${tokenCookieName(port)}=${browserToken}`;
+const cookie = `${reviewCookieName(browserId)}=${browserToken}`;
 
 function request(overrides: Partial<GateRequest>): GateRequest {
 	return {
@@ -79,7 +82,7 @@ describe('the request gate', () => {
 		expect(gateRequest(request({ target: `/diffs/r_1?entry=${code}` }), settings)).toEqual({
 			kind: 'enter',
 			location: '/diffs/r_1',
-			setCookie: `diff-delver-43210=${browserToken}; Path=/; HttpOnly; SameSite=Strict`
+			setCookie: `diff-delver-review-9999999999999999=${browserToken}; Path=/; HttpOnly; SameSite=Strict`
 		});
 		expect(gateRequest(request({ target: `/?entry=${code}` }), settings)).toMatchObject({
 			kind: 'enter',
@@ -98,6 +101,7 @@ describe('the request gate', () => {
 		const once: GateSettings = {
 			port,
 			token,
+			browserId,
 			browserToken,
 			mcpToken,
 			viewToken,
@@ -149,9 +153,9 @@ describe('the request gate', () => {
 			kind: 'refuse',
 			refusal: 'entry-used'
 		});
-		expect(gateRequest(request({ cookie: `${tokenCookieName(port)}=${other}` }), settings)).toEqual(
-			{ kind: 'refuse', refusal: 'wrong-token' }
-		);
+		expect(
+			gateRequest(request({ cookie: `${reviewCookieName(browserId)}=${other}` }), settings)
+		).toEqual({ kind: 'refuse', refusal: 'wrong-token' });
 	});
 
 	it('serves the browser with the cookie, and refuses it without', () => {
@@ -160,10 +164,16 @@ describe('the request gate', () => {
 			kind: 'serve'
 		});
 		expect(gateRequest(request({}), settings)).toEqual({ kind: 'refuse', refusal: 'no-token' });
-		// Another daemon's cookie, on another port of the same host, is not this one's.
-		expect(gateRequest(request({ cookie: `diff-delver-1=${token}` }), settings)).toEqual({
+		// Another data folder's cookie, from a daemon on another port of the same host, is not this one's.
+		const elsewhere = reviewCookieName(made(parseBrowserAccessId('8'.repeat(16))));
+		expect(gateRequest(request({ cookie: `${elsewhere}=${browserToken}` }), settings)).toEqual({
 			kind: 'refuse',
 			refusal: 'no-token'
+		});
+		// The same data folder's daemon, started again on another port, knows its browser.
+		const restarted: GateSettings = { ...settings, port: made(parsePortNumber(43211)) };
+		expect(gateRequest(request({ host: '127.0.0.1:43211', cookie }), restarted)).toEqual({
+			kind: 'serve'
 		});
 	});
 
@@ -292,7 +302,7 @@ describe('the request gate', () => {
 		expect(gateRequest(request({ cookie: viewCookie }), settings)).toEqual({ kind: 'serve' });
 		// Neither cookie stands in for the other.
 		for (const wrong of [
-			`${tokenCookieName(port)}=${viewToken}`,
+			`${reviewCookieName(browserId)}=${viewToken}`,
 			`${viewCookieName(port)}=${browserToken}`
 		]) {
 			expect(gateRequest(request({ cookie: wrong }), settings)).toEqual({
@@ -352,9 +362,9 @@ describe('the request gate', () => {
 						undefined,
 						viewCookie,
 						`${viewCookieName(port)}=${other}`,
-						`${tokenCookieName(port)}=${viewToken}`,
-						`${tokenCookieName(port)}=${mcpToken}`,
-						`${tokenCookieName(port)}=${token}`
+						`${reviewCookieName(browserId)}=${viewToken}`,
+						`${reviewCookieName(browserId)}=${mcpToken}`,
+						`${reviewCookieName(browserId)}=${token}`
 					),
 					authorization: choice(
 						undefined,

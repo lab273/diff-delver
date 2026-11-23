@@ -37,7 +37,7 @@ import { entryCodes, type BrowserGrant } from '#lib/core/daemon/entry-codes.ts';
 import {
 	cookieValue,
 	ENTRY_PARAMETER,
-	tokenCookieName,
+	reviewCookieName,
 	type GateSettings
 } from '#lib/core/daemon/request-gate.ts';
 import type { EntryCode } from '#lib/core/entry-code.tiny.ts';
@@ -55,6 +55,7 @@ import type { RepositoryOptions } from '../sources/git/index.ts';
 import { randomEntryCode } from '../system.ts';
 import type { AppHandler } from './app-handler.ts';
 import { registerDaemon, unregisterDaemon } from './context.ts';
+import { browserAccess } from './browser-access.ts';
 import { daemonServer } from './http-server.ts';
 import { mcpHandler } from '../mcp/mcp-server.ts';
 import { probeLock } from './probe.ts';
@@ -124,6 +125,8 @@ export interface DaemonConnection {
 export interface RunningDaemon extends DaemonConnection {
 	readonly mcpToken: DaemonToken;
 	readonly lock: Lock;
+	/** The name of the cookie a browser that may write drafts holds. */
+	readonly reviewCookie: string;
 	/** A new single-use code that lets a browser in, for an address to open (`entryAddress`). */
 	entryCode(): EntryCode;
 	/** The removal of snapshots a crash left behind, which starting begins. */
@@ -361,13 +364,20 @@ export async function startDaemon(
 		return stopping;
 	};
 
-	const browserToken = newToken();
+	// The data folder's, so a browser that may write drafts still may after a restart.
+	const browser = await browserAccess(options.dataDirectory);
+	if (browser.notKept !== undefined) {
+		console.error(
+			`diff delver could not keep its browser access in ${options.dataDirectory} (${browser.notKept}), so browsers will need letting in again after it next starts.`
+		);
+	}
+	const reviewCookie = reviewCookieName(browser.id);
 	const viewToken = newToken();
 	const entryCode = (): EntryCode => issue('review');
 	registerDaemon(lock.port, {
 		isReviewBrowser: (header) => {
-			const token = cookieValue(header, tokenCookieName(lock.port));
-			return token !== undefined && isToken(browserToken, token);
+			const token = cookieValue(header, reviewCookie);
+			return token !== undefined && isToken(browser.token, token);
 		},
 		isCommand: (authorization) => {
 			const bearer = /^Bearer (.+)$/.exec(authorization ?? '')?.[1];
@@ -403,9 +413,19 @@ export async function startDaemon(
 		port: lock.port,
 		token: lock.token,
 		mcpToken,
-		browserToken,
+		browserId: browser.id,
+		browserToken: browser.token,
 		viewToken,
 		redeemEntryCode: (given) => codes.redeem(given)
 	};
-	return ok({ ...connectionOf(lock), mcpToken, lock, entryCode, cleaned, stop, stopped });
+	return ok({
+		...connectionOf(lock),
+		mcpToken,
+		lock,
+		reviewCookie,
+		entryCode,
+		cleaned,
+		stop,
+		stopped
+	});
 }

@@ -4,7 +4,7 @@
  * gets back, and who gets the grant.
  */
 import { describe, expect, it, onTestFinished } from 'vitest';
-import { tokenCookieName, viewCookieName } from '#lib/core/daemon/request-gate.ts';
+import { viewCookieName } from '#lib/core/daemon/request-gate.ts';
 import {
 	browserCookie,
 	rawRequest,
@@ -98,7 +98,7 @@ describe('asking for a window that may write drafts', () => {
 		});
 		expect(entered.status).toBe(303);
 		const review = entered.headers['set-cookie']?.[0]?.split(';', 1)[0] ?? '';
-		expect(review.split('=', 1)[0]).toBe(tokenCookieName(daemon.port));
+		expect(review.split('=', 1)[0]).toBe(daemon.reviewCookie);
 		expect(
 			(await rawRequest(daemon.port, { path: comments, headers: { cookie: `${view}; ${review}` } }))
 				.status

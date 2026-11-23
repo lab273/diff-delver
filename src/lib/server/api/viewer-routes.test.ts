@@ -4,7 +4,6 @@
  * on the version shown, refused once the diff was updated.
  */
 import { describe, expect, it, onTestFinished } from 'vitest';
-import { tokenCookieName } from '#lib/core/daemon/request-gate.ts';
 import { ApiClient, describeApiError } from '#lib/api/client.ts';
 import type { AddDraftComment, DiffPage, PartQuery } from '#lib/api/schemas.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
@@ -748,7 +747,7 @@ describe('private draft comments', () => {
 			(
 				await rawRequest(daemon.port, {
 					path: endpoint,
-					headers: { cookie: `${tokenCookieName(daemon.port)}=${daemon.token}` }
+					headers: { cookie: `${daemon.reviewCookie}=${daemon.token}` }
 				})
 			).status
 		).toBe(403);

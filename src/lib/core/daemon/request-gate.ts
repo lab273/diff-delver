@@ -23,6 +23,14 @@
  * from its history. The redirect only ever goes to a path of this daemon
  * (`localPath`), whatever the request said.
  *
+ * A code is made for one of two grants (`entry-codes.ts`), each with a cookie
+ * of its own, so neither can stand in for the other. A `view` code, which is
+ * what an agent's answers hold, lets a browser read and tick; its token is
+ * made afresh by each daemon. A `review` code, which only the command and the
+ * daemon's own windows carry, also lets the browser write the person's drafts;
+ * its token is the data folder's (`BrowserAccessId`), so a browser keeps it
+ * when the daemon restarts.
+ *
  * MCP (`/mcp`, DESIGN 3) is for programs only: the stdio shim and clients that
  * speak HTTP MCP. It is served only with its separate bearer token, never
  * on the cookie alone, so no page the person's browser visits can reach it,
@@ -36,6 +44,7 @@
  * is accepted rather than guarded against.
  */
 import type { BrowserGrant } from './entry-codes.ts';
+import type { BrowserAccessId } from '../browser-access-id.tiny.ts';
 import { isToken, type DaemonToken } from '../daemon-token.tiny.ts';
 import type { PortNumber } from '../port-number.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
@@ -55,7 +64,10 @@ export interface GateSettings {
 	readonly port: PortNumber;
 	readonly token: DaemonToken;
 	readonly mcpToken: DaemonToken;
+	/** What the review cookie is named by and holds: the data folder's, kept across daemons. */
+	readonly browserId: BrowserAccessId;
 	readonly browserToken: DaemonToken;
+	/** What the view cookie holds: this daemon's own. */
 	readonly viewToken: DaemonToken;
 	/** Whether `given` is an entry code that may be used now; using it means it never works again. */
 	readonly redeemEntryCode: (given: string) => BrowserGrant | undefined;
@@ -96,17 +108,22 @@ export function isMcpTarget(target: string): boolean {
 export const ENTRY_PARAMETER = 'entry';
 
 /**
- * The cookie the token is kept in. Cookies are shared by every port of a host,
- * so its name carries the port: two daemons, with two data folders, never take
- * each other's.
+ * The cookie a browser that may write drafts holds. Cookies are shared by
+ * every port of a host, so its name carries the data folder's id: two daemons,
+ * with two data folders, never take each other's, and a daemon that restarts
+ * on another port finds its own again.
  */
-export function tokenCookieName(port: PortNumber): string {
-	return `diff-delver-${String(port)}`;
+export function reviewCookieName(id: BrowserAccessId): string {
+	return `diff-delver-review-${id}`;
 }
 
-/** The MCP link's cookie has its own name, so it cannot replace a review cookie. */
+/**
+ * The cookie of a browser let in by a link from MCP. It has its own name, so
+ * it cannot replace a review cookie, and the name carries the port, since its
+ * token is one daemon's.
+ */
 export function viewCookieName(port: PortNumber): string {
-	return `${tokenCookieName(port)}-view`;
+	return `diff-delver-${String(port)}-view`;
 }
 
 /** The hosts the daemon answers to. */
@@ -175,7 +192,7 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 	}
 	const reading = READING.has(request.method.toUpperCase());
 
-	const reviewCookie = cookieValue(request.cookie, tokenCookieName(settings.port));
+	const reviewCookie = cookieValue(request.cookie, reviewCookieName(settings.browserId));
 	const viewCookie = cookieValue(request.cookie, viewCookieName(settings.port));
 	const review = reviewCookie !== undefined && isToken(settings.browserToken, reviewCookie);
 	const view = viewCookie !== undefined && isToken(settings.viewToken, viewCookie);
@@ -185,7 +202,7 @@ export function gateRequest(request: GateRequest, settings: GateSettings): GateD
 		if (grant === 'review' || (grant === 'view' && !review)) {
 			const token = grant === 'review' ? settings.browserToken : settings.viewToken;
 			const name =
-				grant === 'review' ? tokenCookieName(settings.port) : viewCookieName(settings.port);
+				grant === 'review' ? reviewCookieName(settings.browserId) : viewCookieName(settings.port);
 			return {
 				kind: 'enter',
 				location: localPath(location),
