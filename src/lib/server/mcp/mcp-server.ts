@@ -15,6 +15,12 @@
  * opens a window, the answer says so in `X-Diff-Delver-Opened: yes`, so the
  * shim offers no more. A client that speaks HTTP MCP itself sends neither
  * header, and opens no repository.
+ *
+ * Two kinds of address leave here, and they are never the same one. An answer
+ * holds an address that lets a browser in to read and tick (`entryAddress`).
+ * The window the daemon opens is the person's own browser, so its address
+ * lets that browser write the person's drafts too; the daemon makes it
+ * (`open` takes only the page), and it is in no answer and no header.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -55,8 +61,10 @@ function browserAsk(value: string | undefined): BrowserAsk {
 export interface McpOptions {
 	readonly service: ReportService;
 	readonly version: CodeVersion;
+	/** An address for an answer: it lets a browser in to read and tick, never to write drafts. */
 	readonly entryAddress: (page: string) => string;
-	readonly open: (address: string) => Promise<boolean>;
+	/** Opens a page in the person's browser, with an address of the daemon's own making. */
+	readonly open: (page: string) => Promise<boolean>;
 }
 
 /** Who the server says it is at `initialize`, but for its version, which is the build's. */
@@ -163,9 +171,9 @@ export function mcpHandler(
 			directory: directoryOf(req),
 			browser: browserAsk(header(req, OPEN_BROWSER_HEADER)),
 			entryAddress: options.entryAddress,
-			open: async (address) => {
+			open: async (page) => {
 				if (opened) return false;
-				opened = await options.open(address);
+				opened = await options.open(page);
 				if (opened && !res.headersSent) res.setHeader(OPENED_HEADER, 'yes');
 				return opened;
 			}

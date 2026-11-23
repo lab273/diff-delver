@@ -39,7 +39,9 @@ import { value } from '../../../../tests/support/git-source-helpers.ts';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import { connectionOf } from '../daemon/daemon.ts';
 import { readLockfile } from '../daemon/lockfile.ts';
+import { tokenCookieName, viewCookieName } from '#lib/core/daemon/request-gate.ts';
 import { AGENT_SURFACE_FILE } from './agent-surface.ts';
+import { TOOLS } from './tools.ts';
 
 const shop = defineFixture('agent-shop', buildShop);
 
@@ -863,7 +865,10 @@ describe('/mcp over HTTP', () => {
 			/It is opening in the person's browser now\. If they need it again, give them this address: (http:\S+) \(it opens the report once, within two minutes; call create_report again for a new one\)\./
 		);
 		const address = /give them this address: (http:\S+)/.exec(created.text)?.[1] ?? '';
-		expect(address).not.toBe(opened[0]);
+		// The window's address is the daemon's own: the answer holds another code, never that one.
+		const windowCode = new URL(opened[0] ?? '').searchParams.get('entry') ?? '';
+		expect(new URL(address).searchParams.get('entry')).not.toBe(windowCode);
+		expect(created.text).not.toContain(windowCode);
 		// The address lets a browser in once; after that it says how to get a new one.
 		const first = await rawRequest(daemon.port, {
 			path: new URL(address).pathname + new URL(address).search
@@ -918,14 +923,15 @@ describe('/mcp over HTTP', () => {
 			(await rawRequest(daemon.port, { path: comments, headers: { cookie: review } })).status
 		).toBe(200);
 
-		// Opening an MCP link in that browser leaves its existing review access in place.
+		// The window diff delver opened itself is the person's own browser, so it may write drafts.
 		const offered = new URL(opened[0] ?? '');
-		const openInReview = await rawRequest(daemon.port, {
-			path: offered.pathname + offered.search,
-			headers: { cookie: review }
-		});
-		expect(openInReview.status).toBe(303);
-		expect(openInReview.headers['set-cookie']).toBeUndefined();
+		const window = await rawRequest(daemon.port, { path: offered.pathname + offered.search });
+		expect(window.status).toBe(303);
+		const windowCookie = window.headers['set-cookie']?.[0]?.split(';', 1)[0] ?? '';
+		expect(windowCookie.split('=', 1)[0]).toBe(tokenCookieName(daemon.port));
+		expect(
+			(await rawRequest(daemon.port, { path: comments, headers: { cookie: windowCookie } })).status
+		).toBe(200);
 
 		// The same source again resumes it, and opens nothing more.
 		const resumed = await session.call('create_report', {});
@@ -933,6 +939,15 @@ describe('/mcp over HTTP', () => {
 			/Give the person this address to open it in their browser: http:\S+\?entry=/
 		);
 		expect(opened).toHaveLength(1);
+
+		// Following an agent's link in a browser that may write drafts leaves that in place.
+		const link = new URL(/in their browser: (http:\S+)/.exec(resumed.text)?.[1] ?? '');
+		const openInReview = await rawRequest(daemon.port, {
+			path: link.pathname + link.search,
+			headers: { cookie: review }
+		});
+		expect(openInReview.status).toBe(303);
+		expect(openInReview.headers['set-cookie']).toBeUndefined();
 
 		const id = value(parseReportId(report.split('/').at(-1) ?? ''));
 		const loaded = value(await clientOf(daemon).loadDiff(id));
@@ -1012,6 +1027,62 @@ describe('/mcp over HTTP', () => {
 		expect(response.status).toBe(200);
 		expect(opened).toHaveLength(1);
 		expect(response.headers['x-diff-delver-opened']).toBe('yes');
+		// Nothing sent back to the agent's side holds the code the window was opened with.
+		const windowCode = new URL(opened[0] ?? '').searchParams.get('entry') ?? '';
+		expect(windowCode).toMatch(/^[0-9a-f]{32}$/);
+		expect(response.body).not.toContain(windowCode);
+		expect(JSON.stringify(response.headers)).not.toContain(windowCode);
+	});
+
+	it('gives no tool an address that lets a browser write the person’s drafts', async () => {
+		const repo = await useFixture(shop);
+		const opened: string[] = [];
+		const daemon = await testDaemon({
+			openBrowser: (address) => {
+				opened.push(address);
+				return Promise.resolve(true);
+			}
+		});
+		const session = await mcpOverHttp({
+			origin: daemon.origin,
+			token: daemon.mcpToken,
+			directory: repo.dir,
+			openBrowser: true
+		});
+		onTestFinished(() => session.close());
+		const answers = [await session.call('create_report', {})];
+		const report = reportIn(answers[0] ?? { text: '', refused: true });
+		// Every tool, as it answers a call it accepts and one it refuses.
+		const accepted: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
+			create_report: {},
+			list_reports: {},
+			get_file: { report, path: 'src/cart.ts' },
+			set_overview: { report, version: 1, overview: 'What the change does.' }
+		};
+		for (const tool of TOOLS) {
+			answers.push(await session.call(tool.name, accepted[tool.name] ?? { report }));
+			answers.push(await session.call(tool.name, { report: 'r_none', version: 1 }));
+		}
+		expect(opened).toHaveLength(1);
+		const text = answers.map((answer) => answer.text).join('\n');
+		expect(text).not.toContain(new URL(opened[0] ?? '').searchParams.get('entry') ?? 'none');
+		// Every address an answer does hold lets a browser in to read, and no further.
+		const links = [...text.matchAll(/http:\/\/127\.0\.0\.1:\d+(\/\S*\?entry=[0-9a-f]{32})/g)];
+		expect(links.length).toBeGreaterThan(0);
+		for (const link of links) {
+			const entered = await rawRequest(daemon.port, { path: link[1] ?? '' });
+			expect(entered.status).toBe(303);
+			const cookie = entered.headers['set-cookie']?.[0]?.split(';', 1)[0] ?? '';
+			expect(cookie.split('=', 1)[0]).toBe(viewCookieName(daemon.port));
+			expect(
+				(
+					await rawRequest(daemon.port, {
+						path: `/api/diffs/${report}/comments`,
+						headers: { cookie }
+					})
+				).status
+			).toBe(403);
+		}
 	});
 
 	it('is served only with the token in Authorization, never on the cookie', async () => {

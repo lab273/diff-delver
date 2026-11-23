@@ -78,8 +78,9 @@ export interface DaemonOptions {
 	readonly repository?: RepositoryOptions;
 	/**
 	 * Opens an address in the person's browser, for an agent's `create_report`
-	 * through a shim that asks for it; whether it could. The command gives the
-	 * system's opener; tests give none, so no browser ever opens.
+	 * through a shim that asks for it; whether it could. The address lets that
+	 * browser write the person's drafts, so it goes nowhere else. The command
+	 * gives the system's opener; tests give none, so no browser ever opens.
 	 */
 	readonly openBrowser?: (address: string) => Promise<boolean>;
 	/** Called once the daemon has stopped, however it was asked to. */
@@ -268,6 +269,20 @@ export async function startDaemon(
 	};
 	// Set once the port is known, before anything is served.
 	const origin = { value: '' };
+	const openBrowser = options.openBrowser ?? (() => Promise.resolve(false));
+	/**
+	 * Opens a page in the person's own browser with review access: the one way a
+	 * browser gets it without the command (DESIGN 9). The rule it keeps is that
+	 * the person's drafts have no path an agent can write, so what matters is who
+	 * receives the grant, not who asked. Whoever asks (an agent's `create_report`
+	 * through MCP, or a page that has only a view grant) gives a page and is told
+	 * only whether a window was asked for. The code is made here, goes to the
+	 * system's opener and so to the browser of the person at this machine, works
+	 * once, and is never in an answer, a header or the log. A caller can at most
+	 * make a window appear in front of the person.
+	 */
+	const openForReview = (page: string): Promise<boolean> =>
+		openBrowser(entryAddress(origin.value, page, issue('review')));
 	const server = daemonServer(
 		options.app,
 		() => gate.settings,
@@ -275,7 +290,7 @@ export async function startDaemon(
 			service,
 			version: options.version,
 			entryAddress: (page) => entryAddress(origin.value, page, issue('view')),
-			open: options.openBrowser ?? (() => Promise.resolve(false))
+			open: openForReview
 		})
 	);
 	const port = await listen(server);

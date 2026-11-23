@@ -139,8 +139,11 @@ service. Each row belongs to the revision that supplied its snapshot, with
 the path bytes, side and line range in that tree. The service checks the
 current version again in the transaction that saves the comment. Both comment
 routes require a review session cookie. The command's bearer token can issue
-a review entry code. MCP uses a separate bearer token and issues entry codes
-that open the viewer with a separate cookie. A cross-site link commits a local
+a review entry code. MCP uses a separate bearer token, and the addresses in its
+answers carry entry codes that open the viewer with a separate cookie, which
+cannot read or write drafts. The window the daemon opens itself for an agent's
+new report carries a review code of the daemon's own making (`openForReview`
+in `daemon.ts`): a tool names the page, and is never given the address. A cross-site link commits a local
 page before opening the Delve, so the browser sends its Strict cookies on the
 clean URL. The same review grant protects Delve deletion. The open Delve page
 keeps unsaved comments across viewer replacement. Gutter movement

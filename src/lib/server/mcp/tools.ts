@@ -96,10 +96,19 @@ export interface ToolContext {
 	readonly directory: AbsolutePath | undefined;
 	/** Whether a report `create_report` makes may open in the person's browser, or why not. */
 	readonly browser: BrowserAsk;
-	/** An address of a page of the daemon that lets a browser in once, within two minutes. */
+	/**
+	 * An address of a page of the daemon that lets a browser in once, within two
+	 * minutes, to read and tick: what an answer may hold. It never lets its
+	 * browser write the person's own drafts (DESIGN 9).
+	 */
 	readonly entryAddress: (page: string) => string;
-	/** Opens an address in the person's browser; whether the browser could be asked to. */
-	readonly open: (address: string) => Promise<boolean>;
+	/**
+	 * Opens a page of the daemon in the person's browser; whether the browser
+	 * could be asked to. A tool names only the page: the address the daemon
+	 * opens, which lets that window write the person's drafts, is made by the
+	 * daemon and never comes back here, so no answer can hold it.
+	 */
+	readonly open: (page: string) => Promise<boolean>;
 }
 
 /** A tool as the server lists and calls it. */
@@ -413,7 +422,7 @@ async function opened(outcome: OpenOutcome, context: ToolContext): Promise<Resul
 	out.push(...sentencesListed('Left out of the diff: ', page.value.leftOut));
 	const browser =
 		outcome.kind === 'created' && context.browser === 'may-open'
-			? await context.open(context.entryAddress(`/diffs/${report.id}`))
+			? await context.open(`/diffs/${report.id}`)
 			: false;
 	const giveIt = `Give the person this address to open it in their browser: ${address} (it opens the report once, within two minutes; call create_report again for a new one). It shows your sorting as you go.`;
 	out.push(
