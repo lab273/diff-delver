@@ -377,6 +377,7 @@ export async function startDaemon(
 		clock: options.clock,
 		version: options.version,
 		entryCode,
+		openForReview,
 		requestStop: () => {
 			// After the answer saying so has gone.
 			setTimeout(() => {

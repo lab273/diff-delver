@@ -13,6 +13,7 @@
 	import CopyCommand from '#lib/ui/CopyCommand.svelte';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import Notice from '#lib/ui/Notice.svelte';
+	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import { pageClient } from '#lib/ui/client.ts';
 	import { RUN_COMMAND } from '#lib/ui/run-command.ts';
 	import type { PageProps } from './$types';
@@ -132,6 +133,9 @@
 			</li>
 		{/each}
 	</ul>
+	{#if !data.canReview}
+		<ReviewAccess diff={null} what="deleting" />
+	{/if}
 	<p class="more">To open another, run <code>{RUN_COMMAND}</code> in its repository.</p>
 {/if}
 

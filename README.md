@@ -97,13 +97,12 @@ as a file. For Claude Code, save it as `~/.claude/skills/diff-delver/SKILL.md`.
 The MCP server uses the same data folder as the command. Add `--no-open` after `mcp`
 to have the agent give you the page's address instead of opening a browser.
 
-To enable draft comments after following an agent's link, run `diff-delver choose`
-in the repository with the same data folder. Let it open a tab in the same browser,
-then return to the Delve and reload it.
+A link the agent gives you opens the Delve to read and tick. To write comments
+there, press **Turn on comments in this browser** on the page: diff delver opens
+the Delve in a tab of its own, and comments work in both.
 
 If an older MCP shim stops connecting after an upgrade, update the agent's
 `diff-delver mcp` command and restart its MCP server so it uses the new build.
-After a daemon restart, use a fresh CLI link to restore browser review access.
 
 ### Keep reviewing as the code changes
 
@@ -158,8 +157,7 @@ diff delver keeps your Delves and ticks in one folder of its own,
 - Reading a diff: code coloured by language, one column or side by side, white-space
   changes hidden, unchanged lines opened, search, and a reading bookmark that
   survives reload in the same tab.
-- Saving private draft comments on either side of a diff, including unchanged lines,
-  in a browser opened by the local `diff-delver` command.
+- Saving private draft comments on either side of a diff, including unchanged lines.
 - Ticking files and sections as reviewed, with progress, across restarts.
 - Updating a Delve when the code changes, keeping sections and ticks.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex

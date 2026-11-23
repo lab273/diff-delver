@@ -66,7 +66,24 @@ async function serve(page: Page, html: string): Promise<string> {
 const test = base.extend<{
 	planted: (html: string) => Promise<Journey>;
 	onTheApp: Journey;
+	beforeEntering: Journey;
 }>({
+	// A daemon of the test's own, whose pages this browser has not been let into yet.
+	beforeEntering: async ({ page }, use, testInfo) => {
+		const world = await makeJourneyWorld();
+		try {
+			const running = await startJourney(
+				page,
+				testInfo,
+				world.daemon.origin,
+				{ screenshots: 'take' },
+				world
+			);
+			await use(running.journey);
+		} finally {
+			await world.close();
+		}
+	},
 	planted: async ({ page, baseURL }, use, testInfo) => {
 		const running = await startJourney(page, testInfo, baseURL, { screenshots: 'take' });
 		await use(async (html) => {
@@ -336,6 +353,39 @@ test.describe('the journey helper works in a second tab', () => {
 		});
 		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
 		expect(await journey.address()).toBe('/');
+	});
+});
+
+test.describe('the journey helper plays an agent’s link and a window diff delver opens', () => {
+	test('the link lets the browser read, and the window diff delver opens lets it comment', async ({
+		beforeEntering: journey
+	}) => {
+		const reading = await journey.repository('reading');
+		await expect(journey.openedWindow()).rejects.toThrow('opened no browser window');
+		await journey.open(await journey.agentLink(reading));
+		await journey.expectVisible(
+			journey.byRole('heading', { level: 1, name: 'Uncommitted changes' })
+		);
+		const drafts = { name: 'Draft comments', exact: true };
+		await journey.expectHidden(journey.byRole('button', drafts));
+		await journey.activate(
+			journey.byRole('button', { name: 'Turn on comments in this browser', exact: true })
+		);
+		await journey.expectVisible(journey.byText('A new tab has opened with comments turned on.'));
+		const window = await journey.openedWindow();
+		// Each window is the journey's to play once.
+		await expect(journey.openedWindow()).rejects.toThrow('opened no browser window');
+		expect(window).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/diffs\/r_1\?entry=[0-9a-f]{32}$/);
+		await journey.inAnotherTab(window, async (tab) => {
+			await tab.expectVisible(tab.byRole('button', drafts));
+			await tab.step('The window diff delver opened');
+		});
+		// The first tab is told nothing until the person comes back to it.
+		await journey.expectHidden(journey.byRole('button', drafts));
+		await journey.returnToPage();
+		await journey.expectVisible(journey.byText('Comments are on in this browser now.'));
+		await journey.expectFocused(journey.byRole('button', drafts));
+		await journey.step('Comments turned on in the first tab');
 	});
 });
 

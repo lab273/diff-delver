@@ -650,6 +650,17 @@ export interface JourneyWorld {
 	): Promise<string>;
 	agentCall(tool: string, args: Readonly<Record<string, unknown>>): Promise<void>;
 	/**
+	 * The address an agent is given for the uncommitted changes of `directory`:
+	 * what `create_report` answers through MCP, from a session that asked for no
+	 * browser window, as `diff-delver mcp --no-open` does.
+	 */
+	agentLink(directory: string): Promise<string>;
+	/**
+	 * The address of the window the daemon last asked the system to open in the
+	 * person's browser, taken once; undefined when it asked for none since.
+	 */
+	openedWindow(): string | undefined;
+	/**
 	 * What `diff-delver <args>` prints, and the address it opens, run in `directory`
 	 * (or the journey's own empty folder) against this journey's daemon.
 	 */
@@ -664,6 +675,7 @@ export interface JourneyWorld {
 export async function makeJourneyWorld(): Promise<JourneyWorld> {
 	app ??= loadAppHandler();
 	const dir = join(root(), 'journeys', randomUUID());
+	const windows: string[] = [];
 	const elsewhere = join(dir, 'elsewhere');
 	await mkdir(elsewhere, { recursive: true });
 	const time = parseTimestamp(JOURNEY_TIME.getTime());
@@ -675,7 +687,12 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 		ids: sequentialIds(),
 		version: version.value,
 		app: await app,
-		repository: { gitEnv: await reviewerGitEnv() }
+		repository: { gitEnv: await reviewerGitEnv() },
+		// No browser is opened: the journey plays the window itself, from its address.
+		openBrowser: (address) => {
+			windows.push(address);
+			return Promise.resolve(true);
+		}
 	});
 	if (!started.ok) throw new Error(describeDaemonStartError(started.error));
 	const daemon = started.value;
@@ -741,6 +758,28 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 			} finally {
 				await session.close();
 			}
+		},
+		async agentLink(directory) {
+			const session = await mcpOverHttp({
+				origin: daemon.origin,
+				token: daemon.mcpToken,
+				directory
+			});
+			try {
+				const answer = await session.call('create_report', { source: 'working-tree' });
+				const address = /Give the person this address to open it in their browser: (http:\S+)/.exec(
+					answer.text
+				)?.[1];
+				if (answer.refused || address === undefined) {
+					throw new Error(`create_report gave no address: ${answer.text}`);
+				}
+				return address;
+			} finally {
+				await session.close();
+			}
+		},
+		openedWindow() {
+			return windows.pop();
 		},
 		async command(args, directory) {
 			const parsed = parseCommandLine(args);

@@ -10,12 +10,16 @@ export function canReview(daemon: DaemonContext, request: Request): boolean {
 	);
 }
 
+/**
+ * The answer to a browser that may read and tick but not do `action`: it was
+ * let in by a link, such as an agent's, and not by a window diff delver opened.
+ */
 export function reviewSessionRequired(action: string): Response {
 	return failure(
 		403,
 		'BrowserSessionRequired',
 		reviewerMessage(
-			`To ${action}, run diff-delver in a terminal and open its link in this browser. Then reload this page.`
+			`This browser was let in by a link, which is not enough to ${action}, so nothing was changed. Reload this page and press “Turn on comments in this browser”.`
 		)
 	);
 }

@@ -723,6 +723,17 @@ export type DaemonInfo = z.output<typeof DaemonInfoSchema>;
 export const EntryCodeSchema = z.object({ code: parsed(z.string(), parseEntryCode) });
 export type EntryCodeResponse = z.output<typeof EntryCodeSchema>;
 
+/**
+ * POST /api/review-window: asks diff delver to open a Delve, or the list of
+ * Delves, in the person's own browser, in a window that may write their drafts.
+ */
+export const ReviewWindowRequestSchema = z.strictObject({ diff: reportId.nullable() });
+export type ReviewWindowRequest = z.output<typeof ReviewWindowRequestSchema>;
+
+/** Whether a browser could be asked to open it. Never the address: that goes to the browser alone. */
+export const ReviewWindowSchema = z.strictObject({ opened: z.boolean() });
+export type ReviewWindow = z.output<typeof ReviewWindowSchema>;
+
 /** POST /api/daemon/stop. */
 export const StoppingSchema = z.object({ stopping: z.literal(true) });
 export type Stopping = z.output<typeof StoppingSchema>;

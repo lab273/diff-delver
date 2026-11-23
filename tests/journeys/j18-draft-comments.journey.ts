@@ -5,7 +5,29 @@ test.describe('J18 Draft comments', () => {
 		journey
 	}) => {
 		const reading = await journey.repository('reading');
-		await journey.open((await journey.command([], reading)).address);
+
+		// A coding agent opened the Delve and gave its link: enough to read and tick.
+		await journey.open(await journey.agentLink(reading));
+		const drafts = journey.byRole('button', { name: 'Draft comments', exact: true });
+		const off = journey.within(
+			journey.byRole('region', { name: 'Comments are off in this browser' })
+		);
+		await journey.expectVisible(off.byText('You came here by a link'));
+		await journey.expectHidden(drafts);
+		await journey.step('Comments are off after an agent’s link');
+
+		// One press: diff delver opens the Delve in a window of its own making.
+		await journey.activate(off.byRole('button', { name: 'Turn on comments in this browser' }));
+		await journey.expectVisible(off.byText('A new tab has opened with comments turned on.'));
+		await journey.inAnotherTab(await journey.openedWindow(), async (tab) => {
+			await tab.expectVisible(tab.byRole('button', { name: 'Draft comments', exact: true }));
+			await tab.step('The tab diff delver opened');
+		});
+		await journey.returnToPage();
+		await journey.expectVisible(journey.byText('Comments are on in this browser now.'));
+		await journey.expectFocused(drafts);
+		await journey.step('Comments turned on with one press');
+
 		const lexer = journey.byRole('article', { name: 'src/lexer.ts' });
 		const file = journey.within(lexer);
 		const toggle = file.byRole('button', { name: 'src/lexer.ts', exact: true });
@@ -77,7 +99,7 @@ test.describe('J18 Draft comments', () => {
 		await journey.expectVisible(journey.byText('Draft comment saved.'));
 
 		await journey.open(newer.address);
-		await journey.activate(journey.byRole('button', { name: 'Draft comments', exact: true }));
+		await journey.activate(drafts);
 		await journey.expectVisible(journey.byText('Can we shorten this introduction?'));
 		await journey.expectVisible(journey.byText('Before, lines 1–2'));
 		await journey.expectVisible(journey.byText('Earlier version 1'));
@@ -85,7 +107,6 @@ test.describe('J18 Draft comments', () => {
 		await journey.expectVisible(journey.byText('After, line 1'));
 		await journey.step('Draft comments after reopening');
 
-		const drafts = journey.byRole('button', { name: 'Draft comments', exact: true });
 		await journey.activate(expand);
 		await journey.activate(comment);
 		await journey.press('Enter');

@@ -57,6 +57,7 @@ import {
 	OpenResponseSchema,
 	StartResponseSchema,
 	StateChangeSchema,
+	ReviewWindowSchema,
 	StoppingSchema,
 	SuggestResponseSchema,
 	UpdateResponseSchema,
@@ -72,6 +73,7 @@ import {
 	type MarkReviewedRequest,
 	type PartLines,
 	type PartQuery,
+	type ReviewWindow,
 	type ViewName,
 	type OpenRequest,
 	type OpenResponse,
@@ -422,6 +424,14 @@ export class ApiClient {
 	/** A single-use code that lets a browser in, for an address the command opens. */
 	entryCode(): Promise<Result<EntryCodeResponse, ApiError>> {
 		return this.#call('POST', '/api/entry', EntryCodeSchema);
+	}
+
+	/**
+	 * Asks diff delver to open a Delve (or the list of them) in the person's own
+	 * browser, in a window that may write their drafts; whether it could ask the browser.
+	 */
+	openReviewWindow(diff: ReportId | null): Promise<Result<ReviewWindow, ApiError>> {
+		return this.#call('POST', '/api/review-window', ReviewWindowSchema, { diff });
 	}
 
 	stopDaemon(): Promise<Result<Stopping, ApiError>> {

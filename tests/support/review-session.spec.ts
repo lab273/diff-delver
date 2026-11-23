@@ -27,7 +27,7 @@ async function followFromAnotherSite(page: Page, address: string): Promise<void>
 	await expect(page.getByRole('heading', { name: 'Uncommitted changes' })).toBeVisible();
 }
 
-test('a cross-site MCP link opens the Delve with or without a CLI review session', async ({
+test('a cross-site MCP link opens the Delve with or without review access in the browser', async ({
 	page
 }) => {
 	const world = await makeJourneyWorld();
@@ -50,12 +50,16 @@ test('a cross-site MCP link opens the Delve with or without a CLI review session
 			}
 
 			await followFromAnotherSite(page, await link());
-			const notice = page.getByRole('region', { name: 'Enable draft comments' });
+			const notice = page.getByRole('region', { name: 'Comments are off in this browser' });
 			await expect(notice).toBeVisible();
-			await expect(notice.getByRole('button', { name: 'Copy the command' })).toBeVisible();
+			await expect(
+				notice.getByRole('button', { name: 'Turn on comments in this browser' })
+			).toBeVisible();
 			await expect(page.getByRole('button', { name: 'Comment on lines' })).toHaveCount(0);
 			const delve = page.url();
 
+			// The command's link, opened in another tab of this browser, turns comments
+			// on here as well, once the person comes back to this tab: no reload.
 			const cliTab = await page.context().newPage();
 			try {
 				await cliTab.goto((await world.command(['choose'], repo)).address);
@@ -64,7 +68,8 @@ test('a cross-site MCP link opens the Delve with or without a CLI review session
 			} finally {
 				await cliTab.close();
 			}
-			await notice.getByRole('button', { name: 'Reload this Delve' }).click();
+			await page.evaluate(() => window.dispatchEvent(new FocusEvent('focus')));
+			await expect(notice).toHaveCount(0);
 			await expect(page).toHaveURL(delve);
 			const drafts = page.getByRole('button', { name: 'Draft comments', exact: true });
 			await expect(drafts).toBeVisible();

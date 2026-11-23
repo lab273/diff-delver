@@ -19,6 +19,12 @@ export interface DaemonContext {
 	readonly isReviewBrowser: (cookieHeader: string | undefined) => boolean;
 	/** A new single-use code that lets a browser in, for the address the command opens. */
 	readonly entryCode: () => EntryCode;
+	/**
+	 * Opens a page of the daemon in the person's own browser, in a window that
+	 * may write their drafts; whether the browser could be asked to. The caller
+	 * gives the page and never sees the address (`openForReview` in `daemon.ts`).
+	 */
+	readonly openForReview: (page: string) => Promise<boolean>;
 	/** Asks the daemon to stop once the current response is sent. */
 	readonly requestStop: () => void;
 }

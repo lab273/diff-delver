@@ -37,8 +37,7 @@
 	import SectionFiles from '#lib/ui/viewer/SectionFiles.svelte';
 	import { collapseReviewedPart } from '#lib/ui/viewer/collapse-reviewed.ts';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
-	import CopyCommand from '#lib/ui/CopyCommand.svelte';
-	import { RUN_COMMAND } from '#lib/ui/run-command.ts';
+	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import CommentEditor from '#lib/ui/viewer/CommentEditor.svelte';
 	import { CommentDraft } from '#lib/ui/viewer/draft-comment.svelte.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
@@ -1550,6 +1549,22 @@
 		return `${formatCount(reviewed)} of ${describeChanges(units)} reviewed`;
 	}
 	let draftsControl = $state<HTMLButtonElement>();
+
+	// A browser let in by a link is let write comments while the page is open
+	// (`ReviewAccess.svelte`): say so, and keep focus on the page, since the
+	// notice that had it has gone.
+	let couldReview = untrack(() => data.canReview);
+	let reviewTurnedOn = $state(false);
+	$effect(() => {
+		const can = data.canReview;
+		if (can && !couldReview) {
+			reviewTurnedOn = true;
+			void tick().then(() => {
+				if (focusLost()) draftsControl?.focus();
+			});
+		}
+		couldReview = can;
+	});
 	const drafts = new SvelteMap<ReportId, CommentDraft>();
 	function draftFor(id: ReportId): CommentDraft {
 		return untrack(() => {
@@ -1876,6 +1891,9 @@
 				<p role="status">Finish choosing lines to see the updated sections.</p>
 			{/if}
 			{#if data.canReview}
+				{#if reviewTurnedOn}
+					<p class="turned-on" role="status">Comments are on in this browser now.</p>
+				{/if}
 				{#key summary.id}
 					<DraftComments
 						id={summary.id}
@@ -1895,21 +1913,7 @@
 					/>
 				{/key}
 			{:else}
-				<Notice heading="Enable draft comments">
-					<p>Run this in a terminal in your repository, using the same data folder as the agent.</p>
-					<CopyCommand command={`${RUN_COMMAND} choose`} label="Copy the command" />
-					<p>Let the command open a tab in this browser. Then return here and reload this Delve.</p>
-					{#snippet actions()}
-						<button
-							type="button"
-							onclick={() => {
-								location.reload();
-							}}
-						>
-							Reload this Delve
-						</button>
-					{/snippet}
-				</Notice>
+				<ReviewAccess diff={summary.id} what="comments" />
 			{/if}
 
 			<!-- Keep the by-file list mounted through regrouping of the same version. -->
@@ -2081,6 +2085,11 @@
 		grid-area: content;
 		min-width: 0;
 		margin-top: 1rem;
+	}
+
+	.turned-on {
+		margin: 0 0 0.5rem;
+		color: var(--color-muted);
 	}
 
 	.desktop-bookmarks {

@@ -244,6 +244,20 @@ export interface Journey extends Finder {
 	): Promise<string>;
 	/** Makes an agent's MCP call on an existing report and requires it to succeed. */
 	agentCall(tool: string, args: Readonly<Record<string, unknown>>): Promise<void>;
+	/**
+	 * The address a coding agent gives the person for the uncommitted changes of
+	 * `where`, for `open`: what its `create_report` answers through MCP, when
+	 * diff delver was not asked to open a browser. It lets the browser in as an
+	 * agent's link does: to read and tick, not to write comments.
+	 */
+	agentLink(where: JourneyRepository): Promise<string>;
+	/**
+	 * The address of the window diff delver itself last asked the system to open
+	 * in the person's browser, as when a page turns comments on: for
+	 * `inAnotherTab`, which plays that window. Each is given once; fails when
+	 * diff delver has opened none since.
+	 */
+	openedWindow(): Promise<string>;
 	/** Delays the next lazy part request for a file until the journey lets it through. */
 	holdPartRead(path: string): Promise<{ requested: Promise<void>; release: () => void }>;
 	/** Opens a page of the app by its path, as a person does from a link: `/`, `/reports/1`. */
@@ -906,6 +920,25 @@ export async function startJourney(
 		async agentCall(tool, args) {
 			if (world === undefined) throw new Error('This journey has no daemon for MCP.');
 			await world.agentCall(tool, args);
+		},
+		async agentLink(where) {
+			if (world === undefined) throw new Error('This journey has no daemon for MCP.');
+			const directory = REPOSITORY_PATHS.get(where);
+			if (directory === undefined) {
+				throw new Error(`${where.description} was not made by journey.repository.`);
+			}
+			return world.agentLink(directory);
+		},
+		openedWindow() {
+			const address = world?.openedWindow();
+			return address === undefined
+				? Promise.reject(
+						new Error(
+							'diff delver has opened no browser window since the last one the journey took. ' +
+								'A page must ask for one first, as “Turn on comments in this browser” does.'
+						)
+					)
+				: Promise.resolve(address);
 		},
 		async holdPartRead(path) {
 			const requested = Promise.withResolvers<undefined>();

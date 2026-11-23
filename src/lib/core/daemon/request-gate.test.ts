@@ -12,6 +12,7 @@ import {
 	gateRequest,
 	isMcpTarget,
 	tokenCookieName,
+	viewCookieName,
 	type GateRequest,
 	type GateSettings,
 	type Refusal
@@ -267,6 +268,111 @@ describe('the request gate', () => {
 		expect(isMcpTarget('/mcp/')).toBe(false);
 		expect(isMcpTarget('/mcpx')).toBe(false);
 		expect(isMcpTarget('/api/mcp')).toBe(false);
+	});
+
+	const viewCookie = `${viewCookieName(port)}=${viewToken}`;
+	/** The gate as a daemon whose only code out is one an agent was given. */
+	const viewOnly: GateSettings = {
+		...settings,
+		redeemEntryCode: (given) => (given === code ? 'view' : undefined)
+	};
+
+	it('lets a browser that may only read in with its own cookie, and leaves review access alone', () => {
+		expect(gateRequest(request({ target: `/diffs/r_1?entry=${code}` }), viewOnly)).toEqual({
+			kind: 'enter',
+			location: '/diffs/r_1',
+			setCookie: `diff-delver-43210-view=${viewToken}; Path=/; HttpOnly; SameSite=Strict`
+		});
+		// A browser that may write already keeps that, and is given nothing less.
+		expect(gateRequest(request({ target: `/diffs/r_1?entry=${code}`, cookie }), viewOnly)).toEqual({
+			kind: 'enter',
+			location: '/diffs/r_1',
+			setCookie: undefined
+		});
+		expect(gateRequest(request({ cookie: viewCookie }), settings)).toEqual({ kind: 'serve' });
+		// Neither cookie stands in for the other.
+		for (const wrong of [
+			`${tokenCookieName(port)}=${viewToken}`,
+			`${viewCookieName(port)}=${browserToken}`
+		]) {
+			expect(gateRequest(request({ cookie: wrong }), settings)).toEqual({
+				kind: 'refuse',
+				refusal: 'wrong-token'
+			});
+		}
+	});
+
+	it('lets a page that may only read ask for a window that may write, from the daemon’s own pages alone', () => {
+		const ask = (overrides: Partial<GateRequest>) =>
+			gateRequest(
+				request({ method: 'POST', target: '/api/review-window', ...overrides }),
+				settings
+			);
+		expect(ask({ cookie: viewCookie, origin: `http://${host}` })).toEqual({ kind: 'serve' });
+		for (const origin of [undefined, 'http://evil.example', 'http://localhost:43210', 'null']) {
+			expect(ask({ cookie: viewCookie, origin })).toEqual({
+				kind: 'refuse',
+				refusal: 'wrong-origin'
+			});
+		}
+		expect(ask({ origin: `http://${host}` })).toEqual({ kind: 'refuse', refusal: 'no-token' });
+		// An agent's credential is for MCP alone, and MCP's address takes no cookie.
+		expect(ask({ authorization: `Bearer ${mcpToken}` })).toEqual({
+			kind: 'refuse',
+			refusal: 'wrong-token'
+		});
+		expect(
+			ask({ authorization: `Bearer ${mcpToken}`, cookie: viewCookie, origin: `http://${host}` })
+		).toEqual({ kind: 'refuse', refusal: 'wrong-token' });
+		expect(ask({ target: '/mcp', cookie: viewCookie, origin: `http://${host}` })).toEqual({
+			kind: 'refuse',
+			refusal: 'no-token'
+		});
+	});
+
+	it('never gives the cookie that may write for anything but a code that may, whatever the request holds', () => {
+		const choice = <T>(...values: readonly T[]) => fc.constantFrom(...values);
+		fc.assert(
+			fc.property(
+				fc.record({
+					method: choice('GET', 'HEAD', 'POST', 'DELETE', 'OPTIONS'),
+					target: choice(
+						'/',
+						`/diffs/r_1?entry=${code}`,
+						`/?entry=${'e'.repeat(32)}`,
+						`/api/review-window?entry=${code}`,
+						'/api/review-window',
+						'/api/entry',
+						`/mcp?entry=${code}`,
+						'/mcp'
+					),
+					host: choice(host, 'localhost:43210', 'evil.example'),
+					origin: choice(undefined, `http://${host}`, 'http://evil.example'),
+					cookie: choice(
+						undefined,
+						viewCookie,
+						`${viewCookieName(port)}=${other}`,
+						`${tokenCookieName(port)}=${viewToken}`,
+						`${tokenCookieName(port)}=${mcpToken}`,
+						`${tokenCookieName(port)}=${token}`
+					),
+					authorization: choice(
+						undefined,
+						`Bearer ${mcpToken}`,
+						`Bearer ${viewToken}`,
+						`Bearer ${other}`
+					)
+				}),
+				(given) => {
+					const decision = gateRequest(given, viewOnly);
+					if (decision.kind !== 'enter' || decision.setCookie === undefined) return;
+					expect(decision.setCookie).toBe(
+						`diff-delver-43210-view=${viewToken}; Path=/; HttpOnly; SameSite=Strict`
+					);
+					expect(decision.setCookie).not.toContain(browserToken);
+				}
+			)
+		);
 	});
 
 	it('says what to do for every refusal, without internal words', () => {

@@ -30,6 +30,7 @@ async function make(): Promise<DaemonContext> {
 		version: codeVersion(),
 		// `pnpm dev` has no gate, so the code lets nothing in that was not let in already.
 		entryCode: randomEntryCode,
+		openForReview: () => Promise.resolve(false),
 		requestStop: () => undefined
 	};
 }
