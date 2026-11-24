@@ -73,8 +73,9 @@
 
 	// With many Delves, typing a name is the quick way: the box takes focus once it is there,
 	// unless the reader has already moved on.
+	// The box is unbound again when the panel is put away, so it may be there or not.
 	$effect(() => {
-		if (findBox !== undefined && document.activeElement === heading) findBox.focus();
+		if (finding && document.activeElement === heading) findBox?.focus();
 	});
 </script>
 
@@ -106,6 +107,10 @@
 					autocomplete="off"
 					bind:this={findBox}
 					bind:value={typed}
+					onkeydown={(event) => {
+						// In a search box the browser's Escape only empties it: here it puts the panel away, as anywhere in it.
+						if (event.key === 'Escape') switcher.open = false;
+					}}
 				/>
 				<p class="count" role="status">
 					{found.length === others.length
