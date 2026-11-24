@@ -156,7 +156,7 @@ test.describe('J0 First run', () => {
 
 		await journey.activate(journey.byRole('link', { name: 'See all your Delves' }));
 		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
-		const listed = journey.byRole('listitem');
+		const listed = journey.nth(journey.byRole('listitem'), 1);
 		await journey.expectVisible(
 			journey.within(listed).byRole('link', { name: 'Uncommitted changes' })
 		);

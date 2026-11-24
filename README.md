@@ -121,7 +121,8 @@ the lines, or lines close to them, changed, and the page says why.
 **Your Delves**, at the top of every page, lists every Delve you have opened with how
 far you got. Delete the ones you are done with there. On a Delve, **Other Delves**
 (`d`) lists the others so you can go straight to one, and offers **Choose commits or
-a branch** to open something new in the same repository without a terminal.
+a branch** to open something new in the same repository without a terminal. The list
+offers the same for each repository you have opened a Delve in.
 
 ### Choose what to review
 

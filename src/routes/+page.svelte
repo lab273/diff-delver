@@ -7,6 +7,7 @@
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { ListedDiff } from '#lib/api/schemas.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
+	import ChooseLink from '#lib/ui/ChooseLink.svelte';
 	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import CopyCommand from '#lib/ui/CopyCommand.svelte';
 	import DelveEntry from '#lib/ui/DelveEntry.svelte';
@@ -120,7 +121,17 @@
 	{#if !data.canReview}
 		<ReviewAccess diff={null} what="deleting" />
 	{/if}
-	<p class="more">To open another, run <code>{RUN_COMMAND}</code> in its repository.</p>
+	<section class="open-more" aria-labelledby="open-more-heading">
+		<h2 id="open-more-heading">Open something else</h2>
+		<ul>
+			{#each data.listed.value.repositories as repository (repository.directory)}
+				<li><ChooseLink {repository} /></li>
+			{/each}
+		</ul>
+		<p class="more">
+			For a repository that is not here yet, run <code>{RUN_COMMAND}</code> in it.
+		</p>
+	</section>
 {/if}
 
 <ConfirmDialog
@@ -151,8 +162,23 @@
 		margin-bottom: 1rem;
 	}
 
+	.open-more h2 {
+		font-size: 1.125rem;
+		margin: 1.5rem 0 0.5rem;
+	}
+
+	.open-more ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.open-more li + li {
+		margin-top: 0.25rem;
+	}
+
 	.more {
-		margin: 1rem 0 0;
+		margin: 0.75rem 0 0;
 		color: var(--color-muted);
 		font-size: 0.875rem;
 	}

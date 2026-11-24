@@ -1,10 +1,11 @@
-import { test } from '../support/journey.ts';
+import { expect, test } from '../support/journey.ts';
 
 // J19 Move between Delves: with two Delves of one repository and one of
 // another, the reviewer goes from a Delve to another through the panel that
 // lists the others, opens the choose page for the Delve's repository from the
-// panel and opens a branch there, and gets to the list from the header. No
-// terminal after the Delves exist, and the keyboard only.
+// panel and opens a branch there, and gets to the list from the header, where
+// each repository offers the same way to open something new. No terminal
+// after the Delves exist, and the keyboard only.
 test.describe('J19 Move between Delves', () => {
 	test('the reviewer switches Delves and opens something new without leaving the browser', async ({
 		journey
@@ -63,10 +64,17 @@ test.describe('J19 Move between Delves', () => {
 		);
 		await journey.step('A branch opened from the choose page');
 
-		// The header leads to the list of Delves, from any page.
+		// The header leads to the list, which offers the same for each repository.
 		await journey.activate(journey.within(header).byRole('link', { name: 'Your Delves' }));
 		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
-		await journey.expectVisible(journey.byRole('link', { name: 'Commit HEAD~1' }));
-		await journey.step('The list of Delves, from the header');
+		const more = journey.byRole('region', { name: 'Open something else' });
+		await journey.expectVisible(
+			journey.within(more).byRole('link', { name: 'Choose commits or a branch in shop' })
+		);
+		const forReading = journey
+			.within(more)
+			.byRole('link', { name: 'Choose commits or a branch in reading' });
+		expect(await journey.destinationOf(forReading)).toMatch(/^\/choose\?directory=/);
+		await journey.step('The list, with a way to open something new in each repository');
 	});
 });
