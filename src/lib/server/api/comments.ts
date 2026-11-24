@@ -15,7 +15,8 @@ export function commentView(comment: DraftComment): DraftCommentView {
 		anchor: { ...comment.anchor, path: escapedRepoPath(comment.anchor.path) },
 		body: comment.body,
 		writtenAt: comment.writtenAt,
-		editedAt: comment.editedAt ?? null
+		editedAt: comment.editedAt ?? null,
+		edits: comment.edits
 	};
 }
 

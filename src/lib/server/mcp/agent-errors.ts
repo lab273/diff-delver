@@ -55,6 +55,7 @@ export function describeForAgent(error: ReportError): TextForAgent {
 		case 'InvalidCommentRange':
 		case 'InvalidCommentBody':
 		case 'CommentNotFound':
+		case 'CommentChanged':
 		case 'FileNotInDiff':
 		case 'NothingToMark':
 		case 'SortingChanged':

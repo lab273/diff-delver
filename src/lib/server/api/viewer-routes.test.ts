@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { ApiClient, describeApiError } from '#lib/api/client.ts';
-import type { AddDraftComment, DiffPage, PartQuery } from '#lib/api/schemas.ts';
+import type { AddDraftComment, DiffPage, DraftCommentView, PartQuery } from '#lib/api/schemas.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseRevisionNumber, type RevisionNumber } from '#lib/core/revision-number.tiny.ts';
@@ -834,10 +834,16 @@ describe('private draft comments', () => {
 				},
 				body
 			});
+		type Saved = DraftCommentView;
+		/** A change or a deletion as a page sends it: with the version it shows and the words it read. */
+		const change = (comment: Saved, shown: number, body: string, edits = comment.edits) =>
+			client.editDraftComment(id, comment.id, { version: revision(shown), edits, body });
+		const remove = (comment: Saved, shown: number, edits = comment.edits) =>
+			client.deleteDraftComment(id, comment.id, { version: revision(shown), edits });
 		const written = clock.now();
 		const first = value(await add('Is ten the right number?', 10));
 		const second = value(await add('And this one.', 11));
-		expect(first).toMatchObject({ writtenAt: written, editedAt: null });
+		expect(first).toMatchObject({ writtenAt: written, editedAt: null, edits: 0 });
 		expect(value(await client.draftComments(id))).toEqual({
 			now: written,
 			comments: [first, second]
@@ -845,44 +851,40 @@ describe('private draft comments', () => {
 
 		// Its words change; its lines, its version and when it was written do not.
 		clock.advance(90_000);
-		const edited = value(
-			await client.editDraftComment(id, first.id, {
-				version: revision(1),
-				body: 'Is ten the right number?\nIt was nine before.'
-			})
-		);
+		const edited = value(await change(first, 1, 'Is ten the right number?\nIt was nine before.'));
 		expect(edited).toEqual({
 			...first,
 			body: 'Is ten the right number?\nIt was nine before.',
-			editedAt: clock.now()
+			editedAt: clock.now(),
+			edits: 1
 		});
 		// The same words again change nothing, not even when they were edited.
 		clock.advance(1_000);
-		expect(
-			value(
-				await client.editDraftComment(id, first.id, { version: revision(1), body: edited.body })
-			)
-		).toEqual(edited);
+		expect(value(await change(edited, 1, edited.body))).toEqual(edited);
 		expect(value(await client.draftComments(id))).toEqual({
 			now: clock.now(),
 			comments: [edited, second]
 		});
 
+		// A page that read the words before that change, as another tab did, changes
+		// and deletes nothing: it would be acting on words it has not seen.
+		for (const answer of [await change(first, 1, 'From the other tab.'), await remove(first, 1)]) {
+			expect(answer).toMatchObject({ ok: false, error: { status: 409, reason: 'CommentChanged' } });
+			if (!answer.ok)
+				expect(describeApiError(answer.error)).toMatch(/changed since this page read/);
+		}
+		expect(value(await client.draftComments(id)).comments).toEqual([edited, second]);
+
+		const missing = { ...first, id: commentId(99) };
 		const refusals = [
-			[await client.editDraftComment(id, first.id, { version: revision(1), body: ' \n' }), 400],
-			[
-				await client.editDraftComment(id, first.id, {
-					version: revision(1),
-					body: 'x'.repeat(10_001)
-				}),
-				400
-			],
+			[await change(edited, 1, ' \n'), 400],
+			[await change(edited, 1, 'x'.repeat(10_001)), 400],
 			// No such comment, in this Delve or at all.
-			[await client.editDraftComment(id, commentId(99), { version: revision(1), body: 'x' }), 404],
-			[await client.deleteDraftComment(id, commentId(99), { version: revision(1) }), 404],
+			[await change(missing, 1, 'x'), 404],
+			[await remove(missing, 1), 404],
 			// A version the Delve never had.
-			[await client.editDraftComment(id, first.id, { version: revision(2), body: 'x' }), 409],
-			[await client.deleteDraftComment(id, first.id, { version: revision(2) }), 409]
+			[await change(edited, 2, 'x'), 409],
+			[await remove(edited, 2), 409]
 		] as const;
 		for (const [answer, status] of refusals) {
 			expect(answer).toMatchObject({ ok: false, error: { status } });
@@ -893,8 +895,15 @@ describe('private draft comments', () => {
 		const other = value(await client.start({ directory: another.dir }));
 		if (other.kind !== 'opened') throw new Error(other.kind);
 		for (const answer of [
-			await client.editDraftComment(other.diff.id, first.id, { version: revision(1), body: 'x' }),
-			await client.deleteDraftComment(other.diff.id, first.id, { version: revision(1) })
+			await client.editDraftComment(other.diff.id, edited.id, {
+				version: revision(1),
+				edits: edited.edits,
+				body: 'x'
+			}),
+			await client.deleteDraftComment(other.diff.id, edited.id, {
+				version: revision(1),
+				edits: edited.edits
+			})
 		]) {
 			expect(answer).toMatchObject({
 				ok: false,
@@ -905,7 +914,7 @@ describe('private draft comments', () => {
 		// Only a browser that may write drafts, from the daemon's own pages.
 		const endpoint = `/api/diffs/${id}/comments/${String(first.id)}`;
 		const cookie = await browserCookie(daemon);
-		const body = JSON.stringify({ version: 1, body: 'From somewhere else.' });
+		const body = JSON.stringify({ version: 1, edits: 1, body: 'From somewhere else.' });
 		// Said outright: Node sends no length of its own with a DELETE.
 		const json = { 'content-type': 'application/json', 'content-length': String(body.length) };
 		for (const method of ['POST', 'DELETE']) {
@@ -937,40 +946,106 @@ describe('private draft comments', () => {
 		// The Delve moves on: a page still on version 1 changes nothing, and is told why.
 		await repo.write('src/new.ts', 'export const n = 2;\n');
 		expect(value(await client.updateDiff(id)).kind).toBe('updated');
-		const stale = await client.editDraftComment(id, first.id, {
-			version: revision(1),
-			body: 'Typed on the old page.'
-		});
-		expect(stale).toMatchObject({ ok: false, error: { status: 409, reason: 'VersionOutOfDate' } });
-		expect(await client.deleteDraftComment(id, second.id, { version: revision(1) })).toMatchObject({
-			ok: false,
-			error: { status: 409, reason: 'VersionOutOfDate' }
-		});
+		for (const answer of [
+			await change(edited, 1, 'Typed on the old page.'),
+			await remove(second, 1)
+		]) {
+			expect(answer).toMatchObject({
+				ok: false,
+				error: { status: 409, reason: 'VersionOutOfDate' }
+			});
+		}
 		expect(value(await client.draftComments(id)).comments).toEqual([edited, second]);
 
 		// From the new version, a comment whose lines are in the old one can still be changed and deleted.
 		clock.advance(60_000);
-		const later = value(
-			await client.editDraftComment(id, first.id, { version: revision(2), body: 'Shorter.' })
-		);
-		expect(later).toMatchObject({ version: 1, body: 'Shorter.', editedAt: clock.now() });
-		expect(value(await client.deleteDraftComment(id, second.id, { version: revision(2) }))).toEqual(
-			second
-		);
+		const later = value(await change(edited, 2, 'Shorter.'));
+		expect(later).toMatchObject({ version: 1, body: 'Shorter.', editedAt: clock.now(), edits: 2 });
+		expect(value(await remove(second, 2))).toEqual(second);
 		expect(value(await client.draftComments(id)).comments).toEqual([later]);
-		expect(await client.deleteDraftComment(id, second.id, { version: revision(2) })).toMatchObject({
+		expect(await remove(second, 2)).toMatchObject({
 			ok: false,
 			error: { status: 404, reason: 'CommentNotFound' }
 		});
 
 		// A closed Delve can be read, not changed.
 		value(await client.closeDiff(id));
-		for (const answer of [
-			await client.editDraftComment(id, first.id, { version: revision(2), body: 'x' }),
-			await client.deleteDraftComment(id, first.id, { version: revision(2) })
-		]) {
+		for (const answer of [await change(later, 2, 'x'), await remove(later, 2)]) {
 			expect(answer).toMatchObject({ ok: false, error: { status: 409, reason: 'ReportClosed' } });
 		}
 		expect(value(await client.draftComments(id)).comments).toEqual([later]);
+	});
+
+	it('never gives a deleted comment’s number to another, so a page that is behind reaches nothing', async () => {
+		const repo = await useFixture(viewed);
+		const dataDirectory = await tempDirectory();
+		const daemon = await testDaemon({ dataDirectory });
+		const client = await browserClient(daemon);
+		const started = value(await client.start({ directory: repo.dir }));
+		if (started.kind !== 'opened') throw new Error(started.kind);
+		const id = started.diff.id;
+		const add = (file: string, body: string) =>
+			client.addDraftComment(id, {
+				version: revision(1),
+				anchor: { path: path(file), side: 'new', first: lineNumberOf(1), last: lineNumberOf(1) },
+				body
+			});
+
+		// One tab saves a comment and another deletes it; the first still shows it.
+		const shownInOldTab = value(await add('src/long.ts', 'On the long file.'));
+		value(
+			await client.deleteDraftComment(id, shownInOldTab.id, {
+				version: revision(1),
+				edits: shownInOldTab.edits
+			})
+		);
+		// The next comment, on another file, is a different comment with a different number.
+		const next = value(await add('src/new.ts', 'On the new file.'));
+		expect(next.id).toBeGreaterThan(shownInOldTab.id);
+
+		// What the first tab does to the comment it still shows is refused, and changes nothing.
+		const staleEdit = await client.editDraftComment(id, shownInOldTab.id, {
+			version: revision(1),
+			edits: shownInOldTab.edits,
+			body: 'Meant for the long file.'
+		});
+		const staleDelete = await client.deleteDraftComment(id, shownInOldTab.id, {
+			version: revision(1),
+			edits: shownInOldTab.edits
+		});
+		for (const answer of [staleEdit, staleDelete]) {
+			expect(answer).toMatchObject({
+				ok: false,
+				error: { status: 404, reason: 'CommentNotFound' }
+			});
+		}
+		expect(value(await client.draftComments(id)).comments).toEqual([next]);
+
+		// Nor after every comment is deleted, nor after the daemon starts again.
+		value(
+			await client.deleteDraftComment(id, next.id, { version: revision(1), edits: next.edits })
+		);
+		expect(value(await client.draftComments(id)).comments).toEqual([]);
+		const after = value(await add('src/long.ts', 'After all were deleted.'));
+		expect(after.id).toBeGreaterThan(next.id);
+		value(
+			await client.deleteDraftComment(id, after.id, { version: revision(1), edits: after.edits })
+		);
+		await daemon.stop();
+		const restarted = await testDaemon({ dataDirectory });
+		const again = await browserClient(restarted);
+		const last = value(
+			await again.addDraftComment(id, {
+				version: revision(1),
+				anchor: {
+					path: path('src/long.ts'),
+					side: 'new',
+					first: lineNumberOf(2),
+					last: lineNumberOf(2)
+				},
+				body: 'After a restart.'
+			})
+		);
+		expect(last.id).toBeGreaterThan(after.id);
 	});
 });

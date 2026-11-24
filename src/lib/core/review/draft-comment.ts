@@ -1,4 +1,5 @@
 import type { DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
+import type { EditCount } from '#lib/core/edit-count.tiny.ts';
 import type { LineNumber } from '#lib/core/line-number.tiny.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
@@ -28,6 +29,8 @@ export interface DraftComment {
 	readonly writtenAt: Timestamp;
 	/** When its words were last changed; undefined while they are as first written. */
 	readonly editedAt: Timestamp | undefined;
+	/** How many times its words have been changed. */
+	readonly edits: EditCount;
 }
 
 /** Whether `body` can be saved as a comment's words: something written, and not too long. */

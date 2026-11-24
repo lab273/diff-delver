@@ -314,14 +314,35 @@ CREATE INDEX draft_comments_by_revision ON draft_comments (revision_id);
 	},
 	{
 		version: schemaVersionOf(10),
-		name: 'when a draft comment was written, and when its words were last changed',
+		name: 'draft comments whose ids are never used again, with when each was written and changed',
+		rebuildsTables: true,
 		sql: `
+-- A comment's id is never given to another comment once it is deleted
+-- (AUTOINCREMENT), so a page that still shows a deleted comment cannot reach
+-- a later one by its number. Each says when it was written, when its words
+-- were last changed, and how many times they have been, which a page sends
+-- back with a change so one made elsewhere since is not overwritten unseen.
 -- A comment written before these columns says it was written when its version
 -- was taken: the earliest it can have been, since nothing kept the moment.
-ALTER TABLE draft_comments ADD COLUMN written_at INTEGER NOT NULL DEFAULT 0 CHECK (written_at >= 0);
-ALTER TABLE draft_comments ADD COLUMN edited_at INTEGER CHECK (edited_at >= 0);
-UPDATE draft_comments
-SET written_at = (SELECT taken_at FROM revisions WHERE revisions.id = draft_comments.revision_id);
+CREATE TABLE draft_comments_rebuilt (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new')),
+	first_line INTEGER NOT NULL CHECK (first_line >= 1),
+	last_line INTEGER NOT NULL CHECK (last_line >= first_line),
+	body TEXT NOT NULL CHECK (body <> ''),
+	written_at INTEGER NOT NULL CHECK (written_at >= 0),
+	edited_at INTEGER CHECK (edited_at >= 0),
+	edits INTEGER NOT NULL CHECK (edits >= 0),
+	CHECK ((edits = 0) = (edited_at IS NULL))
+) STRICT;
+INSERT INTO draft_comments_rebuilt (id, revision_id, path, side, first_line, last_line, body, written_at, edited_at, edits)
+	SELECT c.id, c.revision_id, c.path, c.side, c.first_line, c.last_line, c.body, r.taken_at, NULL, 0
+	FROM draft_comments c JOIN revisions r ON r.id = c.revision_id;
+DROP TABLE draft_comments;
+ALTER TABLE draft_comments_rebuilt RENAME TO draft_comments;
+CREATE INDEX draft_comments_by_revision ON draft_comments (revision_id);
 `
 	}
 ];

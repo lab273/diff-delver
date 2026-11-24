@@ -159,6 +159,12 @@
 			readonly={writing.saving}
 			onkeydown={onKey}></textarea>
 	</label>
+	{#if writing.changedElsewhere && writing.editing !== undefined}
+		<div class="note">
+			<p>Its words now, as changed elsewhere. Saving again puts yours in their place:</p>
+			<p class="other">{writing.editing.body}</p>
+		</div>
+	{/if}
 	<!-- Why a save was refused, until the page shows the version that refusal was about no more. -->
 	{#if writing.problem !== '' && (writing.behindOn === undefined || behind)}
 		<p class="problem" role="alert">{writing.problem}</p>
@@ -253,6 +259,15 @@
 
 	.problem {
 		color: var(--color-removed);
+	}
+
+	.other {
+		margin-top: 0.2rem;
+		padding-left: 0.6rem;
+		border-left: 3px solid var(--color-border);
+		color: var(--color-text);
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 	}
 
 	.actions {

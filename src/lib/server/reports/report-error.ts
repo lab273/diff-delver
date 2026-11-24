@@ -147,6 +147,8 @@ export type ReportError =
 	| { readonly kind: 'InvalidCommentBody' }
 	/** The Delve's draft has no comment with that id: it was deleted, as from another tab. */
 	| { readonly kind: 'CommentNotFound' }
+	/** The comment's words were changed since the caller read it, as from another tab. */
+	| { readonly kind: 'CommentChanged' }
 	| PathNotFound
 	| PathIsDirectory
 	| PathIsSubmodule
@@ -217,6 +219,10 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 			);
 		case 'InvalidCommentBody':
 			return reviewerMessage(`Write a comment of up to ${String(MAX_COMMENT_LENGTH)} characters.`);
+		case 'CommentChanged':
+			return reviewerMessage(
+				'This comment’s words were changed since this page read them, perhaps in another tab, so nothing was changed here. Look at its words as they are now, then do it again if you still want to.'
+			);
 		case 'CommentNotFound':
 			return reviewerMessage(
 				'This comment is no longer in your draft: it was deleted, perhaps in another tab, so nothing was changed. If you still want what you wrote, copy it and write it as a new comment.'

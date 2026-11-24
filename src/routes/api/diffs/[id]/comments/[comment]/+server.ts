@@ -21,8 +21,9 @@ function commentId(text: string | undefined): Result<DraftCommentId, Response> {
 
 /**
  * Changes a saved comment's words, from a page that shows the Delve's current
- * version: on an older page nothing changes and the answer says so (409), so
- * the page keeps what was typed.
+ * version and read the words as they are: on an older page, or when the words
+ * were changed elsewhere since, nothing changes and the answer says so (409),
+ * so the page keeps what was typed.
  */
 export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const refused = draftsRefused(locals.daemon, request);
@@ -33,8 +34,14 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	if (!comment.ok) return comment.error;
 	const parsed = await readBody(request, EditDraftCommentSchema);
 	if (!parsed.ok) return parsed.error;
-	const { version, body } = parsed.value;
-	const saved = locals.daemon.service.editDraftComment(id.value, version, comment.value, body);
+	const { version, edits, body } = parsed.value;
+	const saved = locals.daemon.service.editDraftComment(
+		id.value,
+		version,
+		comment.value,
+		edits,
+		body
+	);
 	return saved.ok
 		? Response.json(commentView(saved.value), { headers: PRIVATE })
 		: serviceFailure(saved.error);
@@ -53,7 +60,8 @@ export const DELETE: RequestHandler = async ({ locals, params, request }) => {
 	const deleted = locals.daemon.service.deleteDraftComment(
 		id.value,
 		parsed.value.version,
-		comment.value
+		comment.value,
+		parsed.value.edits
 	);
 	return deleted.ok
 		? Response.json(commentView(deleted.value), { headers: PRIVATE })

@@ -31,8 +31,13 @@ function samePlace(a: CommentPlace, b: CommentPlace): boolean {
 export class Writing {
 	/** Its place among the things being written, which never changes. */
 	readonly key: number;
-	/** The saved comment whose words these replace; undefined for a new comment. */
-	readonly editing: DraftCommentView | undefined;
+	/**
+	 * The saved comment whose words these replace, as the page last read it;
+	 * undefined for a new comment.
+	 */
+	editing: DraftCommentView | undefined;
+	/** Its comment's words were changed elsewhere while this box was open: the box shows them. */
+	changedElsewhere = $state(false);
 	/** The lines it is on. A new comment's move when the reviewer chooses lines of a newer version. */
 	place: CommentPlace;
 	body: string;
@@ -53,7 +58,7 @@ export class Writing {
 	constructor(key: number, place: CommentPlace, editing?: DraftCommentView) {
 		this.key = key;
 		this.place = $state.raw(place);
-		this.editing = editing;
+		this.editing = $state.raw(editing);
 		this.body = $state(editing?.body ?? '');
 	}
 
@@ -179,11 +184,18 @@ export class Comments {
 	 * asked. Otherwise it stays, with why.
 	 */
 	async remove(comment: DraftCommentView, shown: RevisionNumber): Promise<NotDeleted | undefined> {
-		const deleted = await this.#client.deleteDraftComment(this.id, comment.id, { version: shown });
+		const deleted = await this.#client.deleteDraftComment(this.id, comment.id, {
+			version: shown,
+			edits: comment.edits
+		});
 		if (
 			!deleted.ok &&
 			!(deleted.error.kind === 'refused' && deleted.error.reason === 'CommentNotFound')
 		) {
+			// Changed elsewhere since this page read it: show it as it is now.
+			if (deleted.error.kind === 'refused' && deleted.error.reason === 'CommentChanged') {
+				await this.load();
+			}
 			return {
 				message: describeApiError(deleted.error),
 				behind: deleted.error.kind === 'refused' && deleted.error.reason === 'VersionOutOfDate'
@@ -226,8 +238,19 @@ export class Comments {
 				? await this.#client.addDraftComment(this.id, { ...writing.place, body: writing.body })
 				: await this.#client.editDraftComment(this.id, editing.id, {
 						version: shown,
+						edits: editing.edits,
 						body: writing.body
 					});
+		if (!saved.ok && saved.error.kind === 'refused' && saved.error.reason === 'CommentChanged') {
+			// Its words were changed elsewhere, as in another tab. The box keeps what was
+			// typed here and shows the words as they are now; saving again replaces them.
+			await this.load();
+			const now = this.saved?.find((c) => c.id === editing?.id);
+			if (now !== undefined) {
+				writing.editing = now;
+				writing.changedElsewhere = true;
+			}
+		}
 		writing.saving = false;
 		if (!saved.ok) {
 			writing.problem = describeApiError(saved.error);

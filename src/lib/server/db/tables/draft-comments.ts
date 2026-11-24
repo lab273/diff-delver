@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseDraftCommentId, type DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
+import { parseEditCount } from '#lib/core/edit-count.tiny.ts';
 import { parseLineNumber } from '#lib/core/line-number.tiny.ts';
 import { repoPathBytes } from '#lib/core/path-bytes.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
@@ -26,23 +27,25 @@ const row = z
 		last: whole(parseLineNumber),
 		body: z.string().min(1).max(MAX_COMMENT_LENGTH),
 		writtenAt: timestamp,
-		editedAt: nullable(timestamp)
+		editedAt: nullable(timestamp),
+		edits: whole(parseEditCount)
 	})
 	.refine(({ first, last, body }) => last >= first && body.trim() !== '')
 	.transform(
-		({ id, version, path, side, first, last, body, writtenAt, editedAt }): DraftComment => ({
+		({ id, version, path, side, first, last, body, writtenAt, editedAt, edits }): DraftComment => ({
 			id,
 			version,
 			anchor: { path, side, first, last },
 			body,
 			writtenAt,
-			editedAt
+			editedAt,
+			edits
 		})
 	);
 
 /** A comment's columns, with its revision's number as its version. */
 const COLUMNS = `c.id, r.number AS version, c.path, c.side, c.first_line AS first,
-	c.last_line AS last, c.body, c.written_at AS writtenAt, c.edited_at AS editedAt`;
+	c.last_line AS last, c.body, c.written_at AS writtenAt, c.edited_at AS editedAt, c.edits`;
 
 /** All comments in the Delve's draft, in the order they were saved. */
 export function draftCommentsOf(q: Queries, report: ReportId) {
@@ -82,8 +85,8 @@ export function insertDraftComment(
 	now: Timestamp
 ): Result<DraftComment, StoredRowInvalid> {
 	const saved = q.get(
-		`INSERT INTO draft_comments (revision_id, path, side, first_line, last_line, body, written_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO draft_comments (revision_id, path, side, first_line, last_line, body, written_at, edits)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 0)
 		 RETURNING id`,
 		revision,
 		repoPathBytes(anchor.path),
@@ -109,7 +112,12 @@ export function updateDraftComment(
 	body: string,
 	now: Timestamp
 ): void {
-	q.run('UPDATE draft_comments SET body = ?, edited_at = ? WHERE id = ?', body, now, id);
+	q.run(
+		'UPDATE draft_comments SET body = ?, edited_at = ?, edits = edits + 1 WHERE id = ?',
+		body,
+		now,
+		id
+	);
 }
 
 export function deleteDraftComment(q: Queries, id: DraftCommentId): void {

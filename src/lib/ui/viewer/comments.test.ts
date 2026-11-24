@@ -215,8 +215,54 @@ describe('the comments a page holds', () => {
 		expect(value(await client.draftComments(id)).comments).toMatchObject([{ body: 'Two.' }]);
 
 		// One another tab deleted already is gone here too, without complaint.
-		value(await client.deleteDraftComment(id, two.comment.id, { version: version(2) }));
+		value(
+			await client.deleteDraftComment(id, two.comment.id, {
+				version: version(2),
+				edits: two.comment.edits
+			})
+		);
 		expect(await comments.remove(two.comment, version(2))).toBeUndefined();
+		expect(comments.saved).toEqual([]);
+	});
+
+	it('never overwrites words changed in another tab without showing them', async () => {
+		const { client, comments, id } = await opened();
+		const writing = comments.start(place(1, 'src/a.ts', 2));
+		writing.body = 'First words.';
+		const saved = await comments.save(writing, version(1));
+		if (saved.kind !== 'saved') throw new Error('not saved');
+		const read = saved.comment;
+
+		const edit = comments.edit(read);
+		edit.body = 'Mine.';
+		// Another tab changes the same comment meanwhile.
+		value(
+			await client.editDraftComment(id, read.id, {
+				version: version(1),
+				edits: read.edits,
+				body: 'Theirs.'
+			})
+		);
+		expect(await comments.save(edit, version(1))).toEqual({ kind: 'not-saved' });
+		expect(edit.problem).toMatch(/changed since this page read them/);
+		expect(edit.body).toBe('Mine.');
+		expect(edit.changedElsewhere).toBe(true);
+		expect(edit.editing?.body).toBe('Theirs.');
+		expect(comments.saved).toMatchObject([{ body: 'Theirs.', edits: 1 }]);
+		// Having been shown them, saving again puts these words in their place.
+		expect(await comments.save(edit, version(1))).toMatchObject({
+			kind: 'saved',
+			comment: { body: 'Mine.', edits: 2 }
+		});
+
+		// A deletion from a page that read older words is refused, and the page reads them again.
+		const refused = await comments.remove(read, version(1));
+		expect(refused?.message).toMatch(/changed since this page read them/);
+		expect(refused?.behind).toBe(false);
+		expect(comments.saved).toMatchObject([{ body: 'Mine.', edits: 2 }]);
+		const now = comments.saved?.[0];
+		if (now === undefined) throw new Error('the comment is still there');
+		expect(await comments.remove(now, version(1))).toBeUndefined();
 		expect(comments.saved).toEqual([]);
 	});
 

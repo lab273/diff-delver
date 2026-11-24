@@ -24,6 +24,7 @@ import { parseSubjectLine } from '#lib/core/history/subject-line.tiny.ts';
 import { parseFileCount } from '#lib/core/file-count.tiny.ts';
 import { parseFileMode } from '#lib/core/file-mode.tiny.ts';
 import { parseDraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
+import { parseEditCount } from '#lib/core/edit-count.tiny.ts';
 import { parseEntryCode } from '#lib/core/entry-code.tiny.ts';
 import { parseByteSize } from '#lib/core/byte-size.tiny.ts';
 import { parseLineCount } from '#lib/core/line-count.tiny.ts';
@@ -870,6 +871,8 @@ export const ApiErrorBodySchema = z.object({
 });
 export type ApiErrorBody = z.output<typeof ApiErrorBodySchema>;
 
+const editCount = parsed(z.number(), parseEditCount);
+
 const commentRange = z.strictObject({
 	path: escapedPath,
 	side: z.enum(['old', 'new']),
@@ -889,11 +892,16 @@ export const AddDraftCommentSchema = z.strictObject({
 export type AddDraftComment = z.infer<typeof AddDraftCommentSchema>;
 
 /** POST /api/diffs/[id]/comments/[comment]: a comment's new words, from a page that shows `version`. */
-export const EditDraftCommentSchema = z.strictObject({ version, body: commentBody });
+export const EditDraftCommentSchema = z.strictObject({
+	version,
+	/** How many times the comment's words had been changed when the page read them. */
+	edits: editCount,
+	body: commentBody
+});
 export type EditDraftComment = z.infer<typeof EditDraftCommentSchema>;
 
 /** DELETE /api/diffs/[id]/comments/[comment], from a page that shows `version`. */
-export const DeleteDraftCommentSchema = z.strictObject({ version });
+export const DeleteDraftCommentSchema = z.strictObject({ version, edits: editCount });
 export type DeleteDraftComment = z.infer<typeof DeleteDraftCommentSchema>;
 
 const draftCommentId = parsed(z.number(), parseDraftCommentId);
@@ -903,7 +911,9 @@ export const DraftCommentSchema = AddDraftCommentSchema.extend({
 	id: draftCommentId,
 	writtenAt: timestamp,
 	/** When its words were last changed, or null while they are as first written. */
-	editedAt: timestamp.nullable()
+	editedAt: timestamp.nullable(),
+	/** How many times its words have been changed: sent back with a change or a deletion. */
+	edits: editCount
 });
 export type DraftCommentView = z.infer<typeof DraftCommentSchema>;
 

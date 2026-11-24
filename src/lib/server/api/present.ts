@@ -528,6 +528,7 @@ export function statusOf(error: ReportError): number {
 		case 'ReportClosed':
 		case 'AnotherReportOpen':
 		case 'RevisionChangedWhileSaving':
+		case 'CommentChanged':
 		case 'VersionOutOfDate':
 		case 'SortingChanged':
 		case 'AssignmentsChanged':

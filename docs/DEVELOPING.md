@@ -139,11 +139,14 @@ service: the whole draft with the daemon's time, saving a comment, and, at
 `comments/[comment]`, changing one's words or deleting it. Each row belongs to
 the revision that supplied its snapshot, with the path bytes, side and line
 range in that tree, when it was written and when its words last changed. Its
-lines never change; its words can. The service checks the current version
+lines never change; its words can. A comment's id is never given to another
+once it is deleted (the table's ids only count up), and each comment counts how
+many times its words were changed. The service checks the current version
 again in the transaction that saves the comment, and changes or deletes one
 only from a page that shows the Delve's current version, whichever version the
-comment's lines are in, so a page that is behind keeps what was typed and says
-why. Every comment route requires a review session cookie. The command's bearer token can issue
+comment's lines are in, and that sends the count it read, so a page that is
+behind, or that another tab got ahead of, changes nothing, keeps what was
+typed and says why. Every comment route requires a review session cookie. The command's bearer token can issue
 a review entry code. MCP uses a separate bearer token, and the addresses in its
 answers carry entry codes that open the viewer with a separate cookie, which
 cannot read or write drafts. A window the daemon opens itself carries a review

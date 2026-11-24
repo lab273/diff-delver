@@ -25,7 +25,13 @@ import {
 } from './index.ts';
 import { sqliteError } from './database.ts';
 import { schemaVersionOf } from '#lib/core/schema-version.tiny.ts';
-import { draftCommentsOf } from './tables/draft-comments.ts';
+import {
+	deleteDraftComment,
+	draftCommentOf,
+	draftCommentsOf,
+	insertDraftComment,
+	updateDraftComment
+} from './tables/draft-comments.ts';
 import { insertReport, reportById, setReportState } from './tables/reports.ts';
 import { insertRevision } from './tables/revisions.ts';
 
@@ -179,7 +185,7 @@ describe('the database', () => {
 			},
 			{
 				version: 10,
-				name: 'when a draft comment was written, and when its words were last changed',
+				name: 'draft comments whose ids are never used again, with when each was written and changed',
 				applied_at: 1_700_000_000_000
 			}
 		]);
@@ -245,6 +251,8 @@ describe('the database', () => {
 			section_references: [],
 			commit_runs: [],
 			draft_comments: [],
+			// SQLite's own, for the one table whose ids are never used again.
+			sqlite_sequence: [{ name: 'draft_comments', seq: 0 }],
 			revision_updates: [],
 			revisions_to_check: [{ revision_id: 'v_1' }]
 		});
@@ -261,7 +269,7 @@ describe('the database', () => {
 		expect(checked).toEqual({ problems: [], reason: 'snapshot-gone', revisions: [] });
 	});
 
-	it('says a comment saved before its time was kept was written when its version was taken', async () => {
+	it('keeps comments saved before their times were kept, and never uses a deleted one’s id again', async () => {
 		const dir = await tempDirectory();
 		const ids = sequentialIds();
 		const id = ids.reportId();
@@ -271,12 +279,20 @@ describe('the database', () => {
 			before.write((q) => {
 				insertReport(q, aReport(id));
 				insertRevision(q, revision);
-				q.run(
-					`INSERT INTO draft_comments (revision_id, path, side, first_line, last_line, body)
-					 VALUES (?, ?, 'new', 2, 3, 'Written before the upgrade.')`,
-					revision.id,
-					new TextEncoder().encode('src/a.ts')
-				);
+				for (const [line, body] of [
+					[2, 'Written before the upgrade.'],
+					[5, 'And another.']
+				] as const) {
+					q.run(
+						`INSERT INTO draft_comments (revision_id, path, side, first_line, last_line, body)
+						 VALUES (?, ?, 'new', ?, ?, ?)`,
+						revision.id,
+						new TextEncoder().encode('src/a.ts'),
+						line,
+						line + 1,
+						body
+					);
+				}
 				return ok(undefined);
 			})
 		);
@@ -284,16 +300,55 @@ describe('the database', () => {
 
 		const db = await opened(dir);
 		const comments = value(db.read((q) => draftCommentsOf(q, id)));
-		db.close();
+		// Each keeps its id and its words, and says it was written when its version was taken.
 		expect(comments).toMatchObject([
 			{
+				id: 1,
 				version: revision.number,
 				anchor: { path: 'src/a.ts', side: 'new', first: 2, last: 3 },
 				body: 'Written before the upgrade.',
 				writtenAt: revision.takenAt,
-				editedAt: undefined
-			}
+				editedAt: undefined,
+				edits: 0
+			},
+			{ id: 2, anchor: { first: 5, last: 6 }, body: 'And another.', edits: 0 }
 		]);
+
+		// The newest deleted, the next comment does not take its id, as it did before the upgrade.
+		const [first, second] = comments;
+		if (first === undefined || second === undefined) throw new Error('two comments were kept');
+		const next = value(
+			db.write((q) => {
+				deleteDraftComment(q, second.id);
+				return insertDraftComment(q, revision.id, first.anchor, 'After the upgrade.', at(9_000));
+			})
+		);
+		expect(next.id).toBe(3);
+		// A change counts, and is stamped; the table refuses a count without its time.
+		const changed = value(
+			db.write((q) => {
+				updateDraftComment(q, first.id, 'Changed.', at(9_500));
+				return draftCommentOf(q, id, first.id);
+			})
+		);
+		expect(changed).toMatchObject({ body: 'Changed.', editedAt: 9_500, edits: 1 });
+		expect(
+			failure(
+				db.write((q) => {
+					q.run('UPDATE draft_comments SET edits = 2 WHERE id = ?', next.id);
+					return ok(undefined);
+				})
+			).kind
+		).toBe('DatabaseFailed');
+		// Deleting the Delve still takes its comments with it.
+		value(
+			db.write((q) => {
+				q.run('DELETE FROM reports');
+				return ok(undefined);
+			})
+		);
+		expect(value(db.read((q) => ok(q.all('SELECT id FROM draft_comments'))))).toEqual([]);
+		db.close();
 	});
 
 	it('upgrades a version 1 file through every migration and a next one that adds a table and a column', async () => {
