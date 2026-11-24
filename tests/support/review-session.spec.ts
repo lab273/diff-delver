@@ -65,6 +65,11 @@ test('a cross-site MCP link opens the Delve with or without review access in the
 					.getByRole('region', { name: 'Deleting is off in this browser' })
 					.getByRole('button', { name: 'Turn on deleting in this browser' })
 			).toBeVisible();
+			await expect(
+				page.getByRole('region', { name: 'Deleting is off in this browser' })
+			).toContainText(
+				'This page was opened from a link, so you can read here, but not delete a Delve yet. Press the button and diff delver opens this list in a window where you can.'
+			);
 			await expect(page.getByRole('button', { name: /^Delete / })).toHaveCount(0);
 			await page.goBack();
 			await expect(page).toHaveURL(delve);

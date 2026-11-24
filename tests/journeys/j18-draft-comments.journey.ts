@@ -11,7 +11,9 @@ test.describe('J18 Draft comments', () => {
 		const off = journey.within(
 			journey.byRole('region', { name: 'Comments are off in this browser' })
 		);
-		await journey.expectVisible(off.byText('You came here by a link'));
+		await journey.expectVisible(
+			off.byText('you can read and tick here, but not comment yet', { exact: false })
+		);
 		await journey.expectHidden(journey.byRole('button', { name: /^Draft comments/ }));
 		await journey.step('Comments are off after an agent’s link');
 

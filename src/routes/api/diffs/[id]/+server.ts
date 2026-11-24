@@ -29,7 +29,8 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 
 /** Deletes a diff, with what diff delver saved of it. */
 export const DELETE: RequestHandler = async ({ locals, params, request }) => {
-	if (!canReview(locals.daemon, request)) return reviewSessionRequired('delete a Delve');
+	if (!canReview(locals.daemon, request))
+		return reviewSessionRequired('delete a Delve', 'deleting');
 	const id = diffId(params.id);
 	if (!id.ok) return id.error;
 	const deleted = await locals.daemon.service.deleteReport(id.value);

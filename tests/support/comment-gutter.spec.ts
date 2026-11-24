@@ -210,6 +210,32 @@ test('a browser let in by a link is told under the line how to turn comments on,
 	}
 });
 
+test('a tab whose window opened in another browser says so when it is come back to', async ({
+	page
+}) => {
+	const world = await makeJourneyWorld();
+	try {
+		const repo = await world.repository('reading');
+		await page.goto(await world.agentLink(repo));
+		await expect(page.locator('html[data-ready]')).toHaveCount(1);
+		const off = page.getByRole('region', { name: 'Comments are off in this browser' });
+		await expect(off).toContainText(
+			'This page was opened from a link, so you can read and tick here, but not comment yet. Press the button and diff delver opens this Delve in a window where you can.'
+		);
+		await off.getByRole('button', { name: 'Turn on comments in this browser' }).click();
+		await expect(off.getByText('A new tab has opened with comments turned on.')).toBeVisible();
+		// The window opened somewhere this browser never sees: coming back, comments are still off.
+		expect(world.openedWindow()).toBeDefined();
+		await page.evaluate(() => window.dispatchEvent(new FocusEvent('focus')));
+		await expect(off.getByText('Still off in this tab?')).toBeVisible();
+		await expect(off).toContainText('The new tab opens in your system’s default browser.');
+		await expect(off.locator('code')).toHaveText(/ --no-open$/);
+		await expect(off.getByRole('button', { name: 'Copy the command' })).toBeVisible();
+	} finally {
+		await world.close();
+	}
+});
+
 test('horizontal navigation draws the far side of a long replacement without drawing the intervening chunks', async ({
 	page
 }) => {

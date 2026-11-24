@@ -13,13 +13,14 @@ export function canReview(daemon: DaemonContext, request: Request): boolean {
 /**
  * The answer to a browser that may read and tick but not do `action`: it was
  * let in by a link, such as an agent's, and not by a window diff delver opened.
+ * It names the button on the page that asked: the one for `what`.
  */
-export function reviewSessionRequired(action: string): Response {
+export function reviewSessionRequired(action: string, what: 'comments' | 'deleting'): Response {
 	return failure(
 		403,
 		'BrowserSessionRequired',
 		reviewerMessage(
-			`This browser was let in by a link, which is not enough to ${action}, so nothing was changed. Reload this page and press “Turn on comments in this browser”.`
+			`This browser was let in by a link, which is not enough to ${action}, so nothing was changed. Reload this page and press “Turn on ${what} in this browser”.`
 		)
 	);
 }

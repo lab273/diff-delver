@@ -976,6 +976,10 @@ describe('/mcp over HTTP', () => {
 		const refused = await remove(view);
 		expect(refused.status).toBe(403);
 		expect(JSON.parse(refused.body)).toMatchObject({ error: { kind: 'BrowserSessionRequired' } });
+		// Each refusal names the button of the page that asked.
+		expect(refused.body).toContain('press “Turn on deleting in this browser”');
+		const unread = await rawRequest(daemon.port, { path: comments, headers: { cookie: view } });
+		expect(unread.body).toContain('press “Turn on comments in this browser”');
 		const stored = await rawRequest(daemon.port, { path: comments, headers: { cookie: review } });
 		expect(JSON.parse(stored.body)).toMatchObject({ comments: [JSON.parse(post.body)] });
 		expect((await remove(review)).status).toBe(200);

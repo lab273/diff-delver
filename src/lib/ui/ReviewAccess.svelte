@@ -4,13 +4,15 @@
 	button that turns them on. Pressing it has diff delver open the same page
 	in the person's browser, in a window that may write them; this page then
 	notices, when the person comes back to it, that its browser may too, and
-	its parent stops showing this.
+	its parent stops showing this. If it still may not, the window opened in
+	another browser, the system's default, and it says what to do about that.
 
 	The page never sees the address that window opens with (DESIGN 9): it is
-	told only whether a browser could be asked.
+	told only what became of asking.
 -->
 <script lang="ts">
 	import { invalidate } from '$app/navigation';
+	import { tick } from 'svelte';
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import CopyCommand from '#lib/ui/CopyCommand.svelte';
@@ -47,29 +49,53 @@
 		else asked = { kind: window.value.outcome };
 	}
 
+	/**
+	 * A tab was opened and the person has come back, and this page is still
+	 * here: its browser was not the one the tab opened in. The system opens
+	 * links in its default browser, which need not be this one.
+	 */
+	let stillOff = $state(false);
+
 	// Coming back to this tab, as from the one that just opened: ask again whether
-	// this browser may write, so the page turns it on without a reload.
+	// this browser may write, so the page turns it on without a reload. When it
+	// may, the page stops drawing this; when it still may not, say what to do.
 	$effect(() => {
-		const again = (): void => {
-			if (document.visibilityState === 'visible') void invalidate('app:review-access');
+		let here = true;
+		const again = async (): Promise<void> => {
+			if (document.visibilityState !== 'visible') return;
+			const opened = asked.kind === 'opened';
+			await invalidate('app:review-access');
+			await tick();
+			if (here && opened) stillOff = true;
 		};
-		window.addEventListener('focus', again);
-		document.addEventListener('visibilitychange', again);
+		const back = (): void => {
+			void again();
+		};
+		window.addEventListener('focus', back);
+		document.addEventListener('visibilitychange', back);
 		return () => {
-			window.removeEventListener('focus', again);
-			document.removeEventListener('visibilitychange', again);
+			here = false;
+			window.removeEventListener('focus', back);
+			document.removeEventListener('visibilitychange', back);
 		};
 	});
 </script>
 
 <Notice heading="{off} off in this browser">
 	<p>
-		You came here by a link, such as one a coding agent gave you. A link lets you read and tick.
-		Your comments, and deleting a Delve, are yours alone, so diff delver turns them on only in a
-		window it opens for you itself.
+		This page was opened from a link, so you can read {what === 'comments' ? 'and tick ' : ''}here,
+		but not {what === 'comments' ? 'comment' : 'delete a Delve'} yet. Press the button and diff delver
+		opens
+		{diff === null ? 'this list' : 'this Delve'} in a window where you can.
 	</p>
 	<div role="status">
-		{#if asked.kind === 'opened'}
+		{#if asked.kind === 'opened' && stillOff}
+			<p>
+				<strong>Still off in this tab?</strong> The new tab opens in your system’s default browser. If
+				that is not this one, carry on there, or run this in a terminal, in your repository, and open
+				the address it prints in this browser.
+			</p>
+		{:else if asked.kind === 'opened'}
 			<p>
 				<strong>A new tab has opened with {what} turned on.</strong> Carry on there, or come back to
 				this tab, which turns {what} on too once the new tab has opened.
@@ -89,7 +115,7 @@
 			<p><strong>That did not work.</strong> {asked.message}</p>
 		{/if}
 	</div>
-	{#if asked.kind === 'no-browser'}
+	{#if asked.kind === 'no-browser' || (asked.kind === 'opened' && stillOff)}
 		<CopyCommand command={`${RUN_COMMAND} --no-open`} label="Copy the command" />
 	{/if}
 	{#snippet actions()}

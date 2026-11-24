@@ -27,5 +27,5 @@ export const PRIVATE = { 'cache-control': 'no-store' };
 export function draftsRefused(daemon: DaemonContext, request: Request): Response | undefined {
 	return canReview(daemon, request)
 		? undefined
-		: reviewSessionRequired('read or change draft comments');
+		: reviewSessionRequired('read or change draft comments', 'comments');
 }
