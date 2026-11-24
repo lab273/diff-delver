@@ -66,9 +66,25 @@ test('pressing a line number opens the comment box under it, and dragging takes 
 		// Shift with a press takes the lines from where the keyboard was to there.
 		await line(6, 'after').focus();
 		await line(8, 'after').click({ modifiers: ['Shift'] });
-		await expect(
-			page.getByRole('form', { name: 'New comment on After, lines 6–8', exact: true })
-		).toBeVisible();
+		const unsaved = page.getByRole('form', {
+			name: 'New comment on After, lines 6–8',
+			exact: true
+		});
+		await expect(unsaved).toBeVisible();
+
+		// A comment being written among the lines is listed above the diff, with the way back to it.
+		const list = page.getByRole('region', { name: 'Draft comments' });
+		await page.getByRole('heading', { level: 1 }).scrollIntoViewIfNeeded();
+		await list.getByRole('button', { name: 'Draft comments (1)' }).focus();
+		const waiting = list.getByRole('list', { name: 'Comments not saved yet' });
+		await expect(waiting).toContainText('Not saved yet: src/lexer.ts After, lines 6–8');
+		await waiting
+			.getByRole('button', {
+				name: 'Go to the comment you are writing: src/lexer.ts, After, lines 6–8'
+			})
+			.click();
+		await expect(unsaved.getByRole('textbox', { name: 'Comment' })).toBeFocused();
+		await expect(unsaved).toBeInViewport();
 	} finally {
 		await world.close();
 	}

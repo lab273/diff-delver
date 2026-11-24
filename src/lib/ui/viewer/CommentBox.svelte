@@ -35,8 +35,8 @@
 		/** Drawn in the list of comments, because its lines are not on the page. */
 		docked?: boolean;
 		showNewer: () => void;
-		/** After it was saved or discarded: where the keyboard goes, from where the box was. */
-		onclosed: (from: HTMLElement | null, saved: boolean) => void;
+		/** After it was saved or discarded and has gone: the keyboard needs somewhere to be. */
+		onclosed: () => void;
 	} = $props();
 
 	let form = $state<HTMLFormElement>();
@@ -75,19 +75,21 @@
 
 	async function save(): Promise<void> {
 		if (blocked) return;
-		const from = form?.parentElement ?? null;
 		const outcome = await comments.save(writing, version);
-		if (outcome.kind !== 'saved') return;
 		await tick();
-		onclosed(from, true);
+		if (outcome.kind !== 'saved') {
+			// Why it was not saved, and what to do, are on the screen with the box.
+			form?.scrollIntoView({ block: 'nearest' });
+			return;
+		}
+		onclosed();
 	}
 
 	async function discard(): Promise<void> {
 		if (writing.saving) return;
-		const from = form?.parentElement ?? null;
 		comments.discard(writing);
 		await tick();
-		onclosed(from, false);
+		onclosed();
 	}
 
 	function onKey(event: KeyboardEvent): void {

@@ -18,7 +18,8 @@
 		comment,
 		now,
 		shown,
-		listed = false
+		listed = false,
+		ongo
 	}: {
 		comment: DraftCommentView;
 		/** The daemon's time when the draft was read, to say how long ago; undefined, and it is not said. */
@@ -27,6 +28,8 @@
 		shown: RevisionNumber;
 		/** In the list of all comments, where it names its file and says when its lines are elsewhere. */
 		listed?: boolean;
+		/** From the list: goes to its lines in the diff. Offered when they are in the version shown. */
+		ongo?: (() => void) | undefined;
 	} = $props();
 
 	const elsewhere = $derived(describeOtherVersion(comment.version, shown));
@@ -57,6 +60,17 @@
 	</p>
 	{#if listed && elsewhere !== undefined}<p class="elsewhere">{elsewhere}</p>{/if}
 	<p class="words">{comment.body}</p>
+	{#if listed && elsewhere === undefined && ongo !== undefined}
+		<p class="actions">
+			<button
+				type="button"
+				aria-label="Go to its lines: {shownPath(comment.anchor.path)}, {lines}"
+				onclick={ongo}
+			>
+				Go to its lines
+			</button>
+		</p>
+	{/if}
 </article>
 
 <style>
@@ -101,6 +115,15 @@
 
 	.elsewhere {
 		color: var(--color-muted);
+		font-size: 0.8125rem;
+	}
+
+	.actions {
+		margin-top: 0.4rem;
+	}
+
+	.actions button {
+		padding: 0.1rem 0.6rem;
 		font-size: 0.8125rem;
 	}
 

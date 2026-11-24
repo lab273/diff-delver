@@ -147,12 +147,20 @@ test.describe('J18 Draft comments', () => {
 				.byText('Keep the heading on the after side.')
 		);
 		await journey.step('Draft comments after reopening');
-		await journey.activate(drafts);
-		await journey.expectState(drafts, { expanded: false });
+
+		// Its lines are folded away again: the file says a comment is there, and the
+		// list goes to it, opening the lines around it.
+		await journey.expectVisible(file.byText('One of your comments is on these lines'));
+		await journey.activate(
+			list.byRole('button', { name: 'Go to its lines: src/lexer.ts, After, line 1', exact: true })
+		);
+		const there = file.byRole('article', { name: 'Your comment on After, line 1' });
+		await journey.expectFocused(there);
+		await journey.expectInView(there);
+		await journey.expectHidden(file.byText('One of your comments is on these lines'));
+		await journey.step('Gone from the list to a comment');
 
 		// A comment begun and not wanted is discarded, and the keyboard is back on its line.
-		await journey.activate(expand);
-		await journey.expectVisible(line(1, 'after'));
 		await journey.press('c');
 		await journey.expectFocused(line(1, 'after'));
 		await journey.press('c');

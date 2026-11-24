@@ -12,7 +12,12 @@
 	import { tick, untrack } from 'svelte';
 	import { page as shownPage } from '$app/state';
 	import { describeApiError } from '#lib/api/client.ts';
-	import type { ChangeCheckResponse, DiffPage, NextSourceOffer } from '#lib/api/schemas.ts';
+	import type {
+		ChangeCheckResponse,
+		DiffPage,
+		DraftCommentView,
+		NextSourceOffer
+	} from '#lib/api/schemas.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import { parseEscapedPath, type EscapedPath } from '#lib/core/path-bytes.ts';
 	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
@@ -39,7 +44,7 @@
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import CommentList from '#lib/ui/viewer/CommentList.svelte';
-	import { Comments } from '#lib/ui/viewer/comments.svelte.ts';
+	import { Comments, Writing, type CommentPlace } from '#lib/ui/viewer/comments.svelte.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import AgentMarkdown from '#lib/ui/viewer/AgentMarkdown.svelte';
 	import Part from '#lib/ui/viewer/Part.svelte';
@@ -1613,6 +1618,89 @@
 		};
 	});
 
+	/** The jump to a comment's lines under way, which a later one, or another viewer, replaces. */
+	let commentJump: object | undefined;
+
+	/**
+	 * Goes to lines of the version shown that a comment is on, saved or being
+	 * written: to the part of the file that owns them, opened, with the lines
+	 * drawn, as a bookmark is returned to. A line among unchanged lines that
+	 * are folded away gets a small window opened around it. The comment, or
+	 * its box, then takes the keyboard.
+	 */
+	async function goToComment(place: CommentPlace, what: DraftCommentView | Writing): Promise<void> {
+		const shown = viewer;
+		if (shown === undefined || place.version !== shown.version) return;
+		const comments = commentsFor(shown.id);
+		const jump = {};
+		commentJump = jump;
+		const going = (): boolean => commentJump === jump && viewer === shown;
+		const line: BookmarkLine = { side: place.anchor.side, line: place.anchor.last };
+		const files = shown.parts.filter((part) => part.part.path === place.anchor.path);
+		const name = shownPath(place.anchor.path);
+		let destination: BookmarkDestination | undefined;
+		for (const part of files) {
+			await shown.load(part.index);
+			if (!going()) return;
+			const found = bookmarkDestination(part, line);
+			if (
+				found !== undefined &&
+				(destination === undefined || found.priority > destination.priority)
+			)
+				destination = found;
+			if (destination?.priority === 3) break;
+		}
+		const part = destination?.part ?? files[0];
+		if (part === undefined) {
+			comments.said = `${name} is not in this version of the Delve.`;
+			return;
+		}
+		viewportRestore?.stop();
+		if (destination !== undefined) {
+			part.showLarge = true;
+			part.measuring = true;
+		}
+		const target = { part, line };
+		try {
+			await goToPart(part.index, true, { stillGoing: going });
+			if (destination === undefined || !going()) {
+				if (going())
+					comments.said = `Those lines could not be shown. This is the start of ${name}.`;
+				return;
+			}
+			const block = destination.block;
+			if (block.kind === 'hidden') {
+				await shown.openBookmarkContext(part.index, destination.index, line);
+				if (!going()) return;
+			}
+			if (block.kind === 'elsewhere') block.shown = true;
+			if (block.kind === 'hunk' && wholeHunkHidden(shown.drawnLines(block)) !== undefined) {
+				block.showWhiteSpace = true;
+			}
+			bookmarkTarget = target;
+			await tick();
+			await tick();
+			if (!going()) return;
+			const element = document.getElementById(`part-${String(part.index)}`);
+			const row = element === null ? null : bookmarkedRow(element, line);
+			if (row === null) {
+				comments.said = `Those lines could not be shown. This is the start of ${name}.`;
+				return;
+			}
+			scrollToTop(row);
+			if (what instanceof Writing) {
+				what.focusAsked += 1;
+			} else {
+				element
+					?.querySelector<HTMLElement>(`[data-comment="${String(what.id)}"]`)
+					?.focus({ preventScroll: true });
+			}
+		} finally {
+			if (bookmarkTarget === target) bookmarkTarget = undefined;
+			part.measuring = false;
+		}
+	}
+
 	/**
 	 * The `c` key. On a line's number, it comments on that line, or on the lines
 	 * taken with it. Anywhere else, it goes to the lines of the file the person
@@ -1991,6 +2079,7 @@
 						open={summary.state.kind === 'open'}
 						diffHidden={byFile}
 						{showNewer}
+						ongo={goToComment}
 						bind:control={draftsControl}
 					/>
 				{/key}

@@ -8,7 +8,11 @@
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import CommentBox from './CommentBox.svelte';
 	import SavedComment from './SavedComment.svelte';
-	import type { Comments } from './comments.svelte.ts';
+	import type { DraftCommentView } from '#lib/api/schemas.ts';
+	import { describeCommentLines } from '#lib/core/review/draft-comment.ts';
+	import { shownPath } from '#lib/core/shown-path.tiny.ts';
+	import PathText from '#lib/ui/PathText.svelte';
+	import type { CommentPlace, Comments, Writing } from './comments.svelte.ts';
 
 	let {
 		comments,
@@ -16,6 +20,7 @@
 		open,
 		diffHidden,
 		showNewer,
+		ongo,
 		control = $bindable()
 	}: {
 		comments: Comments;
@@ -26,6 +31,8 @@
 		/** The diff's lines are not shown, as in the list of files: every box waits here. */
 		diffHidden: boolean;
 		showNewer: () => void;
+		/** Goes to lines of the version shown, in the diff: a saved comment's, or a box's. */
+		ongo: (place: CommentPlace, what: DraftCommentView | Writing) => void;
 		control?: HTMLButtonElement | undefined;
 	} = $props();
 
@@ -34,6 +41,8 @@
 	const saved = $derived(comments.saved);
 	/** What is being written and has no place among the lines on the page now. */
 	const waiting = $derived(comments.writing.filter((w) => diffHidden || w.inDiff === 0));
+	/** What is being written under its lines, somewhere in the diff: a way back to each. */
+	const underLines = $derived(comments.writing.filter((w) => !diffHidden && w.inDiff > 0));
 </script>
 
 <section class="comments" aria-label="Draft comments">
@@ -46,6 +55,29 @@
 	>
 		Draft comments{saved === undefined ? '' : ` (${String(saved.length)})`}
 	</button>
+	{#if underLines.length > 0}
+		<ul class="unsaved" aria-label="Comments not saved yet">
+			{#each underLines as writing (writing.key)}
+				{@const lines = describeCommentLines(writing.place.anchor)}
+				<li>
+					<span>Not saved yet:</span>
+					<span class="path"><PathText path={writing.place.anchor.path} /></span>
+					<span>{lines}</span>
+					<button
+						type="button"
+						aria-label="Go to the comment you are writing: {shownPath(
+							writing.place.anchor.path
+						)}, {lines}"
+						onclick={() => {
+							ongo(writing.place, writing);
+						}}
+					>
+						Go to it
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{/if}
 	{#each waiting as writing (writing.key)}
 		<CommentBox
 			{comments}
@@ -78,7 +110,17 @@
 		{:else}
 			<ul>
 				{#each saved as comment (comment.id)}
-					<li><SavedComment {comment} now={comments.now} shown={version} listed /></li>
+					<li>
+						<SavedComment
+							{comment}
+							now={comments.now}
+							shown={version}
+							listed
+							ongo={() => {
+								ongo(comment, comment);
+							}}
+						/>
+					</li>
 				{/each}
 			</ul>
 		{/if}
@@ -99,6 +141,26 @@
 		list-style: none;
 		margin: 0;
 		padding: 0;
+	}
+
+	.unsaved li {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.2rem 0.6rem;
+		margin-top: 0.5rem;
+		font-size: 0.875rem;
+	}
+
+	.unsaved .path {
+		font-family: var(--font-code);
+		font-size: 0.8125rem;
+		overflow-wrap: anywhere;
+	}
+
+	.unsaved button {
+		padding: 0.1rem 0.6rem;
+		font-size: 0.8125rem;
 	}
 
 	kbd {

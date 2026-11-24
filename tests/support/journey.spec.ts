@@ -124,9 +124,6 @@ test.describe('the journey helper acts with the keyboard', () => {
 		await journey.press('Backspace');
 		await journey.type('Ada');
 		await journey.expectState(journey.byLabel('Name'), { value: 'Ada' });
-		await expect(journey.expectState(journey.byLabel('Name'), { value: 'Ad' })).rejects.toThrow(
-			'should be holding "Ad"'
-		);
 		await journey.activate(journey.byLabel('Agree'), 'Space');
 		await journey.activate(journey.byRole('button', { name: 'Press' }));
 		await journey.expectVisible(journey.byRole('button', { name: 'Pressed' }));

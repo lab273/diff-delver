@@ -382,6 +382,28 @@
 		return before === undefined ? after : after === undefined ? before : [...before, ...after];
 	}
 
+	/**
+	 * How many saved comments are on unchanged lines a block still folds away:
+	 * the block says so, since nothing else in the diff would.
+	 */
+	function foldedComments(block: Extract<BlockState, { kind: 'hidden' }>): number {
+		if (here.saved.length === 0) return 0;
+		const first = block.new.first + block.top.length;
+		const last = block.new.last - block.bottom.length;
+		const window = bookmarkContext(block);
+		const offset = block.new.first - block.old.first;
+		let count = 0;
+		for (const { anchor } of here.saved) {
+			const line = anchor.side === 'new' ? anchor.last : anchor.last + offset;
+			if (line < first || line > last) continue;
+			// A side's lines map onto the block only where the block has that side's numbers.
+			if (anchor.side === 'old' && (anchor.last < block.old.first || anchor.last > block.old.last))
+				continue;
+			if (!window.some((opened) => opened.new === line)) count += 1;
+		}
+		return count;
+	}
+
 	/** Whether a line is among those taken, or those a comment being written is on. */
 	function isMarked(side: Side, line: LineNumber): boolean {
 		if (inSelection(taken, side, line) || inSelection(asking, side, line)) return true;
@@ -981,9 +1003,18 @@
 										'unchanged line',
 										'unchanged lines'
 									)}
+									<!-- Lines opened in the middle, around a bookmark or a comment gone to. -->
 									{#if saved.length > 0}
-										{before === 0 ? 'below the bookmark' : 'above the bookmark'}{/if}
+										{before === 0 ? 'below these lines' : 'above these lines'}{/if}
 								</span>
+								{#if foldedComments(block) > 0}
+									{@const folded = foldedComments(block)}
+									<span class="folded-comments">
+										{folded === 1
+											? 'One of your comments is on these lines'
+											: `${String(folded)} of your comments are on these lines`}
+									</span>
+								{/if}
 								{#if !isTop && down !== undefined && left > EXPANSION_STEP}
 									<button type="button" class="open" onclick={() => open(b, 'down')}>
 										<span aria-hidden="true">↓</span>
@@ -1028,7 +1059,7 @@
 					<tr class="hidden">
 						<td colspan={columns}>
 							<div class="hidden-row">
-								{countOf(after, 'unchanged line', 'unchanged lines')} below the bookmark
+								{countOf(after, 'unchanged line', 'unchanged lines')} below these lines
 							</div>
 						</td>
 					</tr>
@@ -1177,6 +1208,11 @@
 	.under td {
 		border-block: 1px solid var(--color-border);
 		background: var(--color-subtle);
+	}
+
+	.folded-comments {
+		color: var(--color-text);
+		font-weight: 700;
 	}
 
 	.asking {
