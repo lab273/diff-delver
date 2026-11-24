@@ -38,10 +38,9 @@
 	import { collapseReviewedPart } from '#lib/ui/viewer/collapse-reviewed.ts';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
-	import CommentEditor from '#lib/ui/viewer/CommentEditor.svelte';
-	import { CommentDraft } from '#lib/ui/viewer/draft-comment.svelte.ts';
+	import CommentList from '#lib/ui/viewer/CommentList.svelte';
+	import { Comments } from '#lib/ui/viewer/comments.svelte.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
-	import DraftComments from '#lib/ui/viewer/DraftComments.svelte';
 	import AgentMarkdown from '#lib/ui/viewer/AgentMarkdown.svelte';
 	import Part from '#lib/ui/viewer/Part.svelte';
 	import TickRefused from '#lib/ui/viewer/TickRefused.svelte';
@@ -283,11 +282,19 @@
 		group: GroupKeyView | undefined;
 	}>();
 	let reviewRefresh: Promise<void> | undefined;
-	let waitingForCommentSelection = $state.raw<Viewer>();
+	/** A regroup waits for the reviewer to finish choosing lines, or typing a comment. */
+	let waitingForComment = $state.raw<{ viewer: Viewer; doing: 'choosing' | 'writing' }>();
 	let viewportRestore: { viewer: Viewer; stop: () => void } | undefined;
+	/**
+	 * What the page loaded of the Delve. Kept apart from `data`, which is made
+	 * anew whenever anything in it is asked for again, such as whether this
+	 * browser may write comments: the viewer is made again only for a Delve
+	 * loaded again, so nothing open or typed is redrawn for less.
+	 */
+	const loadedDelve = $derived(data.loaded);
 	const viewer = $derived.by(() => {
-		if (!data.loaded.ok) return undefined;
-		const initial = data.loaded.value;
+		if (!loadedDelve.ok) return undefined;
+		const initial = loadedDelve.value;
 		const frame = refreshed?.initial === initial ? refreshed.frame : initial;
 		const made = untrack(
 			() =>
@@ -329,19 +336,27 @@
 		const frame = await shown.readRefresh(force);
 		if (frame === undefined || viewer !== shown) return;
 		if (shown.sameLayout(frame)) {
-			waitingForCommentSelection = undefined;
+			waitingForComment = undefined;
 			await keepingPlace(() => {
 				shown.applyFrame(frame);
 			});
 			return;
 		}
-		// A same-version regroup can replace the gutter while the reviewer is
-		// choosing lines. The old snapshot still accepts a comment on that range.
-		if (document.querySelector('[data-selecting-comment]:not([hidden] *)') !== null) {
-			waitingForCommentSelection = shown;
+		// A same-version regroup draws every file again. It waits while the
+		// reviewer is taking lines, whose numbers would be replaced under them,
+		// and while they type a comment among the lines, whose box would be too.
+		// The old snapshot still accepts a comment on those lines.
+		const doing =
+			document.querySelector('[data-selecting-comment]:not([hidden] *)') !== null
+				? 'choosing'
+				: document.activeElement?.closest('article.part [data-writing-comment]') != null
+					? 'writing'
+					: undefined;
+		if (doing !== undefined) {
+			waitingForComment = { viewer: shown, doing };
 			return;
 		}
-		waitingForCommentSelection = undefined;
+		waitingForComment = undefined;
 
 		const active = document.activeElement;
 		const focused = partAtElement(shown, active);
@@ -1489,6 +1504,9 @@
 				state.open = !state.open;
 				void goToPart(at, false);
 				return;
+			case 'comment':
+				void commentKey();
+				return;
 			case 'whole-file':
 				if (byFile || at === undefined) return;
 				void goToPart(at, true).then(() => viewer.wholeFile(at));
@@ -1565,15 +1583,83 @@
 		}
 		couldReview = can;
 	});
-	const drafts = new SvelteMap<ReportId, CommentDraft>();
-	function draftFor(id: ReportId): CommentDraft {
+	/**
+	 * Each Delve's comments, kept by the page and not by a viewer: what is being
+	 * written outlives an update, a regroup and a look at another Delve.
+	 */
+	const commentsOf = new SvelteMap<ReportId, Comments>();
+	function commentsFor(id: ReportId): Comments {
 		return untrack(() => {
-			const existing = drafts.get(id);
+			const existing = commentsOf.get(id);
 			if (existing !== undefined) return existing;
-			const draft = new CommentDraft();
-			drafts.set(id, draft);
-			return draft;
+			const made = new Comments(id, pageClient());
+			commentsOf.set(id, made);
+			return made;
 		});
+	}
+
+	// The saved draft is read once this browser may read it, and again whenever
+	// the person comes back to the page, since another tab may have written.
+	$effect(() => {
+		if (!data.canReview || !data.loaded.ok) return;
+		const comments = commentsFor(data.id);
+		const read = (): void => {
+			if (document.visibilityState === 'visible') void comments.load();
+		};
+		read();
+		window.addEventListener('focus', read);
+		return () => {
+			window.removeEventListener('focus', read);
+		};
+	});
+
+	/**
+	 * The `c` key. On a line's number, it comments on that line, or on the lines
+	 * taken with it. Anywhere else, it goes to the lines of the file the person
+	 * is on, at the first one on the screen, from where the arrow keys move.
+	 */
+	async function commentKey(): Promise<void> {
+		const shown = viewer;
+		if (shown === undefined) return;
+		if (byFile) {
+			shown.announcement = 'Comments are written on lines. Choose By section to see them.';
+			return;
+		}
+		const on = document.activeElement;
+		if (on instanceof HTMLButtonElement && on.matches('.pick-line')) {
+			on.click();
+			return;
+		}
+		const at = currentPart();
+		const state = at === undefined ? undefined : shown.parts[at];
+		if (at === undefined || state === undefined) return;
+		if (shown.summary.state.kind !== 'open') {
+			shown.announcement = 'This Delve is closed, so it cannot be commented on. Reopen it first.';
+			return;
+		}
+		const name = shownPath(state.part.path);
+		if (!state.open || shown.isLarge(state)) {
+			await goToPart(at, true);
+			if (viewer !== shown) return;
+		}
+		await shown.load(at);
+		await tick();
+		const part = document.getElementById(`part-${String(at)}`);
+		if (part === null || viewer !== shown) return;
+		const header = part.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+		const seen = lineInView(part, Math.max(stickyTop, header), window.innerHeight);
+		const line =
+			(seen === null
+				? null
+				: part.querySelector<HTMLElement>(
+						`button.pick-line[data-reading-line="${seen.side}:${String(seen.line)}"]`
+					)) ?? part.querySelector<HTMLElement>('button.pick-line');
+		if (line === null) {
+			shown.announcement = `${name} has no lines to comment on here.`;
+			return;
+		}
+		line.focus();
+		shown.announcement = `On ${line.getAttribute('aria-label')?.replace('Comment on ', '') ?? 'a line'} of ${name}. Press c again to comment on it; the arrow keys move between lines, and Shift with them takes several.`;
 	}
 </script>
 
@@ -1592,7 +1678,7 @@
 {:else}
 	{@const page = data.loaded.value}
 	{@const summary = viewer.summary}
-	{@const draft = draftFor(summary.id)}
+	{@const comments = commentsFor(summary.id)}
 	{@const updated = page.update}
 	{@const overall = viewer.overall}
 	{@const allDone = overall.units > 0 && overall.reviewed === overall.units}
@@ -1887,29 +1973,25 @@
 					onoption={setSearchOption}
 				/>
 			{/if}
-			{#if waitingForCommentSelection === viewer}
-				<p role="status">Finish choosing lines to see the updated sections.</p>
+			{#if waitingForComment?.viewer === viewer}
+				<p role="status">
+					{waitingForComment.doing === 'choosing'
+						? 'Finish choosing lines to see the updated sections.'
+						: 'The sections were updated. They show here once you leave the comment you are writing.'}
+				</p>
 			{/if}
 			{#if data.canReview}
 				{#if reviewTurnedOn}
 					<p class="turned-on" role="status">Comments are on in this browser now.</p>
 				{/if}
 				{#key summary.id}
-					<DraftComments
-						id={summary.id}
-						version={summary.version}
-						changes={draft.changes}
-						bind:control={draftsControl}
-					/>
-					<CommentEditor
-						{draft}
-						id={summary.id}
+					<CommentList
+						{comments}
 						version={summary.version}
 						open={summary.state.kind === 'open'}
+						diffHidden={byFile}
 						{showNewer}
-						ondiscard={() => {
-							draftsControl?.focus();
-						}}
+						bind:control={draftsControl}
 					/>
 				{/key}
 			{:else}
@@ -1996,8 +2078,9 @@
 										closing={closingParts.has(state)}
 										bookmarkLine={bookmarkTarget?.part === state ? bookmarkTarget.line : undefined}
 										{previousVersion}
-										canComment={data.canReview && summary.state.kind === 'open'}
-										{draft}
+										canComment={summary.state.kind === 'open'}
+										canReview={data.canReview}
+										{comments}
 										sortingProblem={staleAt === state.index ? stale?.message : undefined}
 										ontick={tickPart}
 										ongo={goTo}
@@ -2013,6 +2096,7 @@
 		</div>
 	</div>
 	<div class="visually-hidden" aria-live="polite">{viewer.announcement}</div>
+	<div class="visually-hidden" aria-live="polite">{commentsFor(viewer.id).said}</div>
 	{#if fileOpener}
 		<FileOpener
 			id={viewer.id}

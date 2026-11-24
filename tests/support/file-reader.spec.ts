@@ -41,11 +41,10 @@ for (const { reload, startPinned, name } of [
 			const bookmark = page.getByRole('button', { name: `Return to bookmark ${path}` });
 			await expect(bookmark).toBeVisible();
 			const draft = page
-				.getByRole('form', { name: 'Unsaved comment' })
+				.getByRole('form', { name: /^New comment/ })
 				.getByRole('textbox', { name: 'Comment', exact: true });
 			if (!reload) {
-				await part.getByRole('button', { name: 'Comment on lines' }).click();
-				await page.keyboard.press('Enter');
+				await part.getByRole('button', { name: 'Comment on line 1, after' }).click();
 				await draft.fill('Keep this draft through history.');
 				await page.getByRole('button', { name: 'Open file', exact: true }).focus();
 			}

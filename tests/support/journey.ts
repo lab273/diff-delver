@@ -178,6 +178,8 @@ export interface ControlState {
 	readonly expanded?: boolean;
 	readonly selected?: boolean;
 	readonly disabled?: boolean;
+	/** What a field holds, as a person reads it there: the text typed into it. */
+	readonly value?: string;
 }
 
 /**
@@ -1136,7 +1138,10 @@ export async function startJourney(
 		async expectState(target, state) {
 			const locator = locatorOf(target);
 			const should = (what: string): string => `${target.description} should be ${what}`;
-			const { checked, pressed, expanded, selected, disabled } = state;
+			const { checked, pressed, expanded, selected, disabled, value } = state;
+			if (value !== undefined) {
+				await expect(locator, should(`holding "${value}"`)).toHaveValue(value);
+			}
 			if (checked === 'mixed') {
 				await expect(locator, should('partly checked')).toBeChecked({ indeterminate: true });
 			} else if (checked !== undefined) {

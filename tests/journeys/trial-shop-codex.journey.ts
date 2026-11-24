@@ -132,10 +132,18 @@ test.describe('Trial shop sorted by Codex', () => {
 		await journey.expectInView(ignored);
 		await journey.step('Regrouping keeps the place scrolled into view');
 
-		const unsaved = journey.within(journey.byRole('form', { name: 'Unsaved comment' }));
+		// The agent sorts again while the reviewer takes lines and writes: the page
+		// waits for them, and nothing they chose or typed is replaced under them.
+		const unsaved = journey.within(
+			journey.byRole('form', { name: 'New comment on After, lines 6–7', exact: true })
+		);
 		const draftText = 'Can we explain how the subtotal is rounded?';
+		const line = (number: number) =>
+			tools.byRole('button', { name: `Comment on line ${String(number)}, after`, exact: true });
 		await journey.activate(tools.byRole('button', { name: 'Show the whole file: src/pricing.ts' }));
-		await journey.activate(tools.byRole('button', { name: 'Comment on lines', exact: true }));
+		await journey.expectFocused(collapse);
+		await journey.press('c');
+		await journey.expectFocused(line(6));
 		await journey.press('Shift+ArrowDown');
 		await journey.agentCall('assign', {
 			report,
@@ -146,21 +154,26 @@ test.describe('Trial shop sorted by Codex', () => {
 		await journey.expectVisible(
 			journey.byText('Finish choosing lines to see the updated sections.')
 		);
-		await journey.expectState(tools.byRole('button', { name: 'Before, line 6', exact: true }), {
-			pressed: true
-		});
-		await journey.expectState(tools.byRole('button', { name: 'Before, line 7', exact: true }), {
-			pressed: true
-		});
-		await journey.press('Enter');
+		await journey.expectState(line(6), { pressed: true });
+		await journey.expectState(line(7), { pressed: true });
+		await journey.press('c');
 		await journey.expectFocused(unsaved.byRole('textbox', { name: 'Comment', exact: true }));
 		await journey.type(draftText);
+		await journey.returnToPage();
+		await journey.expectVisible(
+			journey.byText(
+				'The sections were updated. They show here once you leave the comment you are writing.'
+			)
+		);
+		await journey.activate(unsaved.byRole('button', { name: 'Save comment', exact: true }));
+		await journey.expectVisible(journey.byRole('button', { name: 'Draft comments (1)' }));
+		await journey.returnToPage();
 		await journey.expectHidden(part);
-		await journey.activate(unsaved.byRole('button', { name: 'Save draft comment' }));
-		await journey.expectVisible(journey.byText('Draft comment saved.'));
-		await journey.activate(journey.byRole('button', { name: 'Draft comments', exact: true }));
-		await journey.expectVisible(journey.byText(draftText, { exact: true }));
-		await journey.expectVisible(journey.byText('Before, lines 6–7'));
+		await journey.activate(journey.byRole('button', { name: 'Draft comments (1)', exact: true }));
+		const listed = journey.within(
+			journey.byRole('article', { name: 'Your comment on src/pricing.ts, After, lines 6–7' })
+		);
+		await journey.expectVisible(listed.byText(draftText, { exact: true }));
 
 		await journey.activate(journey.within(groups).byRole('link', { name: split, exact: true }));
 		const groupTick = journey

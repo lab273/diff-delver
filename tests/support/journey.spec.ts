@@ -123,6 +123,10 @@ test.describe('the journey helper acts with the keyboard', () => {
 		await journey.activate(journey.byLabel('Name'), 'Space');
 		await journey.press('Backspace');
 		await journey.type('Ada');
+		await journey.expectState(journey.byLabel('Name'), { value: 'Ada' });
+		await expect(journey.expectState(journey.byLabel('Name'), { value: 'Ad' })).rejects.toThrow(
+			'should be holding "Ad"'
+		);
 		await journey.activate(journey.byLabel('Agree'), 'Space');
 		await journey.activate(journey.byRole('button', { name: 'Press' }));
 		await journey.expectVisible(journey.byRole('button', { name: 'Pressed' }));
@@ -366,7 +370,7 @@ test.describe('the journey helper plays an agent’s link and a window diff delv
 		await journey.expectVisible(
 			journey.byRole('heading', { level: 1, name: 'Uncommitted changes' })
 		);
-		const drafts = { name: 'Draft comments', exact: true };
+		const drafts = { name: 'Draft comments (0)', exact: true };
 		await journey.expectHidden(journey.byRole('button', drafts));
 		await journey.activate(
 			journey.byRole('button', { name: 'Turn on comments in this browser', exact: true })

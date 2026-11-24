@@ -31,7 +31,18 @@
 	import type { Mark } from '#lib/core/search/marks.ts';
 	import { ROWS_PER_CHUNK } from '#lib/core/viewer/chunks.ts';
 	import { GutterLines, type GutterLine, type GutterRow } from './gutter-lines.ts';
-	import type { CommentDraft } from './draft-comment.svelte.ts';
+	import type { DraftCommentView } from '#lib/api/schemas.ts';
+	import {
+		byLastLine,
+		inSelection,
+		lineKey,
+		selectionBetween,
+		type LineSelection
+	} from '#lib/core/review/comment-places.ts';
+	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
+	import CommentBox from './CommentBox.svelte';
+	import SavedComment from './SavedComment.svelte';
+	import type { Comments, Writing } from './comments.svelte.ts';
 	import { parseLineNumber, type LineNumber } from '#lib/core/line-number.tiny.ts';
 	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
 	import type { PartMarks } from './search.svelte.ts';
@@ -50,8 +61,10 @@
 		busy,
 		layout,
 		marks,
-		draft,
-		canComment
+		comments,
+		canComment,
+		canReview,
+		showNewer
 	}: {
 		bookmarkLine?: BookmarkLine | undefined;
 		viewer: Viewer;
@@ -70,8 +83,13 @@
 		ongo: (group: GroupKeyView) => void;
 		/** A search's matches in the part, to mark; undefined when it has none. */
 		marks: PartMarks | undefined;
-		draft: CommentDraft;
+		/** The reviewer's comments on this Delve, saved and being written. */
+		comments: Comments;
+		/** Whether a comment can be started here: the Delve is open. */
 		canComment: boolean;
+		/** Whether this browser may write comments; one let in by a link is told how, in place. */
+		canReview: boolean;
+		showNewer: () => void;
 	} = $props();
 
 	/** The current search match's place, when it is in this part. */
@@ -248,10 +266,23 @@
 	function isElsewhere(line: ShownLineView): boolean {
 		return line.kind !== 'context' && line.home.kind === 'elsewhere';
 	}
+	// ── Commenting from a line ──────────────────────────────────────────────────
+	//
+	// Each line's number is the control that comments on it, as GitHub's + is:
+	// pressed, it opens the box under the line. Dragging over numbers, or Shift
+	// with a press or the arrow keys, takes a run of lines on one side. The
+	// numbers are one stop for Tab in each file, and the arrow keys move among
+	// them (`gutter-lines.ts`). One set of listeners on the table serves every
+	// line, so a line costs no more to draw than its number did.
+
+	/** The line the keyboard is on. */
 	let cursor = $state.raw<GutterLine>();
-	let first = $state<LineNumber>();
+	/** Where the run of lines being taken started, on the cursor's side. */
+	let from = $state<LineNumber>();
+	/** The pointer dragging over the numbers. */
 	let drag = $state<number>();
-	let selectionProblem = $state(false);
+	/** A browser let in by a link pressed these lines: say how to turn comments on, under them. */
+	let asking = $state.raw<LineSelection>();
 	let buildingGutter = $state(false);
 	const gutter = $derived(buildingGutter ? new GutterLines(gutterRows()) : undefined);
 
@@ -298,52 +329,145 @@
 		}
 	});
 
-	let commentButton = $state<HTMLButtonElement>();
 	let table: HTMLTableElement;
-	const canPick = $derived(
-		canComment && !draft.saving && (draft.location === undefined || draft.replacing)
-	);
-	const picking = $derived(canPick && cursor !== undefined);
-	const range = $derived(
-		cursor === undefined || first === undefined
+	/** The run of lines taken so far: more than the one line the keyboard is on. */
+	const taken = $derived(
+		cursor === undefined || from === undefined || (from === cursor.line && drag === undefined)
 			? undefined
-			: {
-					side: cursor.side,
-					first: first < cursor.line ? first : cursor.line,
-					last: first > cursor.line ? first : cursor.line
-				}
-	);
-	const selected = $derived(
-		picking
-			? range
-			: draft.location?.version === viewer.version && draft.location.anchor.path === path
-				? draft.location.anchor
-				: undefined
+			: selectionBetween(cursor.side, from, cursor.line)
 	);
 
-	function lineOfButton(button: HTMLButtonElement | null | undefined): GutterLine | undefined {
-		const side = parseSide(button?.dataset['side'] ?? '');
-		const line = parseLineNumber(Number(button?.dataset['line']));
-		return side.ok && line.ok ? { side: side.value, line: line.value } : undefined;
+	/** What this file has on the version shown: saved comments, and comments being written. */
+	const here = $derived(comments.on(viewer.version, path));
+
+	/** What is drawn under a line: a saved comment, one being written, or how to turn comments on. */
+	type Under =
+		| { readonly kind: 'saved'; readonly key: string; readonly comment: DraftCommentView }
+		| { readonly kind: 'writing'; readonly key: string; readonly writing: Writing }
+		| { readonly kind: 'asking'; readonly key: string; readonly lines: LineSelection };
+	const under = $derived(
+		byLastLine<Under>(
+			[
+				...here.saved.map((comment): Under => ({
+					kind: 'saved',
+					key: `saved:${String(comment.id)}`,
+					comment
+				})),
+				...here.writing.map((writing): Under => ({
+					kind: 'writing',
+					key: `writing:${String(writing.key)}`,
+					writing
+				})),
+				...(asking === undefined || canReview
+					? []
+					: [{ kind: 'asking', key: 'asking', lines: asking } satisfies Under])
+			],
+			(item) =>
+				item.kind === 'saved'
+					? item.comment.anchor
+					: item.kind === 'writing'
+						? item.writing.place.anchor
+						: item.lines
+		)
+	);
+
+	/** What is drawn under a row, by the numbers it shows; undefined, as nearly always, for nothing. */
+	function underRow(
+		old: LineNumber | undefined,
+		now: LineNumber | undefined
+	): readonly Under[] | undefined {
+		if (under.size === 0) return undefined;
+		const before = old === undefined ? undefined : under.get(lineKey('old', old));
+		const after = now === undefined ? undefined : under.get(lineKey('new', now));
+		return before === undefined ? after : after === undefined ? before : [...before, ...after];
+	}
+
+	/** Whether a line is among those taken, or those a comment being written is on. */
+	function isMarked(side: Side, line: LineNumber): boolean {
+		if (inSelection(taken, side, line) || inSelection(asking, side, line)) return true;
+		for (const writing of here.writing) {
+			if (inSelection(writing.place.anchor, side, line)) return true;
+		}
+		return false;
+	}
+
+	// Once this browser may write, the comment asked for while it could not is started.
+	$effect(() => {
+		const lines = asking;
+		if (lines === undefined || !canReview) return;
+		asking = undefined;
+		comments.start({ version: viewer.version, anchor: { path, ...lines } });
+	});
+
+	interface Pressed extends GutterLine {
+		readonly button: HTMLButtonElement;
+	}
+
+	/** The line whose number an event was on, if it was on one. */
+	function lineAt(target: EventTarget | null): Pressed | undefined {
+		const button = target instanceof Element ? target.closest('button.pick-line') : null;
+		if (!(button instanceof HTMLButtonElement) || !table.contains(button)) return undefined;
+		const [sideText = '', lineText = ''] = (button.dataset['readingLine'] ?? '').split(':');
+		const side = parseSide(sideText);
+		const line = parseLineNumber(Number(lineText));
+		return side.ok && line.ok ? { side: side.value, line: line.value, button } : undefined;
 	}
 
 	function buttonFor(line: GutterLine): HTMLButtonElement | null {
 		return table.querySelector(
-			`button.pick-line[data-side="${line.side}"][data-line="${String(line.line)}"]`
+			`button.pick-line[data-reading-line="${line.side}:${String(line.line)}"]`
 		);
 	}
 
-	async function startComment(): Promise<void> {
-		buildingGutter = true;
-		const initial = gutter?.first;
-		selectionProblem = initial === undefined;
-		if (initial === undefined) {
-			buildingGutter = false;
+	/**
+	 * The one number Tab stops at: the line the keyboard was last on, or the
+	 * first. Kept on the element itself and not in each line's markup, so
+	 * moving it costs two elements and not every line of the file.
+	 */
+	let tabStop: HTMLButtonElement | undefined;
+	function stopAt(button: HTMLButtonElement | null): void {
+		if (button === null || button === tabStop) return;
+		if (tabStop !== undefined) tabStop.tabIndex = -1;
+		button.tabIndex = 0;
+		tabStop = button;
+	}
+
+	// Rows come and go as lines are opened and chunks drawn: there is always a stop.
+	$effect(() => {
+		if (!canComment) return;
+		const keep = (): void => {
+			if (tabStop?.isConnected === true) return;
+			tabStop = undefined;
+			const kept = cursor === undefined ? null : buttonFor(cursor);
+			stopAt(kept ?? table.querySelector<HTMLButtonElement>('button.pick-line'));
+		};
+		keep();
+		const body = table.tBodies[0];
+		if (body === undefined) return;
+		const observer = new MutationObserver(keep);
+		observer.observe(body, { childList: true });
+		return () => {
+			observer.disconnect();
+		};
+	});
+
+	/** Moves the keyboard's line, taking the lines between when asked to and on the same side. */
+	function move(next: GutterLine, extend: boolean): void {
+		if (!extend || cursor?.side !== next.side || from === undefined) from = next.line;
+		cursor = next;
+	}
+
+	/** Opens the box for the lines taken, or for this line alone when it is not among them. */
+	function compose(line: GutterLine): void {
+		const alone = selectionBetween(line.side, line.line, line.line);
+		const lines = inSelection(taken, line.side, line.line) ? (taken ?? alone) : alone;
+		cursor = { side: line.side, line: line.line };
+		from = line.line;
+		if (!canReview) {
+			asking = lines;
 			return;
 		}
-		cursor = initial;
-		first = initial.line;
-		await drawAndFocus(initial);
+		comments.start({ version: viewer.version, anchor: { path, ...lines } });
 	}
 
 	async function drawAndFocus(
@@ -351,106 +475,149 @@
 	): Promise<void> {
 		if (line.chunk !== undefined) drawn.add(line.chunk);
 		await tick();
-		if (picking && cursor === line) buttonFor(line)?.focus();
+		if (cursor === line) buttonFor(line)?.focus();
 	}
 
-	async function stopPicking(): Promise<void> {
-		cursor = undefined;
-		buildingGutter = false;
-		first = undefined;
-		drag = undefined;
-		await tick();
-		commentButton?.focus();
+	function onFocus(event: FocusEvent): void {
+		const line = lineAt(event.target);
+		if (line === undefined) return;
+		stopAt(line.button);
+		// Tab came to it, or the page put the keyboard here: this is where it is now.
+		if (cursor?.side !== line.side || cursor.line !== line.line) {
+			move({ side: line.side, line: line.line }, false);
+		}
 	}
 
-	function compose(): void {
-		if (!picking || range === undefined) return;
-		draft.compose({ version: viewer.version, anchor: { path, ...range } });
-		cursor = undefined;
-		buildingGutter = false;
-		first = undefined;
-		drag = undefined;
-	}
-
-	function move(next: GutterLine, extend: boolean): void {
-		if (!extend || cursor?.side !== next.side) first = next.line;
-		cursor = next;
-	}
-
-	async function arrow(event: KeyboardEvent, line: GutterLine): Promise<void> {
-		if (event.altKey || event.ctrlKey || event.metaKey) return;
+	async function onKey(event: KeyboardEvent): Promise<void> {
+		const line = lineAt(event.target);
+		if (line === undefined || event.altKey || event.ctrlKey || event.metaKey) return;
 		const key = event.key;
-		if (key === 'Escape') {
+		if (key === 'Escape' && taken !== undefined) {
 			event.preventDefault();
-			await stopPicking();
+			from = line.line;
 			return;
 		}
 		if (key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'ArrowLeft' && key !== 'ArrowRight')
 			return;
 		event.preventDefault();
+		buildingGutter = true;
 		const target = gutter?.destination(line, key);
 		if (target === undefined) return;
 		move(target, event.shiftKey);
 		await drawAndFocus(target);
 	}
 
-	function beginDrag(event: PointerEvent, line: GutterLine): void {
-		const button = event.currentTarget;
-		if (event.button !== 0 || !event.isPrimary || !(button instanceof HTMLButtonElement)) return;
+	/** A press with the mouse or a pen starts a drag; a touch scrolls the page, and its tap is a click. */
+	function beginDrag(event: PointerEvent): void {
+		const line = lineAt(event.target);
+		if (line === undefined || event.button !== 0 || !event.isPrimary) return;
+		if (event.pointerType === 'touch') return;
 		event.preventDefault();
 		drag = event.pointerId;
-		move(line, event.shiftKey);
-		button.focus({ preventScroll: true });
-		button.setPointerCapture(event.pointerId);
+		move({ side: line.side, line: line.line }, event.shiftKey);
+		line.button.focus({ preventScroll: true });
+		line.button.setPointerCapture(event.pointerId);
 	}
 
 	function dragOver(event: PointerEvent): void {
 		if (event.pointerId !== drag) return;
 		const cell = document.elementFromPoint(event.clientX, event.clientY)?.closest('td.number');
 		if (cell === null || cell === undefined || !table.contains(cell)) return;
-		const line = lineOfButton(cell.querySelector('button.pick-line'));
-		if (line?.side === cursor?.side && line !== undefined && line.line !== cursor?.line) {
-			move(line, true);
+		const line = lineAt(cell.querySelector('button.pick-line'));
+		if (line !== undefined && line.side === cursor?.side && line.line !== cursor.line) {
+			move({ side: line.side, line: line.line }, true);
 		}
 	}
 
+	/** The click that follows a drag is the same press, already answered. */
+	let dragged = false;
+
+	/** The drag is over: the box opens for what it took. */
 	function endDrag(event: PointerEvent): void {
 		if (event.pointerId !== drag) return;
 		drag = undefined;
-		if (cursor !== undefined) buttonFor(cursor)?.focus({ preventScroll: true });
+		dragged = true;
+		if (cursor !== undefined) compose(cursor);
+	}
+
+	function onClick(event: MouseEvent): void {
+		const line = lineAt(event.target);
+		if (line === undefined) return;
+		const answered = dragged && event.detail > 0;
+		dragged = false;
+		if (answered) return;
+		// Enter or Space, the `c` key, a touch, or a screen reader's press.
+		if (event.shiftKey) move({ side: line.side, line: line.line }, true);
+		compose(line);
+	}
+
+	/** Where the keyboard goes when what was under a row has gone: the number it was opened from. */
+	function afterBox(lines: LineSelection): void {
+		if (document.activeElement !== null && document.activeElement !== document.body) return;
+		(buttonFor({ side: lines.side, line: lines.last }) ?? tabStop)?.focus();
 	}
 </script>
 
-{#snippet lineNumber(side: Side, line: LineNumber | undefined)}
+{#snippet lineNumber(side: Side, line: LineNumber | undefined, main = false)}
 	{#if line !== undefined}
-		{@const marked = selected?.side === side && line >= selected.first && line <= selected.last}
-		{#if picking}
+		{#if canComment}
+			{@const marked = isMarked(side, line)}
 			<button
 				type="button"
 				class="pick-line"
-				data-side={side}
-				data-line={line}
+				class:main
+				class:marked
+				tabindex="-1"
 				data-reading-line={`${side}:${line}`}
-				tabindex={cursor?.side === side && cursor.line === line ? 0 : -1}
-				aria-label="{side === 'old' ? 'Before' : 'After'}, line {line}"
-				aria-pressed={marked}
-				onkeydown={(event) => arrow(event, { side, line })}
-				onclick={(event) => {
-					if (event.detail === 0) compose();
-				}}
-				onpointerdown={(event) => {
-					beginDrag(event, { side, line });
-				}}
-				onpointermove={dragOver}
-				onlostpointercapture={endDrag}
+				aria-label="Comment on line {line}, {side === 'old' ? 'before' : 'after'}"
+				aria-pressed={marked ? 'true' : undefined}
 			>
 				{line}
 			</button>
-		{:else if marked}
-			<span class="marked" data-reading-line={`${side}:${line}`}>{line}</span>
 		{:else}
 			<span data-reading-line={`${side}:${line}`}>{line}</span>
 		{/if}
+	{/if}
+{/snippet}
+
+{#snippet underneath(old: LineNumber | undefined, now: LineNumber | undefined)}
+	{@const items = underRow(old, now)}
+	{#if items !== undefined}
+		<tr class="under">
+			<td colspan={columns}>
+				{#each items as item (item.key)}
+					{#if item.kind === 'saved'}
+						<SavedComment comment={item.comment} now={comments.now} shown={viewer.version} />
+					{:else if item.kind === 'writing'}
+						<CommentBox
+							{comments}
+							writing={item.writing}
+							version={viewer.version}
+							open={canComment}
+							{showNewer}
+							onclosed={() => {
+								afterBox(item.writing.place.anchor);
+							}}
+						/>
+					{:else}
+						<div class="asking">
+							<ReviewAccess diff={viewer.id} what="comments" />
+							<button
+								type="button"
+								onclick={async () => {
+									const lines = item.lines;
+									asking = undefined;
+									await tick();
+									afterBox(lines);
+								}}
+							>
+								Not now
+							</button>
+						</div>
+					{/if}
+				{/each}
+			</td>
+		</tr>
 	{/if}
 {/snippet}
 
@@ -462,10 +629,14 @@
 		data-current-match={holdsCurrent(line) ? '' : undefined}
 	>
 		<td class="number">
-			{@render lineNumber('old', line.kind === 'added' ? undefined : line.old)}
+			{@render lineNumber(
+				'old',
+				line.kind === 'added' ? undefined : line.old,
+				line.kind === 'deleted'
+			)}
 		</td>
 		<td class="number">
-			{@render lineNumber('new', line.kind === 'deleted' ? undefined : line.new)}
+			{@render lineNumber('new', line.kind === 'deleted' ? undefined : line.new, true)}
 		</td>
 		{#if hasFresh}
 			<td class="badge">
@@ -500,6 +671,10 @@
 			<td colspan={columns - 2} class="eof">No newline at end of file</td>
 		</tr>
 	{/if}
+	{@render underneath(
+		line.kind === 'added' ? undefined : line.old,
+		line.kind === 'deleted' ? undefined : line.new
+	)}
 {/snippet}
 
 {#snippet quietRow(removed: ShownLineView, added: ShownLineView)}
@@ -514,7 +689,7 @@
 			{@render lineNumber('old', removed.kind === 'deleted' ? removed.old : undefined)}
 		</td>
 		<td class="number">
-			{@render lineNumber('new', added.kind === 'added' ? added.new : undefined)}
+			{@render lineNumber('new', added.kind === 'added' ? added.new : undefined, true)}
 		</td>
 		{#if hasFresh}
 			<td class="badge">
@@ -534,6 +709,10 @@
 			}}
 		></td>
 	</tr>
+	{@render underneath(
+		removed.kind === 'deleted' ? removed.old : undefined,
+		added.kind === 'added' ? added.new : undefined
+	)}
 {/snippet}
 
 {#snippet where(elsewhere: GroupKeyView)}
@@ -609,7 +788,7 @@
 	{@const kind = line === undefined ? 'empty' : quiet ? 'context' : line.kind}
 	{@const cellClass = `cell-${kind}${line !== undefined && isElsewhere(line) ? ' cell-elsewhere' : ''}${line !== undefined && isFresh(line) ? ' cell-fresh' : ''}`}
 	<td class="number {cellClass}" class:side-start={side === 'new'}>
-		{@render lineNumber(side, numberOnLine(line, side))}
+		{@render lineNumber(side, numberOnLine(line, side), true)}
 	</td>
 	{#if hasFresh}
 		<td class="badge {cellClass}">
@@ -670,6 +849,7 @@
 			</td>
 		</tr>
 	{/if}
+	{@render underneath(numberOn(pair.old, 'old'), numberOn(pair.new, 'new'))}
 {/snippet}
 
 {#snippet opened(line: OpenLine)}
@@ -677,7 +857,11 @@
 		<tr class="pair opened">
 			{#each ['old', 'new'] as side (side)}
 				<td class="number cell-context" class:side-start={side === 'new'}>
-					{@render lineNumber(side === 'old' ? 'old' : 'new', side === 'old' ? line.old : line.new)}
+					{@render lineNumber(
+						side === 'old' ? 'old' : 'new',
+						side === 'old' ? line.old : line.new,
+						true
+					)}
 				</td>
 				{#if hasFresh}<td class="badge cell-context"></td>{/if}
 				<td class="marker cell-context"></td>
@@ -696,7 +880,7 @@
 	{:else}
 		<tr class="context opened" data-current-match={holdsCurrent(line) ? '' : undefined}>
 			<td class="number">{@render lineNumber('old', line.old)}</td>
-			<td class="number">{@render lineNumber('new', line.new)}</td>
+			<td class="number">{@render lineNumber('new', line.new, true)}</td>
 			{#if hasFresh}<td class="badge"></td>{/if}
 			<td class="marker"></td>
 			<td
@@ -710,41 +894,24 @@
 			></td>
 		</tr>
 	{/if}
+	{@render underneath(line.old, line.new)}
 {/snippet}
 
-{#if canComment}
-	<div class="comment-action" data-selecting-comment={picking ? '' : undefined}>
-		{#if picking}
-			<button type="button" onclick={compose}>Write comment</button>
-			<button type="button" onclick={stopPicking}>Cancel selection</button>
-			<p>
-				Drag line numbers on one side, or use arrows to move, Shift+↑/↓ to extend, and Enter to
-				write.
-			</p>
-		{:else}
-			<button
-				type="button"
-				aria-disabled={!canPick}
-				bind:this={commentButton}
-				onclick={() => {
-					if (canPick) void startComment();
-				}}
-			>
-				Comment on lines
-			</button>
-			{#if selectionProblem}<p role="status">
-					Show some lines in this file before choosing a range.
-				</p>{/if}
-		{/if}
-	</div>
-{/if}
-
+<!-- The listeners are for the line numbers, which are buttons: one set serves them all. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <table
 	bind:this={table}
 	class="lines"
 	class:split
 	aria-label="{split ? 'Lines side by side' : 'Lines'} of {shownPath(path)}"
 	aria-busy={busy}
+	data-selecting-comment={taken === undefined ? undefined : ''}
+	onfocusin={onFocus}
+	onkeydown={onKey}
+	onclick={onClick}
+	onpointerdown={beginDrag}
+	onpointermove={dragOver}
+	onlostpointercapture={endDrag}
 >
 	{#if split}
 		<colgroup>
@@ -941,26 +1108,83 @@
 		scroll-margin-top: 0.5rem;
 	}
 
-	.comment-action {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.3rem 0.65rem;
-	}
-	.comment-action p {
-		margin: 0;
-	}
-	.marked,
-	.pick-line[aria-pressed='true'] {
-		background: var(--color-selected-button);
-		outline: 1px solid var(--color-focus);
-		border-radius: 3px;
-	}
+	/*
+	 * A line's number is the button that comments on it. It looks like the
+	 * number it was until the pointer or the keyboard is on its line, when a +
+	 * says what pressing does, as on GitHub.
+	 */
 	.pick-line {
-		touch-action: none;
-		padding: 0 0.2rem;
+		position: relative;
+		display: block;
+		width: 100%;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		border-radius: 3px;
+		background: none;
+		color: inherit;
 		font: inherit;
+		font-weight: 400;
+		line-height: inherit;
+		text-align: right;
+		cursor: pointer;
+	}
+
+	.pick-line::before {
+		content: '+';
+		position: absolute;
+		left: -0.35rem;
+		top: 0.125rem;
+		width: 1rem;
+		height: 1rem;
+		border-radius: 3px;
+		background: var(--color-accent);
+		color: var(--color-background);
+		font-family: var(--font-body);
+		font-weight: 700;
 		line-height: 1rem;
+		text-align: center;
+		visibility: hidden;
+	}
+
+	.pick-line:hover::before,
+	.pick-line:focus-visible::before,
+	tr:hover .pick-line.main::before {
+		visibility: visible;
+	}
+
+	/* A finger has no hover: the + is always there to say the number can be pressed. */
+	@media (hover: none) {
+		.pick-line.main::before {
+			visibility: visible;
+			opacity: 0.55;
+		}
+	}
+
+	.pick-line:hover {
+		background: none;
+	}
+
+	.pick-line:focus-visible {
+		outline-offset: 0;
+	}
+
+	.pick-line.marked {
+		background: var(--color-selected-button);
+		box-shadow: 0 0 0 1px var(--color-focus);
+	}
+
+	.under td {
+		border-block: 1px solid var(--color-border);
+		background: var(--color-subtle);
+	}
+
+	.asking {
+		max-width: 46rem;
+		margin: 0 0.75rem 0.5rem;
+		font-family: var(--font-body);
+		font-size: 0.875rem;
+		line-height: 1.5;
 	}
 
 	.lines {

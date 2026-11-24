@@ -13,7 +13,7 @@
 	import type { PartIndex } from '#lib/core/part-index.tiny.ts';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
-	import type { CommentDraft } from './draft-comment.svelte.ts';
+	import type { Comments } from './comments.svelte.ts';
 	import PartLines from './PartLines.svelte';
 	import { whereWhiteSpaceMatters } from '#lib/core/highlight/language.ts';
 	import TickRefused from './TickRefused.svelte';
@@ -38,8 +38,9 @@
 		ontick,
 		ongo,
 		onshownewer,
-		draft,
-		canComment
+		comments,
+		canComment,
+		canReview
 	}: {
 		closing?: boolean;
 		bookmarkLine?: BookmarkLine | undefined;
@@ -51,8 +52,12 @@
 		ongo: (path: EscapedPath, group: GroupKeyView) => void;
 		/** Shows the diff's newer version, when a tick was refused for being behind it. */
 		onshownewer: () => void;
-		draft: CommentDraft;
+		/** The reviewer's comments on this Delve, drawn under their lines. */
+		comments: Comments;
+		/** Whether a comment can be started: the Delve is open. */
 		canComment: boolean;
+		/** Whether this browser may write comments. */
+		canReview: boolean;
 	} = $props();
 
 	const at = $derived(state.index);
@@ -349,8 +354,10 @@
 					{/if}
 					<PartLines
 						{bookmarkLine}
-						{draft}
+						{comments}
 						{canComment}
+						{canReview}
+						showNewer={onshownewer}
 						{viewer}
 						{at}
 						blocks={lines.blocks}

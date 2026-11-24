@@ -55,7 +55,7 @@ test('a cross-site MCP link opens the Delve with or without review access in the
 			await expect(
 				notice.getByRole('button', { name: 'Turn on comments in this browser' })
 			).toBeVisible();
-			await expect(page.getByRole('button', { name: 'Comment on lines' })).toHaveCount(0);
+			await expect(page.getByRole('button', { name: /^Draft comments/ })).toHaveCount(0);
 			const delve = page.url();
 
 			// The command's link, opened in another tab of this browser, turns comments
@@ -71,16 +71,16 @@ test('a cross-site MCP link opens the Delve with or without review access in the
 			await page.evaluate(() => window.dispatchEvent(new FocusEvent('focus')));
 			await expect(notice).toHaveCount(0);
 			await expect(page).toHaveURL(delve);
-			const drafts = page.getByRole('button', { name: 'Draft comments', exact: true });
+			const drafts = page.getByRole('button', { name: 'Draft comments (0)', exact: true });
 			await expect(drafts).toBeVisible();
 			await drafts.click();
-			await expect(page.getByText('To write a draft comment, open a file')).toBeVisible();
+			await expect(page.getByText('No comments yet. To write one')).toBeVisible();
 
 			await followFromAnotherSite(page, await link());
 			await expect(page).toHaveURL(delve);
 			await expect(drafts).toBeVisible();
 			await drafts.click();
-			await expect(page.getByText('To write a draft comment, open a file')).toBeVisible();
+			await expect(page.getByText('No comments yet. To write one')).toBeVisible();
 		} finally {
 			await mcp.close();
 		}

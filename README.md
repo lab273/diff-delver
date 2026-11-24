@@ -55,6 +55,8 @@ On the page you can:
 - **Tick** a file as reviewed (`r`), or a whole section at once. The bar on the left
   shows how far you have got.
 - **Move on** to the next file you have not reviewed (`n`).
+- **Comment** on a line by pressing its number, or `c` on it. Drag over the numbers,
+  or hold Shift, to take several lines. Comments are private drafts on your machine.
 - **Search** the whole diff (`/`), including files that are closed.
 - **Open file** (`t`) to find a filename and read it as of this Delve, before or after the changes.
 - **See every key** with `?`. Everything works from the keyboard.
