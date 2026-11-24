@@ -17,9 +17,10 @@
  * header, and opens no repository.
  *
  * The daemon remembers when it last heard from an agent's server, by the
- * folder it was started in, and when a tool call last named each report
- * (`AgentActivity`), so a page can say that an agent connected, or worked on
- * a Delve, and when. Nothing else of a message is kept.
+ * folder it was started in, and when a tool call last named each report and
+ * was answered, not refused (`AgentActivity`), so a page can say that an
+ * agent connected, or worked on a Delve, and when. Nothing else of a message
+ * is kept.
  *
  * Two kinds of address leave here, and they are never the same one. An answer
  * holds an address that lets a browser in to read and tick (`entryAddress`).
@@ -159,10 +160,13 @@ function serverFor(context: ToolContext, version: CodeVersion, agents: AgentActi
 		if (found === undefined) {
 			return { content: [{ type: 'text', text: unknownTool(request.params.name) }], isError: true };
 		}
-		const report = request.params.arguments?.['report'];
-		const named = typeof report === 'string' ? parseReportId(report) : undefined;
-		if (named?.ok === true) agents.worked(named.value);
 		const answer = await found.call(request.params.arguments, context);
+		// Only a call that did something is work on a Delve: a refused one is not.
+		if (!answer.refused) {
+			const report = request.params.arguments?.['report'];
+			const named = typeof report === 'string' ? parseReportId(report) : undefined;
+			if (named?.ok === true) agents.worked(named.value);
+		}
 		return {
 			content: [{ type: 'text', text: answer.text }],
 			...(answer.refused ? { isError: true } : {})

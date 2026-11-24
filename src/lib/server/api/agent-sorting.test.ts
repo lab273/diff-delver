@@ -145,6 +145,9 @@ describe('what a daemon says of the agents it has heard from', () => {
 		});
 		onTestFinished(() => other.close());
 		await other.call('list_reports');
+		// A call that names the Delve and is refused is no work on it.
+		const refused = await other.call('get_manifest', { report: id, unknown: true });
+		expect(refused.refused).toBe(true);
 		const first = value(await client.agentSorting(id));
 		expect(first.heard).toEqual({
 			text: `An agent connected to this diff delver a moment ago, started in ${elsewhere}.`,
