@@ -157,10 +157,14 @@ describe('the comments a page holds', () => {
 		const saved = await comments.save(writing, version(1));
 		if (saved.kind !== 'saved') throw new Error('not saved');
 
-		const edit = comments.edit(saved.comment);
+		const edit = comments.edit(saved.comment, 'lines');
 		expect(edit.body).toBe('Why capitals?');
 		expect(edit.worthKeeping).toBe(false);
-		expect(comments.edit(saved.comment)).toBe(edit);
+		expect(edit.openedIn).toBe('lines');
+		// Edit pressed on the same comment in the list: the same box, now drawn there.
+		expect(comments.edit(saved.comment, 'list')).toBe(edit);
+		expect(edit.openedIn).toBe('list');
+		expect(comments.writing).toEqual([edit]);
 		expect(comments.changing(saved.comment)).toBe(edit);
 		// A box on a saved comment is drawn where the comment is, not as a new one under the lines.
 		expect(comments.on(version(1), path('src/a.ts')).writing).toEqual([]);
@@ -207,7 +211,7 @@ describe('the comments a page holds', () => {
 		expect(comments.saved).toHaveLength(2);
 
 		// A box open on its words goes with it.
-		comments.edit(one.comment).body = 'One, changed.';
+		comments.edit(one.comment, 'lines').body = 'One, changed.';
 		expect(await comments.remove(one.comment, version(2))).toBeUndefined();
 		expect(comments.saved).toEqual([two.comment]);
 		expect(comments.writing).toEqual([]);
@@ -233,7 +237,7 @@ describe('the comments a page holds', () => {
 		if (saved.kind !== 'saved') throw new Error('not saved');
 		const read = saved.comment;
 
-		const edit = comments.edit(read);
+		const edit = comments.edit(read, 'list');
 		edit.body = 'Mine.';
 		// Another tab changes the same comment meanwhile.
 		value(

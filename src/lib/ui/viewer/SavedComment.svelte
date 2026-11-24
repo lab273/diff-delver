@@ -19,6 +19,7 @@
 	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import PathText from '#lib/ui/PathText.svelte';
 	import CommentBox from './CommentBox.svelte';
+	import CommentWords from './CommentWords.svelte';
 	import type { Comments, NotDeleted } from './comments.svelte.ts';
 	import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 
@@ -53,6 +54,8 @@
 	let article = $state<HTMLElement>();
 	/** The box open on its words, wherever on the page it was opened. */
 	const changing = $derived(comments.changing(comment));
+	/** Whether that box is drawn here: where Edit was pressed, so there is one box and not two. */
+	const here = $derived(changing?.openedIn === (listed ? 'list' : 'lines'));
 	let asking = $state(false);
 	let deleting = $state(false);
 	let notDeleted = $state.raw<NotDeleted>();
@@ -91,7 +94,7 @@
 	data-comment={listed ? undefined : comment.id}
 	aria-label="Your comment on {listed ? `${shownPath(comment.anchor.path)}, ` : ''}{lines}"
 >
-	{#if changing !== undefined}
+	{#if changing !== undefined && here}
 		<CommentBox
 			{comments}
 			writing={changing}
@@ -111,7 +114,14 @@
 			{#if when !== ''}<span>{when}</span>{/if}
 		</p>
 		{#if listed && elsewhere !== undefined}<p class="elsewhere">{elsewhere}</p>{/if}
-		<p class="words">{comment.body}</p>
+		<CommentWords words={comment.body} />
+		{#if changing !== undefined}
+			<p class="elsewhere">
+				You are changing its words {listed
+					? 'under its lines, below'
+					: 'in the list of comments, above'}.
+			</p>
+		{/if}
 		{#if notDeleted !== undefined}
 			<p class="problem" role="alert">It was not deleted. {notDeleted.message}</p>
 		{/if}
@@ -132,7 +142,7 @@
 						aria-label="Edit your comment on {name}"
 						onclick={() => {
 							notDeleted = undefined;
-							comments.edit(comment);
+							comments.edit(comment, listed ? 'list' : 'lines');
 						}}
 					>
 						Edit
@@ -236,9 +246,7 @@
 		font-size: 0.8125rem;
 	}
 
-	.words {
+	.comment :global(.words) {
 		margin-top: 0.2rem;
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
 	}
 </style>

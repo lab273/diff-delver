@@ -1153,7 +1153,9 @@
 	/*
 	 * A line's number is the button that comments on it. It looks like the
 	 * number it was until the pointer or the keyboard is on its line, when a +
-	 * says what pressing does, as on GitHub.
+	 * says what pressing does, as on GitHub. A touch screen has neither, and
+	 * shows no +: there the number alone is the control, beside the diff's own
+	 * + and − which a second + on every line would be taken for.
 	 */
 	.pick-line {
 		position: relative;
@@ -1193,14 +1195,6 @@
 	.pick-line:focus-visible::before,
 	tr:hover .pick-line.main::before {
 		visibility: visible;
-	}
-
-	/* A finger has no hover: the + is always there to say the number can be pressed. */
-	@media (hover: none) {
-		.pick-line.main::before {
-			visibility: visible;
-			opacity: 0.55;
-		}
 	}
 
 	.pick-line:hover {

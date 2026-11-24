@@ -36,6 +36,12 @@ export class Writing {
 	 * undefined for a new comment.
 	 */
 	editing: DraftCommentView | undefined;
+	/**
+	 * Where the reviewer opened the box on a saved comment: among the diff's
+	 * lines, or in the list of comments. A comment drawn in both is changed in
+	 * one box, where Edit was pressed.
+	 */
+	openedIn = $state<'lines' | 'list'>('lines');
 	/** Its comment's words were changed elsewhere while this box was open: the box shows them. */
 	changedElsewhere = $state(false);
 	/** The lines it is on. A new comment's move when the reviewer chooses lines of a newer version. */
@@ -161,14 +167,16 @@ export class Comments {
 
 	/**
 	 * Starts changing a saved comment's words, in a box that starts with them, or
-	 * goes back to the box already open for it.
+	 * goes back to the box already open for it, where Edit was pressed: among
+	 * the lines, or in the list.
 	 */
-	edit(comment: DraftCommentView): Writing {
+	edit(comment: DraftCommentView, from: 'lines' | 'list'): Writing {
 		const there = this.changing(comment);
 		const writing =
 			there ??
 			new Writing((this.#keys += 1), { version: comment.version, anchor: comment.anchor }, comment);
 		if (there === undefined) this.writing = [...this.writing, writing];
+		writing.openedIn = from;
 		writing.focusAsked += 1;
 		return writing;
 	}

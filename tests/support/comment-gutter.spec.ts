@@ -160,6 +160,75 @@ test('words typed in a box are kept when the page is left by its own links and c
 	}
 });
 
+test('a comment is changed in one box, holds what was typed exactly, and shows what cannot be seen', async ({
+	page
+}) => {
+	const world = await makeJourneyWorld();
+	try {
+		const repo = await world.repository('reading');
+		await page.goto((await world.command([], repo)).address);
+		await expect(page.locator('html[data-ready]')).toHaveCount(1);
+		const file = page.getByRole('article', { name: 'src/lexer.ts' });
+		await file.getByRole('button', { name: 'Comment on line 12, after', exact: true }).click();
+		const box = page.getByRole('form', { name: 'New comment on After, line 12', exact: true });
+		const words = box.getByRole('textbox', { name: 'Comment' });
+		const save = box.getByRole('button', { name: 'Save comment', exact: true });
+
+		// A paste longer than a comment holds is not cut short: it is all there, and the box says so.
+		await words.fill('x'.repeat(10_050));
+		await expect(words).toHaveValue('x'.repeat(10_050));
+		await expect(box.getByRole('status')).toHaveText(
+			'50 characters too long: a comment holds up to 10,000. Shorten it to save.'
+		);
+		await expect(save).toHaveAttribute('aria-disabled', 'true');
+		await words.fill('x'.repeat(10_001));
+		await expect(box.getByRole('status')).toContainText('1 character too long');
+
+		// Characters that are not seen, or turn text round, are written out where the
+		// comment is drawn; a tab and a line break are drawn as they are.
+		const typed = 'Is this safe\u202Etxt.exe?\n\tzero\u200Bwidth';
+		await words.fill(typed);
+		await expect(box.getByRole('status')).toHaveCount(0);
+		await save.click();
+		const saved = file.getByRole('article', { name: 'Your comment on After, line 12' });
+		await expect(saved.locator('.words')).toHaveText(
+			'Is this safe\\u202Etxt.exe?\n\tzero\\u200Bwidth',
+			{
+				useInnerText: true
+			}
+		);
+		await expect(saved.locator('.escape')).toHaveText(['\\u202E', '\\u200B']);
+
+		// With the list open the comment is drawn twice, and changed in one box: where Edit was pressed.
+		await page.getByRole('button', { name: 'Draft comments (1)', exact: true }).click();
+		const listed = page
+			.getByRole('region', { name: 'Draft comments' })
+			.getByRole('article', { name: 'Your comment on src/lexer.ts, After, line 12' });
+		await saved.getByRole('button', { name: 'Edit your comment on After, line 12' }).click();
+		const editing = page.getByRole('form', { name: /^Editing your comment/ });
+		await expect(editing).toHaveCount(1);
+		await expect(file.getByRole('form', { name: /^Editing your comment/ })).toHaveCount(1);
+		// The words kept are exactly the ones typed.
+		await expect(editing.getByRole('textbox', { name: 'Comment' })).toHaveValue(typed);
+		await expect(listed).toContainText('You are changing its words under its lines, below.');
+		// Edit pressed in the list brings the same box, with what it holds, there.
+		await editing.getByRole('textbox', { name: 'Comment' }).fill('Half changed.');
+		await listed
+			.getByRole('button', { name: 'Edit your comment on src/lexer.ts, After, line 12' })
+			.click();
+		await expect(editing).toHaveCount(1);
+		await expect(listed.getByRole('form', { name: /^Editing your comment/ })).toHaveCount(1);
+		await expect(editing.getByRole('textbox', { name: 'Comment' })).toHaveValue('Half changed.');
+		await expect(saved).toContainText('You are changing its words in the list of comments, above.');
+		await editing.getByRole('button', { name: 'Save changes', exact: true }).click();
+		await expect(editing).toHaveCount(0);
+		await expect(saved.locator('.words')).toHaveText('Half changed.');
+		await expect(listed.locator('.words')).toHaveText('Half changed.');
+	} finally {
+		await world.close();
+	}
+});
+
 test('a browser let in by a link is told under the line how to turn comments on, and the box opens once it may', async ({
 	page
 }) => {

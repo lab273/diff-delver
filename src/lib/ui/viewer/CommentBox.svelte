@@ -16,7 +16,9 @@
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import { MAX_COMMENT_LENGTH, describeCommentLines } from '#lib/core/review/draft-comment.ts';
 	import { shownPath } from '#lib/core/shown-path.tiny.ts';
+	import { formatCount } from '#lib/core/viewer/words.ts';
 	import PathText from '#lib/ui/PathText.svelte';
+	import CommentWords from './CommentWords.svelte';
 	import type { Comments, Writing } from './comments.svelte.ts';
 
 	let {
@@ -57,7 +59,10 @@
 	/** A new comment whose lines are in a version the page no longer shows. */
 	const waiting = $derived(!editing && writing.place.version !== version);
 	const behind = $derived(writing.behindOn === version);
-	const blocked = $derived(writing.saving || waiting || behind || !open);
+	/** How far past what a comment can hold the words are. */
+	const over = $derived(Math.max(0, writing.body.length - MAX_COMMENT_LENGTH));
+	const ids = $props.id();
+	const blocked = $derived(writing.saving || waiting || behind || !open || over > 0);
 
 	// Drawn somewhere of its own, it tells the list not to draw it as waiting too.
 	onMount(() => {
@@ -151,18 +156,25 @@
 	{/if}
 	<label>
 		<span class="label">Comment</span>
+		<!-- No limit on the field itself: it would cut a long paste short without a word. -->
 		<textarea
 			rows="3"
-			maxlength={MAX_COMMENT_LENGTH}
+			aria-describedby={over > 0 ? `${ids}-over` : undefined}
 			bind:this={input}
 			bind:value={writing.body}
 			readonly={writing.saving}
 			onkeydown={onKey}></textarea>
 	</label>
+	{#if over > 0}
+		<p class="problem" id="{ids}-over" role="status">
+			{over === 1 ? '1 character' : `${formatCount(over)} characters`} too long: a comment holds up to
+			{formatCount(MAX_COMMENT_LENGTH)}. Shorten it to save.
+		</p>
+	{/if}
 	{#if writing.changedElsewhere && writing.editing !== undefined}
 		<div class="note">
 			<p>Its words now, as changed elsewhere. Saving again puts yours in their place:</p>
-			<p class="other">{writing.editing.body}</p>
+			<div class="other"><CommentWords words={writing.editing.body} /></div>
 		</div>
 	{/if}
 	<!-- Why a save was refused, until the page shows the version that refusal was about no more. -->
@@ -266,8 +278,6 @@
 		padding-left: 0.6rem;
 		border-left: 3px solid var(--color-border);
 		color: var(--color-text);
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
 	}
 
 	.actions {
