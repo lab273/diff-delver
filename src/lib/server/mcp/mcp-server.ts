@@ -44,6 +44,7 @@ import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import type { AgentActivity } from '#lib/core/daemon/agent-activity.ts';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import type { ReportService } from '../reports/index.ts';
+import { realFolder } from '../real-folder.ts';
 import { SERVER_INSTRUCTIONS, TOOLS, unknownTool, type ToolContext } from './tools.ts';
 
 export const DIRECTORY_HEADER = 'x-diff-delver-directory';
@@ -183,7 +184,10 @@ export function mcpHandler(
 		// At most one window for a message, and the shim is told when it opened one.
 		let opened = false;
 		const directory = directoryOf(req);
-		options.agents.heard(directory);
+		options.agents.heard(
+			directory,
+			directory === undefined ? undefined : await realFolder(directory)
+		);
 		const context: ToolContext = {
 			service: options.service,
 			directory,

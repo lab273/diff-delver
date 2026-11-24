@@ -24,25 +24,33 @@ export const AGENT_ACTIVITY_KEPT = 50;
 export interface AgentHeard {
 	/** The folder the server was started in; null from a client that speaks HTTP MCP itself. */
 	readonly directory: AbsolutePath | null;
+	/** That folder with symbolic links resolved, which is what is compared with a Delve's. */
+	readonly real: AbsolutePath | null;
 	readonly at: Timestamp;
 }
 
 export interface AgentActivity {
-	/** A message came from a server started in `directory`. */
-	heard(directory: AbsolutePath | undefined): void;
+	/**
+	 * A message came from a server started in `directory`, which is `real`
+	 * with symbolic links resolved (the same folder when it has none).
+	 */
+	heard(directory: AbsolutePath | undefined, real?: AbsolutePath): void;
 	/** A tool call named `report`. */
 	worked(report: ReportId): void;
 	/**
 	 * The agent to tell the person about for a Delve of the repository in
-	 * `folder`: the one last heard from in that folder or inside it, and
-	 * otherwise the one last heard from anywhere.
+	 * `folder`, given with symbolic links resolved: the one last heard from in
+	 * that folder or inside it, and otherwise the one last heard from anywhere.
 	 */
 	lastHeard(folder: AbsolutePath): AgentHeard | undefined;
 	/** When a tool call last named `report`. */
 	lastWorked(report: ReportId): Timestamp | undefined;
 }
 
-/** Whether `directory` is `folder` or inside it. */
+/**
+ * Whether `directory` is `folder` or inside it, by their text alone: give both
+ * with symbolic links resolved, or a link to the folder is taken for another.
+ */
 export function isInFolder(directory: AbsolutePath | null, folder: AbsolutePath): boolean {
 	if (directory === null) return false;
 	const base = folder.endsWith('/') ? folder.slice(0, -1) : folder;
@@ -50,9 +58,9 @@ export function isInFolder(directory: AbsolutePath | null, folder: AbsolutePath)
 }
 
 /** Sets `key` as the newest entry and forgets the oldest past the bound. */
-function remember<K>(kept: Map<K, Timestamp>, key: K, at: Timestamp): void {
+function remember<K, V>(kept: Map<K, V>, key: K, value: V): void {
 	kept.delete(key);
-	kept.set(key, at);
+	kept.set(key, value);
 	for (const oldest of kept.keys()) {
 		if (kept.size <= AGENT_ACTIVITY_KEPT) break;
 		kept.delete(oldest);
@@ -61,11 +69,14 @@ function remember<K>(kept: Map<K, Timestamp>, key: K, at: Timestamp): void {
 
 export function agentActivity(clock: Clock): AgentActivity {
 	// Each in the order heard, oldest first.
-	const folders = new Map<AbsolutePath | null, Timestamp>();
+	const folders = new Map<
+		AbsolutePath | null,
+		{ readonly real: AbsolutePath | null; readonly at: Timestamp }
+	>();
 	const reports = new Map<ReportId, Timestamp>();
 	return {
-		heard(directory) {
-			remember(folders, directory ?? null, clock.now());
+		heard(directory, real) {
+			remember(folders, directory ?? null, { real: real ?? directory ?? null, at: clock.now() });
 		},
 		worked(report) {
 			remember(reports, report, clock.now());
@@ -73,9 +84,9 @@ export function agentActivity(clock: Clock): AgentActivity {
 		lastHeard(folder) {
 			let here: AgentHeard | undefined;
 			let anywhere: AgentHeard | undefined;
-			for (const [directory, at] of folders) {
-				anywhere = { directory, at };
-				if (isInFolder(directory, folder)) here = { directory, at };
+			for (const [directory, { real, at }] of folders) {
+				anywhere = { directory, real, at };
+				if (isInFolder(real, folder)) here = anywhere;
 			}
 			return here ?? anywhere;
 		},
@@ -96,7 +107,7 @@ function when(then: Timestamp, now: Timestamp): string {
  * in. Said as something that happened, never as something that is so now.
  */
 export function describeAgentHeard(
-	heard: AgentHeard,
+	heard: Pick<AgentHeard, 'directory' | 'at'>,
 	now: Timestamp,
 	home: AbsolutePath | undefined
 ): ReviewerMessage {

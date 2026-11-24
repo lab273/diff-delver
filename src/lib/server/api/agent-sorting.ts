@@ -22,6 +22,7 @@ import {
 import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import type { DaemonContext } from '../daemon/context.ts';
 import type { ReportSummary } from '../reports/index.ts';
+import { realFolder } from '../real-folder.ts';
 
 async function folderThere(path: string): Promise<boolean> {
 	try {
@@ -38,7 +39,9 @@ export async function agentSortingView(
 	const setup = daemon.agentSetup;
 	const folder = report.repositoryPath;
 	const now = daemon.clock.now();
-	const heard = daemon.agents.lastHeard(folder);
+	// Compared with links resolved on both sides, so a link to the repository is the repository.
+	const real = await realFolder(folder);
+	const heard = daemon.agents.lastHeard(real);
 	const worked = daemon.agents.lastWorked(report.id);
 	return {
 		connect: {
@@ -57,7 +60,7 @@ export async function agentSortingView(
 				? null
 				: {
 						text: describeAgentHeard(heard, now, setup.home),
-						here: isInFolder(heard.directory, folder)
+						here: isInFolder(heard.real, real)
 					},
 		worked: worked === undefined ? null : describeAgentWorked(worked, now)
 	};

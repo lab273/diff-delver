@@ -46,10 +46,12 @@ describe('the agents a daemon has heard from', () => {
 		activity.heard(folder('/work/other'));
 		expect(activity.lastHeard(folder('/work/shop'))).toEqual({
 			directory: '/work/shop/src',
+			real: '/work/shop/src',
 			at: time(1_000)
 		});
 		expect(activity.lastHeard(folder('/work/third'))).toEqual({
 			directory: '/work/other',
+			real: '/work/other',
 			at: time(1_000 + MINUTE)
 		});
 	});
@@ -57,7 +59,24 @@ describe('the agents a daemon has heard from', () => {
 	it('remembers a client that named no folder, as one started nowhere it knows', () => {
 		const activity = agentActivity(settableClock(time(1_000)));
 		activity.heard(undefined);
-		expect(activity.lastHeard(folder('/work/shop'))).toEqual({ directory: null, at: time(1_000) });
+		expect(activity.lastHeard(folder('/work/shop'))).toEqual({
+			directory: null,
+			real: null,
+			at: time(1_000)
+		});
+	});
+
+	it('finds the agent started in the repository through a link to it, and says the link', () => {
+		const clock = settableClock(time(1_000));
+		const activity = agentActivity(clock);
+		activity.heard(folder('/home/me/shop-link/src'), folder('/work/shop/src'));
+		clock.advance(MINUTE);
+		activity.heard(folder('/work/other'));
+		expect(activity.lastHeard(folder('/work/shop'))).toEqual({
+			directory: '/home/me/shop-link/src',
+			real: '/work/shop/src',
+			at: time(1_000)
+		});
 	});
 
 	it('keeps the latest time for a folder and for a report', () => {

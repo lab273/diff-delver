@@ -6,7 +6,7 @@
  * enough for an agent to sort that very Delve, through the real stdio shim.
  */
 import { execFile } from 'node:child_process';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, symlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
@@ -176,6 +176,29 @@ describe('what a daemon says of the agents it has heard from', () => {
 		expect(later.worked).toBe('An agent last worked on this Delve 5 minutes ago.');
 		expect(later.folder.shown).toBe(`~/${basename(repo.dir)}`);
 		expect(later.folder.command).toBe(`cd ~/${basename(repo.dir)}`);
+	});
+});
+
+describe('an agent started through a link to the repository', () => {
+	it('is taken as started in the repository, and said by the folder it was started in', async () => {
+		const repo = await useFixture(shop);
+		const daemon = await testDaemon();
+		const id = await openChanges(daemon, repo.dir);
+		const links = await tempDirectory();
+		const link = join(links, 'shop-link');
+		await symlink(repo.dir, link);
+		const agent = await mcpOverHttp({
+			origin: daemon.origin,
+			token: daemon.mcpToken,
+			directory: link
+		});
+		onTestFinished(() => agent.close());
+		await agent.call('list_reports');
+		const found = value(await clientOf(daemon).agentSorting(id));
+		expect(found.heard).toEqual({
+			text: `An agent connected to this diff delver a moment ago, started in ${link}.`,
+			here: true
+		});
 	});
 });
 
