@@ -63,6 +63,15 @@ test.describe('J20 Have an agent sort this Delve', () => {
 		);
 		await journey.step('The sentence copied, and the entry for Codex');
 
+		// An agent started in another repository: the page says where, and what to do.
+		const reading = await journey.repository('reading');
+		await journey.agentLink(reading);
+		await journey.returnToPage();
+		await journey.expectText(
+			steps,
+			'An agent connected to this diff delver a moment ago, started in ~/src/reading. It is set up, so start it in the folder of step 2 and paste it the sentence of step 3.'
+		);
+
 		// The reviewer starts their agent in the repository. Back on the page, it says one connected.
 		await journey.agentLink(shop);
 		await journey.returnToPage();

@@ -135,7 +135,7 @@
 									<VisibleText text={found.heard.text} />
 									{found.heard.here
 										? 'That is this Delve’s repository, so you can go straight to step 3.'
-										: ''}
+										: 'It is set up, so start it in the folder of step 2 and paste it the sentence of step 3.'}
 								</p>
 							{/if}
 						</div>
