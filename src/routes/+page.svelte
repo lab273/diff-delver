@@ -16,6 +16,7 @@
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import { pageClient } from '#lib/ui/client.ts';
 	import { RUN_COMMAND } from '#lib/ui/run-command.ts';
+	import { hasUnsavedWords } from '#lib/ui/viewer/kept-comments.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -110,6 +111,11 @@
 						</span>
 					</p>
 					<p class="progress">{diff.progressText}</p>
+					{#if hasUnsavedWords(diff.id)}
+						<p class="unsaved">
+							A comment you were writing here is not saved yet. Open it to go on.
+						</p>
+					{/if}
 				{:else}
 					<div class="line">
 						<span class="title">A Delve that cannot be read</span>
@@ -243,6 +249,12 @@
 	.progress {
 		margin: 0.25rem 0 0;
 		font-size: 0.875rem;
+	}
+
+	.unsaved {
+		margin: 0.25rem 0 0;
+		font-size: 0.875rem;
+		font-weight: 700;
 	}
 
 	.delete {

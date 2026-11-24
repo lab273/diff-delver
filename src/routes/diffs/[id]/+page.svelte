@@ -41,10 +41,11 @@
 	import FileList from '#lib/ui/viewer/FileList.svelte';
 	import SectionFiles from '#lib/ui/viewer/SectionFiles.svelte';
 	import { collapseReviewedPart } from '#lib/ui/viewer/collapse-reviewed.ts';
-	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+	import { SvelteSet } from 'svelte/reactivity';
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import CommentList from '#lib/ui/viewer/CommentList.svelte';
-	import { Comments, Writing, type CommentPlace } from '#lib/ui/viewer/comments.svelte.ts';
+	import { Writing, type CommentPlace, type Comments } from '#lib/ui/viewer/comments.svelte.ts';
+	import { keptComments } from '#lib/ui/viewer/kept-comments.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import AgentMarkdown from '#lib/ui/viewer/AgentMarkdown.svelte';
 	import Part from '#lib/ui/viewer/Part.svelte';
@@ -1589,18 +1590,12 @@
 		couldReview = can;
 	});
 	/**
-	 * Each Delve's comments, kept by the page and not by a viewer: what is being
-	 * written outlives an update, a regroup and a look at another Delve.
+	 * A Delve's comments, kept by the tab and not by this page or a viewer
+	 * (`kept-comments.ts`): what is being written outlives an update, a regroup,
+	 * a look at another Delve, and leaving this page by one of its links.
 	 */
-	const commentsOf = new SvelteMap<ReportId, Comments>();
 	function commentsFor(id: ReportId): Comments {
-		return untrack(() => {
-			const existing = commentsOf.get(id);
-			if (existing !== undefined) return existing;
-			const made = new Comments(id, pageClient());
-			commentsOf.set(id, made);
-			return made;
-		});
+		return untrack(() => keptComments(id, pageClient));
 	}
 
 	// The saved draft is read once this browser may read it, and again whenever
@@ -1615,23 +1610,6 @@
 		window.addEventListener('focus', read);
 		return () => {
 			window.removeEventListener('focus', read);
-		};
-	});
-
-	// Leaving the page, or loading it again, would lose what is typed and not
-	// saved: the browser asks first.
-	$effect(() => {
-		const ask = (event: BeforeUnloadEvent): void => {
-			for (const comments of commentsOf.values()) {
-				if (comments.writing.some((writing) => writing.worthKeeping)) {
-					event.preventDefault();
-					return;
-				}
-			}
-		};
-		window.addEventListener('beforeunload', ask);
-		return () => {
-			window.removeEventListener('beforeunload', ask);
 		};
 	});
 

@@ -101,6 +101,65 @@ test('pressing a line number opens the comment box under it, and dragging takes 
 	}
 });
 
+test('words typed in a box are kept when the page is left by its own links and come back to', async ({
+	page
+}) => {
+	const world = await makeJourneyWorld();
+	try {
+		const repo = await world.repository('reading');
+		await page.goto((await world.command([], repo)).address);
+		await expect(page.locator('html[data-ready]')).toHaveCount(1);
+		const delve = page.url();
+		const file = page.getByRole('article', { name: 'src/lexer.ts' });
+		await file.getByRole('button', { name: 'Show all 8 unchanged lines above' }).click();
+		await file.getByRole('button', { name: 'Comment on line 2, after', exact: true }).click();
+		const typed = 'Kept through the list of Delves.';
+		await page
+			.getByRole('form', { name: 'New comment on After, line 2', exact: true })
+			.getByRole('textbox', { name: 'Comment' })
+			.fill(typed);
+		// Back on the Delve its unchanged lines are folded again, so the box waits in the list.
+		const waiting = page.getByRole('form', {
+			name: 'New comment on src/lexer.ts, After, line 2',
+			exact: true
+		});
+		const words = waiting.getByRole('textbox', { name: 'Comment' });
+		const questions: string[] = [];
+		page.on('dialog', (dialog) => {
+			questions.push(dialog.type());
+			void dialog.dismiss();
+		});
+
+		// To the list of Delves and back with the browser's Back.
+		await page.getByRole('link', { name: 'See all your Delves' }).click();
+		await expect(page.getByRole('heading', { level: 1, name: 'Your Delves' })).toBeVisible();
+		await expect(page.getByText('A comment you were writing here is not saved yet.')).toBeVisible();
+		await page.goBack();
+		await expect(page).toHaveURL(delve);
+		await expect(words).toHaveValue(typed);
+
+		// By the link at the top of every page, and back by the Delve's own link in the list.
+		await page.getByRole('link', { name: 'diff delver', exact: true }).click();
+		await expect(page.getByRole('heading', { level: 1, name: 'Your Delves' })).toBeVisible();
+		await page.getByRole('link', { name: 'Uncommitted changes' }).click();
+		await expect(page).toHaveURL(delve);
+		await expect(words).toHaveValue(typed);
+		// None of that asked anything: nothing was at risk.
+		expect(questions).toEqual([]);
+
+		// Saved from where it waits, it is a comment, and nothing is left unsaved.
+		await waiting.getByRole('button', { name: 'Save comment', exact: true }).click();
+		await expect(page.getByRole('button', { name: 'Draft comments (1)' })).toBeVisible();
+		await page.getByRole('link', { name: 'See all your Delves' }).click();
+		await expect(page.getByRole('heading', { level: 1, name: 'Your Delves' })).toBeVisible();
+		await expect(page.getByText('A comment you were writing here is not saved yet.')).toHaveCount(
+			0
+		);
+	} finally {
+		await world.close();
+	}
+});
+
 test('a browser let in by a link is told under the line how to turn comments on, and the box opens once it may', async ({
 	page
 }) => {
