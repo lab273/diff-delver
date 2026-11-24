@@ -1248,7 +1248,7 @@
 	}
 
 	let fileOpener = $state(false);
-	/** The panel that lists the other Delves, which the layout draws. */
+	/** The panel that opens another Delve, which the layout draws. */
 	const switcher = delveSwitcher();
 	let fileMenuButton: HTMLButtonElement | undefined = $state();
 	let fileFocus: HTMLElement | undefined;
@@ -1934,7 +1934,7 @@
 						switcher.open = true;
 					}}
 				>
-					Other Delves <kbd aria-hidden="true">d</kbd>
+					Open another <kbd aria-hidden="true">d</kbd>
 				</button>
 			</div>
 			<div aria-live="polite" class="bookmark-message desktop-message">{bookmarkMessage}</div>

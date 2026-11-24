@@ -4,7 +4,7 @@
  * people know from other tools where one exists: `j` and `k` (and `]` and `[`)
  * to the next and previous file, as in GitLab and Gmail; `r` to mark reviewed,
  * as in Gerrit; `o` to open or close, as in Gmail; `c` to comment, as in
- * Gerrit and GitLab; `d` for the other Delves; `?` for this list, as on GitHub. They never fire while the person types in a field, nor with Control,
+ * Gerrit and GitLab; `d` to open another Delve; `?` for this list, as on GitHub. They never fire while the person types in a field, nor with Control,
  * Alt or Meta held, so the browser's and the system's own keys still work.
  */
 
@@ -75,7 +75,7 @@ export const SHORTCUTS: readonly {
 	{ keys: ['B'], does: 'Return to your bookmark', action: 'return-to-bookmark' },
 	{
 		keys: ['d'],
-		does: 'Go to another Delve, or open something else in this repository',
+		does: 'Open another Delve, or something new in this repository',
 		action: 'other-delves'
 	},
 	{ keys: ['?'], does: 'Show these shortcuts', action: 'help' }

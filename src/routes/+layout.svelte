@@ -27,7 +27,7 @@
 
 	const switcher = provideDelveSwitcher();
 
-	/** The Delve the page is of, when it is a Delve's page: there the header offers the others. */
+	/** The Delve the page is of, when it is a Delve's page: there the panel that opens another is drawn. */
 	const delve = $derived.by(() => {
 		if (page.route.id !== '/diffs/[id]') return undefined;
 		const id = parseReportId(page.params.id ?? '');
@@ -49,20 +49,10 @@
 
 <header>
 	<a href={resolve('/')} class="product">diff delver</a>
-	<nav aria-label="Your Delves">
+	<nav aria-label="Pages">
 		<a href={resolve('/')} aria-current={page.route.id === '/' ? 'page' : undefined}>
 			Your Delves
 		</a>
-		{#if delve !== undefined}
-			<button
-				type="button"
-				onclick={() => {
-					switcher.open = true;
-				}}
-			>
-				Other Delves <kbd aria-hidden="true">d</kbd>
-			</button>
-		{/if}
 	</nav>
 </header>
 
@@ -93,20 +83,6 @@
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.5rem 1rem;
-	}
-
-	/* The header is as tall with the button as without, so no page starts lower than another. */
-	nav button {
-		margin-block: -0.5rem;
-	}
-
-	kbd {
-		font-size: 0.75rem;
-		border: 1px solid currentColor;
-		border-radius: 4px;
-		padding: 0 0.3rem;
-		font-weight: 400;
-		opacity: 0.8;
 	}
 
 	nav a[aria-current='page'] {

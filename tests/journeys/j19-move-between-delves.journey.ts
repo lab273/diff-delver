@@ -28,8 +28,8 @@ test.describe('J19 Move between Delves', () => {
 		// active first, and the way to open something new in this Delve's repository. With
 		// more than a handful, the box to find one by name is there and has the focus.
 		await journey.press('d');
-		const panel = journey.byRole('dialog', { name: 'Other Delves' });
-		const others = journey.within(panel).byRole('list', { name: 'Other Delves' });
+		const panel = journey.byRole('dialog', { name: 'Open another Delve' });
+		const others = journey.within(panel).byRole('list', { name: 'Your other Delves' });
 		const find = journey.within(panel).byRole('searchbox', { name: 'Find a Delve by name' });
 		await journey.expectFocused(find);
 		await journey.expectText(others, 'Commit HEAD~2');
@@ -47,11 +47,13 @@ test.describe('J19 Move between Delves', () => {
 		await journey.expectHidden(journey.within(others).byRole('link', { name: 'Commit HEAD~2' }));
 		await journey.step('A Delve found by name');
 
-		// Escape puts it away; the header's button opens it again, with the box empty.
+		// Escape puts it away; the rail's button opens it again, with the box empty.
 		await journey.press('Escape');
 		await journey.expectHidden(panel);
-		const header = journey.byRole('banner');
-		await journey.activate(journey.within(header).byRole('button', { name: 'Other Delves' }));
+		const another = journey
+			.within(journey.byRole('complementary', { name: 'Your review' }))
+			.byRole('button', { name: 'Open another' });
+		await journey.activate(another);
 		await journey.expectFocused(find);
 		await journey.type('last');
 		const second = 'The last commit';
@@ -60,12 +62,8 @@ test.describe('J19 Move between Delves', () => {
 		await journey.expectHidden(panel);
 		await journey.step('Another Delve, opened from the panel');
 
-		// Something new in this repository: the choose page, from the rail's button.
-		await journey.activate(
-			journey
-				.within(journey.byRole('complementary', { name: 'Your review' }))
-				.byRole('button', { name: 'Other Delves' })
-		);
+		// Something new in this repository: the choose page, from the same panel.
+		await journey.activate(another);
 		await journey.activate(
 			journey.within(panel).byRole('link', { name: 'Choose commits or a branch in shop' })
 		);
@@ -83,7 +81,9 @@ test.describe('J19 Move between Delves', () => {
 		await journey.step('A branch opened from the choose page');
 
 		// The header leads to the list, which offers the same for each repository.
-		await journey.activate(journey.within(header).byRole('link', { name: 'Your Delves' }));
+		await journey.activate(
+			journey.within(journey.byRole('banner')).byRole('link', { name: 'Your Delves' })
+		);
 		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
 		const more = journey.byRole('region', { name: 'Open something else' });
 		await journey.expectVisible(
