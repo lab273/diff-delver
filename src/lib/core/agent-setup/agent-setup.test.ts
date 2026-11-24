@@ -152,7 +152,7 @@ describe('the command that gives an agent this diff delver', () => {
 
 	it('for a release is the README’s', () => {
 		expect(claudeCodeCommand(release)).toBe(
-			`claude mcp add diff-delver -- npx --yes ${RELEASE} mcp`
+			`claude mcp add --scope user diff-delver -- npx --yes ${RELEASE} mcp`
 		);
 		expect(plainServerCommand(release)).toBe(`npx --yes ${RELEASE} mcp`);
 		expect(codexConfigEntry(release)).toBe(
@@ -170,7 +170,7 @@ describe('the command that gives an agent this diff delver', () => {
 			copy: { kind: 'build', entry: path('/home/reviewer/src/diff-delver/bin/diff-delver.js') }
 		};
 		expect(claudeCodeCommand(build)).toBe(
-			'claude mcp add diff-delver -- node ~/src/diff-delver/bin/diff-delver.js mcp'
+			'claude mcp add --scope user diff-delver -- node ~/src/diff-delver/bin/diff-delver.js mcp'
 		);
 		// A settings file is not read by a shell, so nothing there is written from ~.
 		expect(plainServerCommand(build)).toBe(
@@ -192,7 +192,7 @@ describe('the command that gives an agent this diff delver', () => {
 			'/srv/delver data'
 		]);
 		expect(claudeCodeCommand(elsewhere)).toBe(
-			`claude mcp add diff-delver -- npx --yes ${RELEASE} mcp --data-directory '/srv/delver data'`
+			`claude mcp add --scope user diff-delver -- npx --yes ${RELEASE} mcp --data-directory '/srv/delver data'`
 		);
 	});
 
@@ -215,6 +215,8 @@ describe('the command that gives an agent this diff delver', () => {
 			'claude',
 			'mcp',
 			'add',
+			'--scope',
+			'user',
 			'diff-delver',
 			'--',
 			...expected.slice(0, 4),

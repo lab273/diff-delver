@@ -145,11 +145,14 @@
 							{/each}
 						</fieldset>
 						{#if agent === 'claudeCode'}
-							<p>Run this in a terminal, in the folder of step 2:</p>
+							<p>
+								Run this in a terminal, in any folder. It adds diff delver for every folder you
+								start Claude Code in:
+							</p>
 							<CopyText
 								text={found.connect.claudeCode}
 								label="Copy the command"
-								copied="Copied. Paste it into a terminal, in the folder of step 2."
+								copied="Copied. Paste it into a terminal, in any folder."
 							/>
 						{:else if agent === 'codex'}
 							<p>Add this to Codex’s settings file, <code>~/.codex/config.toml</code>:</p>

@@ -31,7 +31,7 @@ test.describe('J20 Have an agent sort this Delve', () => {
 		const sentence = `Sort diff delver report ${report ?? ''} into sections for review: “Uncommitted changes” in shop. The report already exists, so do not create another one. Start with get_manifest for report ${report ?? ''}.`;
 		await journey.expectText(
 			steps,
-			'claude mcp add diff-delver -- npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz mcp'
+			'claude mcp add --scope user diff-delver -- npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz mcp'
 		);
 		await journey.expectText(steps, 'cd ~/src/shop');
 		await journey.expectText(steps, sentence);

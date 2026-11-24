@@ -76,7 +76,7 @@ diff delver includes an MCP server that a coding agent can start. Add it to your
 agent once. For Claude Code:
 
 ```
-claude mcp add diff-delver -- npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz mcp
+claude mcp add --scope user diff-delver -- npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz mcp
 ```
 
 For another agent, add an MCP server that runs the same command: everything after
@@ -234,7 +234,7 @@ node <clone>/bin/diff-delver.js
 For a coding agent, add the build as its MCP server:
 
 ```
-claude mcp add diff-delver -- node <clone>/bin/diff-delver.js mcp
+claude mcp add --scope user diff-delver -- node <clone>/bin/diff-delver.js mcp
 ```
 
 After pulling changes, run `pnpm install` and then `pnpm build`. Without the build

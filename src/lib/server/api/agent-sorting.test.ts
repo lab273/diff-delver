@@ -50,7 +50,9 @@ describe('what a Delve’s page gives to copy', () => {
 		});
 		const id = await openChanges(daemon, repo.dir);
 		const found = value(await clientOf(daemon).agentSorting(id));
-		expect(found.connect.claudeCode).toBe(`claude mcp add diff-delver -- npx --yes ${RELEASE} mcp`);
+		expect(found.connect.claudeCode).toBe(
+			`claude mcp add --scope user diff-delver -- npx --yes ${RELEASE} mcp`
+		);
 		expect(found.connect.other).toBe(`npx --yes ${RELEASE} mcp`);
 		expect(found.connect.codex).toBe(
 			`[mcp_servers.diff-delver]\ncommand = "npx"\nargs = ["--yes", "${RELEASE}", "mcp"]`
@@ -78,7 +80,7 @@ describe('what a Delve’s page gives to copy', () => {
 		const id = await openChanges(daemon, repo.dir);
 		const found = value(await clientOf(daemon).agentSorting(id));
 		expect(found.connect.claudeCode).toBe(
-			`claude mcp add diff-delver -- node ~/'my clones/diff-delver/bin/diff-delver.js' mcp --data-directory ${data}`
+			`claude mcp add --scope user diff-delver -- node ~/'my clones/diff-delver/bin/diff-delver.js' mcp --data-directory ${data}`
 		);
 		expect(found.connect.other).toBe(
 			`node '/home/reviewer/my clones/diff-delver/bin/diff-delver.js' mcp --data-directory ${data}`

@@ -76,10 +76,18 @@ export function serverWords(setup: AgentServerSetup): readonly [string, ...strin
 	}
 }
 
-/** For Claude Code: the command that adds the server, for a terminal. */
+/**
+ * For Claude Code: the command that adds the server, for a terminal. It adds it
+ * for the person (`--scope user`), so it is there in whichever folder they
+ * start Claude Code; without it, it would be there only in the folder the
+ * command was run in.
+ */
 export function claudeCodeCommand(setup: AgentServerSetup): TextToCopy {
 	return textToCopy(
-		shellCommand(['claude', 'mcp', 'add', SERVER_NAME, '--', ...serverWords(setup)], setup.home)
+		shellCommand(
+			['claude', 'mcp', 'add', '--scope', 'user', SERVER_NAME, '--', ...serverWords(setup)],
+			setup.home
+		)
 	);
 }
 
