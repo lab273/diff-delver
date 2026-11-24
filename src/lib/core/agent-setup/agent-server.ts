@@ -8,7 +8,9 @@
  * - A build that is no release (a clone's, its version marked `-dev`) is run
  *   by the file that started its daemon, `node <clone>/bin/diff-delver.js`:
  *   the release's command would start a different copy, which would replace
- *   the daemon the page is on.
+ *   the daemon the page is on. Its program is the Node the daemon runs on,
+ *   by its whole path: the `node` an agent finds first may be another, such
+ *   as an older one under a version manager, which the build would refuse.
  * - A data folder that is not this machine's default is named with
  *   `--data-directory`, or the agent's server would start a second daemon on
  *   the default folder and never see the person's Delves.
@@ -34,19 +36,30 @@ export const SERVER_NAME = 'diff-delver';
 /** Which copy of diff delver is running, as far as running it again goes. */
 export type RunningCopy =
 	| { readonly kind: 'release' }
-	/** A build that is no release, started by the file `entry`. */
-	| { readonly kind: 'build'; readonly entry: AbsolutePath };
+	/**
+	 * A build that is no release, started by the file `entry` with the Node
+	 * program `node`, or with whichever `node` is found first when that is not known.
+	 */
+	| {
+			readonly kind: 'build';
+			readonly entry: AbsolutePath;
+			readonly node: AbsolutePath | undefined;
+	  };
 
 /**
  * The copy a daemon is, from its version and the file its command was run by.
  * A build that cannot say which file that was (only a daemon a test starts in
  * its own process) is given the release's command, the only one there is.
  */
-export function copyOf(version: CodeVersion, entry: AbsolutePath | undefined): RunningCopy {
+export function copyOf(
+	version: CodeVersion,
+	entry: AbsolutePath | undefined,
+	node: AbsolutePath | undefined
+): RunningCopy {
 	if (releaseOfCodeVersion(version) !== undefined || entry === undefined) {
 		return { kind: 'release' };
 	}
-	return { kind: 'build', entry };
+	return { kind: 'build', entry, node };
 }
 
 export interface AgentServerSetup {
@@ -72,7 +85,7 @@ export function serverWords(setup: AgentServerSetup): readonly [string, ...strin
 		case 'release':
 			return ['npx', '--yes', RELEASE_ADDRESS, 'mcp', ...data];
 		case 'build':
-			return ['node', setup.copy.entry, 'mcp', ...data];
+			return [setup.copy.node ?? 'node', setup.copy.entry, 'mcp', ...data];
 	}
 }
 

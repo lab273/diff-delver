@@ -120,17 +120,22 @@ describe('a path under the home folder', () => {
 
 describe('which copy is running', () => {
 	const entry = path('/srv/clone/bin/diff-delver.js');
+	const node = path('/opt/node-26/bin/node');
 
 	it('is a release when its version is one, wherever it was run from', () => {
-		expect(copyOf(version('0.2.0+1a2b3c4d5e6f'), entry)).toEqual({ kind: 'release' });
+		expect(copyOf(version('0.2.0+1a2b3c4d5e6f'), entry, node)).toEqual({ kind: 'release' });
 	});
 
 	it('is a build run by its own file when its version is marked -dev', () => {
-		expect(copyOf(version('0.2.0-dev+1a2b3c4d5e6f'), entry)).toEqual({ kind: 'build', entry });
+		expect(copyOf(version('0.2.0-dev+1a2b3c4d5e6f'), entry, node)).toEqual({
+			kind: 'build',
+			entry,
+			node
+		});
 	});
 
 	it('is given the release’s command when it cannot say which file runs it', () => {
-		expect(copyOf(version('0.2.0-dev+1a2b3c4d5e6f'), undefined)).toEqual({ kind: 'release' });
+		expect(copyOf(version('0.2.0-dev+1a2b3c4d5e6f'), undefined, node)).toEqual({ kind: 'release' });
 	});
 });
 
@@ -164,21 +169,37 @@ describe('the command that gives an agent this diff delver', () => {
 		);
 	});
 
-	it('for a build from a clone runs that build', () => {
+	it('for a build from a clone runs that build with the daemon’s own Node', () => {
 		const build: AgentServerSetup = {
 			...release,
-			copy: { kind: 'build', entry: path('/home/reviewer/src/diff-delver/bin/diff-delver.js') }
+			copy: {
+				kind: 'build',
+				entry: path('/home/reviewer/src/diff-delver/bin/diff-delver.js'),
+				node: path('/home/reviewer/.nvm/versions/node/v26.1.0/bin/node')
+			}
 		};
 		expect(claudeCodeCommand(build)).toBe(
-			'claude mcp add --scope user diff-delver -- node ~/src/diff-delver/bin/diff-delver.js mcp'
+			'claude mcp add --scope user diff-delver -- ~/.nvm/versions/node/v26.1.0/bin/node ~/src/diff-delver/bin/diff-delver.js mcp'
 		);
 		// A settings file is not read by a shell, so nothing there is written from ~.
 		expect(plainServerCommand(build)).toBe(
-			'node /home/reviewer/src/diff-delver/bin/diff-delver.js mcp'
+			'/home/reviewer/.nvm/versions/node/v26.1.0/bin/node /home/reviewer/src/diff-delver/bin/diff-delver.js mcp'
 		);
-		expect(codexConfigEntry(build)).toContain(
-			'args = ["/home/reviewer/src/diff-delver/bin/diff-delver.js", "mcp"]'
+		expect(codexConfigEntry(build)).toBe(
+			[
+				'[mcp_servers.diff-delver]',
+				'command = "/home/reviewer/.nvm/versions/node/v26.1.0/bin/node"',
+				'args = ["/home/reviewer/src/diff-delver/bin/diff-delver.js", "mcp"]'
+			].join('\n')
 		);
+	});
+
+	it('for a build whose Node is not known runs it with whichever node is found first', () => {
+		const build: AgentServerSetup = {
+			...release,
+			copy: { kind: 'build', entry: path('/srv/diff-delver/bin/diff-delver.js'), node: undefined }
+		};
+		expect(plainServerCommand(build)).toBe('node /srv/diff-delver/bin/diff-delver.js mcp');
 	});
 
 	it('names a data folder that is not the default, after mcp', () => {
@@ -198,12 +219,16 @@ describe('the command that gives an agent this diff delver', () => {
 
 	it('pastes odd folders as themselves: spaces, quotes, and what a shell would run', () => {
 		const odd: AgentServerSetup = {
-			copy: { kind: 'build', entry: path('/srv/it\'s "mine"/$(reboot)/bin/diff-delver.js') },
+			copy: {
+				kind: 'build',
+				entry: path('/srv/it\'s "mine"/$(reboot)/bin/diff-delver.js'),
+				node: path('/opt/my node/bin/node')
+			},
 			dataDirectory: path('/home/reviewer/data; rm -rf ~'),
 			home: path('/home/reviewer')
 		};
 		const expected = [
-			'node',
+			'/opt/my node/bin/node',
 			'/srv/it\'s "mine"/$(reboot)/bin/diff-delver.js',
 			'mcp',
 			'--data-directory',

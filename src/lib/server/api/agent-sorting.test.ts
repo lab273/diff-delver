@@ -73,6 +73,7 @@ describe('what a Delve’s page gives to copy', () => {
 			version: version('0.3.0-dev+1a2b3c4d5e6f'),
 			machine: {
 				entry: absolutePath('/home/reviewer/my clones/diff-delver/bin/diff-delver.js'),
+				node: absolutePath('/usr/local/bin/node'),
 				defaultDataDirectory: absolutePath('/home/reviewer/.local/share/diff-delver'),
 				home: absolutePath('/home/reviewer')
 			}
@@ -80,10 +81,10 @@ describe('what a Delve’s page gives to copy', () => {
 		const id = await openChanges(daemon, repo.dir);
 		const found = value(await clientOf(daemon).agentSorting(id));
 		expect(found.connect.claudeCode).toBe(
-			`claude mcp add --scope user diff-delver -- node ~/'my clones/diff-delver/bin/diff-delver.js' mcp --data-directory ${data}`
+			`claude mcp add --scope user diff-delver -- /usr/local/bin/node ~/'my clones/diff-delver/bin/diff-delver.js' mcp --data-directory ${data}`
 		);
 		expect(found.connect.other).toBe(
-			`node '/home/reviewer/my clones/diff-delver/bin/diff-delver.js' mcp --data-directory ${data}`
+			`/usr/local/bin/node '/home/reviewer/my clones/diff-delver/bin/diff-delver.js' mcp --data-directory ${data}`
 		);
 		expect(found.connect.codex).toContain(
 			`args = ["/home/reviewer/my clones/diff-delver/bin/diff-delver.js", "mcp", "--data-directory", "${data}"]`
@@ -213,7 +214,7 @@ describe('the sentence the page gives, pasted to an agent', () => {
 		const info = value(await client.daemonInfo());
 		expect(found.connect.claudeCode).toBe(
 			claudeCodeCommand({
-				copy: copyOf(info.version, absolutePath(BUILT_COMMAND)),
+				copy: copyOf(info.version, absolutePath(BUILT_COMMAND), absolutePath(process.execPath)),
 				dataDirectory: data,
 				// The daemon's home folder is the test reviewer's, never the machine's.
 				home: absolutePath(who.gitEnv['HOME'] ?? '')

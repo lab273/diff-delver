@@ -94,7 +94,7 @@ export interface DaemonOptions {
 	/**
 	 * What the starter knows of the machine and of how this copy was run, for the
 	 * command a page gives a person to connect their agent (`agent-server.ts`).
-	 * The command gives all three. Left out, the daemon takes its data folder for
+	 * The command gives them all. Left out, the daemon takes its data folder for
 	 * one that must be named and itself for a copy the release's command runs.
 	 */
 	readonly machine?: MachineFacts;
@@ -111,6 +111,8 @@ export interface DaemonOptions {
 export interface MachineFacts {
 	/** The file the command was run by (`node <entry> serve`), which runs this same copy again. */
 	readonly entry?: AbsolutePath | undefined;
+	/** The Node program the daemon runs on, which runs `entry` again whatever `node` an agent finds. */
+	readonly node?: AbsolutePath | undefined;
 	/** This machine's default data folder: a daemon on it needs no `--data-directory`. */
 	readonly defaultDataDirectory?: AbsolutePath | undefined;
 	/** The person's home folder. */
@@ -122,7 +124,7 @@ export function agentSetupOf(
 	options: Pick<DaemonOptions, 'dataDirectory' | 'version' | 'machine'>
 ): AgentServerSetup {
 	return {
-		copy: copyOf(options.version, options.machine?.entry),
+		copy: copyOf(options.version, options.machine?.entry, options.machine?.node),
 		dataDirectory: dataDirectoryToName(
 			options.dataDirectory,
 			options.machine?.defaultDataDirectory

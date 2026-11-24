@@ -108,6 +108,7 @@ async function serve(
 		// `entry` is the file this daemon was run by, so `node <entry> mcp` is this same copy.
 		machine: {
 			entry: absolute(entry),
+			node: absolute(process.execPath),
 			defaultDataDirectory: machine.ok ? machine.value : undefined,
 			home: homeFolder()
 		}
