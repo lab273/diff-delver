@@ -23,6 +23,7 @@
 	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
 	import type { LineNumber } from '#lib/core/line-number.tiny.ts';
 	import FileOpener from '#lib/ui/viewer/FileOpener.svelte';
+	import { delveSwitcher } from '#lib/ui/delve-switcher.svelte.ts';
 	import FileReader from '#lib/ui/viewer/FileReader.svelte';
 	import type { FileMatch } from '#lib/api/schemas.ts';
 	import { shownPath } from '#lib/core/shown-path.tiny.ts';
@@ -1247,6 +1248,8 @@
 	}
 
 	let fileOpener = $state(false);
+	/** The panel that lists the other Delves, which the layout draws. */
+	const switcher = delveSwitcher();
 	let fileMenuButton: HTMLButtonElement | undefined = $state();
 	let fileFocus: HTMLElement | undefined;
 	const readerUrl = $derived(shownPage.shallow?.url ?? shownPage.url);
@@ -1442,7 +1445,7 @@
 	}
 
 	function onKey(event: KeyboardEvent): void {
-		if (viewer === undefined || helpOpen || fileOpener || fileReaderOpen) return;
+		if (viewer === undefined || helpOpen || fileOpener || fileReaderOpen || switcher.open) return;
 		const target = event.target instanceof HTMLElement ? event.target : null;
 		if (isFindKey(event, target?.id === SEARCH_INPUT)) {
 			event.preventDefault();
@@ -1537,6 +1540,9 @@
 				return;
 			case 'open-file':
 				openFileMenu();
+				return;
+			case 'other-delves':
+				switcher.open = true;
 				return;
 			case 'help':
 				helpOpen = true;
@@ -1922,6 +1928,14 @@
 					Open file <kbd aria-hidden="true">t</kbd>
 				</button>
 				<div class="desktop-bookmarks">{@render bookmarkButtons()}</div>
+				<button
+					type="button"
+					onclick={() => {
+						switcher.open = true;
+					}}
+				>
+					Other Delves <kbd aria-hidden="true">d</kbd>
+				</button>
 			</div>
 			<div aria-live="polite" class="bookmark-message desktop-message">{bookmarkMessage}</div>
 			{#if viewer.overview !== null}

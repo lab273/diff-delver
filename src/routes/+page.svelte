@@ -3,20 +3,17 @@
 	newcomer, the one command that opens one.
 -->
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import { invalidate } from '$app/navigation';
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { ListedDiff } from '#lib/api/schemas.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
-	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import CopyCommand from '#lib/ui/CopyCommand.svelte';
-	import DiffSize from '#lib/ui/DiffSize.svelte';
+	import DelveEntry from '#lib/ui/DelveEntry.svelte';
 	import Notice from '#lib/ui/Notice.svelte';
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import { pageClient } from '#lib/ui/client.ts';
 	import { RUN_COMMAND } from '#lib/ui/run-command.ts';
-	import { hasUnsavedWords } from '#lib/ui/viewer/kept-comments.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -96,26 +93,7 @@
 		{#each data.listed.value.diffs as diff, index (diff.kind === 'diff' ? diff.id : `damaged-${String(index)}`)}
 			<li>
 				{#if diff.kind === 'diff'}
-					<div class="line">
-						<a class="title" href={resolve('/diffs/[id]', { id: diff.id })}>{diff.title}</a>
-						<span class="state {diff.state.kind}">
-							{diff.state.kind === 'open' ? 'Open' : 'Closed'}
-						</span>
-					</div>
-					<p class="details">
-						<span>{diff.repository}</span>
-						<span>Last active {describeTimeAgo(diff.lastActivityAt, now)}</span>
-						<span>
-							{diff.size.files === 1 ? '1 file' : `${String(diff.size.files)} files`}
-							<DiffSize added={diff.size.added} removed={diff.size.removed} />
-						</span>
-					</p>
-					<p class="progress">{diff.progressText}</p>
-					{#if hasUnsavedWords(diff.id)}
-						<p class="unsaved">
-							A comment you were writing here is not saved yet. Open it to go on.
-						</p>
-					{/if}
+					<DelveEntry {diff} {now} />
 				{:else}
 					<div class="line">
 						<span class="title">A Delve that cannot be read</span>
@@ -227,11 +205,6 @@
 		padding: 0 0.5rem;
 	}
 
-	.state.open {
-		color: var(--color-added);
-		border-color: var(--color-added);
-	}
-
 	.state.damaged {
 		color: var(--color-removed);
 		border-color: var(--color-removed);
@@ -244,17 +217,6 @@
 		margin: 0.25rem 0 0;
 		color: var(--color-muted);
 		font-size: 0.875rem;
-	}
-
-	.progress {
-		margin: 0.25rem 0 0;
-		font-size: 0.875rem;
-	}
-
-	.unsaved {
-		margin: 0.25rem 0 0;
-		font-size: 0.875rem;
-		font-weight: 700;
 	}
 
 	.delete {

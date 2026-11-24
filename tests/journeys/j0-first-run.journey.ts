@@ -18,7 +18,11 @@ test.describe('J0 First run', () => {
 		// The token in the address the command opens is taken out of it at once.
 		expect(await journey.address()).toBe('/');
 		expect(await journey.title()).toBe('diff delver');
-		expect(await journey.tabOrder()).toEqual(['link "diff delver"', 'button "Copy the command"']);
+		expect(await journey.tabOrder()).toEqual([
+			'link "diff delver"',
+			'link "Your Delves"',
+			'button "Copy the command"'
+		]);
 		await journey.activate(journey.byRole('button', { name: 'Copy the command' }));
 		expect(await journey.readClipboard()).toBe(
 			'npx https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz'
