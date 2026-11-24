@@ -50,6 +50,7 @@
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import AgentMarkdown from '#lib/ui/viewer/AgentMarkdown.svelte';
 	import Part from '#lib/ui/viewer/Part.svelte';
+	import SortWithAgent from '#lib/ui/viewer/SortWithAgent.svelte';
 	import TickRefused from '#lib/ui/viewer/TickRefused.svelte';
 	import ProgressBar from '#lib/ui/viewer/ProgressBar.svelte';
 	import Shortcuts from '#lib/ui/viewer/Shortcuts.svelte';
@@ -316,6 +317,35 @@
 		);
 		lastViewer = made;
 		return made;
+	});
+
+	/**
+	 * The instructions for having an agent sort this Delve (`SortWithAgent`):
+	 * whether they are open, and whether an agent's first sections arrived while
+	 * this page was open. They are put away by themselves when those arrive,
+	 * since the page then shows what the agent is making; the button stays while
+	 * anything is not sorted, and the focus goes to it if it was in the steps.
+	 */
+	let agentHelpOpen = $state(false);
+	let agentStarted = $state(false);
+	let sortedBefore: boolean | undefined;
+	// Before the page is drawn again, while what had the focus is still there to ask.
+	$effect.pre(() => {
+		const sorted = viewer?.sorted;
+		if (sorted === undefined) return;
+		const arrived = sortedBefore === false && sorted;
+		sortedBefore = sorted;
+		if (!arrived) return;
+		const within = untrack(() => agentHelpOpen)
+			? document.activeElement?.closest('#agent-help-steps') != null
+			: false;
+		agentStarted = true;
+		agentHelpOpen = false;
+		if (!within) return;
+		void tick().then(() => {
+			const toggle = document.querySelector('[data-agent-help] button');
+			if (toggle instanceof HTMLElement) toggle.focus();
+		});
 	});
 
 	async function refreshReview(force = false): Promise<void> {
@@ -2161,9 +2191,18 @@
 								{:else if group.key.kind === 'uncategorised'}
 									<p class="explain">
 										{viewer.sorted
-											? 'The agent did not place these, so they are listed here.'
+											? agentStarted
+												? 'The agent has not placed these, so they are listed here.'
+												: 'The agent did not place these, so they are listed here.'
 											: 'No agent has sorted this diff into sections, so every file is listed here.'}
 									</p>
+									{#if summary.state.kind === 'open'}
+										<SortWithAgent
+											id={summary.id}
+											bind:open={agentHelpOpen}
+											started={agentStarted}
+										/>
+									{/if}
 								{:else if group.key.kind === 'ignored'}
 									<p class="explain">
 										These need no review and are not counted; each says why. Open one to read it.

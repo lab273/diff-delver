@@ -12,6 +12,11 @@
  *   copied for each journey into a folder named after the fixture, so the page
  *   names the repository the same way on every machine ("shop"), whatever the
  *   temporary folder is called.
+ * - The daemon is told that the journey's folder is the person's home folder
+ *   and that its data folder is the machine's default, as they are for a
+ *   person: a folder the page names is then named from `~`, the same on every
+ *   machine, and the command it gives an agent names no data folder. The first
+ *   repository of each folder name is at `~/src/<name>`.
  * - git runs with a reviewer setup of the run's own, never the machine's
  *   global config.
  *
@@ -688,6 +693,10 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 		version: version.value,
 		app: await app,
 		repository: { gitEnv: await reviewerGitEnv() },
+		machine: {
+			home: absolutePath(dir),
+			defaultDataDirectory: absolutePath(join(dir, 'data'))
+		},
 		// No browser is opened: the journey plays the window itself, from its address.
 		openBrowser: (address) => {
 			windows.push(address);
@@ -703,7 +712,9 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 		daemon,
 		async repository(name) {
 			const fixture = JOURNEY_REPOSITORIES[name];
-			const copy = join(dir, randomUUID(), fixture.name);
+			// A second repository of the same folder name, as a namesake elsewhere on the machine.
+			const first = join(dir, 'src', fixture.name);
+			const copy = (await exists(first)) ? join(dir, randomUUID(), fixture.name) : first;
 			await cp(await template(name, fixture), copy, {
 				recursive: true,
 				verbatimSymlinks: true

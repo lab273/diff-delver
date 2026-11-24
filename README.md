@@ -82,6 +82,10 @@ claude mcp add diff-delver -- npx --yes https://github.com/lab273/diff-delver/re
 For another agent, add an MCP server that runs the same command: everything after
 the `--`.
 
+A Delve that is not sorted yet shows these steps itself, with the commands for your
+copy of diff delver and a sentence that names that Delve: press **Have an agent sort
+this**.
+
 Then start the agent in your repository and ask it, in your own words:
 
 ```
