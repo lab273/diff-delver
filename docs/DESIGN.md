@@ -126,7 +126,9 @@ Commands:
 - `diff-delver open <source>` opens a specific source: a range, a jj revset or a
   pull request URL.
 - `diff-delver choose` opens a page for the repository it is run in, to choose
-  commits or a whole branch to review (3.1). The start page links to it too.
+  commits or a whole branch to review (3.1). The start page links to it too, and
+  so do a Delve's page and the list of Delves, for every repository a Delve was
+  opened in (8.2).
 - `diff-delver setup` connects the MCP server and the skill to the coding agents
   it finds on the machine and says what it did. One command, run once.
 - `diff-delver mcp` is what agents launch. It starts the daemon if needed and
@@ -677,6 +679,20 @@ needed for a first review.
   with chips showing where its parts live. This is the direct answer to "is every
   file accounted for".
 
+**Moving between Delves.** Every page's header has a link to the list of Delves.
+A Delve's page has one control, **Open another**, in the rail and on `d`, that
+opens a panel without leaving the page: the other Delves, most recently active
+first, described as the list describes them (with the folder, when two
+repositories share a name), with a box to find one by name when there are more
+than a few; **Choose commits or a branch** for this Delve's repository (3.1); and
+the list of all Delves. Each is a link. The list of Delves offers the
+same choice for every repository a Delve was opened in, so a terminal is needed
+only for a repository diff delver has not seen. When a repository's folder is no
+longer there, the page says so in place of the link. A comment being written is
+kept by the tab through every one of these ways out, and the Delve it belongs to
+is marked wherever it is listed. A pull request, when it is a source (build step
+6), is opened from the same place as commits and branches.
+
 ### 8.3 Reading the diff
 
 - Unified or split, syntax highlighted, optional whitespace hiding.
@@ -904,6 +920,7 @@ guidance says [how journeys are tested](DEVELOPING.md#testing).
 | J16 | Reading and finding | read code coloured by language or plain, in one column or side by side, with white-space changes hidden, search the whole diff, move from match to match, and open changed and unchanged files by name |
 | J17 | Choose commits to review | open the choose page for a repository, see its branches and commits with their times and sizes, pick a run of commits or a whole branch with the keyboard, open it, and see when the repository last fetched and whether origin has moved on |
 | J18 | Draft comments | open a Delve from an agent's link and turn comments on in one press, comment on a line or a run of lines from the line itself, see each comment at its lines and in a list that goes to it, edit and delete one, and keep what was typed through a refused save and an update |
+| J19 | Move between Delves | go from a Delve to another through the panel that lists the others, open the choose page for the Delve's repository from the panel and open a branch there, and reach the list from the header, where each repository offers the same way to open something new, with no terminal |
 
 The agent interface is also tried with real coding agents. Recorded sessions of
 Claude Code and Codex sorting fixture diffs through the MCP server are kept in the
