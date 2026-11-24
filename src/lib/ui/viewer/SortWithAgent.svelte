@@ -56,8 +56,17 @@
 		whole.scrollIntoView({ block: box.height <= window.innerHeight ? 'end' : 'start' });
 	}
 
+	/**
+	 * Which asking is the newest. Focus and visibilitychange come together, and
+	 * answers may come back in another order, so only the newest one is used.
+	 */
+	let asked = 0;
+
 	async function ask(): Promise<void> {
+		asked += 1;
+		const mine = asked;
 		const answer = await pageClient().agentSorting(id);
+		if (mine !== asked) return;
 		if (answer.ok) {
 			const first = found === undefined;
 			found = answer.value;
