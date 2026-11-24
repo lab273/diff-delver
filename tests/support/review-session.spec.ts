@@ -58,6 +58,18 @@ test('a cross-site MCP link opens the Delve with or without review access in the
 			await expect(page.getByRole('button', { name: /^Draft comments/ })).toHaveCount(0);
 			const delve = page.url();
 
+			// The list of Delves says the same of deleting, and offers no Delete until it may.
+			await page.getByRole('link', { name: 'See all your Delves' }).click();
+			await expect(
+				page
+					.getByRole('region', { name: 'Deleting is off in this browser' })
+					.getByRole('button', { name: 'Turn on deleting in this browser' })
+			).toBeVisible();
+			await expect(page.getByRole('button', { name: /^Delete / })).toHaveCount(0);
+			await page.goBack();
+			await expect(page).toHaveURL(delve);
+			await expect(notice).toBeVisible();
+
 			// The command's link, opened in another tab of this browser, turns comments
 			// on here as well, once the person comes back to this tab: no reload.
 			const cliTab = await page.context().newPage();
