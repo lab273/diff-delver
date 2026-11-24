@@ -1,5 +1,5 @@
 /**
- * Moving between Delves (DESIGN 8.1): which repositories the list of Delves
+ * Moving between Delves (DESIGN 8.2): which repositories the list of Delves
  * offers to open something new in, which Delves the panel on a Delve's page
  * lists, and finding one of them by name. Pure, so the list of Delves and the
  * panel offer the same things.
@@ -53,18 +53,32 @@ export function offersFinding(count: number): boolean {
 }
 
 /**
- * The Delves whose title or repository holds every word typed, in the order
- * given. Case does not matter for A to Z, as in the diff's own search; nothing
- * typed finds them all.
+ * The folder to show beside a Delve's repository: only when another known
+ * repository has the same folder name, so the name alone does not say which.
  */
-export function findDelves<
-	D extends { readonly title: ReviewerMessage; readonly repository: ReviewerMessage }
->(delves: readonly D[], typed: string): D[] {
+export function folderToShow(
+	delve: DelveOfRepository,
+	known: readonly KnownRepository[]
+): AbsolutePath | undefined {
+	const sameName = known.some((k) => k.directory === delve.directory && k.sameName);
+	return sameName ? delve.directory : undefined;
+}
+
+/**
+ * The Delves whose title, repository or folder, where the folder is shown,
+ * holds every word typed, in the order given. Case does not matter for A to
+ * Z, as in the diff's own search; nothing typed finds them all.
+ */
+export function findDelves<D extends DelveOfRepository & { readonly title: ReviewerMessage }>(
+	delves: readonly D[],
+	typed: string,
+	known: readonly KnownRepository[] = []
+): D[] {
 	const words = foldCase(typed)
 		.split(/\s+/u)
 		.filter((word) => word !== '');
 	return delves.filter((delve) => {
-		const text = foldCase(`${delve.title} ${delve.repository}`);
+		const text = foldCase(`${delve.title} ${delve.repository} ${folderToShow(delve, known) ?? ''}`);
 		return words.every((word) => text.includes(word));
 	});
 }

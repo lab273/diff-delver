@@ -12,7 +12,7 @@
 	import { describeApiError, type ApiError } from '#lib/api/client.ts';
 	import type { DiffList } from '#lib/api/schemas.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
-	import { findDelves, offersFinding } from '#lib/core/reports/switch-delves.ts';
+	import { findDelves, folderToShow, offersFinding } from '#lib/core/reports/switch-delves.ts';
 	import type { Result } from '#lib/core/result.ts';
 	import ChooseLink from '#lib/ui/ChooseLink.svelte';
 	import DelveEntry from '#lib/ui/DelveEntry.svelte';
@@ -41,7 +41,8 @@
 	);
 	const others = $derived(delves.filter((diff) => diff.id !== current));
 	const finding = $derived(offersFinding(others.length));
-	const found = $derived(finding ? findDelves(others, typed) : others);
+	const known = $derived(listed?.ok === true ? listed.value.repositories : []);
+	const found = $derived(finding ? findDelves(others, typed, known) : others);
 	/** This Delve's repository, or every known one when the page shows no Delve it could read. */
 	const repositories = $derived.by(() => {
 		if (listed?.ok !== true) return [];
@@ -129,7 +130,7 @@
 			{:else if found.length > 0}
 				<ul class="delves" aria-label="Other Delves">
 					{#each found as diff (diff.id)}
-						<li><DelveEntry {diff} {now} /></li>
+						<li><DelveEntry {diff} {now} folder={folderToShow(diff, known)} /></li>
 					{/each}
 				</ul>
 			{/if}

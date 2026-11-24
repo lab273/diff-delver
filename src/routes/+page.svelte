@@ -7,6 +7,7 @@
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { ListedDiff } from '#lib/api/schemas.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
+	import { folderToShow } from '#lib/core/reports/switch-delves.ts';
 	import ChooseLink from '#lib/ui/ChooseLink.svelte';
 	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import CopyCommand from '#lib/ui/CopyCommand.svelte';
@@ -90,11 +91,12 @@
 	</section>
 {:else}
 	{@const now = data.listed.value.now}
+	{@const repositories = data.listed.value.repositories}
 	<ul class="diffs">
 		{#each data.listed.value.diffs as diff, index (diff.kind === 'diff' ? diff.id : `damaged-${String(index)}`)}
 			<li>
 				{#if diff.kind === 'diff'}
-					<DelveEntry {diff} {now} />
+					<DelveEntry {diff} {now} folder={folderToShow(diff, repositories)} />
 				{:else}
 					<div class="line">
 						<span class="title">A Delve that cannot be read</span>
@@ -124,7 +126,7 @@
 	<section class="open-more" aria-labelledby="open-more-heading">
 		<h2 id="open-more-heading">Open something else</h2>
 		<ul>
-			{#each data.listed.value.repositories as repository (repository.directory)}
+			{#each repositories as repository (repository.directory)}
 				<li><ChooseLink {repository} /></li>
 			{/each}
 		</ul>

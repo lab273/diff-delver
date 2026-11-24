@@ -94,5 +94,17 @@ test.describe('J19 Move between Delves', () => {
 			.byRole('link', { name: 'Choose commits or a branch in reading' });
 		expect(await journey.destinationOf(forReading)).toMatch(/^\/choose\?directory=/);
 		await journey.step('The list, with a way to open something new in each repository');
+
+		// Another repository whose folder is also called shop: each Delve of either then says
+		// which folder it is in, since the name no longer does.
+		const namesake = await journey.repository('shop');
+		await journey.command([], namesake);
+		await journey.inAnotherTab('/', async (tab) => {
+			const delves = tab.nth(tab.byRole('list'), 1);
+			await tab.expectText(delves, /Uncommitted changes Open shop \(\/.*\/shop\)/);
+			await tab.expectText(delves, /Commit HEAD~1 Open shop \(\/.*\/shop\)/);
+			await tab.expectText(delves, /Open reading\s+Last active/);
+			await tab.step('Repositories with the same name told apart by folder');
+		});
 	});
 });

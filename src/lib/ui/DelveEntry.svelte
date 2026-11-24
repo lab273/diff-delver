@@ -1,6 +1,7 @@
 <!--
 	One Delve as a list shows it: its title, a link to it, whether it is open,
-	its repository, when it was last active, its size, how far its review has
+	its repository (with its folder, when another repository has the same name),
+	when it was last active, its size, how far its review has
 	got, and whether a comment being written on it in this tab is not saved yet.
 	The list of Delves and the panel on a Delve's page both draw this, so a Delve
 	is described in one way.
@@ -8,12 +9,23 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { DiffSummary } from '#lib/api/schemas.ts';
+	import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 	import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import DiffSize from '#lib/ui/DiffSize.svelte';
+	import VisibleText from '#lib/ui/VisibleText.svelte';
 	import { hasUnsavedWords } from '#lib/ui/viewer/kept-comments.ts';
 
-	let { diff, now }: { diff: DiffSummary; now: Timestamp } = $props();
+	let {
+		diff,
+		now,
+		folder
+	}: {
+		diff: DiffSummary;
+		now: Timestamp;
+		/** Its repository's folder, when its name alone does not say which repository it is. */
+		folder: AbsolutePath | undefined;
+	} = $props();
 </script>
 
 <div class="line">
@@ -23,7 +35,12 @@
 	</span>
 </div>
 <p class="details">
-	<span>{diff.repository}</span>
+	<span>
+		{diff.repository}
+		{#if folder !== undefined}
+			<span class="folder">(<VisibleText text={folder} />)</span>
+		{/if}
+	</span>
 	<span>Last active {describeTimeAgo(diff.lastActivityAt, now)}</span>
 	<span>
 		{diff.size.files === 1 ? '1 file' : `${String(diff.size.files)} files`}
@@ -66,6 +83,10 @@
 		margin: 0.25rem 0 0;
 		color: var(--color-muted);
 		font-size: 0.875rem;
+	}
+
+	.folder {
+		overflow-wrap: anywhere;
 	}
 
 	.progress {

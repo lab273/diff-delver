@@ -4,6 +4,7 @@ import { reviewerMessage } from '../reviewer-message.tiny.ts';
 import {
 	DELVES_LISTED_WITHOUT_FINDING,
 	findDelves,
+	folderToShow,
 	knownRepositories,
 	offersFinding
 } from './switch-delves.ts';
@@ -50,6 +51,29 @@ describe('knownRepositories', () => {
 
 	it('knows none when there are no Delves', () => {
 		expect(knownRepositories([])).toEqual([]);
+	});
+});
+
+describe('folderToShow', () => {
+	const delves = [
+		delve('Uncommitted changes', 'shop', '/work/shop'),
+		delve('Uncommitted changes', 'shop', '/old/shop'),
+		delve('Uncommitted changes', 'ledger', '/work/ledger')
+	];
+	const known = knownRepositories(delves);
+
+	it('shows the folder only where the repository shares its name with another', () => {
+		expect(delves.map((d) => folderToShow(d, known))).toEqual([
+			'/work/shop',
+			'/old/shop',
+			undefined
+		]);
+	});
+
+	it('finds a Delve by its folder where it is shown, and not where it is not', () => {
+		expect(findDelves(delves, 'old', known).map((d) => d.directory)).toEqual(['/old/shop']);
+		expect(findDelves(delves, 'work', known).map((d) => d.directory)).toEqual(['/work/shop']);
+		expect(findDelves(delves, 'work')).toEqual([]);
 	});
 });
 
