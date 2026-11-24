@@ -56,7 +56,8 @@ On the page you can:
   shows how far you have got.
 - **Move on** to the next file you have not reviewed (`n`).
 - **Comment** on a line by pressing its number, or `c` on it. Drag over the numbers,
-  or hold Shift, to take several lines. Comments are private drafts on your machine.
+  or hold Shift, to take several lines. Comments are private drafts on your machine,
+  shown at their lines, and you can edit or delete them.
 - **Search** the whole diff (`/`), including files that are closed.
 - **Open file** (`t`) to find a filename and read it as of this Delve, before or after the changes.
 - **See every key** with `?`. Everything works from the keyboard.
@@ -159,7 +160,8 @@ diff delver keeps your Delves and ticks in one folder of its own,
 - Reading a diff: code coloured by language, one column or side by side, white-space
   changes hidden, unchanged lines opened, search, and a reading bookmark that
   survives reload in the same tab.
-- Saving private draft comments on either side of a diff, including unchanged lines.
+- Writing, editing and deleting private draft comments on either side of a diff,
+  including unchanged lines.
 - Ticking files and sections as reviewed, with progress, across restarts.
 - Updating a Delve when the code changes, keeping sections and ticks.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex

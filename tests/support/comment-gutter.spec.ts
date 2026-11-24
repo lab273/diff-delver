@@ -85,6 +85,17 @@ test('pressing a line number opens the comment box under it, and dragging takes 
 			.click();
 		await expect(unsaved.getByRole('textbox', { name: 'Comment' })).toBeFocused();
 		await expect(unsaved).toBeInViewport();
+
+		// With nothing typed the page can be left; with words not saved, the browser asks first.
+		await unsaved.getByRole('textbox', { name: 'Comment' }).fill('Not saved yet.');
+		const question = page.waitForEvent('dialog');
+		void page.evaluate(() => {
+			location.reload();
+		});
+		const dialog = await question;
+		expect(dialog.type()).toBe('beforeunload');
+		await dialog.dismiss();
+		await expect(unsaved.getByRole('textbox', { name: 'Comment' })).toHaveValue('Not saved yet.');
 	} finally {
 		await world.close();
 	}

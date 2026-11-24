@@ -150,6 +150,76 @@ describe('the comments a page holds', () => {
 		expect(next.body).toBe('');
 	});
 
+	it('changes a saved comment’s words in a box that starts with them, and keeps a refused change', async () => {
+		const { repo, client, comments, id } = await opened();
+		const writing = comments.start(place(1, 'src/a.ts', 2));
+		writing.body = 'Why capitals?';
+		const saved = await comments.save(writing, version(1));
+		if (saved.kind !== 'saved') throw new Error('not saved');
+
+		const edit = comments.edit(saved.comment);
+		expect(edit.body).toBe('Why capitals?');
+		expect(edit.worthKeeping).toBe(false);
+		expect(comments.edit(saved.comment)).toBe(edit);
+		expect(comments.changing(saved.comment)).toBe(edit);
+		// A box on a saved comment is drawn where the comment is, not as a new one under the lines.
+		expect(comments.on(version(1), path('src/a.ts')).writing).toEqual([]);
+		expect(comments.waitingForLines(version(2))).toEqual([]);
+		edit.body = '  ';
+		expect(await comments.save(edit, version(1))).toEqual({ kind: 'not-saved' });
+		expect(comments.saved).toMatchObject([{ body: 'Why capitals?' }]);
+
+		edit.body = 'Why capitals here?';
+		expect(edit.worthKeeping).toBe(true);
+		await repo.write('src/a.ts', 'one\nTWO\nthree\nFOUR\n');
+		expect(value(await client.updateDiff(id)).kind).toBe('updated');
+		// From a page that is behind, nothing changes, and the new words stay in the box.
+		expect(await comments.save(edit, version(1))).toEqual({ kind: 'not-saved' });
+		expect(edit.behindOn).toBe(1);
+		expect(edit.body).toBe('Why capitals here?');
+		expect(comments.saved).toMatchObject([{ body: 'Why capitals?', editedAt: null }]);
+		// From the new version it is saved, on the lines of the version it was written on.
+		expect(await comments.save(edit, version(2))).toMatchObject({
+			kind: 'saved',
+			comment: { id: saved.comment.id, version: 1, body: 'Why capitals here?' }
+		});
+		expect(comments.said).toBe('Comment changed.');
+		expect(comments.writing).toEqual([]);
+		expect(comments.saved).toHaveLength(1);
+		expect(comments.saved?.[0]?.editedAt).not.toBeNull();
+	});
+
+	it('deletes a comment only from a page that shows the current version, and says why not', async () => {
+		const { repo, client, comments, id } = await opened();
+		const first = comments.start(place(1, 'src/a.ts', 2));
+		first.body = 'One.';
+		const one = await comments.save(first, version(1));
+		const second = comments.start(place(1, 'src/b.ts', 2));
+		second.body = 'Two.';
+		const two = await comments.save(second, version(1));
+		if (one.kind !== 'saved' || two.kind !== 'saved') throw new Error('not saved');
+
+		await repo.write('src/a.ts', 'one\nTWO\nthree\nFOUR\n');
+		expect(value(await client.updateDiff(id)).kind).toBe('updated');
+		const refused = await comments.remove(one.comment, version(1));
+		expect(refused?.behind).toBe(true);
+		expect(refused?.message).toMatch(/updated to version 2/);
+		expect(comments.saved).toHaveLength(2);
+
+		// A box open on its words goes with it.
+		comments.edit(one.comment).body = 'One, changed.';
+		expect(await comments.remove(one.comment, version(2))).toBeUndefined();
+		expect(comments.saved).toEqual([two.comment]);
+		expect(comments.writing).toEqual([]);
+		expect(comments.said).toBe('Comment deleted.');
+		expect(value(await client.draftComments(id)).comments).toMatchObject([{ body: 'Two.' }]);
+
+		// One another tab deleted already is gone here too, without complaint.
+		value(await client.deleteDraftComment(id, two.comment.id, { version: version(2) }));
+		expect(await comments.remove(two.comment, version(2))).toBeUndefined();
+		expect(comments.saved).toEqual([]);
+	});
+
 	it('says why when the draft cannot be read, and reads it again when asked', async () => {
 		const { comments, client, id } = await opened();
 		value(await client.deleteDiff(id));

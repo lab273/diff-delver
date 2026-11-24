@@ -40,7 +40,9 @@
 	const panelId = $props.id();
 	const saved = $derived(comments.saved);
 	/** What is being written and has no place among the lines on the page now. */
-	const waiting = $derived(comments.writing.filter((w) => diffHidden || w.inDiff === 0));
+	const waiting = $derived(
+		comments.writing.filter((w) => w.inList === 0 && (diffHidden || w.inDiff === 0))
+	);
 	/** What is being written under its lines, somewhere in the diff: a way back to each. */
 	const underLines = $derived(comments.writing.filter((w) => !diffHidden && w.inDiff > 0));
 </script>
@@ -84,7 +86,7 @@
 			{writing}
 			{version}
 			{open}
-			docked
+			where="waiting"
 			{showNewer}
 			onclosed={() => {
 				control?.focus();
@@ -97,7 +99,10 @@
 		aria-busy={comments.loading && saved === undefined}
 		hidden={!expanded}
 	>
-		{#if comments.problem !== ''}
+		<!-- Drawn only while open, so a box in it is one the reviewer can see. -->
+		{#if !expanded}
+			<!-- Closed. -->
+		{:else if comments.problem !== ''}
 			<p role="alert">{comments.problem} Close and open Draft comments to try again.</p>
 		{:else if saved === undefined}
 			<p role="status">Loading your comments…</p>
@@ -112,12 +117,18 @@
 				{#each saved as comment (comment.id)}
 					<li>
 						<SavedComment
+							{comments}
 							{comment}
 							now={comments.now}
 							shown={version}
+							{open}
 							listed
+							{showNewer}
 							ongo={() => {
 								ongo(comment, comment);
+							}}
+							ongone={() => {
+								control?.focus();
 							}}
 						/>
 					</li>

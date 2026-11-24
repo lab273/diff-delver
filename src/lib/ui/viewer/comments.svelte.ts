@@ -41,8 +41,10 @@ export class Writing {
 	/** The version the page showed when a save was refused because the Delve had a newer one. */
 	behindOn = $state.raw<RevisionNumber>();
 	saving = $state(false);
-	/** How many places among the diff's lines draw its box now; none, and the list of comments does. */
+	/** How many places among the diff's lines draw its box now. */
 	inDiff = $state(0);
+	/** How many comments in the open list of comments draw its box now, as one being changed there. */
+	inList = $state(0);
 	/** Counts each time its box is asked to take the keyboard. */
 	focusAsked = $state(0);
 	/** How many of those a box has answered, so each is answered once. */
@@ -69,6 +71,12 @@ export interface CommentsHere {
 
 export type SaveOutcome =
 	{ readonly kind: 'saved'; readonly comment: DraftCommentView } | { readonly kind: 'not-saved' };
+
+/** Why a comment was not deleted, and whether because the Delve has a newer version than the page shows. */
+export interface NotDeleted {
+	readonly message: string;
+	readonly behind: boolean;
+}
 
 export class Comments {
 	readonly id: ReportId;
@@ -146,6 +154,47 @@ export class Comments {
 		return writing;
 	}
 
+	/**
+	 * Starts changing a saved comment's words, in a box that starts with them, or
+	 * goes back to the box already open for it.
+	 */
+	edit(comment: DraftCommentView): Writing {
+		const there = this.changing(comment);
+		const writing =
+			there ??
+			new Writing((this.#keys += 1), { version: comment.version, anchor: comment.anchor }, comment);
+		if (there === undefined) this.writing = [...this.writing, writing];
+		writing.focusAsked += 1;
+		return writing;
+	}
+
+	/** The box open on a saved comment's words, if there is one. */
+	changing(comment: DraftCommentView): Writing | undefined {
+		return this.writing.find((w) => w.editing?.id === comment.id);
+	}
+
+	/**
+	 * Deletes a saved comment, from a page that shows the Delve's current
+	 * version. One the daemon no longer has is gone already, which is what was
+	 * asked. Otherwise it stays, with why.
+	 */
+	async remove(comment: DraftCommentView, shown: RevisionNumber): Promise<NotDeleted | undefined> {
+		const deleted = await this.#client.deleteDraftComment(this.id, comment.id, { version: shown });
+		if (
+			!deleted.ok &&
+			!(deleted.error.kind === 'refused' && deleted.error.reason === 'CommentNotFound')
+		) {
+			return {
+				message: describeApiError(deleted.error),
+				behind: deleted.error.kind === 'refused' && deleted.error.reason === 'VersionOutOfDate'
+			};
+		}
+		this.saved = (this.saved ?? []).filter((c) => c.id !== comment.id);
+		this.writing = this.writing.filter((w) => w.editing?.id !== comment.id);
+		this.said = 'Comment deleted.';
+		return undefined;
+	}
+
 	/** Puts away something being written, with its words. */
 	discard(writing: Writing): void {
 		if (writing.saving) return;
@@ -153,12 +202,16 @@ export class Comments {
 	}
 
 	/**
-	 * Saves a new comment on the version the page shows. One that is refused
+	 * Saves a new comment on the version the page shows, or a saved comment's
+	 * new words from a page that shows the current version. One that is refused
 	 * stays as it was typed, with why; when the Delve has moved on, it says so
 	 * and waits for the page to show the new version.
 	 */
 	async save(writing: Writing, shown: RevisionNumber): Promise<SaveOutcome> {
-		if (writing.saving || writing.place.version !== shown) return { kind: 'not-saved' };
+		const editing = writing.editing;
+		if (writing.saving || (editing === undefined && writing.place.version !== shown)) {
+			return { kind: 'not-saved' };
+		}
 		if (!isCommentBody(writing.body)) {
 			writing.problem =
 				writing.body.trim() === ''
@@ -168,10 +221,13 @@ export class Comments {
 		}
 		writing.problem = '';
 		writing.saving = true;
-		const saved = await this.#client.addDraftComment(this.id, {
-			...writing.place,
-			body: writing.body
-		});
+		const saved =
+			editing === undefined
+				? await this.#client.addDraftComment(this.id, { ...writing.place, body: writing.body })
+				: await this.#client.editDraftComment(this.id, editing.id, {
+						version: shown,
+						body: writing.body
+					});
 		writing.saving = false;
 		if (!saved.ok) {
 			writing.problem = describeApiError(saved.error);
@@ -181,9 +237,12 @@ export class Comments {
 					: undefined;
 			return { kind: 'not-saved' };
 		}
-		this.saved = [...(this.saved ?? []), saved.value];
+		this.saved =
+			editing === undefined
+				? [...(this.saved ?? []), saved.value]
+				: (this.saved ?? []).map((c) => (c.id === editing.id ? saved.value : c));
 		this.discard(writing);
-		this.said = 'Comment saved.';
+		this.said = editing === undefined ? 'Comment saved.' : 'Comment changed.';
 		// Read again for the daemon's time, and for what another tab saved meanwhile.
 		void this.load();
 		return { kind: 'saved', comment: saved.value };

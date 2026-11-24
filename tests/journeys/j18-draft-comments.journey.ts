@@ -87,6 +87,28 @@ test.describe('J18 Draft comments', () => {
 		await journey.expectVisible(saved.byText('written just now'));
 		await journey.step('The comment shown at its lines');
 
+		// Its words are changed in place, in a box that starts with them.
+		await journey.activate(
+			saved.byRole('button', { name: 'Edit your comment on Before, lines 1–2', exact: true })
+		);
+		const changing = journey.within(
+			file.byRole('form', { name: 'Editing your comment on Before, lines 1–2', exact: true })
+		);
+		const words = changing.byRole('textbox', { name: 'Comment', exact: true });
+		await journey.expectFocused(words);
+		await journey.expectState(words, { value: 'Can we shorten this introduction?' });
+		await journey.press('End');
+		await journey.type(' It runs to eight lines.');
+		await journey.activate(changing.byRole('button', { name: 'Save changes', exact: true }));
+		await journey.expectVisible(
+			saved.byText('Can we shorten this introduction? It runs to eight lines.')
+		);
+		await journey.expectVisible(saved.byText('written just now, edited just now'));
+		await journey.expectFocused(
+			file.byRole('article', { name: 'Your comment on Before, lines 1–2' })
+		);
+		await journey.step('A comment edited in place');
+
 		// One line: `c` to the lines, `c` again on the line.
 		await journey.press('c');
 		await journey.expectFocused(line(1, 'after'));
@@ -139,7 +161,9 @@ test.describe('J18 Draft comments', () => {
 		const earlier = journey.within(
 			list.byRole('article', { name: 'Your comment on src/lexer.ts, Before, lines 1–2' })
 		);
-		await journey.expectVisible(earlier.byText('Can we shorten this introduction?'));
+		await journey.expectVisible(
+			earlier.byText('Can we shorten this introduction? It runs to eight lines.')
+		);
 		await journey.expectVisible(earlier.byText('Written on version 1, an earlier version'));
 		await journey.expectVisible(
 			journey
@@ -169,5 +193,20 @@ test.describe('J18 Draft comments', () => {
 		await journey.activate(second.form.byRole('button', { name: 'Discard', exact: true }));
 		await journey.expectHidden(journey.byText('Discard this text.'));
 		await journey.expectFocused(line(1, 'after'));
+
+		// Deleting a comment asks first, as deleting does everywhere.
+		await journey.activate(
+			journey
+				.within(there)
+				.byRole('button', { name: 'Delete your comment on After, line 1', exact: true })
+		);
+		const asked = journey.within(journey.byRole('dialog', { name: 'Delete this comment?' }));
+		await journey.expectVisible(asked.byText('Nothing brings it back.'));
+		await journey.step('Asked before deleting a comment');
+		await journey.activate(asked.byRole('button', { name: 'Delete', exact: true }));
+		await journey.expectHidden(there);
+		await journey.expectVisible(journey.byRole('button', { name: 'Draft comments (1)' }));
+		await journey.expectFocused(line(1, 'after'));
+		await journey.step('The comment deleted');
 	});
 });

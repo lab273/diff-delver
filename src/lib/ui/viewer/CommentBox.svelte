@@ -1,7 +1,9 @@
 <!--
-	The box a comment is written in: under its lines when they are on the page,
-	or in the list of comments when they are not (`docked`), with the same words
-	either way, since the page keeps them (`comments.svelte.ts`).
+	The box a comment is written in, or a saved one's words are changed in:
+	under its lines when they are on the page (`lines`), in place of the saved
+	comment being changed (`comment`, or `listed` in the list of comments), or
+	in that list when nothing else on the page draws it (`waiting`), with the
+	same words wherever it is, since the page keeps them (`comments.svelte.ts`).
 
 	Nothing typed is ever thrown away by anything but Discard: a save that is
 	refused keeps the words and says why, and when the Delve has a newer version
@@ -22,7 +24,7 @@
 		writing,
 		version,
 		open,
-		docked = false,
+		where,
 		showNewer,
 		onclosed
 	}: {
@@ -32,8 +34,12 @@
 		version: RevisionNumber;
 		/** Whether the Delve is open: a closed one saves nothing. */
 		open: boolean;
-		/** Drawn in the list of comments, because its lines are not on the page. */
-		docked?: boolean;
+		/**
+		 * Where it is drawn: under its lines in the diff, in place of the saved
+		 * comment it changes (in the diff, or `listed` in the list of comments),
+		 * or waiting in that list because nothing else on the page draws it.
+		 */
+		where: 'lines' | 'comment' | 'listed' | 'waiting';
 		showNewer: () => void;
 		/** After it was saved or discarded and has gone: the keyboard needs somewhere to be. */
 		onclosed: () => void;
@@ -43,17 +49,25 @@
 	let input = $state<HTMLTextAreaElement>();
 	const anchor = $derived(writing.place.anchor);
 	const lines = $derived(describeCommentLines(anchor));
-	/** Its lines are in a version the page no longer shows. */
-	const waiting = $derived(writing.place.version !== version);
+	/** A saved comment's words are being changed; its lines stay as they are. */
+	const editing = $derived(writing.editing !== undefined);
+	/** Away from its lines, it names its file too. */
+	const docked = $derived(where === 'waiting' || where === 'listed');
+	const title = $derived(editing ? 'Editing your comment' : 'New comment');
+	/** A new comment whose lines are in a version the page no longer shows. */
+	const waiting = $derived(!editing && writing.place.version !== version);
 	const behind = $derived(writing.behindOn === version);
 	const blocked = $derived(writing.saving || waiting || behind || !open);
 
-	// Under its lines, it tells the list not to draw it too.
+	// Drawn somewhere of its own, it tells the list not to draw it as waiting too.
 	onMount(() => {
-		if (docked) return;
-		writing.inDiff += 1;
+		if (where === 'waiting') return;
+		const inList = where === 'listed';
+		if (inList) writing.inList += 1;
+		else writing.inDiff += 1;
 		return () => {
-			writing.inDiff -= 1;
+			if (inList) writing.inList -= 1;
+			else writing.inDiff -= 1;
 		};
 	});
 
@@ -108,16 +122,17 @@
 	bind:this={form}
 	class="box"
 	class:docked
+	class:inside={where === 'comment' || where === 'listed'}
 	data-writing-comment
 	aria-busy={writing.saving}
-	aria-label="New comment on {docked ? `${shownPath(anchor.path)}, ` : ''}{lines}"
+	aria-label="{title} on {docked ? `${shownPath(anchor.path)}, ` : ''}{lines}"
 	onsubmit={(event) => {
 		event.preventDefault();
 		void save();
 	}}
 >
 	<p class="where">
-		<strong>New comment</strong>
+		<strong>{title}</strong>
 		{#if docked}<span class="path"><PathText path={anchor.path} /></span>{/if}
 		<span>{lines}</span>
 		{#if docked && waiting}<span>Version {writing.place.version}</span>{/if}
@@ -128,8 +143,11 @@
 			To keep what you wrote, press the number of a line here, or press <kbd>c</kbd> on one: it moves
 			there with your words.
 		</p>
-	{:else if docked}
-		<p class="note">Its lines are not on the page now, so it waits here. You can still save it.</p>
+	{:else if where === 'waiting'}
+		<p class="note">
+			{editing ? 'The comment it changes is' : 'Its lines are'} not on the page now, so it waits here.
+			You can still save it.
+		</p>
 	{/if}
 	<label>
 		<span class="label">Comment</span>
@@ -150,13 +168,15 @@
 	{/if}
 	<div class="actions">
 		<button type="submit" class="primary" aria-disabled={blocked}>
-			{writing.saving ? 'Saving…' : 'Save comment'}
+			{writing.saving ? 'Saving…' : editing ? 'Save changes' : 'Save comment'}
 		</button>
 		{#if behind}
 			<button type="button" onclick={showNewer}>Show the new version</button>
 		{/if}
-		<button type="button" aria-disabled={writing.saving} onclick={discard}>Discard</button>
-		<span class="private">A private draft: only you see it.</span>
+		<button type="button" aria-disabled={writing.saving} onclick={discard}>
+			{editing ? 'Cancel' : 'Discard'}
+		</button>
+		{#if !editing}<span class="private">A private draft: only you see it.</span>{/if}
 	</div>
 </form>
 
@@ -178,6 +198,14 @@
 
 	.box.docked {
 		margin-inline: 0;
+	}
+
+	/* In place of the comment it changes, whose frame it takes. */
+	.box.inside {
+		margin: 0;
+		padding: 0;
+		border: 0;
+		max-width: none;
 	}
 
 	p {

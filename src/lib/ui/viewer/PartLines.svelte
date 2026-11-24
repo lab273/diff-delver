@@ -609,13 +609,24 @@
 			<td colspan={columns}>
 				{#each items as item (item.key)}
 					{#if item.kind === 'saved'}
-						<SavedComment comment={item.comment} now={comments.now} shown={viewer.version} />
+						<SavedComment
+							{comments}
+							comment={item.comment}
+							now={comments.now}
+							shown={viewer.version}
+							open={canComment}
+							{showNewer}
+							ongone={() => {
+								afterBox(item.comment.anchor);
+							}}
+						/>
 					{:else if item.kind === 'writing'}
 						<CommentBox
 							{comments}
 							writing={item.writing}
 							version={viewer.version}
 							open={canComment}
+							where="lines"
 							{showNewer}
 							onclosed={() => {
 								afterBox(item.writing.place.anchor);

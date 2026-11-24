@@ -1618,6 +1618,23 @@
 		};
 	});
 
+	// Leaving the page, or loading it again, would lose what is typed and not
+	// saved: the browser asks first.
+	$effect(() => {
+		const ask = (event: BeforeUnloadEvent): void => {
+			for (const comments of commentsOf.values()) {
+				if (comments.writing.some((writing) => writing.worthKeeping)) {
+					event.preventDefault();
+					return;
+				}
+			}
+		};
+		window.addEventListener('beforeunload', ask);
+		return () => {
+			window.removeEventListener('beforeunload', ask);
+		};
+	});
+
 	/** The jump to a comment's lines under way, which a later one, or another viewer, replaces. */
 	let commentJump: object | undefined;
 
