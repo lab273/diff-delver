@@ -258,6 +258,8 @@ export interface ReportSummary {
 	readonly title: ReviewerMessage;
 	/** The repository's folder name: "diff-delver". */
 	readonly repository: ReviewerMessage;
+	/** Where the repository was opened. */
+	readonly repositoryPath: Report['repositoryPath'];
 	readonly state: ReportState;
 	readonly createdAt: Report['createdAt'];
 	readonly lastActivityAt: Report['lastActivityAt'];
@@ -600,6 +602,7 @@ function summaryOf(report: Report, revision: Revision): ReportSummary {
 		id: report.id,
 		title: reportTitle(report.source),
 		repository: repositoryLabel(report.repositoryPath),
+		repositoryPath: report.repositoryPath,
 		state: report.state,
 		createdAt: report.createdAt,
 		lastActivityAt: report.lastActivityAt,

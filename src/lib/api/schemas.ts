@@ -89,6 +89,8 @@ export const DiffSummarySchema = z.object({
 	title: message,
 	/** The repository's folder name. */
 	repository: message,
+	/** The folder the diff was opened in, to open something else of its repository. */
+	directory: absolutePath,
 	state: z.discriminatedUnion('kind', [
 		z.object({ kind: z.literal('open') }),
 		z.object({ kind: z.literal('closed'), reason: message })
@@ -179,10 +181,26 @@ export const DiffListSchema = z.object({
 				problem: message
 			})
 		])
+	),
+	/**
+	 * The repositories of the diffs listed, each once, in the list's order: where
+	 * "Choose commits or a branch" can open something new without a terminal.
+	 */
+	repositories: z.array(
+		z.object({
+			/** The repository's folder name. */
+			repository: message,
+			directory: absolutePath,
+			/** Another repository listed has the same folder name. */
+			sameName: z.boolean(),
+			/** Its folder is still there. */
+			there: z.boolean()
+		})
 	)
 });
 export type DiffList = z.output<typeof DiffListSchema>;
 export type ListedDiff = DiffList['diffs'][number];
+export type ListedRepository = DiffList['repositories'][number];
 
 /** POST /api/start: what `diff-delver` with no arguments opens in a folder. */
 export const StartRequestSchema = z.object({ directory: absolutePath });
@@ -335,8 +353,6 @@ export const DiffPageSchema = z.object({
 	sorting: frameStamp,
 	/** The assignment generation used by part reads and search. */
 	assignments: frameStamp,
-	/** The folder the diff was opened in, to open what its changes became. Never shown. */
-	directory: absolutePath,
 	/** What the diff was opened from, to open it again. Never shown. */
 	source,
 	/** Files that could not be included, one sentence each. */

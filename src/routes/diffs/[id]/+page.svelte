@@ -1831,7 +1831,7 @@
 							<button
 								type="button"
 								aria-disabled={busy}
-								onclick={() => openNext(next, page.directory)}
+								onclick={() => openNext(next, summary.directory)}
 							>
 								{next.offer}
 							</button>

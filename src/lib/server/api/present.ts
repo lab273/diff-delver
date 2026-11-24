@@ -89,6 +89,7 @@ export function summaryView(summary: ReportSummary): DiffSummary {
 		id: summary.id,
 		title: summary.title,
 		repository: summary.repository,
+		directory: summary.repositoryPath,
 		state:
 			summary.state.kind === 'open'
 				? { kind: 'open' }
@@ -344,7 +345,6 @@ export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): 
 		frame: `${view}:${loaded.frame}`,
 		sorting: loaded.sorting,
 		assignments: loaded.assignments,
-		directory: loaded.report.repositoryPath,
 		source: formatGitSourceSpec(loaded.report.source.spec),
 		leftOut: [...loaded.leftOut],
 		view,

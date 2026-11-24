@@ -1,5 +1,5 @@
 import { readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { describeApiError } from '#lib/api/client.ts';
 import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
@@ -73,12 +73,12 @@ describe('the daemon', () => {
 
 		const listed = value(await client.listDiffs());
 		expect(listed.diffs).toHaveLength(1);
-		expect(listed.diffs[0]).toMatchObject({ kind: 'diff', id: 'r_1' });
+		expect(listed.diffs[0]).toMatchObject({ kind: 'diff', id: 'r_1', directory: repo.dir });
 
 		const page = value(
 			await client.loadDiff(started.kind === 'opened' ? started.diff.id : never())
 		);
-		expect(page.directory).toBe(repo.dir);
+		expect(page.summary.directory).toBe(repo.dir);
 		expect(page.sorted).toBe(false);
 		expect(page.groups.map((g) => [g.key.kind, g.parts.map((p) => p.path)])).toEqual([
 			['uncategorised', ['src/a.ts', 'src/b.ts']],
@@ -105,6 +105,40 @@ describe('the daemon', () => {
 			expect(describeApiError(gone.error)).toMatch(/This Delve is not in diff delver any more/);
 		}
 		expect(value(await client.daemonInfo())).toEqual({ version: 'test', pid: process.pid });
+	});
+
+	it('lists the repositories of its diffs, each once, and says when a folder is gone', async () => {
+		const first = await useFixture(edited);
+		const second = await useFixture(edited);
+		const daemon = await testDaemon();
+		const client = clientOf(daemon);
+		value(await client.start({ directory: first.dir }));
+		value(await client.start({ directory: second.dir }));
+		value(await client.open({ directory: first.dir, source: 'HEAD' }));
+
+		// Most recently active first, and the repository with two diffs once.
+		expect(value(await client.listDiffs()).repositories).toEqual([
+			{
+				repository: basename(first.dir),
+				directory: first.dir,
+				sameName: false,
+				there: true
+			},
+			{
+				repository: basename(second.dir),
+				directory: second.dir,
+				sameName: false,
+				there: true
+			}
+		]);
+
+		await rm(second.dir, { recursive: true });
+		const listed = value(await client.listDiffs());
+		expect(listed.diffs).toHaveLength(3);
+		expect(listed.repositories.map((r) => [r.directory, r.there])).toEqual([
+			[first.dir, true],
+			[second.dir, false]
+		]);
 	});
 
 	it('says why in plain words when a folder is not a repository, and when there is nothing to review', async () => {
