@@ -35,6 +35,7 @@
 		| { readonly kind: 'asking' }
 		| { readonly kind: 'opened' }
 		| { readonly kind: 'no-browser' }
+		| { readonly kind: 'too-soon' }
 		| { readonly kind: 'failed'; readonly message: string };
 	let asked = $state<Asked>({ kind: 'not-yet' });
 
@@ -43,7 +44,7 @@
 		asked = { kind: 'asking' };
 		const window = await pageClient().openReviewWindow(diff);
 		if (!window.ok) asked = { kind: 'failed', message: describeApiError(window.error) };
-		else asked = { kind: window.value.opened ? 'opened' : 'no-browser' };
+		else asked = { kind: window.value.outcome };
 	}
 
 	// Coming back to this tab, as from the one that just opened: ask again whether
@@ -78,6 +79,11 @@
 				<strong>diff delver could not open a browser from where it runs,</strong> as on a machine with
 				no screen. Run this in a terminal there, in your repository, and open the address it prints in
 				this browser. Then come back to this tab.
+			</p>
+		{:else if asked.kind === 'too-soon'}
+			<p>
+				<strong>A window was opened a moment ago.</strong> Look for its tab. If there is none, press the
+				button again in a few seconds.
 			</p>
 		{:else if asked.kind === 'failed'}
 			<p><strong>That did not work.</strong> {asked.message}</p>

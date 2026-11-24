@@ -14,7 +14,7 @@ import type { RequestHandler } from './$types';
  * The address with its single-use code goes to the system's opener and so to
  * the browser of the person at this machine (`openForReview` in `daemon.ts`).
  * An agent that got hold of a view link can make a window appear in front of
- * the person; it cannot receive the grant. The request gate has already
+ * the person, at most one every few seconds; it cannot receive the grant. The request gate has already
  * required the daemon's own `Origin` and a cookie, and serves `/mcp` nothing
  * but MCP, so no tool reaches this. A program that brings the command's token
  * is not a browser and has its own way in (`/api/entry`), so it is refused.
@@ -33,7 +33,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	if (!parsed.ok) return parsed.error;
 	const { diff } = parsed.value;
 	const body: ReviewWindow = {
-		opened: await locals.daemon.openForReview(diff === null ? '/' : `/diffs/${diff}`)
+		outcome: await locals.daemon.openForReview(diff === null ? '/' : `/diffs/${diff}`)
 	};
 	return Response.json(body, { headers: { 'cache-control': 'no-store' } });
 };

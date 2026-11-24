@@ -4,7 +4,10 @@
  * gets back, and who gets the grant.
  */
 import { describe, expect, it, onTestFinished } from 'vitest';
+import { settableClock, type SettableClock } from '#lib/core/clock.ts';
 import { viewCookieName } from '#lib/core/daemon/request-gate.ts';
+import { REVIEW_WINDOW_EVERY_MS } from '#lib/core/daemon/review-windows.ts';
+import { parseTimestamp } from '#lib/core/timestamp.tiny.ts';
 import {
 	browserCookie,
 	rawRequest,
@@ -18,19 +21,24 @@ import type { RunningDaemon } from '../daemon/daemon.ts';
 
 const shop = defineFixture('review-window-shop', buildShop);
 
-/** A daemon that records the windows it is asked to open, or cannot open any. */
+/** A daemon that records the windows it is asked to open, or cannot open any, with its clock. */
 async function daemonWithWindows(canOpen = true): Promise<{
 	readonly daemon: RunningDaemon;
 	readonly opened: string[];
+	readonly clock: SettableClock;
 }> {
 	const opened: string[] = [];
+	const time = parseTimestamp(Date.UTC(2026, 0, 15, 9, 30));
+	if (!time.ok) throw new Error('not a time');
+	const clock = settableClock(time.value);
 	const daemon = await testDaemon({
+		clock,
 		openBrowser: (address) => {
 			if (canOpen) opened.push(address);
 			return Promise.resolve(canOpen);
 		}
 	});
-	return { daemon, opened };
+	return { daemon, opened, clock };
 }
 
 /** An agent's report, and the cookie of a browser that followed the link the agent was given. */
@@ -67,7 +75,7 @@ function ask(
 
 describe('asking for a window that may write drafts', () => {
 	it('opens the Delve in the person’s browser, and tells the page only that it did', async () => {
-		const { daemon, opened } = await daemonWithWindows();
+		const { daemon, opened, clock } = await daemonWithWindows();
 		const { report, view } = await followAgentLink(daemon);
 		const comments = `/api/diffs/${report}/comments`;
 		expect(
@@ -76,7 +84,7 @@ describe('asking for a window that may write drafts', () => {
 
 		const answer = await ask(daemon, { cookie: view, origin: daemon.origin }, report);
 		expect(answer.status).toBe(200);
-		expect(JSON.parse(answer.body)).toEqual({ opened: true });
+		expect(JSON.parse(answer.body)).toEqual({ outcome: 'opened' });
 		expect(opened).toHaveLength(1);
 		const window = new URL(opened[0] ?? '');
 		expect(window.origin).toBe(daemon.origin);
@@ -109,6 +117,7 @@ describe('asking for a window that may write drafts', () => {
 		);
 
 		// With no Delve named, it opens the list of them.
+		clock.advance(REVIEW_WINDOW_EVERY_MS);
 		expect((await ask(daemon, { cookie: view, origin: daemon.origin }, null)).status).toBe(200);
 		expect(new URL(opened[1] ?? '').pathname).toBe('/');
 	});
@@ -159,6 +168,41 @@ describe('asking for a window that may write drafts', () => {
 		const { report, view } = await followAgentLink(daemon);
 		const answer = await ask(daemon, { cookie: view, origin: daemon.origin }, report);
 		expect(answer.status).toBe(200);
-		expect(JSON.parse(answer.body)).toEqual({ opened: false });
+		expect(JSON.parse(answer.body)).toEqual({ outcome: 'no-browser' });
+	});
+
+	it('opens one window however often it is asked, until a few seconds have passed', async () => {
+		const { daemon, opened, clock } = await daemonWithWindows();
+		const { report, view } = await followAgentLink(daemon);
+		const headers = { cookie: view, origin: daemon.origin };
+		const answers = await Promise.all(
+			Array.from({ length: 100 }, () => ask(daemon, headers, report))
+		);
+		expect(answers.map((answer) => answer.status)).toEqual(Array.from({ length: 100 }, () => 200));
+		const outcomes = answers.map((answer) => JSON.stringify(JSON.parse(answer.body)));
+		expect(outcomes.filter((outcome) => outcome === '{"outcome":"opened"}')).toHaveLength(1);
+		expect(outcomes.filter((outcome) => outcome === '{"outcome":"too-soon"}')).toHaveLength(99);
+		expect(opened).toHaveLength(1);
+
+		// An agent's new report asks the same daemon: it is held back too, and given its link as ever.
+		const repo = await useFixture(shop);
+		const session = await mcpOverHttp({
+			origin: daemon.origin,
+			token: daemon.mcpToken,
+			directory: repo.dir,
+			openBrowser: true
+		});
+		onTestFinished(() => session.close());
+		const created = await session.call('create_report', { source: 'HEAD' });
+		expect(created.text).toMatch(/Give the person this address to open it in their browser/);
+		expect(opened).toHaveLength(1);
+
+		clock.advance(REVIEW_WINDOW_EVERY_MS - 1);
+		expect(JSON.parse((await ask(daemon, headers, report)).body)).toEqual({ outcome: 'too-soon' });
+		clock.advance(1);
+		expect(JSON.parse((await ask(daemon, headers, report)).body)).toEqual({ outcome: 'opened' });
+		expect(opened).toHaveLength(2);
+		// A window held back was given no code: only the two opened can let a browser in.
+		expect(new Set(opened).size).toBe(2);
 	});
 });

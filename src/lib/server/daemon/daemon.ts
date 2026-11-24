@@ -34,6 +34,7 @@ import type { Clock } from '#lib/core/clock.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { isToken, parseDaemonToken, type DaemonToken } from '#lib/core/daemon-token.tiny.ts';
 import { entryCodes, type BrowserGrant } from '#lib/core/daemon/entry-codes.ts';
+import { reviewWindows, type ReviewWindowOutcome } from '#lib/core/daemon/review-windows.ts';
 import {
 	cookieValue,
 	ENTRY_PARAMETER,
@@ -282,10 +283,15 @@ export async function startDaemon(
 	 * only whether a window was asked for. The code is made here, goes to the
 	 * system's opener and so to the browser of the person at this machine, works
 	 * once, and is never in an answer, a header or the log. A caller can at most
-	 * make a window appear in front of the person.
+	 * make a window appear in front of the person, and at most one every few
+	 * seconds (`review-windows.ts`), since each starts a program.
 	 */
-	const openForReview = (page: string): Promise<boolean> =>
-		openBrowser(entryAddress(origin.value, page, issue('review')));
+	const windows = reviewWindows(options.clock);
+	const openForReview = async (page: string): Promise<ReviewWindowOutcome> => {
+		if (!windows.mayAsk()) return 'too-soon';
+		const opened = await openBrowser(entryAddress(origin.value, page, issue('review')));
+		return opened ? 'opened' : 'no-browser';
+	};
 	const server = daemonServer(
 		options.app,
 		() => gate.settings,
@@ -293,7 +299,7 @@ export async function startDaemon(
 			service,
 			version: options.version,
 			entryAddress: (page) => entryAddress(origin.value, page, issue('view')),
-			open: openForReview
+			open: async (page) => (await openForReview(page)) === 'opened'
 		})
 	);
 	const port = await listen(server);

@@ -189,6 +189,11 @@ test('a browser let in by a link is told under the line how to turn comments on,
 		await expect(off.getByText('A new tab has opened with comments turned on.')).toBeVisible();
 		const opened = world.openedWindow();
 		if (opened === undefined) throw new Error('diff delver opened no window');
+		// Pressed again at once, by the notice at the top of the page: no second window, and it says why.
+		const top = page.getByRole('region', { name: 'Comments are off in this browser' }).first();
+		await top.getByRole('button', { name: 'Turn on comments in this browser' }).click();
+		await expect(top.getByText('A window was opened a moment ago.')).toBeVisible();
+		expect(world.openedWindow()).toBeUndefined();
 		const tab = await page.context().newPage();
 		try {
 			await tab.goto(opened);

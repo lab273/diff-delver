@@ -461,7 +461,7 @@ export class ApiClient {
 
 	/**
 	 * Asks diff delver to open a Delve (or the list of them) in the person's own
-	 * browser, in a window that may write their drafts; whether it could ask the browser.
+	 * browser, in a window that may write their drafts; what became of asking.
 	 */
 	openReviewWindow(diff: ReportId | null): Promise<Result<ReviewWindow, ApiError>> {
 		return this.#call('POST', '/api/review-window', ReviewWindowSchema, { diff });

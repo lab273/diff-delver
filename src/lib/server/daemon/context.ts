@@ -6,6 +6,7 @@
  * it up for each request by the port the request came in on.
  */
 import type { Clock } from '#lib/core/clock.ts';
+import type { ReviewWindowOutcome } from '#lib/core/daemon/review-windows.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import type { EntryCode } from '#lib/core/entry-code.tiny.ts';
 import type { PortNumber } from '#lib/core/port-number.tiny.ts';
@@ -21,10 +22,10 @@ export interface DaemonContext {
 	readonly entryCode: () => EntryCode;
 	/**
 	 * Opens a page of the daemon in the person's own browser, in a window that
-	 * may write their drafts; whether the browser could be asked to. The caller
-	 * gives the page and never sees the address (`openForReview` in `daemon.ts`).
+	 * may write their drafts; what became of asking. The caller gives the page
+	 * and never sees the address (`openForReview` in `daemon.ts`).
 	 */
-	readonly openForReview: (page: string) => Promise<boolean>;
+	readonly openForReview: (page: string) => Promise<ReviewWindowOutcome>;
 	/** Asks the daemon to stop once the current response is sent. */
 	readonly requestStop: () => void;
 }

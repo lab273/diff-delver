@@ -732,8 +732,14 @@ export type EntryCodeResponse = z.output<typeof EntryCodeSchema>;
 export const ReviewWindowRequestSchema = z.strictObject({ diff: reportId.nullable() });
 export type ReviewWindowRequest = z.output<typeof ReviewWindowRequestSchema>;
 
-/** Whether a browser could be asked to open it. Never the address: that goes to the browser alone. */
-export const ReviewWindowSchema = z.strictObject({ opened: z.boolean() });
+/**
+ * What became of asking: a browser was asked to open it, there is none to ask,
+ * or one was asked for too short a while ago. Never the address: that goes to
+ * the browser alone.
+ */
+export const ReviewWindowSchema = z.strictObject({
+	outcome: z.enum(['opened', 'no-browser', 'too-soon'])
+});
 export type ReviewWindow = z.output<typeof ReviewWindowSchema>;
 
 /** POST /api/daemon/stop. */
