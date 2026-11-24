@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { tempDirectory } from '../../../../tests/support/fixture-repos.ts';
@@ -47,6 +47,31 @@ describe('browser access kept in the data folder', () => {
 		const replaced = await browserAccess(data);
 		expect(replaced.token).not.toBe(kept.token);
 		expect((await stat(file)).mode & 0o777).toBe(0o600);
+	});
+
+	it('trusts only a plain file: a link to one, even a good one, is replaced and not followed', async () => {
+		const data = await tempDirectory();
+		const elsewhere = await tempDirectory();
+		const real = await browserAccess(elsewhere);
+		const target = join(elsewhere, BROWSER_ACCESS_FILE);
+		const file = join(data, BROWSER_ACCESS_FILE);
+		await symlink(target, file);
+		const made = await browserAccess(data);
+		expect(made.notKept).toBeUndefined();
+		expect(made.token).not.toBe(real.token);
+		// The link itself is replaced by a file of the data folder's own; what it pointed at is untouched.
+		const now = await lstat(file);
+		expect(now.isFile()).toBe(true);
+		expect(now.mode & 0o777).toBe(0o600);
+		expect(JSON.parse(await readFile(target, 'utf8'))).toEqual({ id: real.id, token: real.token });
+		expect(await browserAccess(data)).toEqual(made);
+
+		// A folder where the file should be is not one either: access is given, and not kept.
+		const blocked = await tempDirectory();
+		await mkdir(join(blocked, BROWSER_ACCESS_FILE));
+		const unkept = await browserAccess(blocked);
+		expect(unkept.token).toMatch(/^[0-9a-f]{64}$/);
+		expect(unkept.notKept).toBeDefined();
 	});
 
 	it('still gives access, for this daemon only, when the folder cannot be written', async () => {

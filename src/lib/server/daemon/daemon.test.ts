@@ -270,7 +270,7 @@ describe('the daemon’s gate', () => {
 		expect(second.mcpToken).not.toBe(first.mcpToken);
 	});
 
-	it('keeps two data folders’ browsers apart, and forgets a browser when its file is deleted', async () => {
+	it('keeps two data folders’ browsers apart, and forgets a browser once started again without its file', async () => {
 		const dataDirectory = await tempDirectory();
 		const first = await testDaemon({ dataDirectory });
 		const other = await testDaemon();
@@ -282,10 +282,12 @@ describe('the daemon’s gate', () => {
 		expect((await rawRequest(other.port, { path: '/', headers: { cookie: renamed } })).status).toBe(
 			403
 		);
+		// A running daemon read the file when it started: deleting it now changes nothing yet.
+		await rm(join(dataDirectory, BROWSER_ACCESS_FILE));
+		expect((await rawRequest(first.port, { path: '/', headers: { cookie } })).status).toBe(200);
 		await first.stop();
 
-		// Deleting the file takes review access from every browser.
-		await rm(join(dataDirectory, BROWSER_ACCESS_FILE));
+		// Stopped, with the file gone, and started again: every browser has lost review access.
 		const second = await testDaemon({ dataDirectory });
 		expect((await rawRequest(second.port, { path: '/', headers: { cookie } })).status).toBe(403);
 		const again = `${second.reviewCookie}=${cookie.split('=', 2)[1] ?? ''}`;

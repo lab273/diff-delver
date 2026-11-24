@@ -151,6 +151,8 @@ Other commands and options:
 
 diff delver keeps your Delves and ticks in one folder of its own,
 `~/.local/share/diff-delver` on Linux. It is reached only from your own machine.
+To take comment access away from every browser, run `diff-delver stop`, delete
+`browser-access.json` in that folder, and start diff delver again.
 
 ### What works today
 
