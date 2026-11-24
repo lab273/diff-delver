@@ -13,6 +13,7 @@ import { FILE_PAGE_LINES, FILE_QUERY_LENGTH } from '#lib/core/viewer/file-reader
 import { MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
+import { textToCopy } from '#lib/core/agent-setup/text-to-copy.tiny.ts';
 import { parseCodeVersion } from '#lib/core/code-version.tiny.ts';
 import { parseCommitId } from '#lib/core/commit-id.tiny.ts';
 import { parseAuthorName } from '#lib/core/history/author-name.tiny.ts';
@@ -68,6 +69,7 @@ function sourceText(text: string): Result<GitSourceText, unknown> {
 
 const message = z.string().transform(reviewerMessage);
 const reportId = parsed(z.string(), parseReportId);
+const toCopy = z.string().transform(textToCopy);
 const timestamp = parsed(z.number(), parseTimestamp);
 const fileCount = parsed(z.number(), parseFileCount);
 const lineCount = parsed(z.number(), parseLineCount);
@@ -951,3 +953,45 @@ export const DraftCommentIdInAddressSchema = parsed(
 	z.string().regex(/^[1-9][0-9]{0,15}$/),
 	(text) => parseDraftCommentId(Number(text))
 );
+
+// ── Having an agent sort a Delve ─────────────────────────────────────────────
+
+/**
+ * GET /api/diffs/:id/agent: how to have a coding agent sort this Delve, asked
+ * for when a person opens the instructions on its page. Everything to copy is
+ * for the daemon that answers (its copy of diff delver and its data folder)
+ * and for this Delve.
+ */
+export const AgentSortingSchema = z.strictObject({
+	/** Step 1: what gives an agent this diff delver as its MCP server. */
+	connect: z.strictObject({
+		/** For a terminal: Claude Code's command that adds it. */
+		claudeCode: toCopy,
+		/** For Codex's `config.toml`: its entry. */
+		codex: toCopy,
+		/** For any other agent's MCP server entry: the command it runs. */
+		other: toCopy
+	}),
+	/** Step 2: the folder to start the agent in, the Delve's repository. */
+	folder: z.strictObject({
+		/** The folder as a sentence names it. */
+		shown: message,
+		/** For a terminal: the command that goes there. */
+		command: toCopy,
+		/** Whether the folder is still there. */
+		there: z.boolean()
+	}),
+	/** Step 3: what to paste to the agent, which names this Delve. */
+	request: toCopy,
+	/** The agent this daemon last heard from, if any: when, and where it was started. */
+	heard: z
+		.strictObject({
+			text: message,
+			/** It was started in this Delve's repository. */
+			here: z.boolean()
+		})
+		.nullable(),
+	/** When an agent last called a tool on this Delve, in words, if one has since the daemon started. */
+	worked: message.nullable()
+});
+export type AgentSorting = z.output<typeof AgentSortingSchema>;

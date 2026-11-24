@@ -136,6 +136,29 @@ export async function categoriseShop(
 	session: McpSession,
 	options: { readonly directory?: string } = {}
 ): Promise<Categorised> {
+	const answer = await session.call('create_report', {
+		source: 'working-tree',
+		...(options.directory === undefined ? {} : { directory: options.directory })
+	});
+	const created: RecordedCall = {
+		tool: 'create_report',
+		args: {
+			source: 'working-tree',
+			...(options.directory === undefined ? {} : { directory: options.directory })
+		},
+		answer
+	};
+	if (answer.refused) throw new Error(`create_report was refused: ${answer.text}`);
+	const sorted = await sortShop(session, reportIn(answer));
+	return { report: sorted.report, calls: [created, ...sorted.calls] };
+}
+
+/**
+ * Sorts a report of the shop's working tree that exists already, given only
+ * its id, as an agent does that a person asked to sort the Delve they have
+ * open: it creates nothing, and begins with the manifest.
+ */
+export async function sortShop(session: McpSession, report: string): Promise<Categorised> {
 	const calls: RecordedCall[] = [];
 	const call = async (
 		tool: string,
@@ -146,11 +169,6 @@ export async function categoriseShop(
 		if (answer.refused) throw new Error(`${tool} was refused: ${answer.text}`);
 		return answer;
 	};
-	const created = await call('create_report', {
-		source: 'working-tree',
-		...(options.directory === undefined ? {} : { directory: options.directory })
-	});
-	const report = reportIn(created);
 	const manifest = await call('get_manifest', { report });
 	const version = versionIn(manifest);
 	await call('get_diff', { report });

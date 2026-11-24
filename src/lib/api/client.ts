@@ -61,6 +61,7 @@ import {
 	StartResponseSchema,
 	StateChangeSchema,
 	ReviewWindowSchema,
+	AgentSortingSchema,
 	StoppingSchema,
 	SuggestResponseSchema,
 	UpdateResponseSchema,
@@ -77,6 +78,7 @@ import {
 	type PartLines,
 	type PartQuery,
 	type ReviewWindow,
+	type AgentSorting,
 	type ViewName,
 	type OpenRequest,
 	type OpenResponse,
@@ -465,6 +467,11 @@ export class ApiClient {
 	 */
 	openReviewWindow(diff: ReportId | null): Promise<Result<ReviewWindow, ApiError>> {
 		return this.#call('POST', '/api/review-window', ReviewWindowSchema, { diff });
+	}
+
+	/** How to have a coding agent sort this Delve: what to copy, for this daemon and this Delve. */
+	agentSorting(id: ReportId): Promise<Result<AgentSorting, ApiError>> {
+		return this.#call('GET', `/api/diffs/${id}/agent`, AgentSortingSchema);
 	}
 
 	stopDaemon(): Promise<Result<Stopping, ApiError>> {

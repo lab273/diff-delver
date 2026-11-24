@@ -5,7 +5,9 @@
  * context under its port in a global the two share, and `hooks.server.ts` looks
  * it up for each request by the port the request came in on.
  */
+import type { AgentServerSetup } from '#lib/core/agent-setup/agent-server.ts';
 import type { Clock } from '#lib/core/clock.ts';
+import type { AgentActivity } from '#lib/core/daemon/agent-activity.ts';
 import type { ReviewWindowOutcome } from '#lib/core/daemon/review-windows.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import type { EntryCode } from '#lib/core/entry-code.tiny.ts';
@@ -16,6 +18,10 @@ export interface DaemonContext {
 	readonly service: ReportService;
 	readonly clock: Clock;
 	readonly version: CodeVersion;
+	/** How an agent is given this daemon as its MCP server: this copy, on this data folder. */
+	readonly agentSetup: AgentServerSetup;
+	/** The agents this daemon has heard from, which it remembers only while it runs. */
+	readonly agents: AgentActivity;
 	readonly isCommand: (authorization: string | undefined) => boolean;
 	readonly isReviewBrowser: (cookieHeader: string | undefined) => boolean;
 	/** A new single-use code that lets a browser in, for the address the command opens. */

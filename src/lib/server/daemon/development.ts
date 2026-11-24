@@ -6,11 +6,13 @@
  */
 import { DATA_DIRECTORY_VARIABLE } from '#lib/core/cli/command-line.ts';
 import { parseAbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { agentActivity } from '#lib/core/daemon/agent-activity.ts';
 import { ReportService, describeReportError, randomIds, systemClock } from '../reports/index.ts';
 import { machineDataDirectory } from '../store/index.ts';
 import { randomEntryCode } from '../system.ts';
 import { codeVersion } from '../version.ts';
 import type { DaemonContext } from './context.ts';
+import { agentSetupOf } from './daemon.ts';
 
 let made: Promise<DaemonContext> | undefined;
 
@@ -28,6 +30,13 @@ async function make(): Promise<DaemonContext> {
 		isCommand: () => true,
 		clock: systemClock,
 		version: codeVersion(),
+		// `vite dev` serves no /mcp, so no agent is ever heard from here.
+		agentSetup: agentSetupOf({
+			dataDirectory,
+			version: codeVersion(),
+			machine: { defaultDataDirectory: machine.ok ? machine.value : undefined }
+		}),
+		agents: agentActivity(systemClock),
 		// `pnpm dev` has no gate, so the code lets nothing in that was not let in already.
 		entryCode: randomEntryCode,
 		openForReview: () => Promise.resolve('no-browser'),

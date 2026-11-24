@@ -30,9 +30,15 @@
 import { randomBytes } from 'node:crypto';
 import type { Server } from 'node:http';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import {
+	copyOf,
+	dataDirectoryToName,
+	type AgentServerSetup
+} from '#lib/core/agent-setup/agent-server.ts';
 import type { Clock } from '#lib/core/clock.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { isToken, parseDaemonToken, type DaemonToken } from '#lib/core/daemon-token.tiny.ts';
+import { agentActivity } from '#lib/core/daemon/agent-activity.ts';
 import { entryCodes, type BrowserGrant } from '#lib/core/daemon/entry-codes.ts';
 import { reviewWindows, type ReviewWindowOutcome } from '#lib/core/daemon/review-windows.ts';
 import {
@@ -85,6 +91,13 @@ export interface DaemonOptions {
 	 * gives the system's opener; tests give none, so no browser ever opens.
 	 */
 	readonly openBrowser?: (address: string) => Promise<boolean>;
+	/**
+	 * What the starter knows of the machine and of how this copy was run, for the
+	 * command a page gives a person to connect their agent (`agent-server.ts`).
+	 * The command gives all three. Left out, the daemon takes its data folder for
+	 * one that must be named and itself for a copy the release's command runs.
+	 */
+	readonly machine?: MachineFacts;
 	/** Called once the daemon has stopped, however it was asked to. */
 	readonly onStopped?: () => void;
 	/**
@@ -93,6 +106,29 @@ export interface DaemonOptions {
 	 * when it chooses instead of waiting.
 	 */
 	readonly repeat?: (check: () => Promise<void>) => () => void;
+}
+
+export interface MachineFacts {
+	/** The file the command was run by (`node <entry> serve`), which runs this same copy again. */
+	readonly entry?: AbsolutePath | undefined;
+	/** This machine's default data folder: a daemon on it needs no `--data-directory`. */
+	readonly defaultDataDirectory?: AbsolutePath | undefined;
+	/** The person's home folder. */
+	readonly home?: AbsolutePath | undefined;
+}
+
+/** How an agent is given the daemon that `options` describe. */
+export function agentSetupOf(
+	options: Pick<DaemonOptions, 'dataDirectory' | 'version' | 'machine'>
+): AgentServerSetup {
+	return {
+		copy: copyOf(options.version, options.machine?.entry),
+		dataDirectory: dataDirectoryToName(
+			options.dataDirectory,
+			options.machine?.defaultDataDirectory
+		),
+		home: options.machine?.home
+	};
 }
 
 /** How often a daemon checks that its lockfile is still there and still its own. */
@@ -287,6 +323,8 @@ export async function startDaemon(
 	 * seconds (`review-windows.ts`), since each starts a program.
 	 */
 	const windows = reviewWindows(options.clock);
+	// The agents heard from on /mcp: in memory only, and gone with the daemon.
+	const agents = agentActivity(options.clock);
 	const openForReview = async (page: string): Promise<ReviewWindowOutcome> => {
 		if (!windows.mayAsk()) return 'too-soon';
 		const opened = await openBrowser(entryAddress(origin.value, page, issue('review')));
@@ -298,6 +336,7 @@ export async function startDaemon(
 		mcpHandler({
 			service,
 			version: options.version,
+			agents,
 			entryAddress: (page) => entryAddress(origin.value, page, issue('view')),
 			open: async (page) => (await openForReview(page)) === 'opened'
 		})
@@ -392,6 +431,8 @@ export async function startDaemon(
 		service,
 		clock: options.clock,
 		version: options.version,
+		agentSetup: agentSetupOf(options),
+		agents,
 		entryCode,
 		openForReview,
 		requestStop: () => {

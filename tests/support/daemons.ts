@@ -17,6 +17,7 @@ import { loadAppHandler, type AppHandler } from '#lib/server/daemon/app-handler.
 import {
 	startDaemon,
 	type DaemonStartError,
+	type MachineFacts,
 	type RunningDaemon
 } from '#lib/server/daemon/daemon.ts';
 import type { Result } from '#lib/core/result.ts';
@@ -41,6 +42,8 @@ export interface TestDaemonOptions {
 	readonly clock?: SettableClock;
 	/** What the daemon opens a browser with, for an agent's new report; by default it never does. */
 	readonly openBrowser?: (address: string) => Promise<boolean>;
+	/** What the daemon is told of the machine and of how it was run; by default nothing. */
+	readonly machine?: MachineFacts;
 }
 
 /** Starts a daemon, or says why it could not; one that starts is stopped when the test finishes. */
@@ -60,7 +63,8 @@ export async function tryStartDaemon(
 		app: await app,
 		repository: { gitEnv: who.gitEnv },
 		...(options.repeat === undefined ? {} : { repeat: options.repeat }),
-		...(options.openBrowser === undefined ? {} : { openBrowser: options.openBrowser })
+		...(options.openBrowser === undefined ? {} : { openBrowser: options.openBrowser }),
+		...(options.machine === undefined ? {} : { machine: options.machine })
 	});
 	if (started.ok) {
 		const daemon = started.value;

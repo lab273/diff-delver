@@ -5,6 +5,7 @@
  *
  * `bin/diff-delver.js` runs this from the build (`vite.cli.config.ts`).
  */
+import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { ApiClient } from '#lib/api/client.ts';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
@@ -75,15 +76,41 @@ function signalParent(signal: ReadySignal): void {
 	});
 }
 
-async function serve(dataDirectory: AbsolutePath, background: boolean): Promise<number> {
+/** A path of the machine's, when it is one a daemon can use. */
+function absolute(path: string): AbsolutePath | undefined {
+	if (path === '') return undefined;
+	const parsed = parseAbsolutePath(resolve(path));
+	return parsed.ok ? parsed.value : undefined;
+}
+
+function homeFolder(): AbsolutePath | undefined {
+	try {
+		return absolute(homedir());
+	} catch {
+		return undefined;
+	}
+}
+
+async function serve(
+	dataDirectory: AbsolutePath,
+	background: boolean,
+	entry: string
+): Promise<number> {
 	const app = await loadAppHandler();
+	const machine = machineDataDirectory();
 	const started = await startDaemon({
 		dataDirectory,
 		clock: systemClock,
 		ids: randomIds,
 		version: codeVersion(),
 		app,
-		openBrowser
+		openBrowser,
+		// `entry` is the file this daemon was run by, so `node <entry> mcp` is this same copy.
+		machine: {
+			entry: absolute(entry),
+			defaultDataDirectory: machine.ok ? machine.value : undefined,
+			home: homeFolder()
+		}
 	});
 	if (!started.ok) {
 		// Started in the background by a command that raced another: the daemon that
@@ -180,7 +207,7 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 	}
 	switch (command.kind) {
 		case 'serve':
-			return serve(dataDirectory.value, process.send !== undefined);
+			return serve(dataDirectory.value, process.send !== undefined, entry);
 		case 'mcp': {
 			const directory = parseAbsolutePath(resolve(cwd));
 			if (!directory.ok) {

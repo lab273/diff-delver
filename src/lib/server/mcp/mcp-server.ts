@@ -16,6 +16,11 @@
  * shim offers no more. A client that speaks HTTP MCP itself sends neither
  * header, and opens no repository.
  *
+ * The daemon remembers when it last heard from an agent's server, by the
+ * folder it was started in, and when a tool call last named each report
+ * (`AgentActivity`), so a page can say that an agent connected, or worked on
+ * a Delve, and when. Nothing else of a message is kept.
+ *
  * Two kinds of address leave here, and they are never the same one. An answer
  * holds an address that lets a browser in to read and tick (`entryAddress`).
  * The window the daemon opens is the person's own browser, so its address
@@ -35,6 +40,8 @@ import { z } from 'zod';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { BrowserAsk } from '#lib/core/cli/browser-offer.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
+import type { AgentActivity } from '#lib/core/daemon/agent-activity.ts';
+import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import type { ReportService } from '../reports/index.ts';
 import { SERVER_INSTRUCTIONS, TOOLS, unknownTool, type ToolContext } from './tools.ts';
 
@@ -61,6 +68,8 @@ function browserAsk(value: string | undefined): BrowserAsk {
 export interface McpOptions {
 	readonly service: ReportService;
 	readonly version: CodeVersion;
+	/** Where what is heard from agents is remembered. */
+	readonly agents: AgentActivity;
 	/** An address for an answer: it lets a browser in to read and tick, never to write drafts. */
 	readonly entryAddress: (page: string) => string;
 	/** Opens a page in the person's browser, with an address of the daemon's own making. */
@@ -138,7 +147,7 @@ function directoryOf(req: IncomingMessage): AbsolutePath | undefined {
  * tools are served on its protocol server directly: `tools/list` from each
  * tool's schema, and `tools/call` with the tool's own check of its arguments.
  */
-function serverFor(context: ToolContext, version: CodeVersion): McpServer {
+function serverFor(context: ToolContext, version: CodeVersion, agents: AgentActivity): McpServer {
 	const mcp = new McpServer(
 		{ ...SERVER_IDENTITY, version },
 		{ capabilities: SERVER_CAPABILITIES, instructions: SERVER_INSTRUCTIONS }
@@ -150,6 +159,9 @@ function serverFor(context: ToolContext, version: CodeVersion): McpServer {
 		if (found === undefined) {
 			return { content: [{ type: 'text', text: unknownTool(request.params.name) }], isError: true };
 		}
+		const report = request.params.arguments?.['report'];
+		const named = typeof report === 'string' ? parseReportId(report) : undefined;
+		if (named?.ok === true) agents.worked(named.value);
 		const answer = await found.call(request.params.arguments, context);
 		return {
 			content: [{ type: 'text', text: answer.text }],
@@ -166,9 +178,11 @@ export function mcpHandler(
 	return async (req, res) => {
 		// At most one window for a message, and the shim is told when it opened one.
 		let opened = false;
+		const directory = directoryOf(req);
+		options.agents.heard(directory);
 		const context: ToolContext = {
 			service: options.service,
-			directory: directoryOf(req),
+			directory,
 			browser: browserAsk(header(req, OPEN_BROWSER_HEADER)),
 			entryAddress: options.entryAddress,
 			open: async (page) => {
@@ -178,7 +192,7 @@ export function mcpHandler(
 				return opened;
 			}
 		};
-		const server = serverFor(context, options.version);
+		const server = serverFor(context, options.version, options.agents);
 		// No session id: stateless, as above.
 		const transport = new StreamableHTTPServerTransport({ enableJsonResponse: true });
 		res.on('close', () => {
