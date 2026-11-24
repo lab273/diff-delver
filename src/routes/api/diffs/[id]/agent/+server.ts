@@ -12,11 +12,8 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ locals, params }) => {
 	const id = diffId(params.id);
 	if (!id.ok) return id.error;
-	const listed = locals.daemon.service.list();
-	if (!listed.ok) return serviceFailure(listed.error);
-	const report = listed.value.find((r) => r.kind === 'report' && r.id === id.value);
-	if (report?.kind !== 'report')
-		return serviceFailure({ kind: 'ReportNotFound', report: id.value });
-	const body: AgentSorting = await agentSortingView(locals.daemon, report);
+	const report = locals.daemon.service.summary(id.value);
+	if (!report.ok) return serviceFailure(report.error);
+	const body: AgentSorting = await agentSortingView(locals.daemon, report.value);
 	return Response.json(body, { headers: { 'cache-control': 'no-store' } });
 };

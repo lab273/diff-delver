@@ -147,6 +147,8 @@ describe('the report service', () => {
 		expect(again).toMatchObject({ kind: 'resumed', update: undefined, report: { id: 'r_1' } });
 		const list = value(service.list());
 		expect(list.map((r) => r.id)).toEqual(['r_1']);
+		// One report alone is as the list gives it.
+		expect({ kind: 'report', ...value(service.summary(created(opened))) }).toEqual(list[0]);
 		service.close();
 	});
 

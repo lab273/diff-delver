@@ -1109,6 +1109,13 @@ export class ReportService {
 		});
 	}
 
+	/** One report as the list gives it, without reading the others. */
+	summary(id: ReportId): Result<ReportSummary, ReportError> {
+		return this.#db.read((q) =>
+			andThen(current(q, id), ({ report, revision }) => ok(summaryOf(report, revision)))
+		);
+	}
+
 	/**
 	 * The agent's `upsert_sections`: creates, retitles, summarises, reorders and
 	 * removes the sections of the current revision, and sets their
