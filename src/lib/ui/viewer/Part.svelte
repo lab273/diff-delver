@@ -18,6 +18,7 @@
 	import PartLines from './PartLines.svelte';
 	import ImageDiff from './ImageDiff.svelte';
 	import type { Side } from '#lib/core/side.tiny.ts';
+	import type { CompareMode } from '#lib/core/image/compare-modes.ts';
 	import { whereWhiteSpaceMatters } from '#lib/core/highlight/language.ts';
 	import TickRefused from './TickRefused.svelte';
 	import {
@@ -43,7 +44,9 @@
 		onshownewer,
 		comments,
 		canComment,
-		canReview
+		canReview,
+		imageMode,
+		onimagemode
 	}: {
 		closing?: boolean;
 		bookmarkLine?: BookmarkLine | undefined;
@@ -61,6 +64,9 @@
 		canComment: boolean;
 		/** Whether this browser may write comments. */
 		canReview: boolean;
+		/** How changed images are compared, on every part of the page. */
+		imageMode: CompareMode;
+		onimagemode: (mode: CompareMode) => void;
 	} = $props();
 
 	const at = $derived(state.index);
@@ -334,6 +340,8 @@
 					<ImageDiff
 						image={lines.image}
 						name={shown}
+						mode={imageMode}
+						onmode={onimagemode}
 						address={(side: Side) =>
 							viewer.client.imageAddress(viewer.id, {
 								version: viewer.version,

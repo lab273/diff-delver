@@ -174,8 +174,9 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 - Writing, editing and deleting private draft comments on either side of a diff,
   including unchanged lines, and finishing them as a numbered review that is copied
   for an agent and that an agent can read through the MCP server.
-- Changed images (PNG, JPEG, GIF, WebP and SVG) shown as pictures, before and after,
-  with their sizes. An SVG shows its text too.
+- Changed images (PNG, JPEG, GIF, WebP and SVG) shown as pictures, with their sizes:
+  side by side, with a slider, in onion skin, or with the pixels that changed marked.
+  An SVG shows its text too.
 - Ticking files and sections as reviewed, with progress, across restarts.
 - Updating a Delve when the code changes, keeping sections and ticks.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex

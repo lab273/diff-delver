@@ -1,10 +1,12 @@
 import { test } from '../support/journey.ts';
 
 // J13 Visual changes, as far as this build step goes: a changed image compared
-// before and after, side by side, with each side's size; an image whose size
-// changed, said in words; an added and a deleted image, each with its one
-// side; and an SVG, as a picture and as its text. Images are one change each,
-// ticked like any file. Snapshot images beside their tests are still to come.
+// in each way, by keyboard: side by side, with each side's size; with a slider
+// moved by the arrow keys; in onion skin; and by the pixels that changed, with
+// how many. An image whose size changed, said in words; an SVG, as a picture
+// and as its text; an added and a deleted image, each with its one side.
+// Images are one change each, ticked like any file. Snapshot images beside
+// their tests are still to come.
 test.describe('J13 Visual changes', () => {
 	test('the reviewer compares changed images and ticks them', async ({ journey }) => {
 		const images = await journey.repository('images');
@@ -23,6 +25,38 @@ test.describe('J13 Visual changes', () => {
 		await journey.expectText(badge, 'Before PNG, 48 × 32 pixels, 140 bytes');
 		await journey.step('A changed image side by side');
 
+		// A slider over the two: the image before on its left, after on its right.
+		const ways = journey.within(badge);
+		await journey.activate(ways.byRole('button', { name: 'Slider' }));
+		await journey.expectState(ways.byRole('button', { name: 'Slider' }), { pressed: true });
+		const slider = ways.byRole('slider', { name: /^Slider between the image before/ });
+		await journey.tabTo(slider);
+		for (let n = 0; n < 20; n += 1) await journey.press('ArrowLeft');
+		await journey.expectState(slider, { value: '30' });
+		await journey.step('Comparing with a slider');
+
+		// Onion skin, from the keyboard: the image after over the one before, as see-through as chosen.
+		await journey.press('Shift+Tab');
+		await journey.press('i');
+		await journey.expectState(ways.byRole('button', { name: 'Onion skin' }), { pressed: true });
+		const opacity = ways.byRole('slider', { name: /^How much the image after shows/ });
+		await journey.tabTo(opacity);
+		for (let n = 0; n < 20; n += 1) await journey.press('ArrowRight');
+		await journey.expectState(opacity, { value: '70' });
+		await journey.step('Comparing in onion skin');
+
+		// The pixels that changed, in magenta, counted.
+		await journey.press('Shift+Tab');
+		await journey.press('i');
+		await journey.expectState(ways.byRole('button', { name: 'Pixel difference' }), {
+			pressed: true
+		});
+		await journey.expectVisible(
+			ways.byRole('img', { name: 'The pixels that changed in assets/badge.png, in magenta' })
+		);
+		await journey.expectText(badge, '170 of 1,536 pixels changed');
+		await journey.step('Comparing pixel by pixel');
+
 		// An image whose size changed says so, and the two line up at the top left.
 		await journey.press('j');
 		const banner = journey.byRole('article', { name: 'assets/banner.png' });
@@ -33,7 +67,15 @@ test.describe('J13 Visual changes', () => {
 			banner,
 			'The image changed size, from 40 × 16 pixels to 64 × 24 pixels, so the two are lined up at their top left corners.'
 		);
+		// Every image is compared the same way: what only the larger covers has changed.
+		await journey.expectText(banner, '896 of 1,536 pixels changed');
 		await journey.step('An image that changed size');
+
+		// Back to side by side, for every image.
+		await journey.press('i');
+		await journey.expectState(journey.within(banner).byRole('button', { name: 'Side by side' }), {
+			pressed: true
+		});
 
 		// An SVG is a picture, and its text is shown below it.
 		await journey.press('j');

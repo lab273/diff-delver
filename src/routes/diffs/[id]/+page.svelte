@@ -11,6 +11,11 @@
 	import { goto, invalidate } from '$app/navigation';
 	import { tick, untrack } from 'svelte';
 	import { page as shownPage } from '$app/state';
+	import {
+		compareModeName,
+		nextCompareMode,
+		type CompareMode
+	} from '#lib/core/image/compare-modes.ts';
 	import { describeApiError } from '#lib/api/client.ts';
 	import type {
 		ChangeCheckResponse,
@@ -547,6 +552,16 @@
 			query.removeEventListener('change', changed);
 		};
 	});
+	/**
+	 * How changed images are compared, the same on every image of the page, and
+	 * kept while the page is open, through updates and regroups.
+	 */
+	let imageMode = $state<CompareMode>('side-by-side');
+	function setImageMode(mode: CompareMode): void {
+		imageMode = mode;
+		if (viewer !== undefined) viewer.announcement = `Images compared: ${compareModeName(mode)}`;
+	}
+
 	const layout = $derived<Layout>(wide ? settings.layout : 'unified');
 	$effect(() => {
 		if (viewer !== undefined) viewer.layout = layout;
@@ -1599,6 +1614,9 @@
 			case 'side-by-side':
 				setLayout(settings.layout === 'side-by-side' ? 'unified' : 'side-by-side');
 				return;
+			case 'compare-images':
+				setImageMode(nextCompareMode(imageMode));
+				return;
 			case 'bookmark':
 				markReadingPlace();
 				return;
@@ -2268,6 +2286,8 @@
 										ontick={tickPart}
 										ongo={goTo}
 										onshownewer={showNewer}
+										{imageMode}
+										onimagemode={setImageMode}
 									/>
 								{/each}
 							</section>

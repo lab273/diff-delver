@@ -19,6 +19,7 @@ export type KeyAction =
 	| 'only-unreviewed'
 	| 'side-by-side'
 	| 'white-space'
+	| 'compare-images'
 	| 'bookmark'
 	| 'return-to-bookmark'
 	| 'search'
@@ -63,6 +64,11 @@ export const SHORTCUTS: readonly {
 		keys: ['w'],
 		does: 'Hide changes that only change white space, or show them',
 		action: 'white-space'
+	},
+	{
+		keys: ['i'],
+		does: 'Compare changed images another way: side by side, with a slider, in onion skin, or by the pixels that changed',
+		action: 'compare-images'
 	},
 	{
 		keys: ['/'],
