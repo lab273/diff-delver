@@ -58,6 +58,7 @@ import {
 	type JSHandle,
 	type Locator,
 	type Page,
+	type Route,
 	type TestInfo
 } from '@playwright/test';
 import {
@@ -247,6 +248,14 @@ export interface Journey extends Finder {
 	/** Makes an agent's MCP call on an existing report and requires it to succeed. */
 	agentCall(tool: string, args: Readonly<Record<string, unknown>>): Promise<void>;
 	/**
+	 * Makes an agent's MCP calls one after another, each required to succeed,
+	 * holding what the page asks of diff delver meanwhile until the last is done.
+	 * The page then finds what the calls did together, never what lies between
+	 * them, which its own look now and then, on a timer the journey cannot fix,
+	 * would otherwise find on a slow machine.
+	 */
+	agentCalls(calls: readonly AgentCall[]): Promise<void>;
+	/**
 	 * The address a coding agent gives the person for the uncommitted changes of
 	 * `where`, for `open`: what its `create_report` answers through MCP, when
 	 * diff delver was not asked to open a browser. It lets the browser in as an
@@ -378,6 +387,12 @@ export interface Journey extends Finder {
  * `link "Start reviewing"`. The first line of its ARIA snapshot, without the
  * colon that introduces its children (a link's address, a list's items).
  */
+/** One MCP call an agent makes: a tool's name and its arguments. */
+export interface AgentCall {
+	readonly tool: string;
+	readonly args: Readonly<Record<string, unknown>>;
+}
+
 /** A repository a journey asked for. Only the helper knows where it is. */
 export interface JourneyRepository {
 	readonly description: string;
@@ -922,6 +937,22 @@ export async function startJourney(
 		async agentCall(tool, args) {
 			if (world === undefined) throw new Error('This journey has no daemon for MCP.');
 			await world.agentCall(tool, args);
+		},
+		async agentCalls(calls) {
+			if (world === undefined) throw new Error('This journey has no daemon for MCP.');
+			const done = Promise.withResolvers<undefined>();
+			const held = (url: URL): boolean => url.pathname.startsWith('/api/');
+			const hold = async (route: Route): Promise<void> => {
+				await done.promise;
+				await route.fallback();
+			};
+			await page.route(held, hold);
+			try {
+				for (const call of calls) await world.agentCall(call.tool, call.args);
+			} finally {
+				done.resolve(undefined);
+				await page.unroute(held, hold);
+			}
 		},
 		async agentLink(where) {
 			if (world === undefined) throw new Error('This journey has no daemon for MCP.');

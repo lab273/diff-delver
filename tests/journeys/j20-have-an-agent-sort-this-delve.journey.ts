@@ -83,24 +83,32 @@ test.describe('J20 Have an agent sort this Delve', () => {
 
 		// The agent's first sections arrive: the instructions give way to them, and the
 		// button stays while something is still not sorted.
-		await journey.agentCall('upsert_sections', {
-			report,
-			version: 1,
-			sections: [
-				{ id: 'rounding', title: 'Prices round up to five cents' },
-				{ id: 'discounts', title: 'A cart total can take a discount' }
-			]
-		});
-		await journey.agentCall('assign', {
-			report,
-			version: 1,
-			items: [
-				{ file: 'src/pricing.ts', hunks: ['h1'], section: 'rounding' },
-				{ file: 'src/pricing.test.ts', section: 'rounding', role: 'test' },
-				{ file: 'src/pricing.ts', section: 'discounts' },
-				{ file: 'src/cart.ts', section: 'discounts' }
-			]
-		});
+		await journey.agentCalls([
+			{
+				tool: 'upsert_sections',
+				args: {
+					report,
+					version: 1,
+					sections: [
+						{ id: 'rounding', title: 'Prices round up to five cents' },
+						{ id: 'discounts', title: 'A cart total can take a discount' }
+					]
+				}
+			},
+			{
+				tool: 'assign',
+				args: {
+					report,
+					version: 1,
+					items: [
+						{ file: 'src/pricing.ts', hunks: ['h1'], section: 'rounding' },
+						{ file: 'src/pricing.test.ts', section: 'rounding', role: 'test' },
+						{ file: 'src/pricing.ts', section: 'discounts' },
+						{ file: 'src/cart.ts', section: 'discounts' }
+					]
+				}
+			}
+		]);
 		await journey.returnToPage();
 		await journey.expectVisible(
 			journey.byRole('heading', { level: 2, name: 'Prices round up to five cents' })
@@ -118,20 +126,28 @@ test.describe('J20 Have an agent sort this Delve', () => {
 		await journey.step('The agent’s first sections');
 
 		// Everything sorted: nothing is left to offer an agent.
-		await journey.agentCall('upsert_sections', {
-			report,
-			version: 1,
-			sections: [{ id: 'housekeeping', title: 'Deploy script and docs' }]
-		});
-		await journey.agentCall('assign', {
-			report,
-			version: 1,
-			items: [
-				{ file: 'scripts/deploy.sh', section: 'housekeeping' },
-				{ file: 'docs/handbook.md', section: 'housekeeping' },
-				{ glob: 'fixtures/**', section: 'ignored', reason: 'Re-recorded HTTP fixture data.' }
-			]
-		});
+		await journey.agentCalls([
+			{
+				tool: 'upsert_sections',
+				args: {
+					report,
+					version: 1,
+					sections: [{ id: 'housekeeping', title: 'Deploy script and docs' }]
+				}
+			},
+			{
+				tool: 'assign',
+				args: {
+					report,
+					version: 1,
+					items: [
+						{ file: 'scripts/deploy.sh', section: 'housekeeping' },
+						{ file: 'docs/handbook.md', section: 'housekeeping' },
+						{ glob: 'fixtures/**', section: 'ignored', reason: 'Re-recorded HTTP fixture data.' }
+					]
+				}
+			}
+		]);
 		await journey.returnToPage();
 		await journey.expectVisible(
 			journey.byRole('heading', { level: 2, name: 'Deploy script and docs' })

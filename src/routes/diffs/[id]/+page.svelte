@@ -292,7 +292,19 @@
 	let reviewRefresh: Promise<void> | undefined;
 	/** A regroup waits for the reviewer to finish choosing lines, or typing a comment. */
 	let waitingForComment = $state.raw<{ viewer: Viewer; doing: 'choosing' | 'writing' }>();
-	let viewportRestore: { viewer: Viewer; stop: () => void } | undefined;
+	/**
+	 * A return to a place under way, which reader input or another return stops:
+	 * with the part and offset a regroup is keeping, which a regroup that comes
+	 * before it is done keeps in turn, since the page is not settled enough yet
+	 * to measure.
+	 */
+	let viewportRestore:
+		| {
+				viewer: Viewer;
+				stop: () => void;
+				place?: { readonly part: PartState; readonly top: number };
+		  }
+		| undefined;
 	/**
 	 * What the page loaded of the Delve. Kept apart from `data`, which is made
 	 * anew whenever anything in it is asked for again, such as whether this
@@ -398,10 +410,11 @@
 		const active = document.activeElement;
 		const focused = partAtElement(shown, active);
 		const heading = active?.closest('section.group')?.querySelector('h2')?.id;
-		const atTop = window.scrollY === 0;
-		const anchor = atTop ? undefined : viewportPart(shown);
-		const before = partAtElement(shown, anchor);
-		const top = anchor?.getBoundingClientRect().top;
+		const keeping = viewportRestore?.viewer === shown ? viewportRestore.place : undefined;
+		const atTop = keeping === undefined && window.scrollY === 0;
+		const anchor = atTop || keeping !== undefined ? undefined : viewportPart(shown);
+		const before = keeping?.part ?? partAtElement(shown, anchor);
+		const top = keeping?.top ?? anchor?.getBoundingClientRect().top;
 		refreshed = { initial, frame };
 		const next = viewer;
 		const anchorAt = before === undefined ? undefined : next.nearestPart(before);
@@ -411,9 +424,10 @@
 		if (before !== undefined && destination?.part.path === before.part.path) {
 			destination.open = before.open;
 			destination.showLarge = before.showLarge;
-			if (top !== undefined && top < 0 && before.showLarge && destination.open) {
-				waitingForHeight = true;
-				void restoreLargePart(next, destination, top);
+			if (top !== undefined) {
+				// A large part's placeholder cannot hold a deep offset at all.
+				waitingForHeight = top < 0 && before.showLarge && destination.open;
+				void restorePlace(next, destination, top);
 			}
 		}
 		if (anchorAt !== undefined) next.drawUpTo(anchorAt);
@@ -441,12 +455,15 @@
 	}
 
 	/**
-	 * A loading placeholder cannot hold a deep scroll offset. Wait for the
-	 * replacement table and its chunk placeholders, laying out only this part.
-	 * User input and further handovers cancel the restoration without cancelling
-	 * the part's ordinary load.
+	 * Puts the part the reader was in back at its offset once it, and the open
+	 * parts near the screen, have their lines: until then their loading
+	 * placeholders are shorter than they will be, so an offset kept against them
+	 * drifts as those above fill, and the page may be too short to scroll to it
+	 * until those below do. A large part's table and its chunk placeholders are
+	 * laid out for it. User input and further handovers cancel the restoration
+	 * without cancelling the parts' ordinary loads.
 	 */
-	async function restoreLargePart(shown: Viewer, part: PartState, top: number): Promise<void> {
+	async function restorePlace(shown: Viewer, part: PartState, top: number): Promise<void> {
 		viewportRestore?.stop();
 		part.measuring = true;
 		const attempt = { stopped: false };
@@ -457,20 +474,42 @@
 			if (viewportRestore?.stop === stop) viewportRestore = undefined;
 		};
 		const stopListening = whenReaderMoves(window, stop);
-		viewportRestore = { viewer: shown, stop };
+		viewportRestore = { viewer: shown, stop, place: { part, top } };
+		let keptForNext = false;
 		try {
-			await shown.load(part.index);
-			await tick();
-			if (attempt.stopped || viewer !== shown || part.lines.kind !== 'loaded' || !part.open) return;
+			const filling = (): PartState[] =>
+				shown.parts.filter(
+					(p) =>
+						p.open &&
+						!shown.isLarge(p) &&
+						(p === part || p.near) &&
+						(p.lines.kind === 'waiting' || p.lines.kind === 'loading')
+				);
+			for (let waiting = filling(); waiting.length > 0; waiting = filling()) {
+				await Promise.all(waiting.map((p) => shown.load(p.index)));
+				await tick();
+				if (attempt.stopped || viewer !== shown) return;
+			}
+			if (attempt.stopped || viewer !== shown) return;
 			const destination = document.getElementById(`part-${part.index}`);
 			if (destination === null || !shown.shows(part.index)) return;
 			const box = destination.getBoundingClientRect();
 			if (box.height === 0) return;
-			// If the relocated part is shorter, keep its end in reach.
-			const offset = Math.max(top, Math.min(0, window.innerHeight - box.height));
+			if (part.open && !shown.isLarge(part) && part.lines.kind !== 'loaded') {
+				// Its lines were refused, most often because the sorting moved on
+				// again: the regroup that follows keeps this place, which the short
+				// notice in their stead cannot show.
+				window.scrollBy(0, box.top - top);
+				keptForNext = true;
+				return;
+			}
+			// The same offset, unless the part would then be above the screen; a
+			// large part, or one shorter now, keeps its end in reach.
+			const exact = !part.showLarge && box.height + top > 0;
+			const offset = exact ? top : Math.max(top, Math.min(0, window.innerHeight - box.height));
 			window.scrollBy(0, box.top - offset);
 		} finally {
-			stop();
+			if (!keptForNext) stop();
 		}
 	}
 
