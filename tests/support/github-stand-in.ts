@@ -56,8 +56,11 @@ export interface StandInRequest {
 export interface GitHubStandIn {
 	/** Where its API answers, with no slash at the end. */
 	readonly apiBase: string;
-	/** What diff delver is given to reach it: its address, and `token` as the person's sign-in. */
-	access(token?: string): GitHubAccess;
+	/**
+	 * What diff delver is given to reach it: its address, `token` as the
+	 * person's sign-in, and how long a fetch may take (a minute unless given).
+	 */
+	access(token?: string, options?: { readonly fetchSeconds?: number }): GitHubAccess;
 	/** Serves `repo` as `owner/name` on github.com; `private` ones only to the token. */
 	addRepository(owner: string, name: string, repo: GitRepo, options?: { private?: boolean }): void;
 	/** Opens or changes a pull request, pointing `refs/pull/<number>/head` at its branch now. */
@@ -216,7 +219,7 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 
 	return {
 		apiBase,
-		access(token) {
+		access(token, options = {}) {
 			const parsed = token === undefined ? undefined : parseGitHubToken(token);
 			if (parsed !== undefined && !parsed.ok) throw new Error('not a token');
 			return {
@@ -225,7 +228,8 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 					return apiBase;
 				},
 				token: () => Promise.resolve(parsed?.value),
-				seconds: 10
+				seconds: 10,
+				fetchSeconds: options.fetchSeconds ?? 60
 			};
 		},
 		addRepository(owner, name, repo, options = {}) {

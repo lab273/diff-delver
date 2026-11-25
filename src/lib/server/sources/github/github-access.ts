@@ -7,7 +7,7 @@
  * The token is asked for each time it is needed, so signing in or out needs
  * no restart, and is never kept anywhere: it goes only into the header of a
  * request to GitHub (`github-api.ts`) and into git's environment for a fetch
- * from it (`fetch-pull-request.ts`), never onto a command line or into a log.
+ * from it (`snapshot-pull-request.ts`), never onto a command line or into a log.
  */
 import { spawn } from 'node:child_process';
 import { GITHUB_COM, type GitHubHost } from '#lib/core/github/github-host.tiny.ts';
@@ -18,12 +18,17 @@ export interface GitHubAccess {
 	apiBase(host: GitHubHost): string;
 	/** The person's token for a host, or undefined when they have none: public repositories still work. */
 	token(host: GitHubHost): Promise<GitHubToken | undefined>;
-	/** How long a request, or a download of a pull request's commits, may take. */
+	/** How long a request to the API may take. */
 	readonly seconds: number;
+	/** How long a download of a pull request's commits may take, which on a large repository is long. */
+	readonly fetchSeconds: number;
 }
 
-/** How long GitHub has to answer a request, and to send a pull request's commits. */
+/** How long GitHub has to answer a request. */
 export const GITHUB_SECONDS = 30;
+
+/** How long GitHub has to send a pull request's commits: ten minutes. */
+export const GITHUB_FETCH_SECONDS = 600;
 
 /** How long `gh auth token` has to answer. */
 const GH_SECONDS = 5;
@@ -76,6 +81,7 @@ export function machineGitHubAccess(): GitHubAccess {
 		async token(host) {
 			return (await ghToken(host)) ?? (host === GITHUB_COM ? environmentToken() : undefined);
 		},
-		seconds: GITHUB_SECONDS
+		seconds: GITHUB_SECONDS,
+		fetchSeconds: GITHUB_FETCH_SECONDS
 	};
 }

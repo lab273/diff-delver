@@ -68,7 +68,9 @@ afterEach(async () => {
 	await Promise.all(standIns.splice(0).map((s) => s.close()));
 });
 
-async function world(options: { private?: boolean; token?: string } = {}): Promise<World> {
+async function world(
+	options: { private?: boolean; token?: string; fetchSeconds?: number } = {}
+): Promise<World> {
 	const root = await tempDirectory();
 	const upstream = await GitRepo.init(absolutePath(join(root, 'upstream')));
 	await buildShopUpstream(upstream);
@@ -85,7 +87,10 @@ async function world(options: { private?: boolean; token?: string } = {}): Promi
 			clock,
 			ids: sequentialIds(),
 			repository: { gitEnv: who.gitEnv },
-			github: github.access(options.token)
+			github: github.access(
+				options.token,
+				options.fetchSeconds === undefined ? {} : { fetchSeconds: options.fetchSeconds }
+			)
 		})
 	);
 	return { upstream, clone, data, github, clock, service };
@@ -381,6 +386,20 @@ describe('a GitHub pull request', () => {
 		w.clock.advance(60_000);
 		expect(value(await w.service.update(id))).toMatchObject({ kind: 'unchanged' });
 		expect(count()).toBe(limitedAt + 1);
+	});
+
+	it('stops a download of its commits that takes too long, by its own limit, and says so', async () => {
+		const w = await world({ fetchSeconds: 0 });
+		const opened = await w.service.open(w.clone.dir, DISCOUNT);
+		expect(!opened.ok && opened.error).toMatchObject({
+			kind: 'PullRequestFetchFailed',
+			stoppedAfter: 0
+		});
+		if (!opened.ok) {
+			expect(describeReportError(opened.error)).toContain(
+				'commits from GitHub was stopped after 0 seconds, unfinished. A large repository can take longer: run "git fetch" in this clone first'
+			);
+		}
 	});
 
 	it('signs in with the person’s token, and keeps it nowhere', async () => {

@@ -135,7 +135,7 @@ async function fetchSides(
 	const limit = new AbortController();
 	const timer = setTimeout(() => {
 		limit.abort();
-	}, access.seconds * 1000);
+	}, access.fetchSeconds * 1000);
 	const fetched = await runGit({
 		cwd: store.dir,
 		args: [
@@ -166,7 +166,7 @@ async function fetchSides(
 		return err({
 			kind: 'PullRequestFetchFailed',
 			pullRequest: details.ref,
-			timedOut: limit.signal.aborted
+			stoppedAfter: limit.signal.aborted ? access.fetchSeconds : undefined
 		});
 	}
 	// What the clone had already was not sent, so it is read from the clone.
@@ -174,7 +174,11 @@ async function fetchSides(
 	const head = await commitAt(store, `${refs}head`, read);
 	const tip = await commitAt(store, `${refs}base`, read);
 	if (head === undefined || tip === undefined) {
-		return err({ kind: 'PullRequestFetchFailed', pullRequest: details.ref, timedOut: false });
+		return err({
+			kind: 'PullRequestFetchFailed',
+			pullRequest: details.ref,
+			stoppedAfter: undefined
+		});
 	}
 	const merged = await runGitText({
 		cwd: store.dir,
@@ -187,7 +191,11 @@ async function fetchSides(
 	const baseTree = await treeAt(store, base.value, read);
 	const headTree = await treeAt(store, head, read);
 	if (baseTree === undefined || headTree === undefined) {
-		return err({ kind: 'PullRequestFetchFailed', pullRequest: details.ref, timedOut: false });
+		return err({
+			kind: 'PullRequestFetchFailed',
+			pullRequest: details.ref,
+			stoppedAfter: undefined
+		});
 	}
 	return ok({ base: base.value, head, trees: { base: baseTree, head: headTree } });
 }

@@ -69,7 +69,8 @@ export interface GitHubAnswerUnreadable {
 export interface PullRequestFetchFailed {
 	readonly kind: 'PullRequestFetchFailed';
 	readonly pullRequest: PullRequestRef;
-	readonly timedOut: boolean;
+	/** How many seconds it ran before it was stopped, when it took too long. */
+	readonly stoppedAfter: number | undefined;
 }
 
 /** The pull request's branch and its base share no history in what was downloaded. */
@@ -116,6 +117,12 @@ export type GitHubSourceError =
 
 const SIGN_IN =
 	'Sign in with the GitHub command, "gh auth login", or set GITHUB_TOKEN to a token that can read it, then try again.';
+
+/** A time limit in words: "10 minutes", "30 seconds". */
+function describeDuration(seconds: number): string {
+	if (seconds < 120) return `${String(seconds)} seconds`;
+	return `${String(Math.round(seconds / 60))} minutes`;
+}
 
 /** When to try again, from how long GitHub asked to wait: "Try again in 3 minutes." */
 function describeWait(seconds: number | undefined): string {
@@ -167,8 +174,8 @@ export function describeGitHubSourceError(error: GitHubSourceError): ReviewerMes
 			);
 		case 'PullRequestFetchFailed':
 			return reviewerMessage(
-				error.timedOut
-					? `Downloading ${pullRequestShortName(error.pullRequest)}'s commits from GitHub took too long, so it stopped. Try again in a moment.`
+				error.stoppedAfter !== undefined
+					? `Downloading ${pullRequestShortName(error.pullRequest)}'s commits from GitHub was stopped after ${describeDuration(error.stoppedAfter)}, unfinished. A large repository can take longer: run "git fetch" in this clone first, so that less is left to download, then try again.`
 					: `${pullRequestShortName(error.pullRequest)}'s commits could not be downloaded from GitHub. Check that this computer is online and that you can read the repository, then try again.`
 			);
 		case 'PullRequestNoMergeBase':
