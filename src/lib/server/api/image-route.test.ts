@@ -28,7 +28,10 @@ import {
 
 const images = defineFixture('images', buildImages);
 
-/** A file named as a PNG past the largest image shown, and a binary file named as one that is not. */
+/**
+ * A file named as a PNG past the largest image shown, a binary file named as
+ * one that is not, and an image whose name is not UTF-8.
+ */
 const odd = defineFixture('odd-images', async (repo) => {
 	await repo.write('notes.txt', 'start\n');
 	await repo.commit('Start');
@@ -36,6 +39,8 @@ const odd = defineFixture('odd-images', async (repo) => {
 	large.set(BADGE_BEFORE.subarray(0, 8));
 	await repo.write('huge.png', large);
 	await repo.write('fake.png', new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3]));
+	// A name that is not UTF-8: "caf" and the byte E9.
+	await repo.writeRaw(Buffer.from('caf\xe9.png', 'latin1'), BADGE_BEFORE);
 });
 
 /** 4 KiB of bytes git calls binary, the same each run. */
@@ -80,7 +85,7 @@ async function opened(fixture: typeof images) {
 		group: { kind: 'uncategorised' },
 		path: path(file)
 	});
-	return { daemon, client, id, part };
+	return { repo, daemon, client, id, part };
 }
 
 describe('images', () => {
@@ -174,6 +179,18 @@ describe('images', () => {
 		});
 		expect(notImage.status).toBe(422);
 		expect(notImage.body).toContain('fake.png in the new version is not an image');
+		// A name that is not UTF-8 is asked for by its escaped form, and served.
+		const escaped = path('caf\udce9.png');
+		expect(escaped).toBe(String.raw`caf\xE9.png`);
+		expect(value(await client.readPart(id, part('caf\udce9.png'))).image).toMatchObject({
+			new: { kind: 'image', format: 'png' }
+		});
+		const query = new URLSearchParams({ version: '1', side: 'new', path: escaped });
+		const served = await rawRequest(daemon.port, {
+			path: `/api/diffs/${id}/image?${query.toString()}`,
+			headers: auth
+		});
+		expect(served.status).toBe(200);
 		const text = await rawRequest(daemon.port, {
 			path: `/api/diffs/${id}/image?version=1&side=new&path=notes.txt`,
 			headers: auth
@@ -217,5 +234,25 @@ describe('images', () => {
 			headers: auth
 		});
 		expect(before.status).toBe(200);
+	});
+
+	it('are read from the version asked for, while it is kept, and refused for one never had', async () => {
+		const { repo, daemon, client, id } = await opened(images);
+		await repo.write('assets/badge.png', STAMP);
+		expect(value(await client.updateDiff(id)).kind).toBe('updated');
+		const cookie = await browserCookie(daemon);
+		const read = (at: number) =>
+			fetch(
+				`${daemon.origin}/api/diffs/${id}/image?version=${String(at)}&side=new&path=assets/badge.png`,
+				{
+					headers: { cookie }
+				}
+			);
+		// The first version still shows the badge it had; the second, the new one.
+		expect(new Uint8Array(await (await read(1)).arrayBuffer())).toEqual(BADGE_AFTER);
+		expect(new Uint8Array(await (await read(2)).arrayBuffer())).toEqual(STAMP);
+		const never = await read(3);
+		expect(never.status).toBe(409);
+		expect(await never.text()).toContain('This Delve has no version 3');
 	});
 });
