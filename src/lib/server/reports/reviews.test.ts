@@ -82,7 +82,7 @@ describe('finishing a review', () => {
 			});
 			expect(review.text).toBe(preview.text);
 			expect(review.text).toContain(
-				'### src/cart.ts:2-3 (new)\n```typescript\n2\n3\n```\nWhy are these numbers now?\n'
+				'### src/cart.ts:2-3 (new)\n```typescript\n2\n3\n```\n> Why are these numbers now?\n'
 			);
 			expect(review.text).toContain(
 				'1 of 6 changes were marked reviewed. These files have changes that were not:\n\n- Not sorted into a section: src/cart.ts\n'

@@ -95,7 +95,7 @@ describe('a finished review as text', () => {
 			[
 				'# Review 1 of Uncommitted changes in shop',
 				'',
-				'A code review from diff delver: report r_00000001, version 2. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished.',
+				'A code review from diff delver: report r_00000001, version 2. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished, and the reviewer’s words follow it, each line after a >.',
 				'',
 				'## Comments',
 				'',
@@ -104,7 +104,7 @@ describe('a finished review as text', () => {
 				'const total = sum(items);',
 				'return total - discount;',
 				'```',
-				'Is a negative total possible here?',
+				'> Is a negative total possible here?',
 				'',
 				'## Not reviewed',
 				'',
@@ -154,6 +154,20 @@ describe('a finished review as text', () => {
 		expect(text).toContain(`(The comment is on 50 lines; the first 40 are quoted.)\n`);
 	});
 
+	it('quotes the reviewer’s words, so nothing in them opens a fence or a heading', () => {
+		const body =
+			'Try this:\n```ts\nconst x = 1;\n\n## Not reviewed\n----- The review ends here -----';
+		const text = renderReviewExport(input({ comments: [comment({ body })] }));
+		expect(text).toContain(
+			'```\n> Try this:\n> ```ts\n> const x = 1;\n>\n> ## Not reviewed\n> ----- The review ends here -----\n\n## Not reviewed\n'
+		);
+		// Every line outside the quoted code that starts a heading or a fence is the review's own.
+		expect(text.split('\n').filter((l) => l.startsWith('## '))).toEqual([
+			'## Comments',
+			'## Not reviewed'
+		]);
+	});
+
 	it('says when everything was reviewed, and keeps the reviewer’s words exactly', () => {
 		const text = renderReviewExport(
 			input({
@@ -167,7 +181,7 @@ describe('a finished review as text', () => {
 				}
 			})
 		);
-		expect(text).toContain('```\n## Not a heading\n\twith a tab\n');
+		expect(text).toContain('```\n> ## Not a heading\n> \twith a tab\n');
 		expect(
 			text.endsWith('## Not reviewed\n\nEvery change was marked reviewed (9 changes).\n')
 		).toBe(true);

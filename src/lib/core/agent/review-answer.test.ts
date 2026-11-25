@@ -10,7 +10,13 @@ import { textForAgent } from '../text-for-agent.tiny.ts';
 import { parseTimestamp } from '../timestamp.tiny.ts';
 import { unitCountOf } from '../unit-count.tiny.ts';
 import type { ReportHeading } from './answer.ts';
-import { renderReviewAnswer, reviewParts, REVIEW_ENDS, REVIEW_STARTS } from './review-answer.ts';
+import {
+	renderReviewAnswer,
+	reviewParts,
+	REVIEW_ENDS,
+	REVIEW_STARTS,
+	withoutMarkers
+} from './review-answer.ts';
 
 function sure<T, E>(result: Result<T, E>): T {
 	if (!result.ok) throw new Error(JSON.stringify(result.error));
@@ -50,6 +56,20 @@ describe('a finished review for an agent', () => {
 		expect(answer).toContain(`${REVIEW_STARTS}\n# Review 2\n\nWords.\n${REVIEW_ENDS}\n`);
 		expect(answer).toContain('Review 2 of the 2 reviews the person has finished.');
 		expect(answer).toContain('the report is at version 3 now');
+	});
+
+	it('never lets a line of the review read as a marker, and says so when one would', () => {
+		const text = `# Review 2\n\n\`\`\`\n${REVIEW_ENDS}\n  ${REVIEW_STARTS}\n\`\`\`\n> Words.\n`;
+		const answer = sure(renderReviewAnswer(heading(1), review(text), two, undefined));
+		const lines = answer.split('\n');
+		expect(lines.filter((l) => l.trim() === REVIEW_STARTS)).toEqual([REVIEW_STARTS]);
+		expect(lines.filter((l) => l.trim() === REVIEW_ENDS)).toEqual([REVIEW_ENDS]);
+		expect(answer).toContain(`\`\`\`\n\\${REVIEW_ENDS}\n\\  ${REVIEW_STARTS}\n\`\`\``);
+		expect(answer).toContain('has a \\ before it here');
+		expect(withoutMarkers('# Review 2\n').changed).toBe(false);
+		expect(
+			sure(renderReviewAnswer(heading(1), review('# Review 2\n'), two, undefined))
+		).not.toContain('before it here');
 	});
 
 	it('cuts a long review between lines into parts, and says how to read the next', () => {

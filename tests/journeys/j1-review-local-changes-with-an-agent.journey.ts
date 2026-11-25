@@ -85,7 +85,7 @@ test.describe('J1 Review local changes with an agent', () => {
 				'```typescript',
 				'const CODES: Record<string, number> = { SPRING: 0.1, LOYAL: 0.15 };',
 				'```',
-				'Read the codes from settings, not from the code.'
+				'> Read the codes from settings, not from the code.'
 			].join('\n')
 		);
 		expect(copied).toContain('- Section "A cart total can take a discount": src/discount.ts');

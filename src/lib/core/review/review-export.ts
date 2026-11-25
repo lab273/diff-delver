@@ -3,14 +3,15 @@
  * the reviewer copies with "Finish and copy" and what `get_review` gives an
  * agent, the same text. Each comment names its file, its lines and the side
  * they are on, quotes the code it is on as the snapshot held it when the
- * review was finished, then gives the reviewer's words exactly as typed. Last
+ * review was finished, then gives the reviewer's words exactly as typed, quoted. Last
  * comes what was not reviewed, group by group.
  *
  * Text from the repository (paths, section titles, code) is written as the
  * agent's other answers write it: paths as `agentPath` does, and each
  * character that cannot be seen, or turns text round, as an escape, so code
  * can never pass for the review's own lines. Only the reviewer's words are
- * kept as they are: they are the review.
+ * kept as they are, since they are the review, and given as a blockquote, so
+ * nothing in them can pass for the review's own lines either.
  */
 import type { Diff } from '../diff/diff.ts';
 import { agentPath, hiddenShown } from '../diff/agent-text.ts';
@@ -147,7 +148,7 @@ export function renderReviewExport(input: ReviewExportInput): TextForAgent {
 	const out: string[] = [
 		`# Review ${String(input.number)} of ${visibleText(input.title)} in ${visibleText(input.repository)}`,
 		'',
-		`A code review from diff delver: report ${input.report}, version ${String(input.version)}. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished.`,
+		`A code review from diff delver: report ${input.report}, version ${String(input.version)}. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished, and the reviewer’s words follow it, each line after a >.`,
 		'',
 		'## Comments'
 	];
@@ -177,8 +178,18 @@ function commentLines(comment: SubmittedComment, version: RevisionNumber): strin
 			`(The comment is on ${countOf(total, 'line', 'lines')}; the first ${formatCount(code.length)} are quoted.)`
 		);
 	}
-	out.push(comment.body);
+	out.push(...wordsQuoted(comment.body));
 	return out;
+}
+
+/**
+ * The reviewer's words as a Markdown blockquote, each line after a `>`, so
+ * nothing in them, a fence, a heading or a line like the review's own, can
+ * open structure in the text around them. The words themselves are kept
+ * exactly as typed.
+ */
+function wordsQuoted(body: string): string[] {
+	return body.split('\n').map((line) => (line === '' ? '>' : `> ${line}`));
 }
 
 /** A line of code as quoted: a CRLF file's carriage return dropped, what cannot be seen escaped, cut when long. */
