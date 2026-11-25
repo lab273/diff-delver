@@ -128,7 +128,13 @@
 		| { readonly kind: 'working' }
 		| { readonly kind: 'found'; readonly found: PixelDifference; readonly painted: boolean }
 		| { readonly kind: 'too-large'; readonly span: Dimensions }
-		| { readonly kind: 'failed' };
+		| { readonly kind: 'failed'; readonly why: CompareFailure };
+	/**
+	 * Why the pixels could not be compared: the browser could not read an image,
+	 * one has no size in pixels, or the browser could not draw them or read
+	 * their pixels back, as when it has not the memory.
+	 */
+	type CompareFailure = 'unreadable' | 'no-size' | 'not-drawn';
 	let difference = $state<Difference>({ kind: 'working' });
 
 	const busy = $derived.by(() => {
@@ -146,16 +152,27 @@
 		}
 	});
 
-	/** A side's picture, decoded, for its pixels; undefined when the browser cannot read it. */
-	async function decoded(where: string): Promise<HTMLImageElement | undefined> {
+	/**
+	 * A side's picture once it has loaded, with its size known but not yet
+	 * decoded to pixels; undefined when the browser cannot read it.
+	 */
+	function loadedPicture(where: string): Promise<HTMLImageElement | undefined> {
 		const picture = new Image();
+		const done = new Promise<HTMLImageElement | undefined>((resolve) => {
+			picture.onload = () => {
+				resolve(picture);
+			};
+			picture.onerror = () => {
+				resolve(undefined);
+			};
+		});
 		picture.src = where;
-		try {
-			await picture.decode();
-			return picture;
-		} catch {
-			return undefined;
-		}
+		return done;
+	}
+
+	/** Whether a picture has a size in pixels to compare: an SVG without one may not. */
+	function hasSize(picture: HTMLImageElement): boolean {
+		return picture.naturalWidth > 0 && picture.naturalHeight > 0;
 	}
 
 	function sizeOf(picture: HTMLImageElement): Dimensions {
@@ -165,7 +182,7 @@
 		};
 	}
 
-	/** A picture's pixels, as a canvas draws them. */
+	/** A picture's pixels, as a canvas draws them; this may throw, as when the browser has not the memory. */
 	function pixelsOf(picture: HTMLImageElement): Pixels | undefined {
 		const canvas = document.createElement('canvas');
 		canvas.width = picture.naturalWidth;
@@ -180,7 +197,9 @@
 	}
 
 	// The pixels are compared each time the reviewer asks for it, from the two
-	// pictures decoded again, which the browser has already.
+	// pictures loaded again, which the browser has already: their sizes are
+	// checked before either is drawn, and anything that goes wrong drawing or
+	// comparing them is said, never left working.
 	$effect(() => {
 		if (shownMode !== 'pixel-difference') return;
 		const run = { stopped: false };
@@ -189,42 +208,64 @@
 			return [address('old'), address('new')];
 		});
 		void (async () => {
-			const pictures = await Promise.all([decoded(before), decoded(after)]);
+			const pictures = await Promise.all([loadedPicture(before), loadedPicture(after)]);
 			if (run.stopped) return;
-			const [a, b] = pictures;
-			if (a === undefined || b === undefined) {
-				difference = { kind: 'failed' };
-				return;
-			}
-			sizes.old ??= sizeOf(a);
-			sizes.new ??= sizeOf(b);
-			if (!comparable(sizeOf(a), sizeOf(b))) {
-				difference = { kind: 'too-large', span: spanOf(sizeOf(a), sizeOf(b)) };
-				return;
-			}
-			const pixelsBefore = pixelsOf(a);
-			const pixelsAfter = pixelsOf(b);
-			difference =
-				pixelsBefore === undefined || pixelsAfter === undefined
-					? { kind: 'failed' }
-					: { kind: 'found', found: pixelDifference(pixelsBefore, pixelsAfter), painted: false };
-		})();
+			difference = compared(pictures[0], pictures[1]);
+		})().catch(() => {
+			if (!run.stopped) difference = { kind: 'failed', why: 'not-drawn' };
+		});
 		return () => {
 			run.stopped = true;
 		};
 	});
 
-	/** Draws what comparing the pixels found on its canvas. */
+	/** What comparing two loaded pictures finds, or why they could not be compared. */
+	function compared(a: HTMLImageElement | undefined, b: HTMLImageElement | undefined): Difference {
+		if (a === undefined || b === undefined) return { kind: 'failed', why: 'unreadable' };
+		if (!hasSize(a) || !hasSize(b)) return { kind: 'failed', why: 'no-size' };
+		sizes.old ??= sizeOf(a);
+		sizes.new ??= sizeOf(b);
+		if (!comparable(sizeOf(a), sizeOf(b))) {
+			return { kind: 'too-large', span: spanOf(sizeOf(a), sizeOf(b)) };
+		}
+		try {
+			const pixelsBefore = pixelsOf(a);
+			const pixelsAfter = pixelsOf(b);
+			if (pixelsBefore === undefined || pixelsAfter === undefined) {
+				return { kind: 'failed', why: 'not-drawn' };
+			}
+			return { kind: 'found', found: pixelDifference(pixelsBefore, pixelsAfter), painted: false };
+		} catch {
+			return { kind: 'failed', why: 'not-drawn' };
+		}
+	}
+
+	/** What the page says when the pixels could not be compared. */
+	function failureText(why: CompareFailure): string {
+		switch (why) {
+			case 'unreadable':
+				return 'The pixels could not be compared: the browser could not read one of the images. Compare them side by side instead.';
+			case 'no-size':
+				return 'The pixels could not be compared: one of the images has no size in pixels, as an SVG without a width and a height may not. Compare them side by side instead.';
+			case 'not-drawn':
+				return 'The pixels could not be compared: the browser could not draw the images to read their pixels. Compare them side by side instead.';
+		}
+	}
+
+	/** Draws what comparing the pixels found on its canvas, or says why it could not. */
 	function paint(canvas: HTMLCanvasElement, found: PixelDifference) {
 		const draw = (shown: PixelDifference): void => {
-			canvas.width = shown.width;
-			canvas.height = shown.height;
-			const context = canvas.getContext('2d');
-			if (context === null) return;
-			const data = new Uint8ClampedArray(shown.data);
-			context.putImageData(new ImageData(data, shown.width, shown.height), 0, 0);
-			if (difference.kind === 'found' && difference.found === shown) {
+			if (difference.kind !== 'found' || difference.found !== shown) return;
+			try {
+				canvas.width = shown.width;
+				canvas.height = shown.height;
+				const context = canvas.getContext('2d');
+				if (context === null) throw new Error('No 2D context');
+				const data = new Uint8ClampedArray(shown.data);
+				context.putImageData(new ImageData(data, shown.width, shown.height), 0, 0);
 				difference = { ...difference, painted: true };
+			} catch {
+				difference = { kind: 'failed', why: 'not-drawn' };
 			}
 		};
 		draw(found);
@@ -251,10 +292,15 @@
 		slider = Math.round(Math.min(100, Math.max(0, at)));
 	}
 
+	/** How wide a picture of this many pixels across is drawn; unset when it has no width. */
+	function drawnWidth(width: number | undefined): string | undefined {
+		return width === undefined || width === 0 ? undefined : `${String(width * scale)}px`;
+	}
+
 	/** A side's width as a share of the area both are drawn in. */
 	function share(side: Side): string | undefined {
 		const size = sizes[side];
-		return size === undefined || span === undefined
+		return size === undefined || span === undefined || span.width === 0
 			? undefined
 			: `${String((size.width / span.width) * 100)}%`;
 	}
@@ -329,7 +375,7 @@
 								src={address(side)}
 								alt="{label}: {name}"
 								class:enlarged={scale > 1}
-								style:width={size === undefined ? undefined : `${String(size.width * scale)}px`}
+								style:width={drawnWidth(size?.width)}
 								onload={(event) => {
 									onload('apart', side, event);
 								}}
@@ -354,8 +400,8 @@
 				role="presentation"
 				class="stack"
 				class:sliding={overlay === 'slider'}
-				style:width={span === undefined ? undefined : `${String(span.width * scale)}px`}
-				style:aspect-ratio={span === undefined
+				style:width={drawnWidth(span?.width)}
+				style:aspect-ratio={span === undefined || span.width === 0 || span.height === 0
 					? undefined
 					: `${String(span.width)} / ${String(span.height)}`}
 				onpointerdown={(event) => {
@@ -449,7 +495,7 @@
 				{/if}
 			</p>
 			<div class="frame" role="img" aria-label="The pixels that changed in {name}, in magenta">
-				<canvas use:paint={found} class:enlarged={scale > 1} style:width="{found.width * scale}px"
+				<canvas use:paint={found} class:enlarged={scale > 1} style:width={drawnWidth(found.width)}
 				></canvas>
 			</div>
 		{:else if difference.kind === 'too-large'}
@@ -459,10 +505,7 @@
 				side by side, with the slider or in onion skin instead.
 			</p>
 		{:else if difference.kind === 'failed'}
-			<p class="about">
-				The pixels could not be compared: the browser could not read one of the images. Compare them
-				side by side instead.
-			</p>
+			<p class="about">{failureText(difference.why)}</p>
 		{:else}
 			<p class="about">Comparing the pixels…</p>
 		{/if}
