@@ -21,8 +21,11 @@ import { formatSourceSpec, type SourceSpec } from '#lib/core/sources/source-spec
 export interface CommandOutcome {
 	/** What to print, one plain sentence per line. */
 	readonly lines: readonly string[];
-	/** The page to open: a path of the daemon, such as `/diffs/r_1`. */
-	readonly page: string;
+	/**
+	 * The page to open: a path of the daemon, such as `/diffs/r_1`; undefined
+	 * when there is none worth opening and the lines say everything.
+	 */
+	readonly page: string | undefined;
 	/** 0 when what was asked for was done or explained; 1 when something went wrong. */
 	readonly exitCode: 0 | 1;
 }
@@ -167,16 +170,17 @@ export async function openOutcome(
 	const opened = await client.open({ directory, source: formatSourceSpec(source) });
 	const asked = source.kind === 'pull-request' ? undefined : source;
 	if (!opened.ok) {
-		// The page says what was asked for and why it could not be opened, then what can be. A
-		// pull request is offered again on the choose page, whose list asks GitHub only when opened.
+		// The start page says what was asked for and why it could not be opened, then what can
+		// be. Of a pull request only the lines say why, and no page is opened: one that did not
+		// say it would leave the person wondering what happened.
 		return {
 			lines: [describe(opened.error)],
-			page: asked === undefined ? choosePage(directory) : startPage(directory, asked),
+			page: asked === undefined ? undefined : startPage(directory, asked),
 			exitCode: 1
 		};
 	}
 	if (asked === undefined && opened.value.kind === 'nothing') {
-		return { lines: [opened.value.reason], page: choosePage(directory), exitCode: 0 };
+		return { lines: [opened.value.reason], page: undefined, exitCode: 0 };
 	}
 	return described(opened.value, directory, asked, asked === undefined);
 }

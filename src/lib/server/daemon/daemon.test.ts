@@ -78,7 +78,7 @@ describe('the daemon', () => {
 		expect(outcome.lines[0]).toBe(
 			`Uncommitted changes in ${name}: 5 files changed, 1 line added and 1 removed, plus 2 added in tests; 3 binary files: 1 added (2 KB), 1 removed (48 bytes), 1 changed (108 bytes to 1,008 bytes).`
 		);
-		const id = outcome.page.split('/').at(-1) ?? '';
+		const id = outcome.page?.split('/').at(-1) ?? '';
 		const agrees = async (size: unknown, sizeText: string): Promise<void> => {
 			const listed = value(await client.listDiffs()).diffs.find((d) => d.kind === 'diff');
 			const page = value(await client.loadDiff(value(parseReportId(id))));

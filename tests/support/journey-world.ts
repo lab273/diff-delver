@@ -918,6 +918,7 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 							: command.kind === 'choose'
 								? await chooseOutcome(client, where)
 								: await openOutcome(client, where, command.source);
+					if (outcome.page === undefined) return { output: outcome.lines.join('\n'), address: '' };
 					const address = entryAddress(daemon.origin, outcome.page, daemon.entryCode());
 					return {
 						output: [...outcome.lines, `Open this in your browser: ${address}`].join('\n'),

@@ -21,6 +21,7 @@ import { mcpOverHttp, reportIn } from '../../../../tests/support/mcp-client.ts';
 import {
 	buildShopUpstream,
 	cloneShop,
+	DISCOUNT_PULL,
 	serveShop
 } from '../../../../tests/support/pull-request-fixture.ts';
 
@@ -69,7 +70,7 @@ describe('pull requests through the daemon', () => {
 		expect(outcome.lines[0]).toMatch(
 			/^Pull request #7: “Add a discount rate” in shop: 2 files changed/
 		);
-		const id = value(parseReportId(outcome.page.replace('/diffs/', '')));
+		const id = value(parseReportId((outcome.page ?? '').replace('/diffs/', '')));
 
 		const sorting = value(await client.agentSorting(id));
 		expect(sorting.folder.shown).toBe(clone.dir);
@@ -99,14 +100,25 @@ describe('pull requests through the daemon', () => {
 		}
 	});
 
-	it('says why one cannot be opened, and sends the person to the choose page', async () => {
+	it('says why one cannot be opened, and opens no page that would not say it', async () => {
 		const { clone, github, client } = await setUp();
 		github.refuseWith(429);
 		const spec = value(parseSourceSpec('https://github.com/acme/shop/pull/7'));
 		const outcome = await openOutcome(client, clone.dir, spec);
 		expect(outcome.exitCode).toBe(1);
 		expect(outcome.lines[0]).toContain('too many requests');
-		expect(outcome.page).toBe(`/choose?directory=${encodeURIComponent(clone.dir)}`);
+		expect(outcome.page).toBeUndefined();
+
+		github.refuseWith(undefined);
+		await github.setPull('acme', 'shop', { ...DISCOUNT_PULL, number: 9, state: 'merged' });
+		const merged = await openOutcome(
+			client,
+			clone.dir,
+			value(parseSourceSpec('https://github.com/acme/shop/pull/9'))
+		);
+		expect(merged).toMatchObject({ exitCode: 0, page: undefined });
+		expect(merged.lines.join(' ')).toContain('merged');
+
 		const bad = await client.open({
 			directory: clone.dir,
 			source: 'https://gitlab.com/a/b/-/merge_requests/1'

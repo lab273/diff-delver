@@ -53,7 +53,7 @@ async function dataWithVersions(): Promise<{
 	await startOutcome(client, (await useFixture(words)).dir);
 	const listed = binaryTexts(value(await client.listDiffs()).diffs);
 	await daemon.stop();
-	return { data, listed, imagesId: opened.page.split('/').at(-1) ?? '' };
+	return { data, listed, imagesId: opened.page?.split('/').at(-1) ?? '' };
 }
 
 /** Each listed Delve's binary words, by id. */

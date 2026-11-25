@@ -161,6 +161,7 @@ async function show(
 ): Promise<number> {
 	for (const line of outcome.lines)
 		(outcome.exitCode === 0 ? terminal.print : terminal.printError)(line);
+	if (outcome.page === undefined) return outcome.exitCode;
 	const code = await client.entryCode();
 	if (!code.ok) {
 		terminal.printError(describe(code.error));
