@@ -752,6 +752,21 @@ yet.
 
 An image is one file-level unit, assigned and ticked like any slice.
 
+**What is built.** Image files, without snapshot-test pairing. The modes are
+**Side by side**, **Slider** (the swipe: the two images stacked, with a slider
+that shows more of either), **Onion skin** and **Pixel difference**, which shows
+the pixels that changed in magenta over a copy of the image after faded toward
+white, with how many changed. Buttons above the image choose one and `i` steps
+through them; one mode holds for every image on the page. Each side says its
+format, its size in pixels and its size in bytes; when the sizes differ the page
+says so and lines the two up at their top left. A file counts as an image only
+when its name and its bytes agree (an SVG's `<svg` within its first 64 KiB); a
+side that is not one is described as what it is, with its size, and an image is
+read from the snapshot store, never the repository, and served so that an SVG
+can run nothing. Images over 16 MiB are not shown, and pixel difference compares
+at most 4,096 by 4,096 pixels and only the first frame of an animation; the page
+says so in each case. The chosen mode is not remembered yet (1.1, point 9).
+
 ### 8.5 Words the reviewer sees
 
 This document uses precise internal terms. The interface does not. This table is
@@ -989,6 +1004,10 @@ its journeys passing.
    report timeline and "as of this review". J8, J9, J10.
 6. **More sources.** jj, GitHub PRs, posting a GitHub review. J11, J12.
 7. **Visual diffs.** Image viewer and snapshot-image pairing. J13.
+
+The order is a plan, not a rule: the project owner moves work ahead when it is
+wanted sooner. Finishing a review with comments (step 3) and the image viewer
+(step 7) were built before the rest of steps 3 to 6.
 
 ## 12. Requirements check
 
