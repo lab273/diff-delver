@@ -95,13 +95,14 @@ import {
 	type NextSource,
 	type NothingLeft
 } from '#lib/core/reports/nothing-left.ts';
-import { gitReportIdentity } from '#lib/core/reports/report-identity.ts';
-import type {
-	Report,
-	ReportState,
-	Revision,
-	Section,
-	UnitProgress
+import { gitReportIdentity, pullRequestReportIdentity } from '#lib/core/reports/report-identity.ts';
+import {
+	sourceSpecOf,
+	type Report,
+	type ReportState,
+	type Revision,
+	type Section,
+	type UnitProgress
 } from '#lib/core/reports/report.ts';
 import type { LineText } from '#lib/core/line-text.tiny.ts';
 import type { TextForAgent } from '#lib/core/text-for-agent.tiny.ts';
@@ -162,6 +163,29 @@ import {
 import type { SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import type { SourceIdentity } from '#lib/core/source-identity.tiny.ts';
 import type { GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
+import type { SourceSpec } from '#lib/core/sources/source-spec.ts';
+import type { RemoteName } from '#lib/core/history/remote-name.tiny.ts';
+import { sameGitHubRepository, type GitHubRepository } from '#lib/core/github/github-repository.ts';
+import {
+	describePullRequest,
+	describePullRequestNothingToReview,
+	pullRequestIdentityParts,
+	pullRequestNothingLeft,
+	type PullRequestRef
+} from '#lib/core/github/pull-request.ts';
+import { pullRequestTitleOf } from '#lib/core/github/pull-request-title.tiny.ts';
+import {
+	gitHubRemoteOf,
+	listOpenPullRequests,
+	machineGitHubAccess,
+	pullRequestFingerprint,
+	readPullRequest,
+	snapshotPullRequest,
+	type GitHubAccess,
+	type OpenPullRequests,
+	type PullRequestDetails
+} from '../sources/github/index.ts';
+import { writePullRequestText } from '../db/tables/pull-requests.ts';
 import {
 	assignmentRowsOf,
 	assignmentStateFromRows,
@@ -298,7 +322,20 @@ export interface ReportServiceOptions {
 	 * error by default.
 	 */
 	readonly log?: (line: string) => void;
+	/**
+	 * How GitHub is reached, for pull requests: by default its API and the
+	 * person's sign-in from `gh` or `GITHUB_TOKEN`. Tests give a stand-in's.
+	 */
+	readonly github?: GitHubAccess;
 }
+
+/**
+ * How long, by the service's clock, what GitHub said of a pull request is
+ * taken as still true by a page's check for changes, so a page that checks
+ * often asks GitHub at most this often. Opening it and updating it, which a
+ * person asks for, always ask again.
+ */
+export const PULL_REQUEST_CHECK_EVERY_MS = 60_000;
 
 /** A report as a list or a page header shows it. */
 export interface ReportSummary {
@@ -683,7 +720,22 @@ export interface RepositoryBranches {
 	readonly lastFetch: LastFetch;
 	/** The repository has no commits yet: no branch, and nothing checked out. */
 	readonly noCommits: boolean;
+	/** Its remote on GitHub, read from its config, whose pull requests it offers; undefined for none. */
+	readonly gitHub:
+		{ readonly remote: RemoteName; readonly repository: GitHubRepository } | undefined;
 }
+
+/** A repository's open pull requests, as the choose page lists them. */
+export interface RepositoryPullRequests {
+	readonly remote: RemoteName;
+	readonly repository: GitHubRepository;
+	readonly pulls: OpenPullRequests;
+}
+
+/** What a look at a report's source before any snapshot found: its fingerprint, or that nothing is left. */
+type Look =
+	| { readonly kind: 'fingerprint'; readonly fingerprint: SourceIdentity }
+	| ({ readonly kind: 'nothing-left' } & NothingLeft);
 
 function worktreeOf(repo: LocalRepository): AbsolutePath {
 	return repo.workTree ?? repo.gitDir;
@@ -1002,6 +1054,12 @@ export class ReportService {
 	 */
 	readonly #sorting = new SortingWrites();
 	readonly #frameVersions = new FrameVersions();
+	readonly #github: GitHubAccess;
+	/** What GitHub last said of each pull request, by its identity, and when. */
+	readonly #pullRequests = new Map<
+		string,
+		{ readonly at: Timestamp; readonly details: PullRequestDetails }
+	>();
 
 	private constructor(db: Database, options: ReportServiceOptions) {
 		this.#db = db;
@@ -1009,6 +1067,7 @@ export class ReportService {
 		this.#clock = options.clock;
 		this.#ids = options.ids;
 		this.#repository = options.repository ?? {};
+		this.#github = options.github ?? machineGitHubAccess();
 		this.#log =
 			options.log ??
 			((line) => {
@@ -1116,12 +1175,35 @@ export class ReportService {
 		const none = find.trim() === '' && branches.value.shown.length === 0;
 		const head = none ? await headCommit(repo.value) : undefined;
 		if (head?.ok === false) return head;
+		const gitHub = await gitHubRemoteOf(repo.value);
+		if (!gitHub.ok) return gitHub;
 		return ok({
 			repository: repositoryLabel(worktreeOf(repo.value)),
 			branches: branches.value,
 			lastFetch: await lastFetch(repo.value, branches.value.remotes, branches.value.main),
-			noCommits: head !== undefined && head.value === undefined
+			noCommits: head !== undefined && head.value === undefined,
+			gitHub: gitHub.value
 		});
+	}
+
+	/**
+	 * The open pull requests of the repository at `directory`, from its remote
+	 * on GitHub (`origin` first), most recently updated first: a network call,
+	 * made only when a person asks for the list. `NotOnGitHub` when no remote
+	 * of it is on GitHub. Writes nothing.
+	 */
+	async pullRequests(
+		directory: AbsolutePath
+	): Promise<Result<RepositoryPullRequests, ReportError>> {
+		const repo = await locateRepository(directory, this.#repository);
+		if (!repo.ok) return repo;
+		const gitHub = await gitHubRemoteOf(repo.value);
+		if (!gitHub.ok) return gitHub;
+		if (gitHub.value === undefined)
+			return err({ kind: 'NotOnGitHub', directory: worktreeOf(repo.value) });
+		const { remote, repository } = gitHub.value;
+		const pulls = await listOpenPullRequests(this.#github, repository);
+		return pulls.ok ? ok({ remote, repository, pulls: pulls.value }) : pulls;
 	}
 
 	/**
@@ -1176,12 +1258,24 @@ export class ReportService {
 	 * or takes a snapshot and makes a new report with revision 1, everything
 	 * uncategorised except what the built-in rules ignore.
 	 */
-	async open(
-		directory: AbsolutePath,
-		spec: GitSourceSpec
-	): Promise<Result<OpenOutcome, ReportError>> {
+	async open(directory: AbsolutePath, spec: SourceSpec): Promise<Result<OpenOutcome, ReportError>> {
 		const repo = await locateRepository(directory, this.#repository);
-		return repo.ok ? this.#openIn(repo.value, spec) : repo;
+		if (!repo.ok) return repo;
+		if (spec.kind === 'pull-request') {
+			// A pull request is opened from a clone of its repository, whose objects it borrows.
+			const gitHub = await gitHubRemoteOf(repo.value);
+			if (!gitHub.ok) return gitHub;
+			const found = gitHub.value?.repository;
+			if (found === undefined || !sameGitHubRepository(found, spec.pullRequest.repository)) {
+				return err({
+					kind: 'NotACloneOf',
+					directory: worktreeOf(repo.value),
+					wanted: spec.pullRequest.repository,
+					found
+				});
+			}
+		}
+		return this.#openIn(repo.value, spec);
 	}
 
 	/**
@@ -2471,13 +2565,88 @@ export class ReportService {
 	/** Takes a snapshot of a source, held from tidying until a revision refers to it or it is discarded. */
 	async #takeSnapshot(
 		repo: LocalRepository,
-		spec: GitSourceSpec
+		spec: SourceSpec
 	): Promise<Result<GitSnapshot, ReportError>> {
+		let take: (id: SnapshotId) => Promise<Result<GitSnapshot, ReportError>>;
+		if (spec.kind === 'pull-request') {
+			// Of what GitHub said just before, which every caller has asked.
+			const details = await this.#pullRequestDetails(spec.pullRequest, Infinity);
+			if (!details.ok) return details;
+			take = (id) =>
+				snapshotPullRequest(this.#dataDirectory, repo, details.value, this.#github, id);
+		} else {
+			take = (id) => snapshotGitSource(this.#dataDirectory, repo, spec, id);
+		}
 		const id = this.#ids.snapshotId();
 		this.#held.add(heldKey(repo.storeId, id));
-		const taken = await snapshotGitSource(this.#dataDirectory, repo, spec, id);
+		const taken = await take(id);
 		if (!taken.ok) this.#held.delete(heldKey(repo.storeId, id));
 		return taken;
+	}
+
+	/**
+	 * What GitHub says of a pull request: what it said less than `maxAge`
+	 * milliseconds ago by the service's clock, or else asked now.
+	 */
+	async #pullRequestDetails(
+		ref: PullRequestRef,
+		maxAge: number
+	): Promise<Result<PullRequestDetails, ReportError>> {
+		const key = pullRequestIdentityParts(ref).join('/');
+		const now = this.#clock.now();
+		const kept = this.#pullRequests.get(key);
+		if (kept !== undefined && now - kept.at < maxAge) return ok(kept.details);
+		const asked = await readPullRequest(this.#github, ref);
+		if (!asked.ok) return asked;
+		this.#pullRequests.set(key, { at: now, details: asked.value });
+		return asked;
+	}
+
+	/** The source of a new report of `spec`, with what it is named by. */
+	async #reportSourceOf(repo: LocalRepository, spec: SourceSpec): Promise<Report['source']> {
+		if (spec.kind !== 'pull-request') {
+			return { kind: 'git', spec, run: await readCommitRun(repo, spec) };
+		}
+		const kept = this.#pullRequests.get(pullRequestIdentityParts(spec.pullRequest).join('/'));
+		return {
+			kind: 'github',
+			pullRequest: spec.pullRequest,
+			title: kept?.details.title ?? pullRequestTitleOf(''),
+			description: kept?.details.description
+		};
+	}
+
+	/**
+	 * A look at the report's source before any snapshot: its fingerprint now,
+	 * or, for a pull request that has been merged or closed, that nothing is
+	 * left. A pull request is asked of GitHub unless what it said is less than
+	 * `maxAge` old; when asked, a new title or description is kept.
+	 */
+	async #lookAt(
+		report: Report,
+		repo: LocalRepository,
+		maxAge: number
+	): Promise<Result<Look, ReportError>> {
+		const { source } = report;
+		if (source.kind === 'git') {
+			const fingerprint = await sourceIdentity(repo, source.spec);
+			return fingerprint.ok
+				? ok({ kind: 'fingerprint', fingerprint: fingerprint.value })
+				: fingerprint;
+		}
+		const details = await this.#pullRequestDetails(source.pullRequest, maxAge);
+		if (!details.ok) return details;
+		const { title, description, state } = details.value;
+		if (title !== source.title || description !== source.description) {
+			const kept = this.#db.write((q) => {
+				writePullRequestText(q, report.id, { title, description });
+				return ok(undefined);
+			});
+			if (!kept.ok) return kept;
+		}
+		if (state !== 'open')
+			return ok({ kind: 'nothing-left', ...pullRequestNothingLeft(source.pullRequest, state) });
+		return ok({ kind: 'fingerprint', fingerprint: pullRequestFingerprint(details.value) });
 	}
 
 	#logOnce(line: string): void {
@@ -2488,9 +2657,12 @@ export class ReportService {
 
 	async #openIn(
 		repo: LocalRepository,
-		spec: GitSourceSpec
+		spec: SourceSpec
 	): Promise<Result<OpenOutcome, ReportError>> {
-		const identity = gitReportIdentity({ store: repo.storeId, spec, worktree: worktreeOf(repo) });
+		const identity =
+			spec.kind === 'pull-request'
+				? pullRequestReportIdentity(spec.pullRequest)
+				: gitReportIdentity({ store: repo.storeId, spec, worktree: worktreeOf(repo) });
 		const existing = this.#db.read((q) =>
 			andThen(openReportFor(q, identity), (report) =>
 				report === undefined ? ok(undefined) : current(q, report.id)
@@ -2569,7 +2741,10 @@ export class ReportService {
 				return ok({
 					kind: 'nothing-to-review',
 					source: reportTitle(found.report.source),
-					reason: describeNothingToReview(found.report.source.spec),
+					reason:
+						found.report.source.kind === 'git'
+							? describeNothingToReview(found.report.source.spec)
+							: updated.value.reason,
 					leftOut: [],
 					closed: found.report.id,
 					next
@@ -2581,10 +2756,26 @@ export class ReportService {
 	/** A new report of the source; `replacing` is the open report just closed for it, if any. */
 	async #create(
 		repo: LocalRepository,
-		spec: GitSourceSpec,
+		spec: SourceSpec,
 		identity: ReportIdentity,
 		replacing: ReportId | undefined
 	): Promise<Result<OpenOutcome, ReportError>> {
+		if (spec.kind === 'pull-request') {
+			// Asked now, since opening it is a request to see it as it is.
+			const details = await this.#pullRequestDetails(spec.pullRequest, 0);
+			if (!details.ok) return details;
+			const { state, title } = details.value;
+			if (state !== 'open') {
+				return ok({
+					kind: 'nothing-to-review',
+					source: describePullRequest(spec.pullRequest, title),
+					reason: describePullRequestNothingToReview(state),
+					leftOut: [],
+					closed: replacing,
+					next: undefined
+				});
+			}
+		}
 		const taken = await this.#takeSnapshot(repo, spec);
 		if (!taken.ok) return taken;
 		const { snapshot } = taken.value;
@@ -2595,17 +2786,16 @@ export class ReportService {
 		const diff = await this.#diffOf(snapshot);
 		if (!diff.ok) return discard(diff);
 		// A run of commits is named by its commits, read now and kept with the report.
-		const source: Report['source'] = {
-			kind: 'git',
-			spec,
-			run: await readCommitRun(repo, spec)
-		};
+		const source = await this.#reportSourceOf(repo, spec);
 		if (diff.value.files.length === 0) {
 			return discard(
 				ok({
 					kind: 'nothing-to-review',
 					source: reportTitle(source),
-					reason: describeNothingToReview(spec),
+					reason:
+						spec.kind === 'pull-request'
+							? describePullRequestNothingToReview('open')
+							: describeNothingToReview(spec),
 					leftOut: taken.value.leftOut,
 					closed: replacing,
 					next: undefined
@@ -2695,14 +2885,16 @@ export class ReportService {
 
 	async #check(found: Current, repo: LocalRepository): Promise<Result<SourceCheck, ReportError>> {
 		const { report, revision } = found;
-		const fingerprint = await sourceIdentity(repo, report.source.spec);
-		if (!fingerprint.ok) return fingerprint;
-		if (fingerprint.value === revision.fingerprint) return ok({ kind: 'unchanged' });
+		const look = await this.#lookAt(report, repo, PULL_REQUEST_CHECK_EVERY_MS);
+		if (!look.ok) return look;
+		if (look.value.kind === 'nothing-left') return ok(look.value);
+		const { fingerprint } = look.value;
+		if (fingerprint === revision.fingerprint) return ok({ kind: 'unchanged' });
 		const remembered = this.#checks.get(report.id);
-		if (remembered?.revision === revision.id && remembered.fingerprint === fingerprint.value) {
+		if (remembered?.revision === revision.id && remembered.fingerprint === fingerprint) {
 			return ok(remembered.outcome);
 		}
-		const probe = await this.#probe(found, repo, fingerprint.value);
+		const probe = await this.#probe(found, repo, fingerprint);
 		if (!probe.ok) return probe;
 		const remember = async (
 			outcome: SourceCheck,
@@ -2710,7 +2902,7 @@ export class ReportService {
 		): Promise<Result<SourceCheck, ReportError>> => {
 			await this.#remember(report.id, {
 				revision: revision.id,
-				fingerprint: fingerprint.value,
+				fingerprint,
 				outcome,
 				prepared
 			});
@@ -2747,7 +2939,7 @@ export class ReportService {
 		const { report, revision } = found;
 		const kept = await this.#keptProbe(report.id, revision.id, fingerprint);
 		if (kept !== undefined) return ok({ kind: 'changed', prepared: kept });
-		const spec = report.source.spec;
+		const spec = sourceSpecOf(report.source);
 		const taken = await this.#takeSnapshot(repo, spec);
 		if (!taken.ok) return taken;
 		const { snapshot } = taken.value;
@@ -2761,6 +2953,11 @@ export class ReportService {
 		const diff = await this.#diffOf(snapshot);
 		if (!diff.ok) return discard(diff);
 		if (diff.value.files.length === 0) {
+			if (spec.kind === 'pull-request') {
+				return discard(
+					ok({ kind: 'nothing-left', ...pullRequestNothingLeft(spec.pullRequest, 'open') })
+				);
+			}
 			const uncommitted = spec.kind === 'working-tree' || spec.kind === 'staged';
 			const since: CommitsSince = uncommitted
 				? await commitsSince(repo, revision.baseCommit)
@@ -2862,15 +3059,21 @@ export class ReportService {
 			const { report, revision } = found.value;
 			const unchanged = (): Result<UpdateOutcome, ReportError> =>
 				ok({ kind: 'unchanged', report: summaryOf(report, revision) });
-			const fingerprint = await sourceIdentity(repo, report.source.spec);
-			if (!fingerprint.ok) return fingerprint;
-			if (fingerprint.value === revision.fingerprint) return unchanged();
-			const probe = await this.#probe(found.value, repo, fingerprint.value);
+			// Asked for by a person, so GitHub is asked again.
+			const look = await this.#lookAt(report, repo, 0);
+			if (!look.ok) return look;
+			if (look.value.kind === 'nothing-left') {
+				const { reason, next } = look.value;
+				return ok({ kind: 'nothing-left', report: summaryOf(report, revision), reason, next });
+			}
+			const { fingerprint } = look.value;
+			if (fingerprint === revision.fingerprint) return unchanged();
+			const probe = await this.#probe(found.value, repo, fingerprint);
 			if (!probe.ok) return probe;
 			if (probe.value.kind === 'unchanged') {
 				await this.#remember(id, {
 					revision: revision.id,
-					fingerprint: fingerprint.value,
+					fingerprint,
 					outcome: { kind: 'unchanged' },
 					prepared: undefined
 				});

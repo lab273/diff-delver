@@ -29,6 +29,7 @@
  * so the objects of snapshots it took and did not keep do not pile up until it
  * next starts.
  */
+import type { GitHubAccess } from '../sources/github/index.ts';
 import { randomBytes } from 'node:crypto';
 import type { Server } from 'node:http';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
@@ -87,6 +88,8 @@ export interface DaemonOptions {
 	readonly app: AppHandler;
 	/** How git runs in reviewed repositories; tests give their own reviewer config. */
 	readonly repository?: RepositoryOptions;
+	/** How GitHub is reached, for pull requests; tests and journeys give a stand-in's. */
+	readonly github?: GitHubAccess;
 	/**
 	 * Opens an address in the person's browser, for an agent's `create_report`
 	 * through a shim that asks for it; whether it could. The address lets that
@@ -304,7 +307,8 @@ export async function startDaemon(
 		dataDirectory: options.dataDirectory,
 		clock: options.clock,
 		ids: options.ids,
-		...(options.repository === undefined ? {} : { repository: options.repository })
+		...(options.repository === undefined ? {} : { repository: options.repository }),
+		...(options.github === undefined ? {} : { github: options.github })
 	});
 	if (!opened.ok) return opened;
 	const service = opened.value;

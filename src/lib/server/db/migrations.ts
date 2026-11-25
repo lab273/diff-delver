@@ -454,6 +454,43 @@ ALTER TABLE revisions ADD COLUMN binary_changed_files INTEGER CHECK (binary_chan
 ALTER TABLE revisions ADD COLUMN binary_changed_before INTEGER CHECK (binary_changed_before >= 0);
 ALTER TABLE revisions ADD COLUMN binary_changed_after INTEGER CHECK (binary_changed_after >= 0);
 `
+	},
+	{
+		version: schemaVersionOf(14),
+		name: 'reports of GitHub pull requests, with their titles and descriptions',
+		rebuildsTables: true,
+		sql: `
+-- A report's source may be a GitHub pull request (DESIGN 3.1): source_kind
+-- 'github', with its address as its source.
+CREATE TABLE reports_rebuilt (
+	id TEXT PRIMARY KEY,
+	identity TEXT NOT NULL,
+	source_kind TEXT NOT NULL CHECK (source_kind IN ('git', 'github')),
+	source TEXT NOT NULL,
+	store_id TEXT NOT NULL,
+	repository_name TEXT NOT NULL,
+	repository_path TEXT NOT NULL,
+	state TEXT NOT NULL CHECK (state IN ('open', 'closed')),
+	closed_reason TEXT CHECK (closed_reason IN ('reviewer', 'source-empty', 'snapshot-gone')),
+	created_at INTEGER NOT NULL,
+	last_activity_at INTEGER NOT NULL,
+	CHECK ((state = 'open') = (closed_reason IS NULL))
+) STRICT;
+INSERT INTO reports_rebuilt (id, identity, source_kind, source, store_id, repository_name, repository_path, state, closed_reason, created_at, last_activity_at)
+	SELECT id, identity, source_kind, source, store_id, repository_name, repository_path, state, closed_reason, created_at, last_activity_at FROM reports;
+DROP TABLE reports;
+ALTER TABLE reports_rebuilt RENAME TO reports;
+CREATE UNIQUE INDEX reports_one_open_per_source ON reports (identity) WHERE state = 'open';
+CREATE INDEX reports_by_activity ON reports (last_activity_at DESC, created_at DESC);
+-- For a report of a pull request, its title and description as GitHub gave
+-- them when the report was opened or last brought up to date: the title names
+-- the report, and the description is given to an agent. NULL for none.
+CREATE TABLE pull_requests (
+	report_id TEXT PRIMARY KEY REFERENCES reports (id) ON DELETE CASCADE,
+	title TEXT NOT NULL,
+	description TEXT
+) STRICT;
+`
 	}
 ];
 

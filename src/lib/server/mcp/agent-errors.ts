@@ -100,6 +100,18 @@ export function describeForAgent(error: ReportError): TextForAgent {
 		case 'StoreNotFound':
 		case 'SnapshotNotFound':
 		case 'StoreDamaged':
+		case 'GitHubUnreachable':
+		case 'GitHubTimedOut':
+		case 'GitHubSignInNeeded':
+		case 'GitHubSignInRefused':
+		case 'GitHubNoAccess':
+		case 'GitHubRateLimited':
+		case 'PullRequestNotFound':
+		case 'GitHubAnswerUnreadable':
+		case 'PullRequestFetchFailed':
+		case 'PullRequestNoMergeBase':
+		case 'NotACloneOf':
+		case 'NotOnGitHub':
 			return textForAgent(describeReportError(error));
 	}
 }

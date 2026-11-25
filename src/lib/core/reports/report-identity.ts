@@ -14,8 +14,12 @@
  * commits in two worktrees, so a commit or range that names one is also tied to
  * the worktree. Revisions are compared as written: `main...feature` and
  * `main...refs/heads/feature` are different sources.
+ *
+ * A GitHub pull request is the same source wherever it is opened: its host,
+ * owner, repository and number.
  */
 import type { AbsolutePath } from '../absolute-path.tiny.ts';
+import { pullRequestIdentityParts, type PullRequestRef } from '../github/pull-request.ts';
 import { parseReportIdentity, type ReportIdentity } from '../report-identity.tiny.ts';
 import type { Revision } from '../revision.tiny.ts';
 import { formatGitSourceSpec, type GitSourceSpec } from '../sources/git-source-spec.ts';
@@ -57,6 +61,14 @@ export function gitReportIdentity(source: GitSourceAt): ReportIdentity {
 		...(tiedToWorktree(source.spec) ? [source.worktree] : [])
 	];
 	const text = JSON.stringify(parts);
+	const parsed = parseReportIdentity(text);
+	if (!parsed.ok) throw new Error(`Not a report identity: ${text}`);
+	return parsed.value;
+}
+
+/** The identity of a GitHub pull request: its host, owner, repository and number (DESIGN 6.1). */
+export function pullRequestReportIdentity(ref: PullRequestRef): ReportIdentity {
+	const text = JSON.stringify(['github', ...pullRequestIdentityParts(ref)]);
 	const parsed = parseReportIdentity(text);
 	if (!parsed.ok) throw new Error(`Not a report identity: ${text}`);
 	return parsed.value;

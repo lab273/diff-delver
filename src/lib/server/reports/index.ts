@@ -38,6 +38,7 @@ export type {
 	SideColours,
 	ReportServiceOptions,
 	RepositoryBranches,
+	RepositoryPullRequests,
 	ReportSummary,
 	StartOutcome,
 	StoredSnapshot,
@@ -46,7 +47,7 @@ export type {
 	ShownDraft,
 	ReviewPreview
 } from './report-service.ts';
-export { ReportService } from './report-service.ts';
+export { PULL_REQUEST_CHECK_EVERY_MS, ReportService } from './report-service.ts';
 export type {
 	AnotherReportOpen,
 	RepositoryReplaced,

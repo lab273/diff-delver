@@ -23,6 +23,7 @@ export type TableName =
 	| 'overviews'
 	| 'section_references'
 	| 'commit_runs'
+	| 'pull_requests'
 	| 'draft_comments'
 	| 'draft_summaries'
 	| 'reviews'
@@ -198,6 +199,8 @@ function tableInWords(table: TableName): string {
 			return 'what was marked reviewed when a review was finished';
 		case 'commit_runs':
 			return 'which commits a diff of several commits is named after';
+		case 'pull_requests':
+			return 'the title and description of a Delve’s pull request';
 	}
 }
 
@@ -216,6 +219,7 @@ function storedRowAdvice(table: TableName): string {
 		case 'overviews':
 		case 'section_references':
 		case 'commit_runs':
+		case 'pull_requests':
 			return 'Delete that Delve from the list of Delves, where it shows as damaged, or restore the database from a backup.';
 		case 'draft_comments':
 			return 'Restore the database from a backup to recover the draft comments.';

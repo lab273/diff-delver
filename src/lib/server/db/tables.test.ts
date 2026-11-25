@@ -202,10 +202,11 @@ describe('the tables', () => {
 		expect(read.r).toEqual(report);
 		expect(read.o).toEqual(report);
 		expect(read.p).toEqual(plain);
-		expect(read.all.map((r) => (r.ok ? r.value.source.run : 'unreadable'))).toEqual([
-			undefined,
-			run
-		]);
+		expect(
+			read.all.map((r) =>
+				r.ok && r.value.source.kind === 'git' ? r.value.source.run : 'unreadable'
+			)
+		).toEqual([undefined, run]);
 
 		// A row that holds what a run never does: the report is unreadable, and says which table.
 		value(

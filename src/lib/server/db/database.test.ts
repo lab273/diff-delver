@@ -236,6 +236,11 @@ describe('the database', () => {
 				version: 13,
 				name: 'how many lines of each version are tests, and its binary files with their sizes',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 14,
+				name: 'reports of GitHub pull requests, with their titles and descriptions',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -312,6 +317,7 @@ describe('the database', () => {
 			overviews: [],
 			section_references: [],
 			commit_runs: [],
+			pull_requests: [],
 			draft_comments: [],
 			draft_summaries: [],
 			reviews: [],

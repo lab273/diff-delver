@@ -33,6 +33,7 @@ import {
 	type PathNotFound
 } from '../store/index.ts';
 import { describeGitSourceError, type GitSourceError } from '../sources/git/index.ts';
+import { describeGitHubSourceError, type GitHubSourceError } from '../sources/github/index.ts';
 
 /** No report has this id: it was deleted, or the link is wrong. */
 export interface ReportNotFound {
@@ -148,6 +149,7 @@ export interface SectionsRefused {
 export type ReportError =
 	| DatabaseError
 	| GitSourceError
+	| GitHubSourceError
 	| DiffOutputError
 	| StoredStateMismatch
 	| DuplicateFilePath
@@ -358,5 +360,18 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'SnapshotNotFound':
 		case 'StoreDamaged':
 			return describeGitSourceError(error);
+		case 'GitHubUnreachable':
+		case 'GitHubTimedOut':
+		case 'GitHubSignInNeeded':
+		case 'GitHubSignInRefused':
+		case 'GitHubNoAccess':
+		case 'GitHubRateLimited':
+		case 'PullRequestNotFound':
+		case 'GitHubAnswerUnreadable':
+		case 'PullRequestFetchFailed':
+		case 'PullRequestNoMergeBase':
+		case 'NotACloneOf':
+		case 'NotOnGitHub':
+			return describeGitHubSourceError(error);
 	}
 }

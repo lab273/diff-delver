@@ -15,7 +15,7 @@ export interface InvalidReportIdentity {
 }
 
 /** The kinds of source a report can follow. */
-const KINDS: ReadonlySet<string> = new Set(['git']);
+const KINDS: ReadonlySet<string> = new Set(['git', 'github']);
 
 /** Accepts the written form: a JSON array of at least two strings, the first a known kind. */
 export function parseReportIdentity(value: string): Result<ReportIdentity, InvalidReportIdentity> {

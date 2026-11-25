@@ -18,6 +18,10 @@ import type { SectionTitle } from '../section-title.tiny.ts';
 import type { SnapshotId } from '../snapshot-id.tiny.ts';
 import type { SourceIdentity } from '../source-identity.tiny.ts';
 import type { GitSourceSpec } from '../sources/git-source-spec.ts';
+import type { SourceSpec } from '../sources/source-spec.ts';
+import type { PullRequestRef } from '../github/pull-request.ts';
+import type { PullRequestDescription } from '../github/pull-request-description.tiny.ts';
+import type { PullRequestTitle } from '../github/pull-request-title.tiny.ts';
 import type { StoreId } from '../store-id.tiny.ts';
 import type { Timestamp } from '../timestamp.tiny.ts';
 import type { TreeId } from '../tree-id.tiny.ts';
@@ -27,17 +31,29 @@ import type { BinaryFiles, DiffSize } from './diff-size.ts';
 export type { DiffSize } from './diff-size.ts';
 
 /**
- * What a report follows. Later: jj changes and GitHub pull requests. `run` is
- * what its title is made of when the source is a run of commits, read when
- * the report was opened; undefined for any other source, for a range between
- * two commit ids that is not such a run, and for a report opened before runs
- * were kept.
+ * What a report follows: a local git source, or a GitHub pull request. Later:
+ * jj changes.
+ *
+ * For git, `run` is what its title is made of when the source is a run of
+ * commits, read when the report was opened; undefined for any other source,
+ * for a range between two commit ids that is not such a run, and for a report
+ * opened before runs were kept.
+ *
+ * For a pull request, its title and description as GitHub gave them when the
+ * report was opened or last brought up to date.
  */
-export type ReportSource = {
-	readonly kind: 'git';
-	readonly spec: GitSourceSpec;
-	readonly run: CommitRun | undefined;
-};
+export type ReportSource =
+	| {
+			readonly kind: 'git';
+			readonly spec: GitSourceSpec;
+			readonly run: CommitRun | undefined;
+	  }
+	| {
+			readonly kind: 'github';
+			readonly pullRequest: PullRequestRef;
+			readonly title: PullRequestTitle;
+			readonly description: PullRequestDescription | undefined;
+	  };
 
 /** Why a report was closed. */
 export type ClosedReason =
@@ -113,4 +129,11 @@ export interface Section {
 	readonly id: SectionId;
 	readonly title: SectionTitle;
 	readonly summary: AgentMarkdown | undefined;
+}
+
+/** The source a report follows, as it is opened again: its git source, or its pull request. */
+export function sourceSpecOf(source: ReportSource): SourceSpec {
+	return source.kind === 'git'
+		? source.spec
+		: { kind: 'pull-request', pullRequest: source.pullRequest };
 }

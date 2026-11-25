@@ -1,14 +1,16 @@
 /**
  * The `reports` table: one row per report (DESIGN 6.1). The only code that
  * sees its rows. A report of a run of commits has what its title is made of
- * in `commit_runs`, which its own module reads and writes; a report is given
- * back with it, and stored with it.
+ * in `commit_runs`, and a report of a pull request its title and description
+ * in `pull_requests`, which their own modules read and write; a report is
+ * given back with them, and stored with them.
  */
 import { z } from 'zod';
 import { parseAbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseReportId, type ReportId } from '#lib/core/report-id.tiny.ts';
 import { parseReportIdentity, type ReportIdentity } from '#lib/core/report-identity.tiny.ts';
-import type { Report, ReportState } from '#lib/core/reports/report.ts';
+import type { Report, ReportSource, ReportState } from '#lib/core/reports/report.ts';
+import { parsePullRequestUrl, pullRequestUrl } from '#lib/core/github/pull-request.ts';
 import { parseRepositoryName } from '#lib/core/repository-name.tiny.ts';
 import { andThen, err, map, ok, type Result } from '#lib/core/result.ts';
 import { formatGitSourceSpec, parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
@@ -16,6 +18,7 @@ import { parseStoreId } from '#lib/core/store-id.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 import { nullable, parseRow, parseRows, text, timestamp } from '../columns.ts';
 import { commitRunOf, insertCommitRun } from './commit-runs.ts';
+import { pullRequestTextOf, writePullRequestText } from './pull-requests.ts';
 import type { Queries, RawRow } from '../database.ts';
 import type { StoredRowInvalid } from '../database-error.ts';
 
@@ -25,8 +28,8 @@ const COLUMNS =
 const row = z.object({
 	id: text(parseReportId),
 	identity: text(parseReportIdentity),
-	source_kind: z.literal('git'),
-	source: text(parseGitSourceSpec),
+	source_kind: z.enum(['git', 'github']),
+	source: z.string(),
 	store_id: text(parseStoreId),
 	repository_name: text(parseRepositoryName),
 	repository_path: text(parseAbsolutePath),
@@ -53,10 +56,10 @@ function toReport(q: Queries, raw: RawRow): Result<Report, StoredRowInvalid> {
 				detail: 'state and closed_reason disagree'
 			});
 		}
-		return map(commitRunOf(q, r.id), (run) => ({
+		return map(sourceOf(q, r.id, r.source_kind, r.source), (source) => ({
 			id: r.id,
 			identity: r.identity,
-			source: { kind: r.source_kind, spec: r.source, run },
+			source,
 			store: r.store_id,
 			repositoryName: r.repository_name,
 			repositoryPath: r.repository_path,
@@ -65,6 +68,41 @@ function toReport(q: Queries, raw: RawRow): Result<Report, StoredRowInvalid> {
 			lastActivityAt: r.last_activity_at
 		}));
 	});
+}
+
+/** A report's source from its row and the rows that belong to it. */
+function sourceOf(
+	q: Queries,
+	id: ReportId,
+	kind: 'git' | 'github',
+	written: string
+): Result<ReportSource, StoredRowInvalid> {
+	const invalid = (): Result<ReportSource, StoredRowInvalid> =>
+		err({ kind: 'StoredRowInvalid', table: 'reports', detail: 'its source cannot be read' });
+	switch (kind) {
+		case 'git': {
+			const spec = parseGitSourceSpec(written);
+			if (!spec.ok) return invalid();
+			return map(commitRunOf(q, id), (run) => ({ kind: 'git', spec: spec.value, run }));
+		}
+		case 'github': {
+			const pull = parsePullRequestUrl(written);
+			if (!pull.ok) return invalid();
+			return map(pullRequestTextOf(q, id), (kept) => ({
+				kind: 'github',
+				pullRequest: pull.value,
+				title: kept.title,
+				description: kept.description
+			}));
+		}
+	}
+}
+
+/** A report's source in its one written form, for its row. */
+function sourceColumn(source: ReportSource): string {
+	return source.kind === 'git'
+		? formatGitSourceSpec(source.spec)
+		: pullRequestUrl(source.pullRequest);
 }
 
 function stateColumns(state: ReportState): readonly [string, string | null] {
@@ -83,7 +121,7 @@ export function insertReport(q: Queries, report: Report): void {
 		report.id,
 		report.identity,
 		report.source.kind,
-		formatGitSourceSpec(report.source.spec),
+		sourceColumn(report.source),
 		report.store,
 		report.repositoryName,
 		report.repositoryPath,
@@ -91,7 +129,11 @@ export function insertReport(q: Queries, report: Report): void {
 		report.createdAt,
 		report.lastActivityAt
 	);
-	if (report.source.run !== undefined) insertCommitRun(q, report.id, report.source.run);
+	const { source } = report;
+	if (source.kind === 'git' && source.run !== undefined) insertCommitRun(q, report.id, source.run);
+	if (source.kind === 'github') {
+		writePullRequestText(q, report.id, { title: source.title, description: source.description });
+	}
 }
 
 /** The report with this id, if there is one. */

@@ -62,6 +62,8 @@ import {
 import type { NextSource } from '#lib/core/reports/nothing-left.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { formatGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
+import { formatSourceSpec } from '#lib/core/sources/source-spec.ts';
+import { sourceSpecOf } from '#lib/core/reports/report.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 // Its errors' messages from their own module, so the app's build does not take in
 // the report service, which runs in the daemon.
@@ -359,7 +361,7 @@ export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): 
 		frame: `${view}:${loaded.frame}`,
 		sorting: loaded.sorting,
 		assignments: loaded.assignments,
-		source: formatGitSourceSpec(loaded.report.source.spec),
+		source: formatSourceSpec(sourceSpecOf(loaded.report.source)),
 		leftOut: [...loaded.leftOut],
 		view,
 		groups: frame.groups.map(({ key, parts }) => {
@@ -548,7 +550,16 @@ export function statusOf(error: ReportError): number {
 		case 'PathNotFound':
 		case 'CommentNotFound':
 		case 'ReviewNotFound':
+		case 'PullRequestNotFound':
 			return 404;
+		case 'GitHubRateLimited':
+			return 429;
+		case 'GitHubUnreachable':
+		case 'GitHubAnswerUnreadable':
+		case 'PullRequestFetchFailed':
+			return 502;
+		case 'GitHubTimedOut':
+			return 504;
 		case 'ReportClosed':
 		case 'AnotherReportOpen':
 		case 'RevisionChangedWhileSaving':
@@ -587,6 +598,12 @@ export function statusOf(error: ReportError): number {
 		case 'DubiousOwnership':
 		case 'BadRevision':
 		case 'RepositoryReplaced':
+		case 'GitHubSignInNeeded':
+		case 'GitHubSignInRefused':
+		case 'GitHubNoAccess':
+		case 'PullRequestNoMergeBase':
+		case 'NotACloneOf':
+		case 'NotOnGitHub':
 			return 422;
 		case 'GitNotFound':
 		case 'GitTooOld':

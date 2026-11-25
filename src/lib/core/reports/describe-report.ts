@@ -12,15 +12,17 @@ import {
 	isEmptyTreeRevision,
 	type GitSourceSpec
 } from '../sources/git-source-spec.ts';
+import { describePullRequest } from '../github/pull-request.ts';
 import type { ClosedReason, ReportSource, UnitProgress } from './report.ts';
 
 /**
  * The report's title: its source in plain words, such as "Uncommitted changes",
  * and a run of commits by how many it is and their subjects, such as `3
- * commits: “Add a discount rate” to “Say which code was used”`.
+ * commits: “Add a discount rate” to “Say which code was used”`, and a pull
+ * request by its number and title, `Pull request #12: “Add a discount rate”`.
  */
 export function reportTitle(source: ReportSource): ReviewerMessage {
-	// One kind of source so far; jj and GitHub will add their own titles.
+	if (source.kind === 'github') return describePullRequest(source.pullRequest, source.title);
 	const { spec, run } = source;
 	if (run !== undefined) {
 		return describeCommitRun(run, spec.kind === 'range' && isEmptyTreeRevision(spec.from));
