@@ -42,6 +42,7 @@ import { autoIgnore, type AutoIgnored } from '#lib/core/diff/auto-ignore.ts';
 import type { ByteSize } from '#lib/core/byte-size.tiny.ts';
 import { makeDiff, type Diff, type DiffFile } from '#lib/core/diff/diff.ts';
 import type { FileVersion } from '#lib/core/diff/file-diff.ts';
+import { describeFileChange } from '#lib/core/diff/file-unit.ts';
 import { fileModeKind } from '#lib/core/file-mode.tiny.ts';
 import {
 	bytesToKnowFormat,
@@ -500,6 +501,11 @@ export interface PartImage {
 	readonly old: ImageSide | undefined;
 	readonly new: ImageSide | undefined;
 	readonly sameBytes: boolean;
+	/**
+	 * For a binary file every side of which is an image, how it changed in the
+	 * words of its part's header ("changed, image"); undefined otherwise.
+	 */
+	readonly change: ReviewerMessage | undefined;
 }
 
 /** One side of an image, to serve as it is (`readImage`). */
@@ -1531,10 +1537,18 @@ export class ReportService {
 			const shown = (side: ImageSide | undefined): boolean =>
 				side !== undefined && side.kind !== 'other';
 			if (shown(before.value) || shown(after.value)) {
+				// Every side the file has is an image: a binary file's header calls it one.
+				const allImages = [before.value, after.value].every(
+					(side) => side === undefined || side.kind !== 'other'
+				);
 				image = {
 					old: before.value,
 					new: after.value,
-					sameBytes: old !== undefined && now !== undefined && old.blob === now.blob
+					sameBytes: old !== undefined && now !== undefined && old.blob === now.blob,
+					change:
+						kind.kind === 'binary' && allImages
+							? describeFileChange(file.file, { withMode: false, image: true })
+							: undefined
 				};
 			}
 		}

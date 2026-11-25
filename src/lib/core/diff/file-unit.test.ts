@@ -232,6 +232,14 @@ describe('the file-level unit', () => {
 		expect(describeFileChange(file.file)).toBe(listed);
 	});
 
+	it('calls a binary file known to be an image an image, and nothing else', () => {
+		const binary = only(diffOf(cases.binary)).file;
+		expect(describeFileChange(binary, { withMode: false, image: true })).toBe('changed, image');
+		expect(describeFileChange(binary)).toBe('changed, binary file');
+		const text = only(diffOf(cases.edited)).file;
+		expect(describeFileChange(text, { image: true })).toBe('changed');
+	});
+
 	it.each([
 		['madeExecutableWithEdits', '100644 100755 made executable', 'changed', ''],
 		['noLongerExecutable', '100755 100644 no longer executable', 'changed', ''],

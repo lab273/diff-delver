@@ -95,7 +95,8 @@ describe('images', () => {
 		expect(badge.image).toEqual({
 			old: { kind: 'image', format: 'png', size: BADGE_BEFORE.byteLength },
 			new: { kind: 'image', format: 'png', size: BADGE_AFTER.byteLength },
-			sameBytes: false
+			sameBytes: false,
+			change: 'changed, image'
 		});
 		// An added image has only its new side, a deleted one only its old.
 		expect(value(await client.readPart(id, part('assets/new-icon.png'))).image).toMatchObject({
@@ -117,7 +118,9 @@ describe('images', () => {
 		expect(value(await client.readPart(id, part('assets/seal.png'))).image).toEqual({
 			old: { kind: 'image', format: 'png', size: STAMP.byteLength },
 			new: { kind: 'image', format: 'png', size: STAMP.byteLength },
-			sameBytes: true
+			sameBytes: true,
+			// Renamed, its bytes the same: no binary change, so its header has nothing to correct.
+			change: null
 		});
 		expect(badge.image?.sameBytes).toBe(false);
 
@@ -157,7 +160,8 @@ describe('images', () => {
 		expect(huge.image).toEqual({
 			old: null,
 			new: { kind: 'too-large', format: 'png', size: MAX_IMAGE_SIZE + 1 },
-			sameBytes: false
+			sameBytes: false,
+			change: 'added, image'
 		});
 		// Its name says PNG, its bytes do not: it is a binary file and no picture.
 		const fake = value(await client.readPart(id, part('fake.png')));
@@ -205,7 +209,8 @@ describe('images', () => {
 		expect(renamed.image).toEqual({
 			old: { kind: 'image', format: 'png', size: BADGE_BEFORE.byteLength },
 			new: { kind: 'other', what: 'binary', size: BADGE_BEFORE.byteLength },
-			sameBytes: true
+			sameBytes: true,
+			change: null
 		});
 		// A binary file renamed and changed is measured by each side's own path.
 		const moved = value(await client.readPart(id, part('kept.dat')));
@@ -215,7 +220,9 @@ describe('images', () => {
 		expect(value(await client.readPart(id, part('broken.png'))).image).toEqual({
 			old: { kind: 'image', format: 'png', size: BADGE_AFTER.byteLength },
 			new: { kind: 'other', what: 'binary', size: 10 },
-			sameBytes: false
+			sameBytes: false,
+			// One side is no picture: still a binary file.
+			change: null
 		});
 		// A text file that became an SVG keeps its lines.
 		const data = value(await client.readPart(id, part('data.svg')));

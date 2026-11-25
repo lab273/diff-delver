@@ -81,6 +81,13 @@
 	const groupName = $derived(viewer.groupOfPart(at)?.name ?? '');
 	/** Its path as a person is shown it, in what is read out. */
 	const shown = $derived(shownPath(part.path));
+	/**
+	 * How the file changed: the frame's words, or, once its bytes show that a
+	 * binary file is an image on every side, the words that call it one.
+	 */
+	const change = $derived(
+		(state.lines.kind === 'loaded' ? state.lines.image?.change : undefined) ?? part.change
+	);
 	/** A search's matches in it, on its path and its lines. */
 	const marks = $derived(viewer.search.marksIn(at));
 
@@ -184,8 +191,8 @@
 				</span>
 			</button>
 		</h3>
-		{#if part.change !== ''}
-			<span class="change">{part.change}</span>
+		{#if change !== ''}
+			<span class="change">{change}</span>
 		{/if}
 		{#if part.modeChange !== null}
 			<span class="mode">

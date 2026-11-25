@@ -487,7 +487,8 @@ export function partLinesView(content: PartContent): PartLines {
 				: {
 						old: content.image.old ?? null,
 						new: content.image.new ?? null,
-						sameBytes: content.image.sameBytes
+						sameBytes: content.image.sameBytes,
+						change: content.image.change ?? null
 					}
 	};
 }

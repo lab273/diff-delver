@@ -517,13 +517,18 @@ export const PartLinesSchema = z.object({
 	 * For a file one side of which is an image the page shows as a picture
 	 * (DESIGN 8.4), read from `GET /api/diffs/:id/image`: each side the file
 	 * has, null for a side it does not have, and whether its bytes are the same
-	 * on both, as when only its name or mode changed; null for any other file.
+	 * on both, as when only its name or mode changed; and, for a binary file
+	 * every side of which is an image, how it changed in the words its part's
+	 * header uses then ("changed, image"), in place of the frame's ("changed,
+	 * binary file"), which are said before its bytes are read. Null for any
+	 * other file.
 	 */
 	image: z
 		.object({
 			old: ImageSideSchema.nullable(),
 			new: ImageSideSchema.nullable(),
-			sameBytes: z.boolean()
+			sameBytes: z.boolean(),
+			change: message.nullable()
 		})
 		.nullable()
 });

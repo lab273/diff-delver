@@ -166,18 +166,29 @@ export function describeFileLines(file: FileDiff): ReviewerMessage {
 	}
 }
 
+/** How the words for a file's change are given. */
+export interface FileChangeWords {
+	/** False leaves out a change of mode or kind, for a place that shows it on its own. */
+	readonly withMode?: boolean;
+	/**
+	 * True when a binary file is known, from its bytes, to be an image the page
+	 * shows as a picture on every side it has: it is then an "image", not a
+	 * "binary file". Only its bytes can say so, so the list of files, and an
+	 * agent, are told "binary file".
+	 */
+	readonly image?: boolean;
+}
+
 /**
  * How a file changed, as a list of files says it: "changed", "added",
  * "renamed from src/old.ts", "changed, renamed from src/old.ts", "changed,
- * made executable", "became a link", "added, binary file". A file whose name or
- * mode changed says "changed" first when its content changed too. With
- * `withMode: false` it leaves out a change of mode or kind, for a place that
- * shows that on its own (`modeChangeOf`), and may then be empty.
+ * made executable", "became a link", "added, binary file", or with `image`,
+ * "added, image". A file whose name or mode changed says "changed" first when
+ * its content changed too. With `withMode: false` it leaves out a change of
+ * mode or kind, for a place that shows that on its own (`modeChangeOf`), and
+ * may then be empty.
  */
-export function describeFileChange(
-	file: FileDiff,
-	options: { readonly withMode?: boolean } = {}
-): ReviewerMessage {
+export function describeFileChange(file: FileDiff, options: FileChangeWords = {}): ReviewerMessage {
 	const parts: string[] = [];
 	switch (file.status) {
 		case 'added':
@@ -201,7 +212,7 @@ export function describeFileChange(
 	}
 	switch (file.content.kind) {
 		case 'binary':
-			parts.push('binary file');
+			parts.push(options.image === true ? 'image' : 'binary file');
 			break;
 		case 'submodule':
 			parts.push('submodule');
@@ -220,10 +231,7 @@ export function describeFileChange(
  * "added, empty file", "renamed from src/old.ts"). `withMode: false` leaves
  * out a change of mode or kind, as `describeFileChange` does.
  */
-export function describeFileUnit(
-	file: FileDiff,
-	options: { readonly withMode?: boolean } = {}
-): ReviewerMessage {
+export function describeFileUnit(file: FileDiff, options: FileChangeWords = {}): ReviewerMessage {
 	const content = file.content;
 	const hasLines = content.kind === 'text' && content.hunks.length > 0;
 	if (hasLines) {
