@@ -34,6 +34,7 @@ import { repositoryNameOf } from '#lib/core/repository-name.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { parseSourceIdentity, type SourceIdentity } from '#lib/core/source-identity.tiny.ts';
 import { parseTreeId, type TreeId } from '#lib/core/tree-id.tiny.ts';
+import type { GitHubHost } from '#lib/core/github/github-host.tiny.ts';
 import type { GitHubToken } from '#lib/core/github/github-token.tiny.ts';
 import { borrowObjects } from '../../git/alternates.ts';
 import { runGit, runGitText } from '../../git/run-git.ts';
@@ -80,11 +81,15 @@ function borrowed(repo: LocalRepository): Readonly<Record<string, string>> {
 	return borrowable(repo) ? borrowObjects(repo.objects) : {};
 }
 
-/** git's environment for a fetch from GitHub: the token as a header for its address, and nothing asked. */
-function fetchEnvironment(
+/**
+ * git's environment for a fetch from `address`: the token, when there is
+ * one, as a header for GitHub's own address (`https://<host>/`) and for no
+ * other, and nothing asked of the person.
+ */
+export function fetchEnvironment(
 	repo: LocalRepository,
-	cloneUrl: string,
-	host: string,
+	address: string,
+	host: GitHubHost,
 	token: GitHubToken | undefined
 ): Readonly<Record<string, string>> {
 	const quiet = {
@@ -95,7 +100,7 @@ function fetchEnvironment(
 		GCM_INTERACTIVE: 'never'
 	};
 	const site = `https://${host}/`;
-	if (token === undefined || !cloneUrl.startsWith(site)) return quiet;
+	if (token === undefined || !address.startsWith(site)) return quiet;
 	const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
 	return {
 		...quiet,
@@ -139,6 +144,37 @@ async function treeAt(
 	return id?.ok === true ? id.value : undefined;
 }
 
+/**
+ * The arguments of git's fetch of the pull request's branch and base from
+ * `address` into refs under `refs`: no token, which goes only in its
+ * environment (`fetchEnvironment`).
+ */
+export function fetchArguments(
+	details: PullRequestDetails,
+	address: string,
+	refs: string
+): readonly string[] {
+	return [
+		'-c',
+		'fetch.unpackLimit=1',
+		'-c',
+		'transfer.unpackLimit=1',
+		'-c',
+		'credential.interactive=false',
+		'fetch',
+		'--quiet',
+		'--no-tags',
+		'--no-write-fetch-head',
+		'--no-auto-gc',
+		'--no-auto-maintenance',
+		'--no-recurse-submodules',
+		'--end-of-options',
+		address,
+		`+refs/pull/${String(details.ref.number)}/head:${refs}head`,
+		`+refs/heads/${details.base.branch}:${refs}base`
+	];
+}
+
 /** Fetches the pull request's branch and base into the store under `refs`, and finds the two trees. */
 async function fetchSides(
 	store: Store,
@@ -155,25 +191,7 @@ async function fetchSides(
 	}, access.fetchSeconds * 1000);
 	const fetched = await runGit({
 		cwd: store.dir,
-		args: [
-			'-c',
-			'fetch.unpackLimit=1',
-			'-c',
-			'transfer.unpackLimit=1',
-			'-c',
-			'credential.interactive=false',
-			'fetch',
-			'--quiet',
-			'--no-tags',
-			'--no-write-fetch-head',
-			'--no-auto-gc',
-			'--no-auto-maintenance',
-			'--no-recurse-submodules',
-			'--end-of-options',
-			details.base.cloneUrl,
-			`+refs/pull/${String(details.ref.number)}/head:${refs}head`,
-			`+refs/heads/${details.base.branch}:${refs}base`
-		],
+		args: fetchArguments(details, details.base.cloneUrl, refs),
 		env,
 		stopWhen: limit.signal
 	}).finally(() => {
