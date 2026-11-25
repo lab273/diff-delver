@@ -529,6 +529,11 @@ Live loop and review:
 ] }
 ```
 
+The daemon remembers, in memory only, when a server started in each folder last
+sent a message and when a tool call last named each report. That is all a Delve's
+page is told about agents (8.2): when one was last heard from, and where. A tool
+call is never refused or slowed by it, and a restart forgets it.
+
 An item with only a file or glob takes whatever in it is still uncategorised, which
 keeps large diffs cheap: assign whole files where that is right, and spend line
 ranges on the mixed ones.
@@ -692,6 +697,22 @@ longer there, the page says so in place of the link. A comment being written is
 kept by the tab through every one of these ways out, and the Delve it belongs to
 is marked wherever it is listed. A pull request, when it is a source (build step
 6), is opened from the same place as commits and branches.
+
+**Asking an agent from the page.** A Delve with anything not sorted offers,
+under "Not sorted yet", **Have an agent sort this**. It opens three steps in
+place, each with something to copy: the command that connects a coding agent to
+this copy of diff delver once, for every folder (for Claude Code, for Codex, or
+the plain command for any other agent), the folder to start the agent in, and a
+sentence to ask it that names this Delve, so the agent sorts the Delve on screen
+and does not make another. The command is for the copy that is running: a
+release's address for a release, the file that started the daemon for a build of
+the repository, with the data folder when it is not the default. Step 1 says
+when an agent connected and where it was started, as something that happened,
+never as "connected now", and when that agent was started in another folder,
+that it is set up and should be started in this one. When the agent's first
+sections arrive, the steps give way to them and the page says an agent has
+started sorting. The README says the same for a person who has not opened a page
+yet.
 
 ### 8.3 Reading the diff
 
@@ -921,6 +942,7 @@ guidance says [how journeys are tested](DEVELOPING.md#testing).
 | J17 | Choose commits to review | open the choose page for a repository, see its branches and commits with their times and sizes, pick a run of commits or a whole branch with the keyboard, open it, and see when the repository last fetched and whether origin has moved on |
 | J18 | Draft comments | open a Delve from an agent's link and turn comments on in one press, comment on a line or a run of lines from the line itself, see each comment at its lines and in a list that goes to it, edit and delete one, and keep what was typed through a refused save and an update |
 | J19 | Move between Delves | go from a Delve to another through the panel that lists the others, open the choose page for the Delve's repository from the panel and open a branch there, and reach the list from the header, where each repository offers the same way to open something new, with no terminal |
+| J20 | Have an agent sort this Delve | on a Delve no agent has sorted, open the steps under "Not sorted yet", copy the command for an agent, the folder and the sentence that names this Delve, see the page say an agent connected, and see the steps give way to the agent's sections |
 
 The agent interface is also tried with real coding agents. Recorded sessions of
 Claude Code and Codex sorting fixture diffs through the MCP server are kept in the
