@@ -820,6 +820,27 @@ This drops the grace period. Was that intended?
 
 The quoted code is inserted by the server from the snapshot.
 
+**What is built.** Finish and copy, the preview and the list of finished
+reviews, with comments only, and `get_review`. The panel sits under the draft
+comments on a Delve's page and finishing needs the same review access as
+writing a comment. The text differs from the example above in these ways, on
+purpose:
+
+- The heading names the Delve as its title does, and the text then names the
+  report, its version and, when its new side is a commit, that commit.
+- The reviewer's words are a block quote under the quoted code, so nothing typed
+  in a comment can open a heading or a code block of the review's own.
+- At most the first 40 lines of a comment's lines are quoted, and the text says
+  when it stops short.
+- `get_review` gives the text between a line that marks its start and one that
+  marks its end, and a review too long for one answer in parts (`part`).
+
+A finish is refused, saying why, when the Delve's version or the draft changed
+since the page showed it, including when another tab finished the same comments,
+and a comment finished in another tab and then edited says which review it is
+in. A closed Delve must be reopened to finish. The delivery log (6.3) is not
+kept yet.
+
 ## 9. Storage and safety
 
 - SQLite in the data directory, beside the stores, so there is one place to find, back up or delete. Reports, revisions, sections, assignments
