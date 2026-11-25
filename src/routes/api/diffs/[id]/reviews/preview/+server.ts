@@ -18,7 +18,8 @@ export const GET: RequestHandler = async ({ locals, params, request, url }) => {
 	const body: ReviewPreviewView = {
 		number: preview.value.number,
 		text: preview.value.text,
-		comments: preview.value.comments.map((c) => ({ id: c.id, edits: c.edits }))
+		comments: preview.value.comments.map((c) => ({ id: c.id, edits: c.edits })),
+		overall: preview.value.overall.edits
 	};
 	return Response.json(body, { headers: PRIVATE });
 };

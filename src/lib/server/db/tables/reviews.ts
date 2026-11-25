@@ -1,7 +1,8 @@
 /**
  * The `reviews` table: the reviews the reviewer finished (DESIGN 6.3), each
  * numbered within its report, with the revision it was finished on, the exact
- * text that was handed over and how far the review had got then. A review is
+ * text that was handed over, the overall review it was finished with, and how
+ * far the review had got then. A review is
  * never changed once it is written. The only code that sees its rows.
  */
 import { z } from 'zod';
@@ -30,23 +31,41 @@ const row = z
 		ignored: whole(parseUnitCount),
 		uncategorised: whole(parseUnitCount),
 		comments: whole(parseCommentCount),
+		overall: z
+			.number()
+			.int()
+			.min(0)
+			.max(1)
+			.transform((n) => n === 1),
 		text: text((t) => (t === '' ? err(t) : ok(textForAgent(t))))
 	})
 	.refine(({ counted, reviewed, uncategorised }) => reviewed <= counted && uncategorised <= counted)
 	.transform(
-		({ number, version, submittedAt, counted, reviewed, ignored, uncategorised, comments, text }) =>
+		({
+			number,
+			version,
+			submittedAt,
+			counted,
+			reviewed,
+			ignored,
+			uncategorised,
+			comments,
+			overall,
+			text
+		}) =>
 			({
 				number,
 				version,
 				submittedAt,
 				progress: { counted, reviewed, ignored, uncategorised },
 				comments,
+				overall,
 				text
 			}) satisfies FinishedReview
 	);
 
 const COLUMNS = `v.number, r.number AS version, v.submitted_at AS submittedAt, v.counted,
-	v.reviewed, v.ignored, v.uncategorised, v.export_text AS text,
+	v.reviewed, v.ignored, v.uncategorised, v.export_text AS text, v.summary <> '' AS overall,
 	(SELECT count(*) FROM review_comments c
 	 WHERE c.report_id = v.report_id AND c.review_number = v.number) AS comments`;
 
@@ -107,12 +126,13 @@ export function insertReview(
 	revision: RevisionId,
 	submittedAt: Timestamp,
 	progress: UnitProgress,
-	exported: TextForAgent
+	exported: TextForAgent,
+	overall: string
 ): void {
 	q.run(
 		`INSERT INTO reviews (report_id, number, revision_id, submitted_at, export_text,
-			counted, reviewed, ignored, uncategorised)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			counted, reviewed, ignored, uncategorised, summary)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		report,
 		number,
 		revision,
@@ -121,6 +141,7 @@ export function insertReview(
 		progress.counted,
 		progress.reviewed,
 		progress.ignored,
-		progress.uncategorised
+		progress.uncategorised,
+		overall
 	);
 }

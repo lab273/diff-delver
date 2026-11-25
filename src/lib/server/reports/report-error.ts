@@ -1,4 +1,6 @@
 import { MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
+import { MAX_OVERALL_REVIEW_LENGTH } from '#lib/core/review/overall-review.ts';
+import { formatCount } from '#lib/core/viewer/words.ts';
 import type { ReviewNumber } from '#lib/core/review-number.tiny.ts';
 /**
  * Everything the report service can fail with, each with a message for the
@@ -169,7 +171,11 @@ export type ReportError =
 	| { readonly kind: 'CommentNotFound' }
 	/** The comment's words were changed since the caller read it, as from another tab. */
 	| { readonly kind: 'CommentChanged' }
-	/** There is no comment in the draft, so there is no review to finish. */
+	/** The overall review's words are longer than it holds. */
+	| { readonly kind: 'InvalidOverallReview' }
+	/** The overall review's words were changed since the caller read them, as from another tab. */
+	| { readonly kind: 'OverallReviewChanged' }
+	/** The draft has no comment and no overall review, so there is no review to finish. */
 	| { readonly kind: 'NothingToFinish' }
 	/** The draft holds other comments, or other words, than the page that finished it showed. */
 	| { readonly kind: 'DraftChanged' }
@@ -268,9 +274,17 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 			return reviewerMessage(
 				'This comment is no longer in your draft: it was deleted, perhaps in another tab, so nothing was changed. If you still want what you wrote, copy it and write it as a new comment.'
 			);
+		case 'InvalidOverallReview':
+			return reviewerMessage(
+				`Write an overall review of up to ${formatCount(MAX_OVERALL_REVIEW_LENGTH)} characters.`
+			);
+		case 'OverallReviewChanged':
+			return reviewerMessage(
+				'Your overall review was changed since this page read it, perhaps in another tab, so nothing was changed here. Look at its words as they are now, then save again if you still want yours in their place.'
+			);
 		case 'NothingToFinish':
 			return reviewerMessage(
-				'There is nothing to finish yet: your draft has no comments. Comment on a line by pressing its number, then finish the review.'
+				'There is nothing to finish yet: your draft has no comments and no overall review. Comment on a line by pressing its number, or write an overall review, then finish the review.'
 			);
 		case 'DraftChanged':
 			return reviewerMessage(

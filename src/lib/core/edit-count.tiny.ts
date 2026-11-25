@@ -18,3 +18,6 @@ export function parseEditCount(value: number): Result<EditCount, InvalidEditCoun
 	if (!Number.isSafeInteger(value) || value < 0) return err({ kind: 'InvalidEditCount', value });
 	return ok(value as EditCount);
 }
+
+/** No change yet: the count of words as first written, or of an overall review never written. */
+export const NO_EDITS = 0 as EditCount;

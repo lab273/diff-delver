@@ -28,11 +28,10 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	if (!id.ok) return id.error;
 	const parsed = await readBody(request, FinishReviewSchema);
 	if (!parsed.ok) return parsed.error;
-	const finished = await locals.daemon.service.finishReview(
-		id.value,
-		parsed.value.version,
-		parsed.value.comments
-	);
+	const finished = await locals.daemon.service.finishReview(id.value, parsed.value.version, {
+		comments: parsed.value.comments,
+		overall: parsed.value.overall
+	});
 	return finished.ok
 		? Response.json(reviewView(finished.value), { status: 201, headers: PRIVATE })
 		: serviceFailure(finished.error);

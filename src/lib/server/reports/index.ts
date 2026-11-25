@@ -43,6 +43,7 @@ export type {
 	StoredSnapshot,
 	UpdateOutcome,
 	ShownComment,
+	ShownDraft,
 	ReviewPreview
 } from './report-service.ts';
 export { ReportService } from './report-service.ts';

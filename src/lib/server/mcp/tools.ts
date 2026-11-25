@@ -1143,7 +1143,7 @@ const getReview = tool({
 	name: 'get_review',
 	title: 'Read the review the person finished',
 	description:
-		'Gives a code review the person finished in diff delver, as the Markdown they copied: each of their comments with its file, its lines and side ("new" is the file after the change, "old" before), the code it is on, and their words; then what they did not review. Call it when the person asks you to act on, address or read their review or their comments in diff delver. Leave out "review" for their latest; reviews are numbered 1, 2, 3 in the order they were finished. Only finished reviews can be read: comments the person is still writing stay private until they press "Finish and copy" on the report\'s page. If you do not know the report id, call list_reports first.',
+		'Gives a code review the person finished in diff delver, as the Markdown they copied: their overall review of the change, when they wrote one; each of their comments with its file, its lines and side ("new" is the file after the change, "old" before), the code it is on, and their words; then what they did not review. Call it when the person asks you to act on, address or read their review or their comments in diff delver. Leave out "review" for their latest; reviews are numbered 1, 2, 3 in the order they were finished. Only finished reviews can be read: comments the person is still writing stay private until they press "Finish and copy" on the report\'s page. If you do not know the report id, call list_reports first.',
 	readOnly: true,
 	example: '{ "report": "r_7f3a9c01" }',
 	schema: z.strictObject({

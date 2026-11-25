@@ -7,7 +7,7 @@
  * in the list of comments when they are not.
  */
 import { describeApiError, type ApiClient } from '#lib/api/client.ts';
-import type { AddDraftComment, DraftCommentView } from '#lib/api/schemas.ts';
+import type { AddDraftComment, DraftCommentView, OverallReviewView } from '#lib/api/schemas.ts';
 import type { EscapedPath } from '#lib/core/path-bytes.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import { isCommentBody, MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
@@ -94,6 +94,8 @@ export class Comments {
 	readonly #client: ApiClient;
 	/** The saved draft, oldest first; undefined until it has been read. */
 	saved = $state.raw<readonly DraftCommentView[]>();
+	/** The draft's overall review as saved; undefined until it has been read. */
+	overall = $state.raw<OverallReviewView>();
 	/** The daemon's time when the draft was last read, to say how long ago. */
 	now = $state.raw<Timestamp>();
 	loading = $state(false);
@@ -126,6 +128,7 @@ export class Comments {
 		}
 		this.problem = '';
 		this.saved = read.value.comments;
+		this.overall = read.value.overall;
 		this.now = read.value.now;
 	}
 

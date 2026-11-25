@@ -252,7 +252,8 @@ function groupLine(group: NotReviewedGroup): string {
 /**
  * A review the reviewer finished (DESIGN 6.3), as the report keeps it: its
  * number, the version it was finished on, when, how far the review had got
- * then, how many comments it holds, and the exact text that was handed over.
+ * then, how many comments it holds, whether it holds an overall review, and
+ * the exact text that was handed over.
  */
 export interface FinishedReview {
 	readonly number: ReviewNumber;
@@ -260,5 +261,7 @@ export interface FinishedReview {
 	readonly submittedAt: Timestamp;
 	readonly progress: UnitProgress;
 	readonly comments: CommentCount;
+	/** Whether the reviewer wrote an overall review in it. */
+	readonly overall: boolean;
 	readonly text: TextForAgent;
 }

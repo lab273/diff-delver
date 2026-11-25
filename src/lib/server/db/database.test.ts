@@ -32,7 +32,9 @@ import {
 	insertDraftComment,
 	updateDraftComment
 } from './tables/draft-comments.ts';
+import { draftSummaryOf, NO_OVERALL_REVIEW, writeDraftSummary } from './tables/draft-summaries.ts';
 import { insertReport, reportById, setReportState } from './tables/reports.ts';
+import { reviewsOf } from './tables/reviews.ts';
 import { insertRevision } from './tables/revisions.ts';
 
 const clock = () => settableClock(at(1_700_000_000_000));
@@ -192,6 +194,11 @@ describe('the database', () => {
 				version: 11,
 				name: 'finished reviews, with their comments, the text handed over and what was reviewed',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 12,
+				name: 'the overall review of each draft, and the one each finished review was finished with',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -256,6 +263,7 @@ describe('the database', () => {
 			section_references: [],
 			commit_runs: [],
 			draft_comments: [],
+			draft_summaries: [],
 			reviews: [],
 			review_comments: [],
 			review_marks: [],
@@ -356,6 +364,53 @@ describe('the database', () => {
 			})
 		);
 		expect(value(db.read((q) => ok(q.all('SELECT id FROM draft_comments'))))).toEqual([]);
+		db.close();
+	});
+
+	it('keeps reviews finished before overall reviews were kept, as holding none, and counts each change to one', async () => {
+		const dir = await tempDirectory();
+		const ids = sequentialIds();
+		const id = ids.reportId();
+		const revision = aRevision(ids.revisionId(), id);
+		const before = value(await Database.open(dir, clock(), MIGRATIONS.slice(0, 11)));
+		value(
+			before.write((q) => {
+				insertReport(q, aReport(id));
+				insertRevision(q, revision);
+				q.run(
+					`INSERT INTO reviews (report_id, number, revision_id, submitted_at, export_text,
+						counted, reviewed, ignored, uncategorised)
+					 VALUES (?, 1, ?, 5000, '# Review 1', 3, 1, 0, 0)`,
+					id,
+					revision.id
+				);
+				return ok(undefined);
+			})
+		);
+		before.close();
+
+		const db = await opened(dir);
+		expect(value(db.read((q) => reviewsOf(q, id)))).toMatchObject([
+			{ number: 1, comments: 0, overall: false, text: '# Review 1' }
+		]);
+		expect(value(db.read((q) => draftSummaryOf(q, id)))).toEqual(NO_OVERALL_REVIEW);
+		const changed = value(
+			db.write((q) => {
+				writeDraftSummary(q, id, 'Looks right.', at(9_000));
+				writeDraftSummary(q, id, '', at(9_500));
+				return draftSummaryOf(q, id);
+			})
+		);
+		// Emptied, it still counts: a page that read the words before changes nothing.
+		expect(changed).toEqual({ body: '', changedAt: 9_500, edits: 2 });
+		// Deleting the Delve takes its overall review with it.
+		value(
+			db.write((q) => {
+				q.run('DELETE FROM reports');
+				return ok(undefined);
+			})
+		);
+		expect(value(db.read((q) => ok(q.all('SELECT * FROM draft_summaries'))))).toEqual([]);
 		db.close();
 	});
 

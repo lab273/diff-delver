@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { IMAGE_FORMATS, NOT_IMAGE_KINDS } from '#lib/core/image/image-format.ts';
 import { FILE_PAGE_LINES, FILE_QUERY_LENGTH } from '#lib/core/viewer/file-reader.ts';
 import { MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
+import { MAX_OVERALL_REVIEW_LENGTH } from '#lib/core/review/overall-review.ts';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { textToCopy } from '#lib/core/agent-setup/text-to-copy.tiny.ts';
@@ -984,10 +985,29 @@ export const DraftCommentSchema = AddDraftCommentSchema.extend({
 });
 export type DraftCommentView = z.infer<typeof DraftCommentSchema>;
 
+/** The draft's overall review: its words ('' for none), when they last changed, and how many times. */
+export const OverallReviewSchema = z.strictObject({
+	body: z.string(),
+	/** When its words last changed, or null when they never have. */
+	changedAt: timestamp.nullable(),
+	/** How many times its words have been changed: sent back with a change, and to finish. */
+	edits: editCount
+});
+export type OverallReviewView = z.infer<typeof OverallReviewSchema>;
+
+/** POST /api/diffs/[id]/overall: the overall review's new words, on the words the page read. */
+export const SaveOverallReviewSchema = z.strictObject({
+	edits: editCount,
+	/** Exactly as typed; only white space empties it. */
+	body: z.string().max(MAX_OVERALL_REVIEW_LENGTH, 'the overall review is too long')
+});
+export type SaveOverallReview = z.infer<typeof SaveOverallReviewSchema>;
+
 /** GET /api/diffs/[id]/comments: the whole draft, with the daemon's time to say how long ago. */
 export const DraftCommentsSchema = z.strictObject({
 	now: timestamp,
-	comments: z.array(DraftCommentSchema)
+	comments: z.array(DraftCommentSchema),
+	overall: OverallReviewSchema
 });
 export type DraftCommentsView = z.infer<typeof DraftCommentsSchema>;
 
@@ -1013,14 +1033,18 @@ export const ReviewPreviewSchema = z.strictObject({
 	number: reviewNumber,
 	text: reviewText,
 	/** The draft's comments it holds: sent back to finish it. */
-	comments: z.array(shownComment)
+	comments: z.array(shownComment),
+	/** How many times the overall review it holds had been changed: sent back to finish it. */
+	overall: editCount
 });
 export type ReviewPreviewView = z.infer<typeof ReviewPreviewSchema>;
 
 /** POST /api/diffs/[id]/reviews: finish the draft the page showed, on the version it shows. */
 export const FinishReviewSchema = z.strictObject({
 	version,
-	comments: z.array(shownComment).max(100_000)
+	comments: z.array(shownComment).max(100_000),
+	/** How many times the overall review had been changed when the page showed it. */
+	overall: editCount
 });
 export type FinishReview = z.infer<typeof FinishReviewSchema>;
 
@@ -1030,6 +1054,8 @@ export const FinishedReviewSchema = z.strictObject({
 	version,
 	submittedAt: timestamp,
 	comments: parsed(z.number(), parseCommentCount),
+	/** Whether it holds an overall review. */
+	overall: z.boolean(),
 	progress: z.strictObject({
 		counted: unitCount,
 		reviewed: unitCount,

@@ -97,8 +97,10 @@ think they should look at first. Do not repeat the summaries.
 When the person asks you to act on, fix or answer their review in diff delver,
 call `get_review` with the report's id (`list_reports` lists the reports if you do
 not have it). It gives their latest finished review, exactly as they copied it:
-each comment with its file, its lines and side (`new` is after the change, `old`
+their overall review of the change first, when they wrote one, then each
+comment with its file, its lines and side (`new` is after the change, `old`
 before), the code it was on, and their words, then what they did not review.
+Read the overall review first: it says what they think of the change as a whole.
 Work through the comments one at a time in the repository: change what they ask
 for, and answer what they ask about instead of changing code for it. Then tell
 them, comment by comment, what you did. Comments they are still writing are

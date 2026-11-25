@@ -42,6 +42,7 @@ function review(text: string): FinishedReview {
 			uncategorised: unitCountOf(0)
 		},
 		comments: sure(parseCommentCount(1)),
+		overall: false,
 		text: textForAgent(text)
 	};
 }

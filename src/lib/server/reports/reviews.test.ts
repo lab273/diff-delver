@@ -3,11 +3,11 @@ import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { settableClock } from '#lib/core/clock.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
-import { parseEditCount } from '#lib/core/edit-count.tiny.ts';
+import { NO_EDITS, parseEditCount } from '#lib/core/edit-count.tiny.ts';
 import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
 import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
-import type { Result } from '#lib/core/result.ts';
+import { ok, type Result } from '#lib/core/result.ts';
 import { parseReviewNumber } from '#lib/core/review-number.tiny.ts';
 import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
@@ -73,7 +73,10 @@ describe('finishing a review', () => {
 
 			clock.set(at(1_700_000_060_000));
 			const review = value(
-				await service.finishReview(id, FIRST, [{ id: comment.id, edits: comment.edits }])
+				await service.finishReview(id, FIRST, {
+					comments: [{ id: comment.id, edits: comment.edits }],
+					overall: NO_EDITS
+				})
 			);
 			expect(review).toMatchObject({
 				number: 1,
@@ -113,7 +116,10 @@ describe('finishing a review', () => {
 			);
 			expect(value(await service.previewReview(id, FIRST)).number).toBe(2);
 			const second = value(
-				await service.finishReview(id, FIRST, [{ id: next.id, edits: next.edits }])
+				await service.finishReview(id, FIRST, {
+					comments: [{ id: next.id, edits: next.edits }],
+					overall: NO_EDITS
+				})
 			);
 			expect(second.number).toBe(2);
 			expect(value(service.review(id))?.number).toBe(2);
@@ -144,7 +150,9 @@ describe('finishing a review', () => {
 			);
 			value(await service.markReviewed(id, FIRST, { kind: 'file', path: path('README.md') }, true));
 			const shown = [after, before].map((c) => ({ id: c.id, edits: c.edits }));
-			const number = value(await service.finishReview(id, FIRST, shown)).number;
+			const number = value(
+				await service.finishReview(id, FIRST, { comments: shown, overall: NO_EDITS })
+			).number;
 			// A tick after finishing is not the review's.
 			value(
 				await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/cart.ts') }, true)
@@ -180,7 +188,9 @@ describe('finishing a review', () => {
 	it('refuses to finish an empty draft, a draft that changed since the page showed it, and an old version', async () => {
 		const { repo, service, id } = await setUp();
 		try {
-			const empty = failure(await service.finishReview(id, FIRST, []));
+			const empty = failure(
+				await service.finishReview(id, FIRST, { comments: [], overall: NO_EDITS })
+			);
 			expect(empty).toEqual({ kind: 'NothingToFinish' });
 			expect(describeReportError(empty)).toMatch(/nothing to finish yet/);
 
@@ -193,15 +203,25 @@ describe('finishing a review', () => {
 				)
 			);
 			const changed = failure(
-				await service.finishReview(id, FIRST, [{ id: comment.id, edits: value(parseEditCount(1)) }])
+				await service.finishReview(id, FIRST, {
+					comments: [{ id: comment.id, edits: value(parseEditCount(1)) }],
+					overall: NO_EDITS
+				})
 			);
 			expect(changed).toEqual({ kind: 'DraftChanged' });
-			expect(failure(await service.finishReview(id, FIRST, []))).toEqual({ kind: 'DraftChanged' });
+			expect(
+				failure(await service.finishReview(id, FIRST, { comments: [], overall: NO_EDITS }))
+			).toEqual({ kind: 'DraftChanged' });
 
 			await repo.write('src/cart.ts', 'changed again\n');
 			value(await service.update(id));
 			expect(
-				failure(await service.finishReview(id, FIRST, [{ id: comment.id, edits: comment.edits }]))
+				failure(
+					await service.finishReview(id, FIRST, {
+						comments: [{ id: comment.id, edits: comment.edits }],
+						overall: NO_EDITS
+					})
+				)
 			).toMatchObject({ kind: 'VersionOutOfDate', seen: 1, current: 2 });
 			expect(failure(service.review(id, value(parseReviewNumber(3))))).toEqual({
 				kind: 'ReviewNotFound',
@@ -225,9 +245,11 @@ describe('finishing a review', () => {
 				)
 			);
 			const shown = [{ id: comment.id, edits: comment.edits }];
-			value(await service.finishReview(id, FIRST, shown));
+			value(await service.finishReview(id, FIRST, { comments: shown, overall: NO_EDITS }));
 
-			const again = failure(await service.finishReview(id, FIRST, shown));
+			const again = failure(
+				await service.finishReview(id, FIRST, { comments: shown, overall: NO_EDITS })
+			);
 			expect(again).toEqual({ kind: 'CommentsFinished', number: 1 });
 			expect(describeReportError(again)).toMatch(/finished already, as review 1/);
 
@@ -240,7 +262,9 @@ describe('finishing a review', () => {
 					'Twice.'
 				)
 			);
-			expect(failure(await service.finishReview(id, FIRST, shown))).toEqual({
+			expect(
+				failure(await service.finishReview(id, FIRST, { comments: shown, overall: NO_EDITS }))
+			).toEqual({
 				kind: 'CommentsFinished',
 				number: 1
 			});
@@ -275,12 +299,136 @@ describe('finishing a review', () => {
 			value(await service.update(id));
 			const second = value(parseRevisionNumber(2));
 			const review = value(
-				await service.finishReview(id, second, [{ id: comment.id, edits: comment.edits }])
+				await service.finishReview(id, second, {
+					comments: [{ id: comment.id, edits: comment.edits }],
+					overall: NO_EDITS
+				})
 			);
 			expect(review.version).toBe(2);
 			expect(review.text).toContain(
 				'### src/cart.ts:4 (new, version 1)\n```typescript\nfour\n```\n'
 			);
+		} finally {
+			service.close();
+		}
+	});
+});
+
+describe('the overall review', () => {
+	it('is saved exactly as typed, counts each change, and refuses words read before another change', async () => {
+		const { clock, service, id } = await setUp();
+		try {
+			expect(value(service.overallReview(id))).toEqual({
+				body: '',
+				changedAt: undefined,
+				edits: 0
+			});
+			clock.set(at(1_700_000_030_000));
+			const words = '  Looks right.\n\n## Not a heading\n';
+			const saved = value(service.saveOverallReview(id, NO_EDITS, words));
+			expect(saved).toEqual({ body: words, changedAt: 1_700_000_030_000, edits: 1 });
+			expect(value(service.overallReview(id))).toEqual(saved);
+			// The same words again change nothing, and count nothing.
+			expect(value(service.saveOverallReview(id, saved.edits, words))).toEqual(saved);
+
+			// A page that read the words before this change changes nothing, and says why.
+			const stale = failure(service.saveOverallReview(id, NO_EDITS, 'From another tab.'));
+			expect(stale).toEqual({ kind: 'OverallReviewChanged' });
+			expect(describeReportError(stale)).toMatch(/changed since this page read it/);
+			expect(value(service.overallReview(id)).body).toBe(words);
+
+			// Only white space empties it, and that is a change too.
+			const emptied = value(service.saveOverallReview(id, saved.edits, ' \n\t'));
+			expect(emptied).toMatchObject({ body: '', edits: 2 });
+
+			const tooLong = failure(service.saveOverallReview(id, emptied.edits, 'x'.repeat(20_001)));
+			expect(tooLong).toEqual({ kind: 'InvalidOverallReview' });
+			expect(describeReportError(tooLong)).toMatch(/up to 20,000 characters/);
+		} finally {
+			service.close();
+		}
+	});
+
+	it('is saved only while the Delve is open', async () => {
+		const { service, id } = await setUp();
+		try {
+			value(service.closeReport(id));
+			expect(failure(service.saveOverallReview(id, NO_EDITS, 'Closed.'))).toMatchObject({
+				kind: 'ReportClosed'
+			});
+			value(service.reopenReport(id));
+			expect(value(service.saveOverallReview(id, NO_EDITS, 'Open.')).body).toBe('Open.');
+		} finally {
+			service.close();
+		}
+	});
+
+	it('finishes a review on its own, first in the text, and empties it for the next review', async () => {
+		const { data, service, id } = await setUp();
+		try {
+			const overall = value(service.saveOverallReview(id, NO_EDITS, 'Ship it.\n# Really'));
+			const preview = value(await service.previewReview(id, FIRST));
+			expect(preview.overall).toEqual(overall);
+			expect(preview.comments).toEqual([]);
+			expect(preview.text).toContain(
+				'## Overall\n\n> Ship it.\n> # Really\n\n## Comments\n\nNo comments.\n'
+			);
+
+			const review = value(
+				await service.finishReview(id, FIRST, { comments: [], overall: overall.edits })
+			);
+			expect(review).toMatchObject({ number: 1, comments: 0, overall: true, text: preview.text });
+			expect(value(service.review(id))).toEqual(review);
+			// The draft is empty again, and its count goes on, so a page that showed the words changes nothing.
+			expect(value(service.overallReview(id))).toMatchObject({ body: '', edits: 2 });
+			expect(failure(service.saveOverallReview(id, overall.edits, 'Again.'))).toEqual({
+				kind: 'OverallReviewChanged'
+			});
+			expect(
+				failure(await service.finishReview(id, FIRST, { comments: [], overall: overall.edits }))
+			).toEqual({ kind: 'DraftChanged' });
+			const db = value(await Database.open(data, settableClock(at(0))));
+			try {
+				expect(
+					value(db.read((q) => ok(q.all('SELECT number, summary FROM reviews')))).map((r) => ({
+						...r
+					}))
+				).toEqual([{ number: 1, summary: 'Ship it.\n# Really' }]);
+			} finally {
+				db.close();
+			}
+		} finally {
+			service.close();
+		}
+	});
+
+	it('refuses to finish when it changed since the page showed it, and finishes with comments when it did not', async () => {
+		const { service, id } = await setUp();
+		try {
+			const comment = value(
+				await service.addDraftComment(
+					id,
+					FIRST,
+					{ path: path('src/cart.ts'), side: 'new', first: lineNumberOf(1), last: lineNumberOf(1) },
+					'One.'
+				)
+			);
+			const shown = [{ id: comment.id, edits: comment.edits }];
+			// Written in another tab after this page showed the draft.
+			const overall = value(service.saveOverallReview(id, NO_EDITS, 'Written elsewhere.'));
+			const changed = failure(
+				await service.finishReview(id, FIRST, { comments: shown, overall: NO_EDITS })
+			);
+			expect(changed).toEqual({ kind: 'DraftChanged' });
+			expect(value(service.reviews(id))).toEqual([]);
+
+			const review = value(
+				await service.finishReview(id, FIRST, { comments: shown, overall: overall.edits })
+			);
+			expect(review).toMatchObject({ comments: 1, overall: true });
+			expect(review.text.indexOf('## Overall')).toBeLessThan(review.text.indexOf('## Comments'));
+			expect(review.text).toContain('> Written elsewhere.');
+			expect(value(service.draftComments(id))).toEqual([]);
 		} finally {
 			service.close();
 		}

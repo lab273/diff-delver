@@ -24,6 +24,7 @@ export type TableName =
 	| 'section_references'
 	| 'commit_runs'
 	| 'draft_comments'
+	| 'draft_summaries'
 	| 'reviews'
 	| 'review_comments'
 	| 'review_marks';
@@ -187,6 +188,8 @@ function tableInWords(table: TableName): string {
 			return 'which lines a Delve’s sections point to in other sections';
 		case 'draft_comments':
 			return 'a Delve’s draft comments';
+		case 'draft_summaries':
+			return 'a Delve’s draft overall review';
 		case 'reviews':
 			return 'a Delve’s finished reviews';
 		case 'review_comments':
@@ -216,6 +219,8 @@ function storedRowAdvice(table: TableName): string {
 			return 'Delete that Delve from the list of Delves, where it shows as damaged, or restore the database from a backup.';
 		case 'draft_comments':
 			return 'Restore the database from a backup to recover the draft comments.';
+		case 'draft_summaries':
+			return 'Restore the database from a backup to recover the draft overall review.';
 		case 'reviews':
 		case 'review_comments':
 		case 'review_marks':

@@ -15,6 +15,7 @@
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { FinishedReviewView, ReviewPreviewView } from '#lib/api/schemas.ts';
 	import { textToCopy } from '#lib/core/agent-setup/text-to-copy.tiny.ts';
+	import { NO_EDITS } from '#lib/core/edit-count.tiny.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
@@ -137,7 +138,8 @@
 		said = '';
 		const request = pageClient().finishReview(id, {
 			version,
-			comments: saved.map((c) => ({ id: c.id, edits: c.edits }))
+			comments: saved.map((c) => ({ id: c.id, edits: c.edits })),
+			overall: comments.overall?.edits ?? NO_EDITS
 		});
 		const copying = copyWhenReady(request.then((r) => (r.ok ? r.value.text : undefined)));
 		const finished = await request;

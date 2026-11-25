@@ -402,6 +402,25 @@ CREATE INDEX reviews_by_revision ON reviews (revision_id);
 CREATE INDEX review_comments_by_revision ON review_comments (revision_id);
 CREATE UNIQUE INDEX review_comments_by_draft ON review_comments (report_id, draft_comment_id);
 `
+	},
+	{
+		version: schemaVersionOf(12),
+		name: 'the overall review of each draft, and the one each finished review was finished with',
+		sql: `
+-- The overall review of a Delve's draft (DESIGN 6.3's summary): its words,
+-- exactly as typed, or '' once they are emptied, when they last changed, and
+-- how many times they have. The count is never reset, not even when a review
+-- is finished, so a page that read an older one changes nothing. A Delve with
+-- no row has never had one.
+CREATE TABLE draft_summaries (
+	report_id TEXT PRIMARY KEY REFERENCES reports (id) ON DELETE CASCADE,
+	body TEXT NOT NULL,
+	changed_at INTEGER NOT NULL CHECK (changed_at >= 0),
+	edits INTEGER NOT NULL CHECK (edits >= 1)
+) STRICT;
+-- The overall review a review was finished with, exactly as typed; '' for none.
+ALTER TABLE reviews ADD COLUMN summary TEXT NOT NULL DEFAULT '';
+`
 	}
 ];
 

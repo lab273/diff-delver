@@ -1,11 +1,16 @@
 import { AddDraftCommentSchema, type DraftCommentsView } from '#lib/api/schemas.ts';
 import { resolveEscapedPath } from '#lib/core/path-bytes.ts';
-import { PRIVATE, commentView, draftsRefused } from '#lib/server/api/comments.ts';
+import {
+	PRIVATE,
+	commentView,
+	draftsRefused,
+	overallReviewView
+} from '#lib/server/api/comments.ts';
 import { serviceFailure } from '#lib/server/api/present.ts';
 import { diffId, readBody, unknownPath } from '#lib/server/api/request.ts';
 import type { RequestHandler } from './$types';
 
-/** The reviewer's whole draft, with the daemon's time, for a browser that may read it. */
+/** The reviewer's whole draft, its comments and its overall review, with the daemon's time, for a browser that may read it. */
 export const GET: RequestHandler = ({ locals, params, request }) => {
 	const refused = draftsRefused(locals.daemon, request);
 	if (refused !== undefined) return refused;
@@ -13,9 +18,12 @@ export const GET: RequestHandler = ({ locals, params, request }) => {
 	if (!id.ok) return id.error;
 	const comments = locals.daemon.service.draftComments(id.value);
 	if (!comments.ok) return serviceFailure(comments.error);
+	const overall = locals.daemon.service.overallReview(id.value);
+	if (!overall.ok) return serviceFailure(overall.error);
 	const body: DraftCommentsView = {
 		now: locals.daemon.clock.now(),
-		comments: comments.value.map(commentView)
+		comments: comments.value.map(commentView),
+		overall: overallReviewView(overall.value)
 	};
 	return Response.json(body, { headers: PRIVATE });
 };

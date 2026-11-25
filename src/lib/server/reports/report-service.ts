@@ -116,12 +116,19 @@ import {
 	type DraftComment
 } from '#lib/core/review/draft-comment.ts';
 import {
+	isOverallReviewBody,
+	isWritten,
+	storedOverallReview,
+	type OverallReview
+} from '#lib/core/review/overall-review.ts';
+import {
 	deleteDraftComment,
 	draftCommentOf,
 	draftCommentsOf,
 	insertDraftComment,
 	updateDraftComment
 } from '../db/tables/draft-comments.ts';
+import { draftSummaryOf, writeDraftSummary } from '../db/tables/draft-summaries.ts';
 import {
 	insertReviewComments,
 	reviewHolding,
@@ -816,6 +823,12 @@ export interface ShownComment {
 	readonly edits: EditCount;
 }
 
+/** The draft as a page showed it: its comments, and how many times its overall review had been changed. */
+export interface ShownDraft {
+	readonly comments: readonly ShownComment[];
+	readonly overall: EditCount;
+}
+
 /** What finishing the draft now would hand over. */
 export interface ReviewPreview {
 	/** The number the review would take. */
@@ -823,12 +836,20 @@ export interface ReviewPreview {
 	readonly text: TextForAgent;
 	/** The draft's comments it holds, as they are now. */
 	readonly comments: readonly DraftComment[];
+	/** The draft's overall review, as it is now. */
+	readonly overall: OverallReview;
+}
+
+/** The draft as stored: its comments and its overall review. */
+interface Draft {
+	readonly comments: readonly DraftComment[];
+	readonly overall: OverallReview;
 }
 
 interface PreparedReview {
 	readonly found: Current;
 	readonly diff: Diff;
-	readonly draft: readonly DraftComment[];
+	readonly draft: Draft;
 	/** The code each comment of the draft is on, in the same order. */
 	readonly quoted: readonly (readonly LineText[])[];
 }
@@ -840,30 +861,44 @@ interface ReviewText {
 	readonly comments: readonly ReviewCommentRow[];
 }
 
-/** Whether the draft holds exactly the comments shown, each with the words shown. */
-function sameDraft(draft: readonly DraftComment[], shown: readonly ShownComment[]): boolean {
-	if (draft.length !== shown.length) return false;
-	const edits = new Map(shown.map((c) => [c.id, c.edits]));
-	return draft.every((c) => edits.get(c.id) === c.edits);
+/** Whether the draft holds exactly the comments shown, each with the words shown, and the overall review shown. */
+function sameDraft(draft: Draft, shown: ShownDraft): boolean {
+	if (draft.overall.edits !== shown.overall) return false;
+	if (draft.comments.length !== shown.comments.length) return false;
+	const edits = new Map(shown.comments.map((c) => [c.id, c.edits]));
+	return draft.comments.every((c) => edits.get(c.id) === c.edits);
+}
+
+/** Whether the draft holds anything to finish: a comment, or an overall review. */
+function anythingToFinish(draft: Draft): boolean {
+	return draft.comments.length > 0 || isWritten(draft.overall.body);
+}
+
+/** The Delve's draft as stored. */
+function draftOf(q: Queries, report: ReportId): Result<Draft, ReportError> {
+	return andThen(draftCommentsOf(q, report), (comments) =>
+		andThen(draftSummaryOf(q, report), (overall) => ok({ comments, overall }))
+	);
 }
 
 /**
  * Whether the draft may be finished as a page showed it: only when it holds
- * exactly the comments shown, each with the words shown, and at least one.
+ * exactly the comments shown, each with the words shown, and the overall
+ * review shown, and at least one comment or an overall review.
  * When the comments shown are no longer in the draft because they were
  * finished, as from another tab, it says as which review.
  */
 function finishable(
 	q: Queries,
 	report: ReportId,
-	draft: readonly DraftComment[],
-	shown: readonly ShownComment[]
+	draft: Draft,
+	shown: ShownDraft
 ): Result<undefined, ReportError> {
 	if (sameDraft(draft, shown)) {
-		return draft.length === 0 ? err({ kind: 'NothingToFinish' }) : ok(undefined);
+		return anythingToFinish(draft) ? ok(undefined) : err({ kind: 'NothingToFinish' });
 	}
-	const inDraft = new Set(draft.map((c) => c.id));
-	for (const comment of shown) {
+	const inDraft = new Set(draft.comments.map((c) => c.id));
+	for (const comment of shown.comments) {
 		if (inDraft.has(comment.id)) continue;
 		const holding = reviewHolding(q, report, comment.id);
 		if (!holding.ok) return holding;
@@ -1906,6 +1941,40 @@ export class ReportService {
 		);
 	}
 
+	/** Reads the overall review of the one private draft. */
+	overallReview(id: ReportId): Result<OverallReview, ReportError> {
+		return this.#db.read((q) => andThen(current(q, id), () => draftSummaryOf(q, id)));
+	}
+
+	/**
+	 * Replaces the words of the draft's overall review, exactly as typed, or
+	 * empties it when they are only white space. It is the Delve's whole, not
+	 * any version's, so it is saved from a page on any version, but only while
+	 * the Delve is open and only on the words the page read (`edits`, how many
+	 * times they had been changed): otherwise nothing changes and the answer
+	 * says why.
+	 */
+	saveOverallReview(
+		id: ReportId,
+		edits: EditCount,
+		body: string
+	): Result<OverallReview, ReportError> {
+		if (!isOverallReviewBody(body)) return err({ kind: 'InvalidOverallReview' });
+		const words = storedOverallReview(body);
+		return this.#db.write((q) =>
+			andThen(currentOpen(q, id), () =>
+				andThen(draftSummaryOf(q, id), (found): Result<OverallReview, ReportError> => {
+					if (found.edits !== edits) return err({ kind: 'OverallReviewChanged' });
+					if (found.body === words) return ok(found);
+					const at = this.#clock.now();
+					writeDraftSummary(q, id, words, at);
+					touchReport(q, id, at);
+					return draftSummaryOf(q, id);
+				})
+			)
+		);
+	}
+
 	/**
 	 * What finishing the draft now would hand over (DESIGN 8.6), for the page to
 	 * show before the reviewer finishes it: the same text `finishReview` would
@@ -1921,7 +1990,7 @@ export class ReportService {
 		const { found, diff, draft, quoted } = prepared.value;
 		return this.#db.read((q) =>
 			andThen(this.#reviewText(q, found, diff, draft, quoted), ({ number, text }) =>
-				ok({ number, text, comments: draft })
+				ok({ number, text, comments: draft.comments, overall: draft.overall })
 			)
 		);
 	}
@@ -1930,16 +1999,17 @@ export class ReportService {
 	 * Finishes the draft as the report's next review (DESIGN 6.3), against the
 	 * version on the reviewer's page (`seen`), and only when the draft holds
 	 * exactly the comments the page showed (`shown`, each with how many times
-	 * its words had been changed), so nothing written in another tab is handed
-	 * over unseen. It records the text that is handed over, the comments with
-	 * the code they are on, and a copy of the reviewed marks, all in one
-	 * transaction, and empties the draft: the next comment starts the next
-	 * review. A review is never changed once it is finished.
+	 * its words had been changed) and the overall review it showed, so nothing
+	 * written in another tab is handed over unseen. It records the text that is
+	 * handed over, the overall review, the comments with the code they are on,
+	 * and a copy of the reviewed marks, all in one transaction, and empties the
+	 * draft: the next comment, or overall review, starts the next review. A
+	 * review is never changed once it is finished.
 	 */
 	async finishReview(
 		id: ReportId,
 		seen: RevisionNumber,
-		shown: readonly ShownComment[]
+		shown: ShownDraft
 	): Promise<Result<FinishedReview, ReportError>> {
 		const prepared = await this.#prepareReview(id, seen, shown);
 		if (!prepared.ok) return prepared;
@@ -1949,17 +2019,27 @@ export class ReportService {
 				if (now.revision.id !== found.revision.id) {
 					return err({ kind: 'RevisionChangedWhileSaving', report: id });
 				}
-				return andThen(draftCommentsOf(q, id), (draftNow): Result<FinishedReview, ReportError> => {
+				return andThen(draftOf(q, id), (draftNow): Result<FinishedReview, ReportError> => {
 					const may = finishable(q, id, draftNow, shown);
 					if (!may.ok) return may;
 					return andThen(
 						this.#reviewText(q, found, diff, draft, quoted),
 						({ number, text, progress, comments }): Result<FinishedReview, ReportError> => {
 							const at = this.#clock.now();
-							insertReview(q, id, number, found.revision.id, at, progress, text);
+							insertReview(
+								q,
+								id,
+								number,
+								found.revision.id,
+								at,
+								progress,
+								text,
+								draft.overall.body
+							);
 							insertReviewComments(q, id, number, comments);
 							copyReviewMarks(q, id, number, found.revision.id);
-							for (const comment of draft) deleteDraftComment(q, comment.id);
+							for (const comment of draft.comments) deleteDraftComment(q, comment.id);
+							if (draft.overall.body !== '') writeDraftSummary(q, id, '', at);
 							touchReport(q, id, at);
 							return andThen(reviewOf(q, id, number), (review) =>
 								review === undefined ? err({ kind: 'ReviewNotFound', number }) : ok(review)
@@ -2001,28 +2081,26 @@ export class ReportService {
 	async #prepareReview(
 		id: ReportId,
 		seen: RevisionNumber,
-		shown?: readonly ShownComment[]
+		shown?: ShownDraft
 	): Promise<Result<PreparedReview, ReportError>> {
-		const read = this.#db.read(
-			(q): Result<{ found: Current; draft: readonly DraftComment[] }, ReportError> =>
-				andThen(currentAsSeen(q, id, seen), (found) =>
-					andThen(
-						draftCommentsOf(q, id),
-						(draft): Result<{ found: Current; draft: readonly DraftComment[] }, ReportError> => {
-							if (shown === undefined) {
-								return draft.length === 0 ? err({ kind: 'NothingToFinish' }) : ok({ found, draft });
-							}
-							return andThen(finishable(q, id, draft, shown), () => ok({ found, draft }));
-						}
-					)
-				)
+		const read = this.#db.read((q): Result<{ found: Current; draft: Draft }, ReportError> =>
+			andThen(currentAsSeen(q, id, seen), (found) =>
+				andThen(draftOf(q, id), (draft): Result<{ found: Current; draft: Draft }, ReportError> => {
+					if (shown === undefined) {
+						return anythingToFinish(draft)
+							? ok({ found, draft })
+							: err({ kind: 'NothingToFinish' });
+					}
+					return andThen(finishable(q, id, draft, shown), () => ok({ found, draft }));
+				})
+			)
 		);
 		if (!read.ok) return read;
 		const { found, draft } = read.value;
 		const content = await this.#contentOf(found.report, found.revision);
 		if (!content.ok) return content;
 		const quoted: (readonly LineText[])[] = [];
-		for (const comment of draft) {
+		for (const comment of draft.comments) {
 			const { side, path, first, last } = comment.anchor;
 			const upTo = lineNumberOf(Math.min(last, first + MAX_QUOTED_LINES - 1));
 			const lines = await this.readLines(id, comment.version, side, path, first, upTo);
@@ -2045,7 +2123,7 @@ export class ReportService {
 		q: Queries,
 		found: Current,
 		diff: Diff,
-		draft: readonly DraftComment[],
+		draft: Draft,
 		quoted: readonly (readonly LineText[])[]
 	): Result<ReviewText, ReportError> {
 		const { report, revision } = found;
@@ -2062,7 +2140,7 @@ export class ReportService {
 							sections.map((s) => s.id)
 						)
 					);
-					return andThen(frozenComments(q, report.id, draft, quoted), (rows) =>
+					return andThen(frozenComments(q, report.id, draft.comments, quoted), (rows) =>
 						ok({
 							number,
 							progress,
@@ -2074,7 +2152,7 @@ export class ReportService {
 								repository: repositoryLabel(report.repositoryPath),
 								version: revision.number,
 								headCommit: revision.headCommit,
-								overall: '',
+								overall: draft.overall.body,
 								comments: rows.map((r) => r.comment),
 								notReviewed: notReviewed(diff, state, marks, sections),
 								progress

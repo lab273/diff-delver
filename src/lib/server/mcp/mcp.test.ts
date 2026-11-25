@@ -5,6 +5,7 @@
  * folder and a git setup of the test's own. Every daemon a shim starts is
  * stopped when its test finishes.
  */
+import { NO_EDITS } from '#lib/core/edit-count.tiny.ts';
 import { execFile } from 'node:child_process';
 import { access, cp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -1132,7 +1133,8 @@ describe('/mcp over HTTP', () => {
 		expect(
 			await clientOf(daemon).finishReview(id, {
 				version: value(parseRevisionNumber(1)),
-				comments: [{ id: comment.id, edits: comment.edits }]
+				comments: [{ id: comment.id, edits: comment.edits }],
+				overall: NO_EDITS
 			})
 		).toMatchObject({ ok: false, error: { status: 403, reason: 'BrowserSessionRequired' } });
 
@@ -1140,7 +1142,8 @@ describe('/mcp over HTTP', () => {
 		const finished = value(
 			await browser.finishReview(id, {
 				version: value(parseRevisionNumber(1)),
-				comments: preview.comments
+				comments: preview.comments,
+				overall: preview.overall
 			})
 		);
 		expect(finished.text).toBe(preview.text);

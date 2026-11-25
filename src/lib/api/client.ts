@@ -20,6 +20,9 @@ import {
 	FinishedReviewSchema,
 	FinishedReviewsSchema,
 	ReviewPreviewSchema,
+	OverallReviewSchema,
+	type OverallReviewView,
+	type SaveOverallReview,
 	type FinishReview,
 	type FinishedReviewView,
 	type FinishedReviewsView,
@@ -440,6 +443,14 @@ export class ApiClient {
 			DraftCommentSchema,
 			request
 		);
+	}
+
+	/** Replaces the words of the draft's overall review, on the words the page read. */
+	saveOverallReview(
+		id: ReportId,
+		request: SaveOverallReview
+	): Promise<Result<OverallReviewView, ApiError>> {
+		return this.#call('POST', `/api/diffs/${id}/overall`, OverallReviewSchema, request);
 	}
 
 	/** What finishing the draft now would hand over, for a page that shows `version`. */

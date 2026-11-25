@@ -1,10 +1,11 @@
 /**
- * The comment routes' half of the API: a stored comment as the API gives it,
+ * The comment routes' half of the API: a stored comment and the overall review as the API gives them,
  * and what the routes say to a browser that may not read or write drafts.
  */
-import type { DraftCommentView } from '#lib/api/schemas.ts';
+import type { DraftCommentView, OverallReviewView } from '#lib/api/schemas.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import type { DraftComment } from '#lib/core/review/draft-comment.ts';
+import type { OverallReview } from '#lib/core/review/overall-review.ts';
 import type { DaemonContext } from '#lib/server/daemon/context.ts';
 import { canReview, reviewSessionRequired } from './review-session.ts';
 
@@ -18,6 +19,10 @@ export function commentView(comment: DraftComment): DraftCommentView {
 		editedAt: comment.editedAt ?? null,
 		edits: comment.edits
 	};
+}
+
+export function overallReviewView(overall: OverallReview): OverallReviewView {
+	return { body: overall.body, changedAt: overall.changedAt ?? null, edits: overall.edits };
 }
 
 /** Drafts are the reviewer's alone: never kept by a browser or anything between. */

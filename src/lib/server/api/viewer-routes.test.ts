@@ -4,6 +4,7 @@
  * on the version shown, refused once the diff was updated.
  */
 import { describe, expect, it, onTestFinished } from 'vitest';
+import { NO_EDITS } from '#lib/core/edit-count.tiny.ts';
 import { ApiClient, describeApiError } from '#lib/api/client.ts';
 import type { AddDraftComment, DiffPage, DraftCommentView, PartQuery } from '#lib/api/schemas.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
@@ -849,7 +850,8 @@ describe('private draft comments', () => {
 		expect(first).toMatchObject({ writtenAt: written, editedAt: null, edits: 0 });
 		expect(value(await client.draftComments(id))).toEqual({
 			now: written,
-			comments: [first, second]
+			comments: [first, second],
+			overall: { body: '', changedAt: null, edits: 0 }
 		});
 
 		// Its words change; its lines, its version and when it was written do not.
@@ -866,7 +868,8 @@ describe('private draft comments', () => {
 		expect(value(await change(edited, 1, edited.body))).toEqual(edited);
 		expect(value(await client.draftComments(id))).toEqual({
 			now: clock.now(),
-			comments: [edited, second]
+			comments: [edited, second],
+			overall: { body: '', changedAt: null, edits: 0 }
 		});
 
 		// A page that read the words before that change, as another tab did, changes
@@ -1089,7 +1092,7 @@ describe('finished reviews', () => {
 			}
 			const answer = await finish(
 				{ ...cookie, ...json, origin: daemon.origin },
-				{ version: 1, comments: [] }
+				{ version: 1, comments: [], overall: 0 }
 			);
 			expect(answer.status).toBe(403);
 		}
@@ -1100,7 +1103,7 @@ describe('finished reviews', () => {
 			(
 				await finish(
 					{ cookie: review, ...json, origin: 'http://example.test' },
-					{ version: 1, comments: [] }
+					{ version: 1, comments: [], overall: 0 }
 				)
 			).status
 		).toBe(403);
@@ -1112,7 +1115,7 @@ describe('finished reviews', () => {
 		expect(JSON.parse(none.body)).toMatchObject({ reviews: [] });
 		const empty = await finish(
 			{ cookie: review, ...json, origin: daemon.origin },
-			{ version: 1, comments: [] }
+			{ version: 1, comments: [], overall: 0 }
 		);
 		expect(empty.status).toBe(422);
 		expect(refusedReason(empty.body)).toBe('NothingToFinish');
@@ -1134,18 +1137,19 @@ describe('finished reviews', () => {
 		expect(previewed.headers['cache-control']).toBe('no-store');
 		expect(JSON.parse(previewed.body)).toMatchObject({
 			number: 1,
-			comments: [{ id: comment.id, edits: comment.edits }]
+			comments: [{ id: comment.id, edits: comment.edits }],
+			overall: 0
 		});
 
 		// A page that showed another draft finishes nothing.
 		const stale = await finish(
 			{ cookie: review, ...json, origin: daemon.origin },
-			{ version: 1, comments: [] }
+			{ version: 1, comments: [], overall: 0 }
 		);
 		expect(stale.status).toBe(409);
 		expect(refusedReason(stale.body)).toBe('DraftChanged');
 
-		const shown = { version: 1, comments: [{ id: comment.id, edits: comment.edits }] };
+		const shown = { version: 1, comments: [{ id: comment.id, edits: comment.edits }], overall: 0 };
 		const finished = await finish({ cookie: review, ...json, origin: daemon.origin }, shown);
 		expect(finished.status).toBe(201);
 		expect(finished.headers['cache-control']).toBe('no-store');
@@ -1157,5 +1161,79 @@ describe('finished reviews', () => {
 		expect(refusedReason(twice.body)).toBe('CommentsFinished');
 		const listed = await rawRequest(daemon.port, { path: list, headers: { cookie: review } });
 		expect(JSON.parse(listed.body)).toMatchObject({ reviews: [{ number: 1 }] });
+	});
+});
+
+describe('the overall review', () => {
+	it('is read with the draft and saved only by a browser that may write drafts, on the words it read', async () => {
+		const repo = await useFixture(viewed);
+		const daemon = await testDaemon();
+		const command = clientOf(daemon);
+		const client = await browserClient(daemon);
+		const started = value(await client.start({ directory: repo.dir }));
+		if (started.kind !== 'opened') throw new Error(started.kind);
+		const id = started.diff.id;
+		expect(value(await client.draftComments(id)).overall).toEqual({
+			body: '',
+			changedAt: null,
+			edits: 0
+		});
+
+		// The command's token, a browser with only the token in a cookie, and another site may not.
+		expect(await command.saveOverallReview(id, { edits: NO_EDITS, body: 'No.' })).toMatchObject({
+			ok: false,
+			error: { status: 403, reason: 'BrowserSessionRequired' }
+		});
+		const endpoint = `/api/diffs/${id}/overall`;
+		const cookie = await browserCookie(daemon);
+		const json = { 'content-type': 'application/json' };
+		for (const headers of [
+			{ cookie: `${daemon.reviewCookie}=${daemon.token}`, ...json, origin: daemon.origin },
+			{ cookie, ...json, origin: 'http://example.test' }
+		]) {
+			const answer = await rawRequest(daemon.port, {
+				method: 'POST',
+				path: endpoint,
+				headers,
+				body: JSON.stringify({ edits: 0, body: 'No.' })
+			});
+			expect(answer.status).toBe(403);
+		}
+
+		const words = 'Looks right overall.\n\n```\nnot code\n```';
+		const saved = value(await client.saveOverallReview(id, { edits: NO_EDITS, body: words }));
+		expect(saved).toMatchObject({ body: words, edits: 1 });
+		expect(value(await client.draftComments(id)).overall).toEqual(saved);
+
+		// A page that read the words before that changes nothing, and is told why.
+		const stale = await client.saveOverallReview(id, { edits: NO_EDITS, body: 'Elsewhere.' });
+		expect(stale).toMatchObject({
+			ok: false,
+			error: { status: 409, reason: 'OverallReviewChanged' }
+		});
+		// Words longer than it holds are refused before they reach it.
+		const long = await rawRequest(daemon.port, {
+			method: 'POST',
+			path: endpoint,
+			headers: { cookie, ...json, origin: daemon.origin },
+			body: JSON.stringify({ edits: 1, body: 'x'.repeat(20_001) })
+		});
+		expect(long.status).toBe(400);
+		expect(value(await client.draftComments(id)).overall.body).toBe(words);
+
+		// It is finished on its own, and the finished review says it holds one.
+		const preview = value(await client.previewReview(id, revision(1)));
+		expect(preview).toMatchObject({ comments: [], overall: 1 });
+		expect(preview.text).toContain('## Overall\n\n> Looks right overall.\n>\n> ```\n');
+		const finished = value(
+			await client.finishReview(id, {
+				version: revision(1),
+				comments: [],
+				overall: preview.overall
+			})
+		);
+		expect(finished).toMatchObject({ number: 1, comments: 0, overall: true, text: preview.text });
+		expect(value(await client.draftComments(id)).overall).toMatchObject({ body: '', edits: 2 });
+		expect(value(await client.reviews(id)).reviews).toMatchObject([{ number: 1, overall: true }]);
 	});
 });

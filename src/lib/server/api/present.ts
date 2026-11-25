@@ -539,6 +539,7 @@ export function statusOf(error: ReportError): number {
 		case 'AnotherReportOpen':
 		case 'RevisionChangedWhileSaving':
 		case 'CommentChanged':
+		case 'OverallReviewChanged':
 		case 'DraftChanged':
 		case 'CommentsFinished':
 		case 'CommentFinished':
@@ -551,6 +552,7 @@ export function statusOf(error: ReportError): number {
 		case 'SectionsRefused':
 		case 'InvalidCommentRange':
 		case 'InvalidCommentBody':
+		case 'InvalidOverallReview':
 		case 'NothingToFinish':
 		case 'FileNotInDiff':
 		case 'NothingToMark':
