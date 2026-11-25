@@ -17,6 +17,13 @@ import {
 	ApiErrorBodySchema,
 	DraftCommentSchema,
 	DraftCommentsSchema,
+	FinishedReviewSchema,
+	FinishedReviewsSchema,
+	ReviewPreviewSchema,
+	type FinishReview,
+	type FinishedReviewView,
+	type FinishedReviewsView,
+	type ReviewPreviewView,
 	type DraftCommentView,
 	type DraftCommentsView,
 	type AddDraftComment,
@@ -419,6 +426,28 @@ export class ApiClient {
 			DraftCommentSchema,
 			request
 		);
+	}
+
+	/** What finishing the draft now would hand over, for a page that shows `version`. */
+	previewReview(
+		id: ReportId,
+		version: RevisionNumber
+	): Promise<Result<ReviewPreviewView, ApiError>> {
+		return this.#call(
+			'GET',
+			`/api/diffs/${id}/reviews/preview?version=${String(version)}`,
+			ReviewPreviewSchema
+		);
+	}
+
+	/** Finishes the draft the page showed as the Delve's next review. */
+	finishReview(id: ReportId, request: FinishReview): Promise<Result<FinishedReviewView, ApiError>> {
+		return this.#call('POST', `/api/diffs/${id}/reviews`, FinishedReviewSchema, request);
+	}
+
+	/** The Delve's finished reviews, oldest first. */
+	reviews(id: ReportId): Promise<Result<FinishedReviewsView, ApiError>> {
+		return this.#call('GET', `/api/diffs/${id}/reviews`, FinishedReviewsSchema);
 	}
 
 	/** Marks a part, a file or a group of the version the page shows as reviewed, or not. */

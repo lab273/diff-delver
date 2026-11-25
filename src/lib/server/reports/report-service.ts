@@ -80,7 +80,15 @@ import {
 	type NothingLeft
 } from '#lib/core/reports/nothing-left.ts';
 import { gitReportIdentity } from '#lib/core/reports/report-identity.ts';
-import type { Report, ReportState, Revision, Section } from '#lib/core/reports/report.ts';
+import type {
+	Report,
+	ReportState,
+	Revision,
+	Section,
+	UnitProgress
+} from '#lib/core/reports/report.ts';
+import type { LineText } from '#lib/core/line-text.tiny.ts';
+import type { TextForAgent } from '#lib/core/text-for-agent.tiny.ts';
 import {
 	applySectionChange,
 	type SectionReferences,
@@ -103,6 +111,16 @@ import {
 	insertDraftComment,
 	updateDraftComment
 } from '../db/tables/draft-comments.ts';
+import { insertReviewComments, type ReviewCommentRow } from '../db/tables/review-comments.ts';
+import { copyReviewMarks } from '../db/tables/review-marks.ts';
+import { insertReview, latestReviewNumber, reviewOf, reviewsOf } from '../db/tables/reviews.ts';
+import {
+	MAX_QUOTED_LINES,
+	notReviewed,
+	renderReviewExport,
+	type FinishedReview
+} from '#lib/core/review/review-export.ts';
+import { nextReviewNumber, type ReviewNumber } from '#lib/core/review-number.tiny.ts';
 import { markReviewed, type ReviewTarget } from '#lib/core/review/mark-reviewed.ts';
 import { reviewProgress, unitProgressOf, type Progress } from '#lib/core/review/progress.ts';
 import { NO_MARKS, type ReviewedMarks } from '#lib/core/review/reviewed-marks.ts';
@@ -739,6 +757,70 @@ function carryOverInput(
 		bases: prepared.bases,
 		autoIgnore: { markedGenerated: prepared.generated }
 	};
+}
+
+/** A comment of the draft as a page showed it: which, and how many times its words had been changed. */
+export interface ShownComment {
+	readonly id: DraftCommentId;
+	readonly edits: EditCount;
+}
+
+/** What finishing the draft now would hand over. */
+export interface ReviewPreview {
+	/** The number the review would take. */
+	readonly number: ReviewNumber;
+	readonly text: TextForAgent;
+	/** The draft's comments it holds, as they are now. */
+	readonly comments: readonly DraftComment[];
+}
+
+interface PreparedReview {
+	readonly found: Current;
+	readonly diff: Diff;
+	readonly draft: readonly DraftComment[];
+	/** The code each comment of the draft is on, in the same order. */
+	readonly quoted: readonly (readonly LineText[])[];
+}
+
+interface ReviewText {
+	readonly number: ReviewNumber;
+	readonly text: TextForAgent;
+	readonly progress: UnitProgress;
+	readonly comments: readonly ReviewCommentRow[];
+}
+
+/** Whether the draft holds exactly the comments shown, each with the words shown. */
+function sameDraft(draft: readonly DraftComment[], shown: readonly ShownComment[]): boolean {
+	if (draft.length !== shown.length) return false;
+	const edits = new Map(shown.map((c) => [c.id, c.edits]));
+	return draft.every((c) => edits.get(c.id) === c.edits);
+}
+
+/** The draft's comments as a finished review keeps them, each on the revision it was written on. */
+function frozenComments(
+	q: Queries,
+	report: ReportId,
+	draft: readonly DraftComment[],
+	quoted: readonly (readonly LineText[])[]
+): Result<readonly ReviewCommentRow[], ReportError> {
+	const rows: ReviewCommentRow[] = [];
+	for (const [i, c] of draft.entries()) {
+		const revision = revisionAt(q, report, c.version);
+		if (!revision.ok) return revision;
+		if (revision.value === undefined) {
+			return err({
+				kind: 'StoredRowInvalid',
+				table: 'draft_comments',
+				detail: `a comment on version ${String(c.version)}, which the Delve does not have`
+			});
+		}
+		rows.push({
+			revision: revision.value.id,
+			comment: { anchor: c.anchor, version: c.version, body: c.body, quoted: quoted[i] ?? [] },
+			writtenAt: c.writtenAt
+		});
+	}
+	return ok(rows);
 }
 
 export class ReportService {
@@ -1656,6 +1738,173 @@ export class ReportService {
 					deleteDraftComment(q, comment);
 					touchReport(q, id, this.#clock.now());
 					return ok(found);
+				})
+			)
+		);
+	}
+
+	/**
+	 * What finishing the draft now would hand over (DESIGN 8.6), for the page to
+	 * show before the reviewer finishes it: the same text `finishReview` would
+	 * record, numbered as the next review. Like the draft itself, only the
+	 * reviewer's page reads it; no agent ever does.
+	 */
+	async previewReview(
+		id: ReportId,
+		seen: RevisionNumber
+	): Promise<Result<ReviewPreview, ReportError>> {
+		const prepared = await this.#prepareReview(id, seen);
+		if (!prepared.ok) return prepared;
+		const { found, diff, draft, quoted } = prepared.value;
+		return this.#db.read((q) =>
+			andThen(this.#reviewText(q, found, diff, draft, quoted), ({ number, text }) =>
+				ok({ number, text, comments: draft })
+			)
+		);
+	}
+
+	/**
+	 * Finishes the draft as the report's next review (DESIGN 6.3), against the
+	 * version on the reviewer's page (`seen`), and only when the draft holds
+	 * exactly the comments the page showed (`shown`, each with how many times
+	 * its words had been changed), so nothing written in another tab is handed
+	 * over unseen. It records the text that is handed over, the comments with
+	 * the code they are on, and a copy of the reviewed marks, all in one
+	 * transaction, and empties the draft: the next comment starts the next
+	 * review. A review is never changed once it is finished.
+	 */
+	async finishReview(
+		id: ReportId,
+		seen: RevisionNumber,
+		shown: readonly ShownComment[]
+	): Promise<Result<FinishedReview, ReportError>> {
+		const prepared = await this.#prepareReview(id, seen);
+		if (!prepared.ok) return prepared;
+		const { found, diff, draft, quoted } = prepared.value;
+		if (!sameDraft(draft, shown)) return err({ kind: 'DraftChanged' });
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), (now): Result<FinishedReview, ReportError> => {
+				if (now.revision.id !== found.revision.id) {
+					return err({ kind: 'RevisionChangedWhileSaving', report: id });
+				}
+				return andThen(draftCommentsOf(q, id), (draftNow): Result<FinishedReview, ReportError> => {
+					if (!sameDraft(draftNow, shown)) return err({ kind: 'DraftChanged' });
+					return andThen(
+						this.#reviewText(q, found, diff, draft, quoted),
+						({ number, text, progress, comments }): Result<FinishedReview, ReportError> => {
+							const at = this.#clock.now();
+							insertReview(q, id, number, found.revision.id, at, progress, text);
+							insertReviewComments(q, id, number, comments);
+							copyReviewMarks(q, id, number, found.revision.id);
+							for (const comment of draft) deleteDraftComment(q, comment.id);
+							touchReport(q, id, at);
+							return andThen(reviewOf(q, id, number), (review) =>
+								review === undefined ? err({ kind: 'ReviewNotFound', number }) : ok(review)
+							);
+						}
+					);
+				});
+			})
+		);
+	}
+
+	/** The report's finished reviews, oldest first. */
+	reviews(id: ReportId): Result<readonly FinishedReview[], ReportError> {
+		return this.#db.read((q) => andThen(current(q, id), () => reviewsOf(q, id)));
+	}
+
+	/**
+	 * One finished review of the report, by number, or its latest; undefined
+	 * when it has none yet. A draft is never returned.
+	 */
+	review(id: ReportId, number?: ReviewNumber): Result<FinishedReview | undefined, ReportError> {
+		return this.#db.read((q) =>
+			andThen(current(q, id), () =>
+				andThen(
+					reviewOf(q, id, number),
+					(review): Result<FinishedReview | undefined, ReportError> =>
+						review === undefined && number !== undefined
+							? err({ kind: 'ReviewNotFound', number })
+							: ok(review)
+				)
+			)
+		);
+	}
+
+	/** The draft, on the version the page saw, with the code each comment is on. */
+	async #prepareReview(
+		id: ReportId,
+		seen: RevisionNumber
+	): Promise<Result<PreparedReview, ReportError>> {
+		const read = this.#db.read(
+			(q): Result<{ found: Current; draft: readonly DraftComment[] }, ReportError> =>
+				andThen(currentAsSeen(q, id, seen), (found) =>
+					andThen(draftCommentsOf(q, id), (draft) => ok({ found, draft }))
+				)
+		);
+		if (!read.ok) return read;
+		const { found, draft } = read.value;
+		if (draft.length === 0) return err({ kind: 'NothingToFinish' });
+		const content = await this.#contentOf(found.report, found.revision);
+		if (!content.ok) return content;
+		const quoted: (readonly LineText[])[] = [];
+		for (const comment of draft) {
+			const { side, path, first, last } = comment.anchor;
+			const upTo = lineNumberOf(Math.min(last, first + MAX_QUOTED_LINES - 1));
+			const lines = await this.readLines(id, comment.version, side, path, first, upTo);
+			if (!lines.ok) return lines;
+			quoted.push(lines.value.lines.map((l) => l.text));
+		}
+		return ok({
+			found: { report: found.report, revision: content.value.revision },
+			diff: content.value.diff,
+			draft,
+			quoted
+		});
+	}
+
+	/**
+	 * The text of the next review, from the draft and the revision's sorting and
+	 * marks as the database holds them now, read in the caller's transaction.
+	 */
+	#reviewText(
+		q: Queries,
+		found: Current,
+		diff: Diff,
+		draft: readonly DraftComment[],
+		quoted: readonly (readonly LineText[])[]
+	): Result<ReviewText, ReportError> {
+		const { report, revision } = found;
+		return andThen(latestReviewNumber(q, report.id), (latest) =>
+			andThen(stateOf(q, revision, diff), ({ state, marks }) =>
+				andThen(sectionsOf(q, revision.id), (sections): Result<ReviewText, ReportError> => {
+					const number = nextReviewNumber(latest);
+					const progress = unitProgressOf(
+						reviewProgress(
+							diff,
+							state,
+							marks,
+							'sections',
+							sections.map((s) => s.id)
+						)
+					);
+					return andThen(frozenComments(q, report.id, draft, quoted), (rows) =>
+						ok({
+							number,
+							progress,
+							comments: rows,
+							text: renderReviewExport({
+								number,
+								report: report.id,
+								title: reportTitle(report.source),
+								repository: repositoryLabel(report.repositoryPath),
+								version: revision.number,
+								comments: rows.map((r) => r.comment),
+								notReviewed: notReviewed(diff, state, marks, sections),
+								progress
+							})
+						})
+					);
 				})
 			)
 		);

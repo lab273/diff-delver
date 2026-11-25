@@ -344,6 +344,61 @@ DROP TABLE draft_comments;
 ALTER TABLE draft_comments_rebuilt RENAME TO draft_comments;
 CREATE INDEX draft_comments_by_revision ON draft_comments (revision_id);
 `
+	},
+	{
+		version: schemaVersionOf(11),
+		name: 'finished reviews, with their comments, the text handed over and what was reviewed',
+		sql: `
+-- A review the reviewer finished (DESIGN 6.3): numbered 1, 2, 3 within its
+-- report, against the revision that was on screen, with the exact text that
+-- was handed over and how far the review had got, in units, at that moment.
+CREATE TABLE reviews (
+	report_id TEXT NOT NULL REFERENCES reports (id) ON DELETE CASCADE,
+	number INTEGER NOT NULL CHECK (number >= 1),
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	submitted_at INTEGER NOT NULL CHECK (submitted_at >= 0),
+	export_text TEXT NOT NULL CHECK (export_text <> ''),
+	counted INTEGER NOT NULL CHECK (counted >= 0),
+	reviewed INTEGER NOT NULL CHECK (reviewed >= 0 AND reviewed <= counted),
+	ignored INTEGER NOT NULL CHECK (ignored >= 0),
+	uncategorised INTEGER NOT NULL CHECK (uncategorised >= 0 AND uncategorised <= counted),
+	PRIMARY KEY (report_id, number)
+) STRICT;
+-- Each comment of a finished review, in the order it was written, frozen: its
+-- lines in the revision it was written on, its words, and the code it is on
+-- (a JSON array of at most the first 40 lines) as that revision's snapshot held it.
+CREATE TABLE review_comments (
+	report_id TEXT NOT NULL,
+	review_number INTEGER NOT NULL,
+	position INTEGER NOT NULL CHECK (position >= 1),
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new')),
+	first_line INTEGER NOT NULL CHECK (first_line >= 1),
+	last_line INTEGER NOT NULL CHECK (last_line >= first_line),
+	body TEXT NOT NULL CHECK (body <> ''),
+	written_at INTEGER NOT NULL CHECK (written_at >= 0),
+	quoted TEXT NOT NULL,
+	PRIMARY KEY (report_id, review_number, position),
+	FOREIGN KEY (report_id, review_number) REFERENCES reviews (report_id, number) ON DELETE CASCADE
+) STRICT;
+-- A copy of the reviewed marks of the review's revision when it was finished,
+-- shaped like reviewed_marks.
+CREATE TABLE review_marks (
+	report_id TEXT NOT NULL,
+	review_number INTEGER NOT NULL,
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new', 'file')),
+	first_line INTEGER NOT NULL,
+	last_line INTEGER NOT NULL,
+	PRIMARY KEY (report_id, review_number, path, side, first_line),
+	FOREIGN KEY (report_id, review_number) REFERENCES reviews (report_id, number) ON DELETE CASCADE,
+	CHECK ((side = 'file') = (first_line = 0 AND last_line = 0)),
+	CHECK (side = 'file' OR (first_line >= 1 AND last_line >= first_line))
+) STRICT, WITHOUT ROWID;
+CREATE INDEX reviews_by_revision ON reviews (revision_id);
+CREATE INDEX review_comments_by_revision ON review_comments (revision_id);
+`
 	}
 ];
 

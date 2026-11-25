@@ -38,7 +38,9 @@ export type {
 	ReportSummary,
 	StartOutcome,
 	StoredSnapshot,
-	UpdateOutcome
+	UpdateOutcome,
+	ShownComment,
+	ReviewPreview
 } from './report-service.ts';
 export { ReportService } from './report-service.ts';
 export type {

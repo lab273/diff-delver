@@ -11,7 +11,16 @@ import { basename, join } from 'node:path';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { BUILT_COMMAND } from '../../../../tests/support/build.ts';
-import { clientOf, rawRequest, testDaemon } from '../../../../tests/support/daemons.ts';
+import {
+	browserClient,
+	clientOf,
+	rawRequest,
+	testDaemon
+} from '../../../../tests/support/daemons.ts';
+import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
+import { escapedRepoPath } from '#lib/core/escaped-path.tiny.ts';
+import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
+import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { listingsAround } from '../../../../tests/support/directory-listing.ts';
 import {
 	defineFixture,
@@ -325,7 +334,7 @@ describe('the agent interface, through the stdio shim', () => {
 			[
 				'no_such_tool',
 				{},
-				/diff delver has no tool "no_such_tool"\. Its tools are create_report, list_reports, get_manifest, get_diff, get_file, upsert_sections, assign, get_coverage, set_overview\./
+				/diff delver has no tool "no_such_tool"\. Its tools are create_report, list_reports, get_manifest, get_diff, get_file, upsert_sections, assign, get_coverage, set_overview, get_review\./
 			]
 		];
 		for (const [tool, args, said] of refusals) {
@@ -1087,6 +1096,67 @@ describe('/mcp over HTTP', () => {
 				).status
 			).toBe(403);
 		}
+	});
+
+	it('gives an agent the review the person finished, exactly as copied, and never the draft', async () => {
+		const repo = await useFixture(shop);
+		const daemon = await testDaemon();
+		const session = await mcpOverHttp({
+			origin: daemon.origin,
+			token: daemon.mcpToken,
+			directory: repo.dir,
+			openBrowser: false
+		});
+		onTestFinished(() => session.close());
+		const report = reportIn(await session.call('create_report', {}));
+		const id = value(parseReportId(report));
+		const browser = await browserClient(daemon);
+		const comment = value(
+			await browser.addDraftComment(id, {
+				version: value(parseRevisionNumber(1)),
+				anchor: {
+					path: escapedRepoPath(value(parseRepoPath('src/cart.ts'))),
+					side: 'new',
+					first: lineNumberOf(1),
+					last: lineNumberOf(2)
+				},
+				body: 'A private draft word: zebra.'
+			})
+		);
+
+		const before = await session.call('get_review', { report });
+		expect(before.refused).toBe(false);
+		expect(before.text).toMatch(/has not finished a review of this report yet/);
+		expect(before.text).not.toContain('zebra');
+		// The command's token can neither read nor finish the draft.
+		expect(
+			await clientOf(daemon).finishReview(id, {
+				version: value(parseRevisionNumber(1)),
+				comments: [{ id: comment.id, edits: comment.edits }]
+			})
+		).toMatchObject({ ok: false, error: { status: 403, reason: 'BrowserSessionRequired' } });
+
+		const preview = value(await browser.previewReview(id, value(parseRevisionNumber(1))));
+		const finished = value(
+			await browser.finishReview(id, {
+				version: value(parseRevisionNumber(1)),
+				comments: preview.comments
+			})
+		);
+		expect(finished.text).toBe(preview.text);
+		const answer = await session.call('get_review', { report });
+		expect(answer.refused).toBe(false);
+		expect(answer.text).toContain(
+			`----- The review starts here -----\n${finished.text.slice(0, -1)}\n----- The review ends here -----`
+		);
+		expect(answer.text).toMatch(
+			/^Report r_\w+: .*, version 1\.\nReview 1 of the 1 review the person has finished\./
+		);
+		expect((await session.call('get_review', { report, review: 1 })).text).toBe(answer.text);
+		const missing = await session.call('get_review', { report, review: 2 });
+		expect(missing.refused).toBe(true);
+		expect(missing.text).toMatch(/There is no review 2: the person has finished 1 review/);
+		expect(value(await browser.reviews(id)).reviews).toEqual([finished]);
 	});
 
 	it('is served only with the token in Authorization, never on the cookie', async () => {

@@ -524,11 +524,13 @@ export function statusOf(error: ReportError): number {
 		case 'PartNotFound':
 		case 'PathNotFound':
 		case 'CommentNotFound':
+		case 'ReviewNotFound':
 			return 404;
 		case 'ReportClosed':
 		case 'AnotherReportOpen':
 		case 'RevisionChangedWhileSaving':
 		case 'CommentChanged':
+		case 'DraftChanged':
 		case 'VersionOutOfDate':
 		case 'SortingChanged':
 		case 'AssignmentsChanged':
@@ -538,6 +540,7 @@ export function statusOf(error: ReportError): number {
 		case 'SectionsRefused':
 		case 'InvalidCommentRange':
 		case 'InvalidCommentBody':
+		case 'NothingToFinish':
 		case 'FileNotInDiff':
 		case 'NothingToMark':
 		case 'PathIsDirectory':

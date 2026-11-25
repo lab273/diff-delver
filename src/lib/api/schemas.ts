@@ -25,6 +25,9 @@ import { parseSubjectLine } from '#lib/core/history/subject-line.tiny.ts';
 import { parseFileCount } from '#lib/core/file-count.tiny.ts';
 import { parseFileMode } from '#lib/core/file-mode.tiny.ts';
 import { parseDraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
+import { textForAgent } from '#lib/core/text-for-agent.tiny.ts';
+import { parseCommentCount } from '#lib/core/comment-count.tiny.ts';
+import { parseReviewNumber } from '#lib/core/review-number.tiny.ts';
 import { parseEditCount } from '#lib/core/edit-count.tiny.ts';
 import { parseEntryCode } from '#lib/core/entry-code.tiny.ts';
 import { parseByteSize } from '#lib/core/byte-size.tiny.ts';
@@ -953,6 +956,56 @@ export const DraftCommentIdInAddressSchema = parsed(
 	z.string().regex(/^[1-9][0-9]{0,15}$/),
 	(text) => parseDraftCommentId(Number(text))
 );
+
+// ── Finishing a review ───────────────────────────────────────────────────────
+
+const reviewNumber = parsed(z.number(), parseReviewNumber);
+const reviewText = z.string().transform(textForAgent);
+
+/** A comment of the draft as the page showed it, so nothing else is handed over unseen. */
+const shownComment = z.strictObject({ id: draftCommentId, edits: editCount });
+
+/** GET /api/diffs/[id]/reviews/preview?version=N: from a page that shows `version`. */
+export const ReviewPreviewQuerySchema = z.object({ version: inQuery(parseRevisionNumber) });
+
+/** What finishing the draft now would hand over, numbered as the next review. */
+export const ReviewPreviewSchema = z.strictObject({
+	number: reviewNumber,
+	text: reviewText,
+	/** The draft's comments it holds: sent back to finish it. */
+	comments: z.array(shownComment)
+});
+export type ReviewPreviewView = z.infer<typeof ReviewPreviewSchema>;
+
+/** POST /api/diffs/[id]/reviews: finish the draft the page showed, on the version it shows. */
+export const FinishReviewSchema = z.strictObject({
+	version,
+	comments: z.array(shownComment).max(100_000)
+});
+export type FinishReview = z.infer<typeof FinishReviewSchema>;
+
+/** A finished review: its number, the version it was finished on, and the text handed over. */
+export const FinishedReviewSchema = z.strictObject({
+	number: reviewNumber,
+	version,
+	submittedAt: timestamp,
+	comments: parsed(z.number(), parseCommentCount),
+	progress: z.strictObject({
+		counted: unitCount,
+		reviewed: unitCount,
+		ignored: unitCount,
+		uncategorised: unitCount
+	}),
+	text: reviewText
+});
+export type FinishedReviewView = z.infer<typeof FinishedReviewSchema>;
+
+/** GET /api/diffs/[id]/reviews: every finished review, oldest first, with the daemon's time. */
+export const FinishedReviewsSchema = z.strictObject({
+	now: timestamp,
+	reviews: z.array(FinishedReviewSchema)
+});
+export type FinishedReviewsView = z.infer<typeof FinishedReviewsSchema>;
 
 // ── Having an agent sort a Delve ─────────────────────────────────────────────
 

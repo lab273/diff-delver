@@ -72,7 +72,7 @@ class Counter {
 }
 
 /** How many numbers from `first` to `last` are in the set. */
-function countWithin(set: RangeSet, first: number, last: number): number {
+export function countWithin(set: RangeSet, first: number, last: number): number {
 	const intervals = set.intervals;
 	let count = 0;
 	for (let i = set.firstEndingAtOrAfter(first); i < intervals.length; i += 1) {

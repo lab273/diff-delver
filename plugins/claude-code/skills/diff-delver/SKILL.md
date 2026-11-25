@@ -1,6 +1,6 @@
 ---
 name: diff-delver
-description: Sort a diff into sections, in reading order, for a person to review in diff delver. Use when the person asks to get their changes, a branch, a commit or a pull request ready for review, to organise, sort or break down a diff for reviewing, or mentions diff delver.
+description: Sort a diff into sections, in reading order, for a person to review in diff delver. Use when the person asks to get their changes, a branch, a commit or a pull request ready for review, to organise, sort or break down a diff for reviewing, or mentions diff delver; and to act on a review the person finished in diff delver.
 ---
 
 # Sorting a diff for review with diff delver
@@ -91,3 +91,16 @@ person in a few lines: the address of the report (call `create_report` again for
 the same source to get a fresh one; it changes nothing), the sections in reading order
 (titles only), what you ignored and why, and anything you were unsure about or
 think they should look at first. Do not repeat the summaries.
+
+## Acting on the person's review
+
+When the person asks you to act on, fix or answer their review in diff delver,
+call `get_review` with the report's id (`list_reports` lists the reports if you do
+not have it). It gives their latest finished review, exactly as they copied it:
+each comment with its file, its lines and side (`new` is after the change, `old`
+before), the code it was on, and their words, then what they did not review.
+Work through the comments one at a time in the repository: change what they ask
+for, and answer what they ask about instead of changing code for it. Then tell
+them, comment by comment, what you did. Comments they are still writing are
+private: if `get_review` says no review is finished yet, ask them to press
+**Finish and copy** on the report's page.

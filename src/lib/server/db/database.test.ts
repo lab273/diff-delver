@@ -187,6 +187,11 @@ describe('the database', () => {
 				version: 10,
 				name: 'draft comments whose ids are never used again, with when each was written and changed',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 11,
+				name: 'finished reviews, with their comments, the text handed over and what was reviewed',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -251,6 +256,9 @@ describe('the database', () => {
 			section_references: [],
 			commit_runs: [],
 			draft_comments: [],
+			reviews: [],
+			review_comments: [],
+			review_marks: [],
 			// SQLite's own, for the one table whose ids are never used again.
 			sqlite_sequence: [{ name: 'draft_comments', seq: 0 }],
 			revision_updates: [],
