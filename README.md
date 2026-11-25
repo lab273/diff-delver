@@ -140,13 +140,31 @@ offers the same for each repository you have opened a Delve in.
 | `diff-delver open staged` | Only what you have staged |
 | `diff-delver open HEAD` | One commit; a commit id such as `abc1234` works too |
 | `diff-delver open main...feature-x` | One branch compared with another |
-| `diff-delver choose` | A page to choose from your branches and commits |
+| `diff-delver open https://github.com/owner/repo/pull/123` | A pull request on GitHub, run in a clone of its repository |
+| `diff-delver choose` | A page to choose from your branches, your commits and, for a repository on GitHub, its open pull requests |
 
 The chooser landed after v0.0.1. To try it, run `npx github:lab273/diff-delver choose`
 in your repository. Pick a branch, then tick two commits to review them and every
 commit between, or review the whole branch at once. Each commit shows its size and
 when it was made. You can see when your copy last fetched and check whether the
 remote has new commits.
+
+### Review a pull request
+
+In a clone of a repository on GitHub, the choose page offers **Show open pull
+requests**. Pick one, or run `diff-delver open` with its address, and it opens as a
+Delve of what the pull request changes. diff delver downloads its commits into its
+own folder, never into your clone. When new commits are pushed to it, the Delve
+offers them as its next version, with your ticks kept, as it does for your own files.
+Private repositories need a sign-in: diff delver uses the GitHub command's (`gh auth
+login`), or else a token in `GITHUB_TOKEN`. It asks GitHub only when you open the
+list, open a pull request or bring one up to date, and when a pull request's page
+checks for new commits, at most once a minute.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="tests/journeys/screenshots/j11-review-a-github-pr.02.the-open-pull-requests.dark.png">
+  <img src="tests/journeys/screenshots/j11-review-a-github-pr.02.the-open-pull-requests.light.png" alt="The choose page of a clone of acme/shop, listing its two open pull requests on GitHub, one of them a draft" width="800">
+</picture>
 
 Other commands and options:
 
@@ -167,7 +185,8 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 
 - Opening uncommitted changes, staged changes, a commit, or two branches compared,
   from a local git repository. Builds from `main` also let you choose commits or a
-  branch from a page.
+  branch from a page, and open a GitHub pull request, from a clone of its
+  repository, and follow it as commits are pushed.
 - Reading a diff: code coloured by language, one column or side by side, white-space
   changes hidden, unchanged lines opened, search, and a reading bookmark that
   survives reload in the same tab.
@@ -191,7 +210,9 @@ Not built yet:
 - The agent’s cross-references between sections.
 - Flags, agent notes, replies to earlier reviews and asking the agent from the page.
 - Saving a review to a file or posting it to GitHub.
-- Pull requests as a source, and snapshot-test images shown beside their tests.
+- A pull request with no clone of its repository on this machine, and GitHub
+  Enterprise.
+- Snapshot-test images shown beside their tests.
 - A setup command and an installable Claude Code plugin. For now you add the MCP
   server and the skill yourself, as above.
 - macOS and Windows have not been tried.
