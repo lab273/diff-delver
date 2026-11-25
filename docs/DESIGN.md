@@ -583,8 +583,8 @@ was replaced, so every write sent twice is harmless and answers as a success.
 **The browser.** When an agent first creates a report, diff delver opens it in the
 person's browser, as the command does, at most one window for a session of
 `diff-delver mcp` (none when it was started with `--no-open`). Every `create_report`
-answer also carries an address of its own, which works once, within two minutes;
-calling `create_report` again gives a fresh one.
+answer also carries an address of its own, which works once; calling
+`create_report` again gives a fresh one.
 
 ### 7.2 Reviewer requests
 
@@ -865,8 +865,12 @@ kept yet.
 - Review state is personal and never written into the repository.
 - The daemon binds to `127.0.0.1`, checks `Host` and `Origin`, and requires a
   bearer token or browser session cookie. No token appears on a command line or in
-  an address. A browser is let in by a single-use code, good for two minutes, which
-  the daemon exchanges for a session cookie. There are two grants, each with its
+  an address. A browser is let in by a single-use code, which the daemon exchanges
+  for a session cookie. A code does not run out with time: it is kept, in memory
+  only, until it is used or the daemon stops, and only the newest are kept. diff
+  delver is served behind a separate layer of authentication, and its addresses
+  reach nothing that could misuse them, so a link that had expired by the time the
+  person clicked it cost more than it protected. There are two grants, each with its
   own Strict cookie. A link written into an agent's answer lets a browser read and
   tick. Reading and writing drafts, and deleting a Delve, need review access, which
   only a window diff delver opens in the person's own browser has: the one the
