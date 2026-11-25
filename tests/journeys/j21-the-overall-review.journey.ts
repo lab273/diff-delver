@@ -118,5 +118,20 @@ test.describe('J21 The overall review', () => {
 			finish.byText('Review 1: an overall review and 1 comment, finished', { exact: false })
 		);
 		await journey.step('The review finished, its overall review first');
+
+		// Away to the list of Delves and back: the bar is open as it was left, and the
+		// keyboard is not taken into its box, so a key such as `j` moves on, typing nothing.
+		await journey.activate(
+			journey.within(journey.byRole('banner')).byRole('link', { name: 'Your Delves' })
+		);
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
+		await journey.activate(journey.byRole('link', { name: 'Uncommitted changes', exact: true }));
+		await journey.expectState(toggle, { expanded: true });
+		await journey.expectVisible(bar.byText('No comments yet', { exact: true }));
+		expect(await journey.focused()).not.toMatch(/^textbox "Your overall review/);
+		await journey.press('j');
+		await journey.expectState(words, { value: '' });
+		await journey.expectHidden(bar.byText('Not saved', { exact: true }));
+		await journey.step('Back on the Delve, the keyboard is not in the overall review');
 	});
 });

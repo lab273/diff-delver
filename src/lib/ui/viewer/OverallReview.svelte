@@ -12,7 +12,7 @@
 	is the person's setting, the same on every Delve.
 -->
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import {
 		MAX_OVERALL_REVIEW_LENGTH,
@@ -65,16 +65,16 @@
 	const over = $derived(Math.max(0, comments.overallText.length - MAX_OVERALL_REVIEW_LENGTH));
 	const blocked = $derived(writing.saving || !open || over > 0 || !unsaved);
 
-	// Asked to take the keyboard, as by its key: the box takes it once it is drawn.
-	let given = 0;
+	// Asked to take the keyboard, as by its key: the box takes it once it is
+	// drawn, as soon as the draft is read, once for each press. A bar drawn
+	// again, as when the reviewer comes back to the Delve, answers nothing asked
+	// before it was drawn.
+	let given = untrack(() => writing.focusAsked);
 	$effect(() => {
 		const asked = writing.focusAsked;
-		if (!expanded || asked === given) return;
-		void tick().then(() => {
-			if (asked === given || input === undefined) return;
-			given = asked;
-			input.focus();
-		});
+		if (!expanded || input === undefined || asked === given) return;
+		given = asked;
+		input.focus();
 	});
 
 	async function save(): Promise<void> {
