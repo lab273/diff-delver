@@ -23,12 +23,14 @@ nothing can be skipped unseen.
 ## Steps
 
 1. **Open the report.** Call `create_report`. Leave `source` out for the person's
-   uncommitted changes or their branch; give it when they named a commit or range.
+   uncommitted changes or their branch; give it when they named a commit, a range
+   or a GitHub pull request (its address).
    Give the person the address it returns straight away, in one line, so they can
    watch. An address opens the report once.
 2. **Read before you sort.** Call `get_manifest`, then `get_diff` (follow its
-   cursor until no more pages follow). Read commit messages too if the source has
-   them (`git log`). Use `get_file` for context the diff does not show. Every
+   cursor until no more pages follow). For a pull request the manifest gives its
+   title and description; otherwise read commit messages if the source has them
+   (`git log`). Use `get_file` for context the diff does not show. Every
    write takes the `version` the last reading answer gave.
 3. **Plan the sections as a reading order.** What must a reviewer understand
    first? Usually: the core change, then what builds on it, then what calls it,

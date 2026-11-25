@@ -51,7 +51,7 @@ import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 import { parseSectionTitle } from '#lib/core/section-title.tiny.ts';
 import type { SourceText } from '#lib/core/sources/source-text.tiny.ts';
-import { formatGitSourceSpec, parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
+import { formatSourceSpec, parseSourceSpec } from '#lib/core/sources/source-spec.ts';
 import { parseTimestamp } from '#lib/core/timestamp.tiny.ts';
 import { parseSearchText } from '#lib/core/search/search-text.tiny.ts';
 import { parseMatchCount } from '#lib/core/search/match-count.tiny.ts';
@@ -68,8 +68,8 @@ function parsed<I, T>(base: z.ZodType<I>, parse: (value: I) => Result<T, unknown
 }
 
 function sourceText(text: string): Result<SourceText, unknown> {
-	const spec = parseGitSourceSpec(text);
-	return spec.ok ? ok(formatGitSourceSpec(spec.value)) : err(spec.error);
+	const spec = parseSourceSpec(text);
+	return spec.ok ? ok(formatSourceSpec(spec.value)) : err(spec.error);
 }
 
 const message = z.string().transform(reviewerMessage);
@@ -85,7 +85,7 @@ const byteSize = parsed(z.number(), parseByteSize);
 const version = parsed(z.number(), parseRevisionNumber);
 const escapedPath = parsed(z.string(), parseEscapedPath);
 const absolutePath: z.ZodType<AbsolutePath> = parsed(z.string(), parseAbsolutePath);
-/** A source in its one written form (`formatGitSourceSpec`), such as `working-tree` or `main...feature`. */
+/** A source in its one written form (`formatSourceSpec`), such as `working-tree`, `main...feature` or a pull request's address. */
 const source = parsed(z.string(), sourceText);
 
 // ── Shared parts ─────────────────────────────────────────────────────────────
@@ -873,6 +873,8 @@ export const HistorySchema = z.object({
 	/** The repository has no commits yet: no branch, and nothing checked out. */
 	noCommits: z.boolean(),
 	remotes: z.array(remoteName),
+	/** Its remote on GitHub, whose pull requests the page offers to list; null for none. */
+	gitHub: z.object({ remote: remoteName, repository: z.string() }).nullable(),
 	lastFetch: z.discriminatedUnion('kind', [
 		z.object({ kind: z.literal('no-remote') }),
 		z.object({ kind: z.literal('never'), remotes: z.array(remoteName) }),
@@ -956,6 +958,36 @@ export const RemoteCheckSchema = z.object({
 	)
 });
 export type RemoteCheckView = z.output<typeof RemoteCheckSchema>;
+
+/**
+ * POST /api/history/pull-requests: the repository's open pull requests on
+ * GitHub, a network call made only when the person opens the list.
+ */
+export const PullRequestsRequestSchema = z.object({ directory: absolutePath });
+export type PullRequestsRequest = z.input<typeof PullRequestsRequestSchema>;
+
+export const PullRequestsSchema = z.object({
+	/** The repository on GitHub, as GitHub names it: `owner/name`. */
+	repository: z.string(),
+	/** How many are listed, as the list's heading says it. */
+	heading: message,
+	pulls: z.array(
+		z.object({
+			/** Its address, which opens it. */
+			source,
+			number: z.number().int().positive(),
+			/** `#12 Add a discount rate`, with what cannot be seen written out. */
+			title: message,
+			/** Who opened it, from which branch into which, and when it was updated. */
+			details: message,
+			draft: z.boolean()
+		})
+	),
+	/** Whether GitHub has more than were listed. */
+	more: z.boolean()
+});
+export type PullRequestsView = z.output<typeof PullRequestsSchema>;
+export type PullRequestView = PullRequestsView['pulls'][number];
 
 /** What every refused request answers with: what happened and what to do next. */
 export const ApiErrorBodySchema = z.object({

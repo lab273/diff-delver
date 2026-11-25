@@ -37,6 +37,22 @@ describe('the command line', () => {
 			ok: true,
 			value: { command: { kind: 'open', source: { kind: 'commit', revision: 'HEAD' } } }
 		});
+		expect(parseCommandLine(['open', 'https://github.com/acme/shop/pull/7/files'])).toMatchObject({
+			ok: true,
+			value: {
+				command: {
+					kind: 'open',
+					source: { kind: 'pull-request', pullRequest: { number: 7 } }
+				}
+			}
+		});
+	});
+
+	it('says what an address that is not a pull request on GitHub should be', () => {
+		const read = parseCommandLine(['open', 'https://example.com/acme/shop/pull/7']);
+		expect(read.ok).toBe(false);
+		if (read.ok) return;
+		expect(describeCommandLineError(read.error)).toContain('github.com only');
 	});
 
 	it('reads the data folder in both spellings', () => {

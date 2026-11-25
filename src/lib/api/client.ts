@@ -36,6 +36,7 @@ import {
 	CommitsSchema,
 	HistorySchema,
 	RemoteCheckSchema,
+	PullRequestsSchema,
 	RunSizeSchema,
 	type CommitsQuery,
 	type CommitsView,
@@ -43,6 +44,8 @@ import {
 	type HistoryView,
 	type RemoteCheckRequest,
 	type RemoteCheckView,
+	type PullRequestsRequest,
+	type PullRequestsView,
 	type RunSizeQuery,
 	type RunSizeView,
 	DaemonInfoSchema,
@@ -287,6 +290,11 @@ export class ApiClient {
 	/** Asks the repository's remotes what they have. A network call: only when the person asks. */
 	checkRemotes(request: RemoteCheckRequest): Promise<Result<RemoteCheckView, ApiError>> {
 		return this.#call('POST', '/api/history/check', RemoteCheckSchema, request);
+	}
+
+	/** The repository's open pull requests on GitHub: a network call, only when the person asks. */
+	pullRequests(request: PullRequestsRequest): Promise<Result<PullRequestsView, ApiError>> {
+		return this.#call('POST', '/api/history/pull-requests', PullRequestsSchema, request);
 	}
 
 	/** A diff's page: of its newest version, or of `version`, the one a page shows. */

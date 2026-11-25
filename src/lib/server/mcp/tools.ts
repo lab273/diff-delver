@@ -44,7 +44,12 @@ import {
 	renderFileLines,
 	sideInWords
 } from '#lib/core/agent/file-answer.ts';
-import { manifestPosition, renderManifest } from '#lib/core/agent/manifest.ts';
+import {
+	manifestPosition,
+	renderManifest,
+	type ManifestPullRequest
+} from '#lib/core/agent/manifest.ts';
+import { pullRequestShortName, pullRequestUrl } from '#lib/core/github/pull-request.ts';
 import {
 	filterKey,
 	parsePageCursor,
@@ -73,11 +78,8 @@ import { err, ok, type Result } from '#lib/core/result.ts';
 import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { Side } from '#lib/core/side.tiny.ts';
-import {
-	describeInvalidSourceSpec,
-	formatGitSourceSpec,
-	parseGitSourceSpec
-} from '#lib/core/sources/git-source-spec.ts';
+import { formatGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
+import { describeInvalidSource, parseSourceSpec } from '#lib/core/sources/source-spec.ts';
 import { textForAgent, type TextForAgent } from '#lib/core/text-for-agent.tiny.ts';
 import { describeUpdate } from '#lib/core/update/update-summary.ts';
 import { ignoreRuleName } from '#lib/core/diff/path-rules.ts';
@@ -215,6 +217,20 @@ function headingOf(page: LoadedReport): ReportHeading {
 	};
 }
 
+/** The pull request a report follows, for the manifest; nothing for a git source. */
+function pullRequestOf(page: LoadedReport): { pullRequest?: ManifestPullRequest } {
+	const { source } = page.report;
+	if (source.kind !== 'github') return {};
+	return {
+		pullRequest: {
+			name: pullRequestShortName(source.pullRequest),
+			address: pullRequestUrl(source.pullRequest),
+			title: source.title,
+			description: source.description
+		}
+	};
+}
+
 /** The reports an agent can be pointed at when it named one that is not there. */
 function knownReports(service: ReportService): string {
 	const listed = service.list();
@@ -303,7 +319,7 @@ const createReport = tool({
 			.max(500)
 			.optional()
 			.describe(
-				'Which diff: "working-tree", "staged", a commit ("HEAD", "abc1234") or a range ("main...feature-x"). Leave it out for the most likely one.'
+				'Which diff: "working-tree", "staged", a commit ("HEAD", "abc1234"), a range ("main...feature-x") or a GitHub pull request by its address ("https://github.com/owner/repo/pull/123"), which must be of the repository you were started in. Leave it out for the most likely one.'
 			)
 	}),
 	run: async (input, context) => {
@@ -349,9 +365,9 @@ const createReport = tool({
 					);
 			}
 		}
-		const spec = parseGitSourceSpec(input.source);
+		const spec = parseSourceSpec(input.source);
 		if (!spec.ok) {
-			return err(`${describeInvalidSourceSpec(spec.error)} Or leave "source" out.`);
+			return err(`${describeInvalidSource(spec.error)} Or leave "source" out.`);
 		}
 		const result = await context.service.open(directory.value, spec.value);
 		if (!result.ok) return err(describeForAgent(result.error));
@@ -553,7 +569,8 @@ const getManifest = tool({
 			sections: page.value.sections,
 			references: page.value.references,
 			overview: page.value.overview,
-			leftOut: page.value.leftOut
+			leftOut: page.value.leftOut,
+			...pullRequestOf(page.value)
 		};
 		const cursor = cursorFor(
 			input.cursor,

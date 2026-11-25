@@ -5,6 +5,7 @@
  * stopped when the test finishes. Also a plain HTTP request, for the checks on
  * `Host`, `Origin` and the token, which `fetch` will not let a test set freely.
  */
+import type { GitHubAccess } from '#lib/server/sources/github/index.ts';
 import { request as httpRequest } from 'node:http';
 import { onTestFinished } from 'vitest';
 import { ApiClient } from '#lib/api/client.ts';
@@ -44,6 +45,8 @@ export interface TestDaemonOptions {
 	readonly openBrowser?: (address: string) => Promise<boolean>;
 	/** What the daemon is told of the machine and of how it was run; by default nothing. */
 	readonly machine?: MachineFacts;
+	/** How the daemon reaches GitHub: a stand-in's (`github-stand-in.ts`), so no test reaches GitHub. */
+	readonly github?: GitHubAccess;
 }
 
 /** Starts a daemon, or says why it could not; one that starts is stopped when the test finishes. */
@@ -64,7 +67,8 @@ export async function tryStartDaemon(
 		repository: { gitEnv: who.gitEnv },
 		...(options.repeat === undefined ? {} : { repeat: options.repeat }),
 		...(options.openBrowser === undefined ? {} : { openBrowser: options.openBrowser }),
-		...(options.machine === undefined ? {} : { machine: options.machine })
+		...(options.machine === undefined ? {} : { machine: options.machine }),
+		...(options.github === undefined ? {} : { github: options.github })
 	});
 	if (started.ok) {
 		const daemon = started.value;

@@ -1,9 +1,6 @@
 import type { SuggestResponse } from '#lib/api/schemas.ts';
 import { parseAbsolutePath } from '#lib/core/absolute-path.tiny.ts';
-import {
-	describeInvalidSourceSpec,
-	parseGitSourceSpec
-} from '#lib/core/sources/git-source-spec.ts';
+import { describeInvalidSource, parseSourceSpec } from '#lib/core/sources/source-spec.ts';
 import { badRequest, serviceFailure, suggestView } from '#lib/server/api/present.ts';
 import { describeReportError } from '#lib/server/reports/report-error.ts';
 import type { RequestHandler } from './$types';
@@ -21,9 +18,12 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	const askedText = url.searchParams.get('asked');
 	let asked: SuggestResponse['asked'] = null;
 	if (askedText !== null) {
-		const spec = parseGitSourceSpec(askedText);
+		const spec = parseSourceSpec(askedText);
 		if (!spec.ok) {
-			asked = { problem: describeInvalidSourceSpec(spec.error), changes: false };
+			asked = { problem: describeInvalidSource(spec.error), changes: false };
+		} else if (spec.value.kind === 'pull-request') {
+			// Only git sources are checked here: a pull request would ask GitHub on every reload.
+			asked = null;
 		} else {
 			const checked = await locals.daemon.service.checkSource(directory.value, spec.value);
 			asked = checked.ok

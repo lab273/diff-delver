@@ -18,7 +18,7 @@
 				"type": "object",
 				"properties": {
 					"source": {
-						"description": "Which diff: \"working-tree\", \"staged\", a commit (\"HEAD\", \"abc1234\") or a range (\"main...feature-x\"). Leave it out for the most likely one.",
+						"description": "Which diff: \"working-tree\", \"staged\", a commit (\"HEAD\", \"abc1234\"), a range (\"main...feature-x\") or a GitHub pull request by its address (\"https://github.com/owner/repo/pull/123\"), which must be of the repository you were started in. Leave it out for the most likely one.",
 						"type": "string",
 						"maxLength": 500
 					}

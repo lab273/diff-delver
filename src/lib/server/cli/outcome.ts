@@ -16,6 +16,7 @@ import {
 	parseGitSourceSpec,
 	type GitSourceSpec
 } from '#lib/core/sources/git-source-spec.ts';
+import { formatSourceSpec, type SourceSpec } from '#lib/core/sources/source-spec.ts';
 
 export interface CommandOutcome {
 	/** What to print, one plain sentence per line. */
@@ -159,19 +160,24 @@ export async function startOutcome(
 export async function openOutcome(
 	client: ApiClient,
 	directory: AbsolutePath,
-	source: GitSourceSpec,
+	source: SourceSpec,
 	describe: DescribeApiError = describeApiError
 ): Promise<CommandOutcome> {
-	const opened = await client.open({ directory, source: formatGitSourceSpec(source) });
+	const opened = await client.open({ directory, source: formatSourceSpec(source) });
+	const asked = source.kind === 'pull-request' ? undefined : source;
 	if (!opened.ok) {
-		// The page says what was asked for and why it could not be opened, then what can be.
+		// The page says what was asked for and why it could not be opened, then what can be. A
+		// pull request is offered again on the choose page, whose list asks GitHub only when opened.
 		return {
 			lines: [describe(opened.error)],
-			page: startPage(directory, source),
+			page: asked === undefined ? choosePage(directory) : startPage(directory, asked),
 			exitCode: 1
 		};
 	}
-	return described(opened.value, directory, source);
+	if (asked === undefined && opened.value.kind === 'nothing') {
+		return { lines: [opened.value.reason], page: choosePage(directory), exitCode: 0 };
+	}
+	return described(opened.value, directory, asked);
 }
 
 /** `diff-delver choose`: the choose page, once the folder is known to be a repository. */

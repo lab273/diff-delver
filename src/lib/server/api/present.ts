@@ -3,12 +3,19 @@
  * and its errors as HTTP answers. The routes call these; nothing else turns a
  * service value into JSON.
  */
+import { gitHubRepositoryText } from '#lib/core/github/github-repository.ts';
+import {
+	describeListedDetails,
+	describeListedTitle,
+	describeOpenCount
+} from '#lib/core/github/listed-pull-request.ts';
 import type {
 	ApiErrorBody,
 	Candidate,
 	CommitsView,
 	HistoryView,
 	RemoteCheckView,
+	PullRequestsView,
 	RunSizeView,
 	ChangeCheckResponse,
 	DiffPage,
@@ -88,7 +95,7 @@ import type {
 	SourceCandidate,
 	SuggestedSource
 } from '../sources/git/index.ts';
-import type { RepositoryBranches } from '../reports/index.ts';
+import type { RepositoryBranches, RepositoryPullRequests } from '../reports/index.ts';
 import { describeRemoteCheckError } from '#lib/core/history/remote-check.ts';
 
 /** A diff's size as the API gives it. */
@@ -257,6 +264,13 @@ export function historyView(found: RepositoryBranches, now: Timestamp): HistoryV
 		matching: branches.matching,
 		noCommits: found.noCommits,
 		remotes: [...branches.remotes],
+		gitHub:
+			found.gitHub === undefined
+				? null
+				: {
+						remote: found.gitHub.remote,
+						repository: gitHubRepositoryText(found.gitHub.repository)
+					},
 		lastFetch:
 			found.lastFetch.kind === 'no-remote'
 				? { kind: 'no-remote' }
@@ -282,6 +296,25 @@ export function commitsView(page: CommitPage): CommitsView {
 
 export function runSizeView(size: CommitSize | undefined): RunSizeView {
 	return { size: size ?? null };
+}
+
+export function pullRequestsView(found: RepositoryPullRequests, now: Timestamp): PullRequestsView {
+	const { repository, pulls } = found;
+	return {
+		repository: gitHubRepositoryText(repository),
+		heading: describeOpenCount(pulls.pulls.length, pulls.more),
+		pulls: pulls.pulls.map((pull) => ({
+			source: formatSourceSpec({
+				kind: 'pull-request',
+				pullRequest: { repository, number: pull.number }
+			}),
+			number: pull.number,
+			title: describeListedTitle(pull),
+			details: describeListedDetails(pull, now),
+			draft: pull.draft
+		})),
+		more: pulls.more
+	};
 }
 
 export function remoteCheckView(outcomes: readonly RemoteOutcome[]): RemoteCheckView {

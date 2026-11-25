@@ -5,17 +5,14 @@
  */
 import { err, ok, type Result } from '../result.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
-import {
-	describeInvalidSourceSpec,
-	parseGitSourceSpec,
-	type GitSourceSpec
-} from '../sources/git-source-spec.ts';
+import { parseGitSourceSpec } from '../sources/git-source-spec.ts';
+import { describeInvalidSource, parseSourceSpec, type SourceSpec } from '../sources/source-spec.ts';
 
 export type Command =
 	/** No command: open what is most likely to be reviewed in this folder. */
 	| { readonly kind: 'start' }
-	/** One source, as `parseGitSourceSpec` reads it. */
-	| { readonly kind: 'open'; readonly source: GitSourceSpec }
+	/** One source, as `parseSourceSpec` reads it: a git source or a pull request's address. */
+	| { readonly kind: 'open'; readonly source: SourceSpec }
 	/** The choose page: commits or a whole branch of this folder's repository to review. */
 	| { readonly kind: 'choose' }
 	/** The daemon, in the foreground, until it is stopped. */
@@ -114,9 +111,9 @@ export function parseCommandLine(args: readonly string[]): Result<Invocation, Co
 			if (extra[0] !== undefined) {
 				return err({ kind: 'ExtraArgument', command: known, argument: extra[0] });
 			}
-			const spec = parseGitSourceSpec(source);
+			const spec = parseSourceSpec(source);
 			if (!spec.ok) {
-				return err({ kind: 'InvalidSource', message: describeInvalidSourceSpec(spec.error) });
+				return err({ kind: 'InvalidSource', message: describeInvalidSource(spec.error) });
 			}
 			return done({ kind: 'open', source: spec.value });
 		}
@@ -163,7 +160,7 @@ export function describeCommandLineError(error: CommandLineError): ReviewerMessa
 			return reviewerMessage(`diff delver has no option ${error.option}. ${SEE_HELP}`);
 		case 'MissingSource':
 			return reviewerMessage(
-				'diff-delver open needs what to open: a commit (such as HEAD), two branches to compare (such as main...feature-x), staged or working-tree.'
+				'diff-delver open needs what to open: a commit (such as HEAD), two branches to compare (such as main...feature-x), staged, working-tree, or a pull request’s address on GitHub.'
 			);
 		case 'ExtraArgument':
 			return reviewerMessage(describeExtraArgument(error.command, error.argument));
@@ -183,8 +180,10 @@ Usage:
   diff-delver                 Open the changes in this repository that are most
                               likely to be reviewed, in your browser.
   diff-delver open <source>   Open a Delve for working-tree (uncommitted changes),
-                              staged, a commit such as HEAD or abc1234, or two
-                              branches to compare, such as main...feature-x.
+                              staged, a commit such as HEAD or abc1234, two
+                              branches to compare, such as main...feature-x, or
+                              a pull request on GitHub by its address, run in a
+                              clone of its repository.
   diff-delver choose          Choose commits, or a whole branch, to review: shows
                               this repository's branches and commits, with their
                               sizes and when they were made, in your browser.
