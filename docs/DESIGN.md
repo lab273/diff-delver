@@ -856,6 +856,19 @@ and a comment finished in another tab and then edited says which review it is
 in. A closed Delve must be reopened to finish. The delivery log (6.3) is not
 kept yet.
 
+**The overall review.** The reviewer writes the review's summary (6.3) in a bar
+pinned to the foot of a Delve's page, so it is at hand wherever they are in the
+diff. Put away, the bar shows the first words written, or that nothing is written
+yet, whether something typed is not saved, how many comments the draft holds and
+the way to finish; opened, it is a box that saves as a comment's does, and `v`
+opens it. It starts put away, and stays open once opened, for every Delve, until it
+is put away again. It is part of the draft: it needs review access, a review can be
+finished with it and no comments, finishing empties it, and a finish is refused
+when it changed since the page showed it, as for comments. It belongs to the whole
+Delve, not to a version, so it can be saved on any version while the Delve is open.
+In the text handed over it comes first, under its own heading, quoted as comments'
+words are. The verdict (6.3) is not built yet.
+
 ## 9. Storage and safety
 
 - SQLite in the data directory, beside the stores, so there is one place to find, back up or delete. Reports, revisions, sections, assignments
@@ -983,6 +996,7 @@ guidance says [how journeys are tested](DEVELOPING.md#testing).
 | J18 | Draft comments | open a Delve from an agent's link and turn comments on in one press, comment on a line or a run of lines from the line itself, see each comment at its lines and in a list that goes to it, edit and delete one, and keep what was typed through a refused save and an update |
 | J19 | Move between Delves | go from a Delve to another through the panel that lists the others, open the choose page for the Delve's repository from the panel and open a branch there, and reach the list from the header, where each repository offers the same way to open something new, with no terminal |
 | J20 | Have an agent sort this Delve | on a Delve no agent has sorted, open the steps under "Not sorted yet", copy the command for an agent, the folder and the sentence that names this Delve, see the page say an agent connected, and see the steps give way to the agent's sections |
+| J21 | The overall review | write an overall review in the bar pinned to the bottom of a Delve, put it away and see its first words and how many comments there are, change it, and find it at the top of the finished review |
 
 The agent interface is also tried with real coding agents. Recorded sessions of
 Claude Code and Codex sorting fixture diffs through the MCP server are kept in the
