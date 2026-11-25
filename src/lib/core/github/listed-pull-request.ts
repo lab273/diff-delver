@@ -27,9 +27,12 @@ export interface ListedPullRequest {
 	readonly updatedAt: Timestamp;
 }
 
-/** The first line of its row: `#12 “Add a discount rate”`, with what cannot be seen written out. */
+/**
+ * The first line of its row: `#12 Add a discount rate`. The title is as GitHub
+ * gave it: a page shows it with what cannot be seen marked (`VisibleText`).
+ */
 export function describeListedTitle(pull: ListedPullRequest): ReviewerMessage {
-	return reviewerMessage(`#${String(pull.number)} ${visibleText(pull.title)}`);
+	return reviewerMessage(`#${String(pull.number)} ${pull.title}`);
 }
 
 /**

@@ -58,7 +58,8 @@ function sizeInSentence(diff: DiffSummary): string {
 function described(
 	response: StartResponse | OpenResponse,
 	directory: AbsolutePath,
-	asked: GitSourceSpec | undefined
+	asked: GitSourceSpec | undefined,
+	pull = false
 ): CommandOutcome {
 	switch (response.kind) {
 		case 'opened': {
@@ -69,7 +70,7 @@ function described(
 					? `${diff.title} in ${diff.repository}: ${sizeInSentence(diff)}.`
 					: update === null
 						? `${diff.title} in ${diff.repository}, opened again where you left it (${diff.progressText.toLowerCase()}). Nothing has changed since.`
-						: `${diff.title} in ${diff.repository}, updated to your files as they are now (version ${String(update.version)}). ${update.text}`
+						: `${diff.title} in ${diff.repository}, updated to ${pull ? 'the pull request as it is now on GitHub' : 'your files as they are now'} (version ${String(update.version)}). ${update.text}`
 			];
 			if (diff.leftOut > 0) {
 				lines.push(
@@ -177,7 +178,7 @@ export async function openOutcome(
 	if (asked === undefined && opened.value.kind === 'nothing') {
 		return { lines: [opened.value.reason], page: choosePage(directory), exitCode: 0 };
 	}
-	return described(opened.value, directory, asked);
+	return described(opened.value, directory, asked, asked === undefined);
 }
 
 /** `diff-delver choose`: the choose page, once the folder is known to be a repository. */

@@ -87,6 +87,7 @@
 		type TickTarget
 	} from '#lib/ui/viewer/viewer.svelte.ts';
 	import { withSetting, type Layout, type SettingChange } from '#lib/core/settings.ts';
+	import { parseSourceSpec } from '#lib/core/sources/source-spec.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -250,6 +251,12 @@
 			await goto(resolve('/diffs/[id]', { id: opened.value.diff.id }));
 			return { ok: true };
 		});
+	}
+
+	/** Whether the Delve follows a GitHub pull request, so its banners speak of it and not of files. */
+	function followsPullRequest(source: string): boolean {
+		const spec = parseSourceSpec(source);
+		return spec.ok && spec.value.kind === 'pull-request';
 	}
 
 	function fileCount(count: number): string {
@@ -1919,6 +1926,7 @@
 {:else}
 	{@const page = data.loaded.value}
 	{@const summary = viewer.summary}
+	{@const pull = followsPullRequest(page.source)}
 	{@const comments = commentsFor(summary.id)}
 	{@const updated = page.update}
 	{@const overall = viewer.overall}
@@ -1972,9 +1980,14 @@
 					{/snippet}
 				</Notice>
 			{:else if check.kind === 'changed'}
-				<Notice heading="Your files have changed" headingId="changed-heading">
+				<Notice
+					heading={pull ? 'The pull request has changed' : 'Your files have changed'}
+					headingId="changed-heading"
+				>
 					<p>
-						What you see here is how they were before.
+						{pull
+							? 'New commits were pushed to it on GitHub. What you see here is how it was before.'
+							: 'What you see here is how they were before.'}
 						{check.files === 0
 							? 'None of the changes this diff shows are different, so updating brings nothing new to review.'
 							: `Update to see the ${fileCount(check.files)} that changed as they are now. Lines you marked as reviewed stay marked, unless they or the lines close to them changed.`}
@@ -2006,13 +2019,15 @@
 			{#if summary.state.kind === 'open'}
 				<p class="checked" role="status">
 					{#if busy && check.kind === 'changed'}
-						Updating to your files as they are now…
+						{pull
+							? 'Updating to the pull request as it is now on GitHub…'
+							: 'Updating to your files as they are now…'}
 					{:else if check.kind === 'checking'}
-						Checking for changes in the repository…
+						{pull
+							? 'Checking GitHub for new commits to the pull request…'
+							: 'Checking for changes in the repository…'}
 					{:else if check.kind === 'unchanged'}
-						{summary.version === 1
-							? 'No changes in the repository since you opened it.'
-							: 'No changes in the repository since this version was taken.'}
+						{`No changes ${pull ? 'to the pull request' : 'in the repository'} since ${summary.version === 1 ? 'you opened it' : 'this version was taken'}.`}
 					{:else if check.kind === 'failed'}
 						Could not check for changes: {check.message}
 					{/if}

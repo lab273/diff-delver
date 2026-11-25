@@ -3,15 +3,22 @@
 	its branches, the chosen branch's commits newest first with their sizes
 	and times, a run of them to tick, or the whole branch compared with the main branch; and when
 	the repository last fetched, with a button that asks its remote whether it
-	has moved on. It opens nothing until the person presses a button, and
-	never writes to the repository.
+	has moved on; and, for a repository with a remote on GitHub, its open pull
+	requests, asked of GitHub only when the person asks for the list. It opens
+	nothing until the person presses a button, and never writes to the
+	repository.
 -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
 	import { describeApiError } from '#lib/api/client.ts';
-	import type { BranchView, CommitView, RemoteCheckView } from '#lib/api/schemas.ts';
+	import type {
+		BranchView,
+		CommitView,
+		PullRequestsView,
+		RemoteCheckView
+	} from '#lib/api/schemas.ts';
 	import { branchName } from '#lib/core/history/branch-ref.tiny.ts';
 	import {
 		describeCut,
@@ -49,6 +56,7 @@
 	import { parseRevision } from '#lib/core/revision.tiny.ts';
 	import type { DiffSize as SizeOfDiff } from '#lib/core/reports/report.ts';
 	import { formatGitSourceSpec, type GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
+	import type { SourceText } from '#lib/core/sources/source-text.tiny.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import { formatCount } from '#lib/core/viewer/words.ts';
 	import CopyCommand from '#lib/ui/CopyCommand.svelte';
@@ -98,6 +106,14 @@
 	let checking = $state(false);
 	let checked: RemoteCheckView | undefined = $state();
 	let checkProblem = $state('');
+
+	const gitHub = loaded?.gitHub ?? null;
+	let askingPulls = $state(false);
+	let pulls: PullRequestsView | undefined = $state();
+	let pullsProblem = $state('');
+	/** The pull request being opened, by its number, while it is fetched from GitHub. */
+	let openingPull: number | undefined = $state();
+	let pullProblem = $state('');
 
 	const main = loaded?.main ?? undefined;
 	const remotes = loaded?.remotes ?? [];
@@ -235,22 +251,46 @@
 		void measure();
 	}
 
-	/** Opens a source, as the start page does, and goes to its diff. */
-	async function open(spec: GitSourceSpec): Promise<void> {
-		if (opening || directory === undefined) return;
-		opening = true;
-		problem = '';
-		const opened = await pageClient().open({ directory, source: formatGitSourceSpec(spec) });
-		opening = false;
-		if (!opened.ok) {
-			problem = describeApiError(opened.error);
-			return;
-		}
+	/** Opens a source, as the start page does, and goes to its diff; or says why it could not. */
+	async function openSource(source: SourceText): Promise<string> {
+		if (directory === undefined) return '';
+		const opened = await pageClient().open({ directory, source });
+		if (!opened.ok) return describeApiError(opened.error);
 		if (opened.value.kind === 'opened') {
 			await goto(resolve('/diffs/[id]', { id: opened.value.diff.id }));
+			return '';
+		}
+		return opened.value.reason;
+	}
+
+	async function open(spec: GitSourceSpec): Promise<void> {
+		if (opening || openingPull !== undefined) return;
+		opening = true;
+		problem = '';
+		problem = await openSource(formatGitSourceSpec(spec));
+		opening = false;
+	}
+
+	/** Asks GitHub for the repository's open pull requests: only when the person presses the button. */
+	async function askForPulls(): Promise<void> {
+		if (askingPulls || directory === undefined) return;
+		askingPulls = true;
+		pullsProblem = '';
+		const listed = await pageClient().pullRequests({ directory });
+		askingPulls = false;
+		if (!listed.ok) {
+			pullsProblem = describeApiError(listed.error);
 			return;
 		}
-		problem = opened.value.reason;
+		pulls = listed.value;
+	}
+
+	async function openPull(source: SourceText, number: number): Promise<void> {
+		if (opening || openingPull !== undefined) return;
+		openingPull = number;
+		pullProblem = '';
+		pullProblem = await openSource(source);
+		openingPull = undefined;
 	}
 
 	function reviewTicked(): void {
@@ -340,6 +380,64 @@
 					{/each}
 				{/if}
 			</div>
+		</section>
+	{/if}
+
+	{#if gitHub !== null}
+		<section class="pulls" aria-labelledby="pulls-heading">
+			<h2 id="pulls-heading">Pull requests on GitHub</h2>
+			<div class="pulls-bar">
+				<p class="quiet">
+					{pulls === undefined
+						? `${gitHub.remote} is ${gitHub.repository} on GitHub. Open one of its pull requests as a Delve; diff delver asks GitHub only when you press the button.`
+						: `${pulls.heading} in ${pulls.repository}, most recently updated first. Choose one to review it.`}
+				</p>
+				<button type="button" aria-disabled={askingPulls} onclick={askForPulls}>
+					{pulls === undefined ? 'Show open pull requests' : 'Ask GitHub again'}
+				</button>
+			</div>
+			<div role="status" aria-busy={askingPulls || openingPull !== undefined}>
+				{#if askingPulls}
+					<p>Asking GitHub for {gitHub.repository}’s open pull requests…</p>
+				{:else if pullsProblem !== ''}
+					<p class="problem">{pullsProblem}</p>
+				{:else if openingPull !== undefined}
+					<p>Downloading pull request #{openingPull} from GitHub…</p>
+				{/if}
+			</div>
+			{#if pullProblem !== ''}
+				<Notice tone="danger" heading="That pull request could not be opened">
+					<p>{pullProblem}</p>
+				</Notice>
+			{/if}
+			{#if pulls !== undefined && pulls.pulls.length > 0}
+				<ul class="rows pull-rows">
+					{#each pulls.pulls as pull (pull.number)}
+						<li>
+							<button
+								type="button"
+								class="pull"
+								aria-disabled={openingPull !== undefined || opening}
+								onclick={() => {
+									void openPull(pull.source, pull.number);
+								}}
+							>
+								<span class="subject">
+									<VisibleText text={pull.title} />
+									{#if pull.draft}<span class="tag">Draft</span>{/if}
+								</span>
+								<span class="row-details">{pull.details}</span>
+							</button>
+						</li>
+					{/each}
+				</ul>
+				{#if pulls.more}
+					<p class="quiet">
+						GitHub has more. To review another, run <code>diff-delver open</code> with its address in
+						this repository.
+					</p>
+				{/if}
+			{/if}
 		</section>
 	{/if}
 
@@ -750,6 +848,43 @@
 
 	.exact {
 		white-space: nowrap;
+	}
+
+	.pulls {
+		margin: 0 0 1.5rem;
+	}
+
+	.pulls-bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.25rem 1rem;
+	}
+
+	.pulls-bar p {
+		margin: 0;
+		flex: 1 1 20rem;
+	}
+
+	.pull-rows {
+		margin-top: 0.75rem;
+	}
+
+	.pull {
+		display: grid;
+		width: 100%;
+		text-align: left;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
+		padding: 0.5rem 0.75rem;
+		font: inherit;
+		color: inherit;
+		cursor: pointer;
+	}
+
+	.pull:hover {
+		background: var(--color-subtle);
 	}
 
 	.fork {

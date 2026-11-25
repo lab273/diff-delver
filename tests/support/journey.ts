@@ -362,6 +362,19 @@ export interface Journey extends Finder {
 	 */
 	commitAll(where: JourneyRepository, message: string): Promise<void>;
 	/**
+	 * Someone pushes a commit to pull request `number` on GitHub, the journey's
+	 * stand-in, whose repository `where` (the `on-github` one) is a clone of:
+	 * `path` is written on the pull request's branch there, and the clone is
+	 * left as it was, as a push by someone else leaves it.
+	 */
+	pushToPullRequest(
+		where: JourneyRepository,
+		number: number,
+		path: string,
+		text: string,
+		message: string
+	): Promise<void>;
+	/**
 	 * Comes back to the page after doing something elsewhere, such as editing a
 	 * file or running the command: the page's window gets the focus, as when a
 	 * person switches back to the browser.
@@ -1227,6 +1240,14 @@ export async function startJourney(
 				throw new Error(`${where.description} was not made by journey.repository.`);
 			}
 			await GitRepo.open(absolutePath(directory)).commit(message);
+		},
+		async pushToPullRequest(where, number, path, text, message) {
+			if (world === undefined) throw new Error('This journey has no GitHub to push to.');
+			const directory = REPOSITORY_PATHS.get(where);
+			if (directory === undefined) {
+				throw new Error(`${where.description} was not made by journey.repository.`);
+			}
+			await world.pushToPullRequest(directory, number, path, text, message);
 		},
 		async returnToPage() {
 			await page.evaluate(() => {

@@ -47,6 +47,28 @@ import { buildImages } from './image-fixtures.ts';
 import { buildLedger } from './ledger.ts';
 import { mcpOverHttp } from './mcp-client.ts';
 import { buildShop } from './scripted-categorisation.ts';
+import { startGitHubStandIn, type StandInPull } from './github-stand-in.ts';
+import {
+	buildShopUpstream,
+	DISCOUNT_PULL,
+	RECEIPT_PULL,
+	SHOP_NAME,
+	SHOP_OWNER,
+	SHOP_REMOTE
+} from './pull-request-fixture.ts';
+
+/** Where the `on-github` repository keeps the repository the stand-in GitHub serves for it. */
+const GITHUB_UPSTREAM = '.git/github-upstream';
+
+/** The `on-github` repository's pull requests, updated in the days before the journey's clock. */
+function journeyPulls(): readonly StandInPull[] {
+	const at = (hoursBefore: number): number =>
+		Math.floor(JOURNEY_TIME.getTime() / 1000) - hoursBefore * 3_600;
+	return [
+		{ ...DISCOUNT_PULL, updatedAt: at(3) },
+		{ ...RECEIPT_PULL, updatedAt: at(2 * 24) }
+	];
+}
 
 /** The variable naming the run's folder, which the global setup makes and removes. */
 export const JOURNEY_ROOT_VARIABLE = 'DIFF_DELVER_JOURNEY_ROOT';
@@ -613,6 +635,33 @@ export const JOURNEY_REPOSITORIES = {
 	/** Changed images, uncommitted: one changed in place, one resized, one added, one deleted, and an SVG. */
 	images: defineFixture('images', buildImages),
 
+	/**
+	 * A clone of acme/shop on GitHub (J11), with nothing uncommitted: its origin
+	 * is github.com's address, and the repository the stand-in GitHub serves as
+	 * acme/shop, with its two open pull requests, is inside its .git folder
+	 * (`GITHUB_UPSTREAM`), so it is copied with it.
+	 */
+	'on-github': defineFixture(
+		'shop',
+		async (repo) => {
+			const upstream = await GitRepo.init(absolutePath(join(repo.dir, GITHUB_UPSTREAM)), {
+				dates: { first: Math.floor(JOURNEY_TIME.getTime() / 1000) - 3 * 86_400, step: 3_600 }
+			});
+			await buildShopUpstream(upstream);
+			// Its time is the fixture's, in the remote branches' reflogs: FETCH_HEAD's would be the machine's.
+			await repo.git(
+				'fetch',
+				'--quiet',
+				'--no-write-fetch-head',
+				upstream.dir,
+				'refs/heads/*:refs/remotes/origin/*'
+			);
+			await repo.git('checkout', '--quiet', '-B', 'main', 'refs/remotes/origin/main');
+			await repo.git('remote', 'add', 'origin', SHOP_REMOTE);
+		},
+		{ dates: { first: Math.floor(JOURNEY_TIME.getTime() / 1000) - 3 * 86_400, step: 3_600 } }
+	),
+
 	/** On main, with nothing uncommitted and no other branch: nothing new to review. */
 	'nothing-new': defineFixture('nothing-new', async (repo) => {
 		await repo.write('src/app.ts', lines('export const name = "app";'));
@@ -665,6 +714,18 @@ export interface JourneyWorld {
 	/** A private copy of a named repository, in a folder named as its fixture is. */
 	repository(name: JourneyRepositoryName): Promise<string>;
 	/**
+	 * Someone pushes a commit to an open pull request of the `on-github`
+	 * repository in `directory`, on GitHub (the stand-in): `path` is written on
+	 * its branch there, never in the clone.
+	 */
+	pushToPullRequest(
+		directory: string,
+		number: number,
+		path: string,
+		text: string,
+		message: string
+	): Promise<void>;
+	/**
 	 * A recorded agent trial (tests/agent-trials/recordings/), replayed in
 	 * `directory` against this journey's daemon: every MCP call, in order, as
 	 * the agent sent it. Fails if the tools now accept or refuse one of them
@@ -708,6 +769,8 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 	const time = parseTimestamp(JOURNEY_TIME.getTime());
 	const version = parseCodeVersion('journey');
 	if (!time.ok || !version.ok) throw new Error('The journey time or version does not parse.');
+	// GitHub is a stand-in on this machine, so no journey reaches it.
+	const github = await startGitHubStandIn();
 	const started = await startDaemon({
 		dataDirectory: absolutePath(join(dir, 'data')),
 		clock: settableClock(time.value),
@@ -715,6 +778,7 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 		version: version.value,
 		app: await app,
 		repository: { gitEnv: await reviewerGitEnv() },
+		github: github.access(),
 		machine: {
 			home: absolutePath(dir),
 			defaultDataDirectory: absolutePath(join(dir, 'data'))
@@ -741,7 +805,24 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 				recursive: true,
 				verbatimSymlinks: true
 			});
+			if (name === 'on-github') {
+				const upstream = GitRepo.open(absolutePath(join(copy, GITHUB_UPSTREAM)));
+				github.addRepository(SHOP_OWNER, SHOP_NAME, upstream);
+				for (const pull of journeyPulls()) await github.setPull(SHOP_OWNER, SHOP_NAME, pull);
+			}
 			return copy;
+		},
+		async pushToPullRequest(directory, number, path, text, message) {
+			const pull = journeyPulls().find((p) => p.number === number);
+			if (pull === undefined)
+				throw new Error(`The on-github repository has no pull request #${String(number)}.`);
+			const upstream = GitRepo.open(absolutePath(join(directory, GITHUB_UPSTREAM)));
+			await upstream.git('checkout', '--quiet', pull.head);
+			await upstream.write(path, text);
+			await upstream.git('add', '--all');
+			await upstream.git('commit', '--quiet', '--no-verify', '-m', message);
+			await upstream.git('checkout', '--quiet', 'main');
+			await github.setPull(SHOP_OWNER, SHOP_NAME, pull);
 		},
 		async agentTrial(name, directory, afterCreate) {
 			const recording = await committedRecording(name);
@@ -852,6 +933,7 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 		},
 		async close() {
 			await daemon.stop();
+			await github.close();
 			await rm(dir, { recursive: true, force: true });
 		}
 	};
