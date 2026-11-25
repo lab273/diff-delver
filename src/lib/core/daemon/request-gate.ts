@@ -289,7 +289,7 @@ export function describeRefusal(refusal: Refusal): {
 			return {
 				title: reviewerMessage('This link is out of date'),
 				message: reviewerMessage(
-					'Each link diff delver gives you opens it once, and this one has been used already, or diff delver has restarted since it was made. Run diff-delver in a terminal, in your repository, to open it again with a new link, or, if a coding agent gave you the link, ask it for a new one.'
+					'Each link diff delver gives you opens it once, and this one has been used already, or diff delver has restarted or made many newer links since. Run diff-delver in a terminal, in your repository, to open it again with a new link, or, if a coding agent gave you the link, ask it for a new one.'
 				)
 			};
 	}

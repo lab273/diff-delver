@@ -147,16 +147,16 @@ page itself, none of which a scripted categorisation had shown:
 ## Changed because of the trials
 
 - The skill: an address opens the report once (at first, within two minutes; it
-  no longer expires), and calling `create_report` again gives a fresh one; whole files first, then the lines of a
-  mixed file that belong elsewhere, as the server says (first changed to the
+  no longer expires), and calling `create_report` again gives a fresh one; whole
+  files first, then the lines of a mixed file that belong elsewhere, as the server says (first changed to the
   opposite order, then back, see 2 above); and a `file` change also sits beside a
   file's lines when its name, mode or kind changed.
 - The page: a group's heading goes to the top of the screen.
 
 ## Still open
 
-In order of how much they matter: the fonts (`dd-1qq.8`), the address that
-expires (`dd-1qq.9`), the variation on long pages (`dd-1qq.11`, `dd-1qq.12`),
+In order of how much they matter: the fonts (`dd-1qq.8`), the variation on long
+pages (`dd-1qq.11`, `dd-1qq.12`),
 the repeated read (`dd-1qq.13`), the item numbering (`dd-1qq.10`). Not yet
 tried: Claude Code on the ledger with the corrected skill, and without the
 skill; a diff larger than the ledger; a source other than uncommitted changes;

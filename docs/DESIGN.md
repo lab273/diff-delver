@@ -867,7 +867,7 @@ kept yet.
   bearer token or browser session cookie. No token appears on a command line or in
   an address. A browser is let in by a single-use code, which the daemon exchanges
   for a session cookie. A code does not run out with time: it is kept, in memory
-  only, until it is used or the daemon stops, and only the newest are kept. diff
+  only, until it is used or the daemon stops, and only the newest unused ones are kept. diff
   delver is served behind a separate layer of authentication, and its addresses
   reach nothing that could misuse them, so a link that had expired by the time the
   person clicked it cost more than it protected. There are two grants, each with its
