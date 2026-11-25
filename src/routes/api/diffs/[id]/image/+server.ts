@@ -9,8 +9,9 @@ import type { RequestHandler } from './$types';
  * One side of an image of the version the page shows, as it is, from diff
  * delver's copy of the diff (DESIGN 8.4), for the page's `<img>`. The bytes
  * are served with the content type they have, never sniffed for another,
- * and in a sandbox with nothing allowed to load or run: an SVG opened by its
- * address runs no script and fetches nothing, as when it is drawn by `<img>`.
+ * and in a sandbox where nothing runs and nothing loads from elsewhere: an
+ * SVG opened by its address runs no script and fetches nothing, as when it is
+ * drawn by `<img>`, and draws the images and fonts it holds within itself.
  * The version's files never change, so the browser may keep it a while.
  */
 export const GET: RequestHandler = async ({ locals, params, url }) => {
@@ -27,7 +28,8 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 		headers: {
 			'Content-Type': contentTypeOf(image.value.format),
 			'Content-Length': String(image.value.bytes.byteLength),
-			'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+			'Content-Security-Policy':
+				"default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox",
 			'X-Content-Type-Options': 'nosniff',
 			'Cache-Control': 'private, max-age=3600'
 		}

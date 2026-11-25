@@ -130,7 +130,7 @@ describe('images', () => {
 		const svg = await read('version=1&side=new&path=assets/logo.svg');
 		expect(svg.headers.get('content-type')).toBe('image/svg+xml');
 		expect(svg.headers.get('content-security-policy')).toBe(
-			"default-src 'none'; style-src 'unsafe-inline'; sandbox"
+			"default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; sandbox"
 		);
 		expect(await svg.text()).toContain('#27ae60');
 
