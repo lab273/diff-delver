@@ -2,7 +2,8 @@
 	One Delve as a list shows it: its title, a link to it, whether it is open,
 	its repository (with its folder, when another repository has the same name),
 	when it was last active, its size, how far its review has
-	got, and whether a comment being written on it in this tab is not saved yet.
+	got, and whether something being written on it in this tab, a comment or the
+	overall review, is not saved yet.
 	The list of Delves and the panel on a Delve's page both draw this, so a Delve
 	is described in one way.
 -->
@@ -49,7 +50,7 @@
 </p>
 <p class="progress">{diff.progressText}</p>
 {#if hasUnsavedWords(diff.id)}
-	<p class="unsaved">A comment you were writing here is not saved yet. Open it to go on.</p>
+	<p class="unsaved">Something you were writing here is not saved yet. Open it to go on.</p>
 {/if}
 
 <style>

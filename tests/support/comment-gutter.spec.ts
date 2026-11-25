@@ -133,7 +133,7 @@ test('words typed in a box are kept when the page is left by its own links and c
 		// To the list of Delves and back with the browser's Back.
 		await page.getByRole('link', { name: 'See all your Delves' }).click();
 		await expect(page.getByRole('heading', { level: 1, name: 'Your Delves' })).toBeVisible();
-		await expect(page.getByText('A comment you were writing here is not saved yet.')).toBeVisible();
+		await expect(page.getByText('Something you were writing here is not saved yet.')).toBeVisible();
 		await page.goBack();
 		await expect(page).toHaveURL(delve);
 		await expect(words).toHaveValue(typed);
@@ -152,7 +152,7 @@ test('words typed in a box are kept when the page is left by its own links and c
 		await expect(page.getByRole('button', { name: 'Draft comments (1)' })).toBeVisible();
 		await page.getByRole('link', { name: 'See all your Delves' }).click();
 		await expect(page.getByRole('heading', { level: 1, name: 'Your Delves' })).toBeVisible();
-		await expect(page.getByText('A comment you were writing here is not saved yet.')).toHaveCount(
+		await expect(page.getByText('Something you were writing here is not saved yet.')).toHaveCount(
 			0
 		);
 	} finally {
