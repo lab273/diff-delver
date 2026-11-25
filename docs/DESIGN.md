@@ -304,6 +304,16 @@ The reviewer's toggle is then a pure view change:
 
 The underlying assignment does not change, and neither does review state.
 
+**A diff's size counts tests apart.** Wherever a diff's size is shown in lines,
+the lines with the role `test` or `snapshot` are counted beside the rest and not
+in it, so the main count is the code to read and the two add up to the whole.
+On a Delve the stored role counts, so an agent's correction changes it; before
+there is a Delve, as on the choose page, the same path rule the first version
+uses decides. Binary files have no lines, so the size also says how many binary
+files are added, removed and changed, with their sizes in bytes, on a Delve's
+page, in the list of Delves and from the command; the choose page leaves them
+out, because git's per-commit counts do not give their sizes.
+
 ## 5. Review state
 
 All of it belongs to the human. No MCP tool can write it. Section 6.3 covers how
