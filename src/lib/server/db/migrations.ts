@@ -444,7 +444,8 @@ UPDATE revisions SET
 -- The binary files a revision adds, removes and changes, with their sizes in
 -- bytes (those removed as they were, those changed before and after), read
 -- from the store once. All NULL for a revision saved before, until the report
--- service counts them from its snapshot: it is a revision to check again.
+-- service counts them from its snapshot, after the daemon has started or when
+-- the revision is next read, so a start is never held up by it.
 ALTER TABLE revisions ADD COLUMN binary_added_files INTEGER CHECK (binary_added_files >= 0);
 ALTER TABLE revisions ADD COLUMN binary_added_bytes INTEGER CHECK (binary_added_bytes >= 0);
 ALTER TABLE revisions ADD COLUMN binary_removed_files INTEGER CHECK (binary_removed_files >= 0);
@@ -452,7 +453,6 @@ ALTER TABLE revisions ADD COLUMN binary_removed_bytes INTEGER CHECK (binary_remo
 ALTER TABLE revisions ADD COLUMN binary_changed_files INTEGER CHECK (binary_changed_files >= 0);
 ALTER TABLE revisions ADD COLUMN binary_changed_before INTEGER CHECK (binary_changed_before >= 0);
 ALTER TABLE revisions ADD COLUMN binary_changed_after INTEGER CHECK (binary_changed_after >= 0);
-INSERT OR IGNORE INTO revisions_to_check (revision_id) SELECT id FROM revisions;
 `
 	}
 ];

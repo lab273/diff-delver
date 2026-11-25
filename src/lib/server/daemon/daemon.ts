@@ -8,7 +8,9 @@
  *    daemon is gone or does not answer with its token. If another daemon holds
  *    it and answers, this one closes again and says so;
  * 4. registers itself for the app's routes (`context.ts`), and starts removing
- *    snapshots a crash left behind, without waiting for that.
+ *    snapshots a crash left behind and counting the binary files of versions an
+ *    earlier diff delver saved without them (`ReportService.countBinaryFiles`),
+ *    without waiting for either.
  *
  * Time and ids come from the `clock` and `ids` it is given. The command always
  * gives the real ones (`#lib/server/system.ts`); only tests and journeys, which
@@ -53,6 +55,7 @@ import { parsePortNumber, type PortNumber } from '#lib/core/port-number.tiny.ts'
 import { parseProcessId } from '#lib/core/process-id.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import type { RevisionId } from '#lib/core/revision-id.tiny.ts';
 import { timeBetween } from '#lib/core/timestamp.tiny.ts';
 import { GRACE_PERIOD } from '../store/index.ts';
 import type { DatabaseError } from '../db/index.ts';
@@ -170,6 +173,11 @@ export interface RunningDaemon extends DaemonConnection {
 	entryCode(): EntryCode;
 	/** The removal of snapshots a crash left behind, which starting begins. */
 	readonly cleaned: Promise<void>;
+	/**
+	 * The counting of binary files an earlier diff delver did not count, which
+	 * starting begins once the daemon is serving, with the versions it counted.
+	 */
+	readonly binaryCounted: Promise<readonly RevisionId[]>;
 	/** Stops serving, closes the database and removes the lockfile. Stopping twice is stopping once. */
 	stop(): Promise<void>;
 	/** Settles once the daemon has stopped. */
@@ -379,6 +387,8 @@ export async function startDaemon(
 			);
 		}
 	});
+	const stopCounting = new AbortController();
+	const binaryCounted = service.countBinaryFiles(stopCounting.signal);
 	let stopChecking = (): void => undefined;
 	let lastTidy = options.clock.now();
 	let tidying: Promise<void> | undefined;
@@ -399,9 +409,11 @@ export async function startDaemon(
 	const stop = (): Promise<void> => {
 		stopping ??= (async () => {
 			stopChecking();
+			stopCounting.abort();
 			unregisterDaemon(lock.port);
 			await close(server);
 			await cleaned;
+			await binaryCounted;
 			await tidying;
 			service.close();
 			await removeLockfileIf(options.dataDirectory, lockText(lock));
@@ -474,6 +486,7 @@ export async function startDaemon(
 		reviewCookie,
 		entryCode,
 		cleaned,
+		binaryCounted,
 		stop,
 		stopped
 	});

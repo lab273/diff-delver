@@ -213,6 +213,7 @@ import {
 	insertRevision,
 	revisionsOf,
 	revisionAt,
+	revisionsWithoutBinary,
 	setRevisionBinary,
 	setRevisionProgress,
 	snapshotInUse,
@@ -3039,16 +3040,17 @@ export class ReportService {
 	}
 
 	/**
-	 * Brings a revision an earlier diff delver saved up to date
-	 * (`revisions_to_check`), once: each file-level unit beside lines without a
-	 * row gets what a first version would have given it (the built-in ignore
+	 * Brings a revision an earlier diff delver saved up to date. One saved
+	 * before a file with lines could also have a file-level unit
+	 * (`revisions_to_check`) is brought up to date once: each such unit without
+	 * a row gets what a first version would have given it (the built-in ignore
 	 * rules and the snapshot's `linguist-generated` paths, the role its path
-	 * suggests, and no reviewed mark), the revision's stored progress and test
-	 * lines are computed again from its rows, and its binary files are counted
-	 * when they were not, so the list of diffs, the page and the command agree.
-	 * Reads the database and the store only, never the reviewed repository; for
-	 * any other revision it is one small query. Returns the revision as now
-	 * stored.
+	 * suggests, and no reviewed mark), and the revision's stored progress and
+	 * test lines are computed again from its rows. One whose binary files were
+	 * not counted has them counted (`#countBinary`). Either way the list of
+	 * diffs, the page and the command then agree. Reads the database and the
+	 * store only, never the reviewed repository; for any other revision it is
+	 * one small query. Returns the revision as now stored.
 	 */
 	async #complete(
 		revision: Revision,
@@ -3060,7 +3062,11 @@ export class ReportService {
 		);
 		if (!rows.ok) return rows;
 		const [stored] = rows.value;
-		if (stored === undefined) return ok(revision);
+		if (stored === undefined) {
+			return revision.binary === undefined
+				? this.#countBinary(revision, snapshot, diff)
+				: ok(revision);
+		}
 		const missing = pathsMissingFileUnit(diff, stored);
 		const generated =
 			missing.size === 0 ? ok(new Set<RepoPath>()) : await generatedPaths(snapshot, [...missing]);
@@ -3102,12 +3108,94 @@ export class ReportService {
 		});
 	}
 
+	/** Counts the binary files of a revision an earlier diff delver did not, and records them. */
+	async #countBinary(
+		revision: Revision,
+		snapshot: Snapshot,
+		diff: Diff
+	): Promise<Result<Revision, ReportError>> {
+		const binary = await binaryOf(snapshot, diff);
+		if (!binary.ok) return binary;
+		return this.#db.write((q) => {
+			setRevisionBinary(q, revision.id, binary.value);
+			return ok({ ...revision, binary: binary.value });
+		});
+	}
+
+	/** `#countBinary`, reading the diff past the cache of diffs, which is for the pages being read. */
+	async #countFromStore(
+		revision: Revision,
+		snapshot: Snapshot
+	): Promise<Result<Revision, ReportError>> {
+		const files = await readSnapshotDiff(snapshot);
+		const diff = files.ok ? makeDiff(files.value) : files;
+		return diff.ok ? this.#countBinary(revision, snapshot, diff.value) : diff;
+	}
+
+	/**
+	 * Counts the binary files of every revision an earlier diff delver saved
+	 * without them, one revision at a time, each report's current one first,
+	 * since the list shows those. The daemon starts it once it is serving, so a
+	 * start is never held up by it: until a revision is counted, the list and
+	 * its page say nothing of its binary files, and a revision read before its
+	 * turn is counted then (`#complete`). Each count reads the diff from the
+	 * store and writes one row in a transaction of its own that only fills
+	 * columns still empty, so it never undoes another write; a revision
+	 * deleted meanwhile is skipped. Stops before the next revision once `stop`
+	 * fires. Returns the revisions it counted, in order.
+	 */
+	async countBinaryFiles(stop?: AbortSignal): Promise<readonly RevisionId[]> {
+		const due = this.#db.read((q) => revisionsWithoutBinary(q));
+		if (!due.ok) {
+			this.#logOnce(
+				`The binary files of diffs saved by an earlier diff delver could not be listed: ${JSON.stringify(due.error)}`
+			);
+			return [];
+		}
+		const counted: RevisionId[] = [];
+		for (const { report: reportId, revision: revisionId } of due.value) {
+			if (stop?.aborted === true) break;
+			const found = this.#db.read((q) =>
+				andThen(reportById(q, reportId), (report) =>
+					map(revisionsOf(q, reportId), (revisions) => ({
+						report,
+						revision: revisions.find((r) => r.id === revisionId)
+					}))
+				)
+			);
+			if (!found.ok) {
+				this.#logOnce(
+					`A diff saved by an earlier diff delver (${reportId}) could not be read to count its binary files: ${JSON.stringify(found.error)}`
+				);
+				continue;
+			}
+			const { report, revision } = found.value;
+			// Deleted, or counted when it was read, since the list was taken.
+			if (report === undefined || revision === undefined || revision.binary !== undefined) continue;
+			const snapshot = await this.#snapshotOf(report, revision);
+			// A revision whose snapshot is gone can never be shown.
+			if (!snapshot.ok && snapshot.error.kind === 'SnapshotGone') continue;
+			const done = snapshot.ok ? await this.#countFromStore(revision, snapshot.value) : snapshot;
+			if (done.ok) counted.push(revision.id);
+			else {
+				this.#logOnce(
+					`The binary files of a diff saved by an earlier diff delver (${reportId}) could not be counted yet: ${JSON.stringify(done.error)}`
+				);
+			}
+		}
+		return counted;
+	}
+
 	/**
 	 * Brings every revision written before a file with lines could also have a
-	 * file-level unit up to date (`#complete`), when the service opens, so the
-	 * list of diffs is right before any of them is opened. A revision whose
-	 * snapshot is gone can never be shown and is left as it is; one that cannot
-	 * be brought up to date now is tried again when it is next read.
+	 * file-level unit up to date (`#complete`), when the service opens, before
+	 * the daemon serves, so the list of diffs and its progress are right before
+	 * any of them is opened. Only revisions from before migration 4 are listed,
+	 * so a database that has none costs one query. Counting the binary files an
+	 * earlier diff delver did not count is left to `countBinaryFiles`, after
+	 * the daemon is serving. A revision whose snapshot is gone can never be
+	 * shown and is left as it is; one that cannot be brought up to date now is
+	 * tried again when it is next read.
 	 */
 	async #checkOldRevisions(): Promise<void> {
 		const due = this.#db.read((q) => revisionsToCheck(q));

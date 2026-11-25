@@ -335,7 +335,7 @@ describe('the database', () => {
 		expect(checked).toEqual({ problems: [], reason: 'snapshot-gone', revisions: [] });
 	});
 
-	it('counts the test lines of versions saved before they were kept, from their rows, and their binary files later', async () => {
+	it('counts the test lines of versions saved before they were kept, from their rows, and leaves their binary files for later', async () => {
 		const dir = await tempDirectory();
 		const ids = sequentialIds();
 		const id = ids.reportId();
@@ -385,7 +385,8 @@ describe('the database', () => {
 			binary_added_files: null,
 			binary_changed_after: null
 		});
-		expect(read.toCheck.map((row) => ({ ...row }))).toEqual([{ revision_id: revision.id }]);
+		// Not a revision to check before the daemon serves: the report service counts its binary files afterwards.
+		expect(read.toCheck).toEqual([]);
 	});
 
 	it('keeps comments saved before their times were kept, and never uses a deleted one’s id again', async () => {

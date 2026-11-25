@@ -228,6 +228,33 @@ export function revisionsOf(
 	return ok(revisions);
 }
 
+const uncounted = z.object({ report_id: text(parseReportId), id: text(parseRevisionId) });
+
+/** A revision whose binary files an earlier diff delver did not count, with its report. */
+export interface UncountedRevision {
+	readonly report: ReportId;
+	readonly revision: RevisionId;
+}
+
+/**
+ * The revisions whose binary files have not been counted yet, each report's
+ * newest first, since those are the ones the list shows, then the rest.
+ */
+export function revisionsWithoutBinary(
+	q: Queries
+): Result<readonly UncountedRevision[], StoredRowInvalid> {
+	const found: UncountedRevision[] = [];
+	for (const raw of q.all(
+		`SELECT report_id, id FROM revisions AS r WHERE binary_added_files IS NULL
+		ORDER BY number = (SELECT max(number) FROM revisions WHERE report_id = r.report_id) DESC, report_id, number DESC`
+	)) {
+		const parsed = parseRow('revisions', uncounted, raw);
+		if (!parsed.ok) return parsed;
+		found.push({ report: parsed.value.report_id, revision: parsed.value.id });
+	}
+	return ok(found);
+}
+
 function binaryColumns(binary: BinaryFiles | undefined): readonly (number | null)[] {
 	if (binary === undefined) return [null, null, null, null, null, null, null];
 	return [
@@ -263,10 +290,10 @@ export function setRevisionProgress(
 	);
 }
 
-/** Records a revision's binary files, once they have been counted. */
+/** Records a revision's binary files, once they have been counted, unless they were already. */
 export function setRevisionBinary(q: Queries, id: RevisionId, binary: BinaryFiles): void {
 	q.run(
-		'UPDATE revisions SET binary_added_files = ?, binary_added_bytes = ?, binary_removed_files = ?, binary_removed_bytes = ?, binary_changed_files = ?, binary_changed_before = ?, binary_changed_after = ? WHERE id = ?',
+		'UPDATE revisions SET binary_added_files = ?, binary_added_bytes = ?, binary_removed_files = ?, binary_removed_bytes = ?, binary_changed_files = ?, binary_changed_before = ?, binary_changed_after = ? WHERE id = ? AND binary_added_files IS NULL',
 		...binaryColumns(binary),
 		id
 	);

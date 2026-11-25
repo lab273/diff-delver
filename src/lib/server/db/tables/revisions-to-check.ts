@@ -1,10 +1,8 @@
 /**
- * The `revisions_to_check` table: the revisions an earlier diff delver saved,
- * whose rows, stored progress, test lines and binary files the report service
- * still has to bring up to date: those written before a file with lines could
- * also have a file-level unit (migration 4), and before binary files were
- * counted (migration 13). Only migrations add to it. The only code that sees
- * its rows.
+ * The `revisions_to_check` table: the revisions an earlier diff delver saved
+ * before a file with lines could also have a file-level unit (migration 4),
+ * whose rows and stored progress the report service still has to bring up to
+ * date. Only migrations add to it. The only code that sees its rows.
  */
 import { z } from 'zod';
 import { parseReportId, type ReportId } from '#lib/core/report-id.tiny.ts';
