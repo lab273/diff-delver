@@ -303,7 +303,7 @@ export async function startDaemon(
 
 	// Nothing is served until the lock is taken and the daemon registered.
 	const gate: { settings: GateSettings | undefined } = { settings: undefined };
-	const codes = entryCodes(options.clock);
+	const codes = entryCodes();
 	const issue = (grant: BrowserGrant): EntryCode => {
 		const code = randomEntryCode();
 		codes.issue(code, grant);

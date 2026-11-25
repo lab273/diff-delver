@@ -427,10 +427,10 @@ async function opened(outcome: OpenOutcome, context: ToolContext): Promise<Resul
 		outcome.kind === 'created' && context.browser === 'may-open'
 			? await context.open(`/diffs/${report.id}`)
 			: false;
-	const giveIt = `Give the person this address to open it in their browser: ${address} (it opens the report once, within two minutes; call create_report again for a new one). It shows your sorting as you go.`;
+	const giveIt = `Give the person this address to open it in their browser: ${address} (it opens the report once; call create_report again for a new one). It shows your sorting as you go.`;
 	out.push(
 		browser
-			? `It is opening in the person's browser now. If they need it again, give them this address: ${address} (it opens the report once, within two minutes; call create_report again for a new one).`
+			? `It is opening in the person's browser now. If they need it again, give them this address: ${address} (it opens the report once; call create_report again for a new one).`
 			: outcome.kind === 'created' && context.browser === 'already-opened'
 				? `It was not opened in the person's browser: diff delver opens one window for each session of an agent, and opened one for an earlier report. ${giveIt}`
 				: giveIt

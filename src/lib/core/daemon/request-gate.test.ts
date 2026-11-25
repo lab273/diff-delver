@@ -1,10 +1,8 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { parseBrowserAccessId } from '../browser-access-id.tiny.ts';
-import { settableClock } from '../clock.ts';
 import { isToken, parseDaemonToken, type DaemonToken } from '../daemon-token.tiny.ts';
 import { parseEntryCode } from '../entry-code.tiny.ts';
-import { parseTimestamp } from '../timestamp.tiny.ts';
 import { entryCodes } from './entry-codes.ts';
 import { parsePortNumber, type PortNumber } from '../port-number.tiny.ts';
 import {
@@ -94,8 +92,7 @@ describe('the request gate', () => {
 	});
 
 	it('takes an entry code once, and never the token in the address', () => {
-		const time = parseTimestamp(1000);
-		const codes = entryCodes(settableClock(made(time)));
+		const codes = entryCodes();
 		const issued = made(parseEntryCode('d'.repeat(32)));
 		codes.issue(issued, 'review');
 		const once: GateSettings = {

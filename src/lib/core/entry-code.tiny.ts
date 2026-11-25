@@ -6,7 +6,7 @@ import type { Tiny } from './tiny.ts';
  * 128 random bits. The command asks the daemon for one and puts it in the
  * address it opens, in place of the daemon's long-lived token, which never
  * leaves the lockfile and the `Authorization` header. The daemon accepts a code
- * once, within `ENTRY_CODE_LIFETIME_MS` of making it (`daemon/entry-codes.ts`).
+ * once, however long after making it, until it restarts (`daemon/entry-codes.ts`).
  */
 export type EntryCode = Tiny<string, 'EntryCode'>;
 

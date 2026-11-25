@@ -152,7 +152,7 @@ Other commands and options:
 
 | | |
 |---|---|
-| `--no-open` | Print the page's address instead of opening a browser. The address works once, within two minutes. |
+| `--no-open` | Print the page's address instead of opening a browser. The address works once. |
 | `diff-delver stop` | Stop diff delver. It otherwise keeps running in the background, so pages stay open. Any copy can stop whichever one is running. |
 | `diff-delver serve` | Run it in this terminal until Ctrl+C, instead of in the background. |
 | `--data-directory <folder>` | Keep its data in this folder. The `DIFF_DELVER_DATA_DIRECTORY` environment variable does the same. |

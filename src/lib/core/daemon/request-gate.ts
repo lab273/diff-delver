@@ -18,7 +18,7 @@
  * the machine. That request continues to the same address without the code,
  * setting a cookie for this daemon alone, so
  * nothing secret stays in the address bar or the history or leaks in a
- * `Referer`. A code works once, for two minutes; a browser that already has the
+ * `Referer`. A code works once; a browser that already has the
  * cookie is sent on even with a used code, as when it opens the address again
  * from its history. The redirect only ever goes to a path of this daemon
  * (`localPath`), whatever the request said.
@@ -83,7 +83,7 @@ export type Refusal =
 	| 'no-token'
 	/** A token that is not this daemon's: a link from an earlier run of diff delver. */
 	| 'wrong-token'
-	/** An entry code that has been used, has run out, or is from an earlier run. */
+	/** An entry code that has been used, or is from an earlier run. */
 	| 'entry-used';
 
 export type GateDecision =
@@ -289,7 +289,7 @@ export function describeRefusal(refusal: Refusal): {
 			return {
 				title: reviewerMessage('This link is out of date'),
 				message: reviewerMessage(
-					'Each link diff delver gives you opens it once, within two minutes, and this one has been used already or has run out. Run diff-delver in a terminal, in your repository, to open it again with a new link, or, if a coding agent gave you the link, ask it for a new one.'
+					'Each link diff delver gives you opens it once, and this one has been used already, or diff delver has restarted since it was made. Run diff-delver in a terminal, in your repository, to open it again with a new link, or, if a coding agent gave you the link, ask it for a new one.'
 				)
 			};
 	}

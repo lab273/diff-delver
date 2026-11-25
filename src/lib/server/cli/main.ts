@@ -19,7 +19,6 @@ import {
 import { describeNoDataDirectory } from '#lib/core/data-directory.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { loadAppHandler } from '../daemon/app-handler.ts';
-import { ENTRY_CODE_LIFETIME_TEXT } from '#lib/core/daemon/entry-codes.ts';
 import { describeDaemonStartError, entryAddress, startDaemon } from '../daemon/daemon.ts';
 import {
 	describeLaunchError,
@@ -151,7 +150,7 @@ const NO_BROWSER =
 	'If no browser window appeared, run diff-delver again with --no-open, and open the address it prints yourself.';
 
 /** What an address with an entry code is good for, said after it. */
-const WORKS_ONCE = `The address works once, within ${ENTRY_CODE_LIFETIME_TEXT}; run diff-delver again for a new one.`;
+const WORKS_ONCE = 'The address works once; run diff-delver again for a new one.';
 
 async function show(
 	client: ApiClient,

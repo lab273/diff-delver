@@ -97,11 +97,12 @@ them out of Ignored into the API section, saying why.
 
 **Badly, or needlessly.**
 
-1. The address expires before the person reads it (bead `dd-1qq.9`, a question
-   for the project owner). It opens the report once within two minutes;
+1. The address expired before the person read it (bead `dd-1qq.9`). When these
+   trials were recorded it opened the report once within two minutes, and
    sorting takes 30 to 90 seconds. Codex called `create_report` a second time at
    the end of four of its five runs only to get a fresh address; Claude Code
-   told the person to ask for a new one if it had expired.
+   told the person to ask for a new one if it had expired. The project owner
+   decided that addresses no longer expire: each still opens the report once.
 2. The skill's sorting advice was unclear: "a whole file takes only what is not
    sorted yet, so do those first". Claude Code named the lines of a mixed file
    that belong elsewhere, then the whole file for the rest, and the skill was
@@ -145,8 +146,8 @@ page itself, none of which a scripted categorisation had shown:
 
 ## Changed because of the trials
 
-- The skill: an address opens the report once within two minutes, and calling
-  `create_report` again gives a fresh one; whole files first, then the lines of a
+- The skill: an address opens the report once (at first, within two minutes; it
+  no longer expires), and calling `create_report` again gives a fresh one; whole files first, then the lines of a
   mixed file that belong elsewhere, as the server says (first changed to the
   opposite order, then back, see 2 above); and a `file` change also sits beside a
   file's lines when its name, mode or kind changed.

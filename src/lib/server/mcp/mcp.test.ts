@@ -871,7 +871,7 @@ describe('/mcp over HTTP', () => {
 		expect(opened).toHaveLength(1);
 		expect(opened[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/diffs\/r_1\?entry=[0-9a-f]{32}$/);
 		expect(created.text).toMatch(
-			/It is opening in the person's browser now\. If they need it again, give them this address: (http:\S+) \(it opens the report once, within two minutes; call create_report again for a new one\)\./
+			/It is opening in the person's browser now\. If they need it again, give them this address: (http:\S+) \(it opens the report once; call create_report again for a new one\)\./
 		);
 		const address = /give them this address: (http:\S+)/.exec(created.text)?.[1] ?? '';
 		// The window's address is the daemon's own: the answer holds another code, never that one.

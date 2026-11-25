@@ -109,9 +109,7 @@ describe('the diff-delver command', () => {
 		const address = addressIn(result.stdout);
 		expect(address.origin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
 		expect(address.pathname).toMatch(/^\/diffs\/r_[0-9a-f]{16}$/);
-		expect(lines[2]).toBe(
-			'The address works once, within two minutes; run diff-delver again for a new one.'
-		);
+		expect(lines[2]).toBe('The address works once; run diff-delver again for a new one.');
 
 		// The daemon outlives the command, and the address lets a browser in once.
 		// It holds a single-use code, never the daemon's token.

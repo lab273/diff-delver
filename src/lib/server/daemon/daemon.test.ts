@@ -242,7 +242,7 @@ describe('the daemon’s gate', () => {
 		const again = await rawRequest(daemon.port, { path: `/?entry=${code}` });
 		expect(again.status).toBe(403);
 		expect(again.body).toContain('This link is out of date');
-		expect(again.body).toContain('opens it once, within two minutes');
+		expect(again.body).toContain('opens it once, and this one has been used already');
 		// The token itself never lets a browser in from the address.
 		const token = await rawRequest(daemon.port, { path: `/?token=${daemon.token}` });
 		expect(token.status).toBe(403);
