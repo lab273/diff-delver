@@ -231,6 +231,22 @@ test.describe('J8 The diff changes mid-review', () => {
 		await journey.expectHidden(finish.byRole('button', { name: 'Finish and copy' }));
 		await journey.step('The diff is closed');
 
+		// Nor can its overall review be written: `v` opens the bar to say so, with no box.
+		const bar = journey.within(journey.byRole('region', { name: 'Overall review' }));
+		await journey.press('v');
+		await journey.expectState(bar.byRole('button', { name: 'Overall review', exact: true }), {
+			expanded: true
+		});
+		await journey.expectVisible(
+			bar.byText(
+				'This Delve is closed, so its overall review cannot be changed and the review cannot be finished. Reopen it, at the top of the page, to go on.'
+			)
+		);
+		await journey.expectHidden(bar.byRole('textbox'));
+		await journey.expectHidden(bar.byRole('button', { name: 'Finish your review' }));
+		await journey.expectFocused(journey.byRole('heading', { name: 'This Delve is closed' }));
+		await journey.step('The overall review of a closed diff');
+
 		await journey.activate(journey.within(closed).byRole('button', { name: 'Reopen this Delve' }));
 		await journey.expectHidden(closed);
 		await journey.expectVisible(nothing);

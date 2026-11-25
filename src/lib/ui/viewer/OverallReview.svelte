@@ -7,6 +7,10 @@
 	page read, so another tab's change is never overwritten unseen. Either way
 	it counts the draft's comments, and offers the way to finish the review.
 
+	On a closed Delve nothing is saved or finished: the bar shows the saved
+	words as text, and what was typed before it was closed with them, and says
+	to reopen it.
+
 	What is typed is held by the tab (`comments.svelte.ts`), so nothing is lost
 	to an update, a regroup or a look at another Delve. Whether the bar is open
 	is the person's setting, the same on every Delve.
@@ -17,6 +21,7 @@
 	import {
 		MAX_OVERALL_REVIEW_LENGTH,
 		describeDraftComments,
+		isWritten,
 		teaserOf
 	} from '#lib/core/review/overall-review.ts';
 	import { countOf, formatCount } from '#lib/core/viewer/words.ts';
@@ -69,10 +74,17 @@
 	// drawn, as soon as the draft is read, once for each press. A bar drawn
 	// again, as when the reviewer comes back to the Delve, answers nothing asked
 	// before it was drawn.
+	// On a closed Delve, or in a browser that may not write, there is no box:
+	// the request is let go, so the box does not take the keyboard unasked later.
 	let given = untrack(() => writing.focusAsked);
 	$effect(() => {
 		const asked = writing.focusAsked;
-		if (!expanded || input === undefined || asked === given) return;
+		if (asked === given) return;
+		if (!open || !canReview) {
+			given = asked;
+			return;
+		}
+		if (!expanded || input === undefined) return;
 		given = asked;
 		input.focus();
 	});
@@ -142,7 +154,7 @@
 						? `${countOf(beingWritten, 'comment', 'comments')} being written`
 						: `${describeDraftComments(savedCount)}, ${formatCount(beingWritten)} more being written`}
 			</span>
-			{#if comments.finishable}
+			{#if open && comments.finishable}
 				<button type="button" class="finish" onclick={onfinish}>Finish your review</button>
 			{/if}
 		{/if}
@@ -153,6 +165,35 @@
 				<ReviewAccess diff={id} what="comments" />
 			{:else if comments.problem !== '' && !loaded}
 				<p class="problem" role="alert">{comments.problem}</p>
+			{:else if loaded && !open}
+				<div class="closed">
+					<p class="note">
+						This Delve is closed, so its overall review cannot be changed and the review cannot be
+						finished. Reopen it, at the top of the page, to go on.
+					</p>
+					<div class="other">
+						{#if isWritten(comments.overall?.body ?? '')}<CommentWords
+								words={comments.overall?.body ?? ''}
+							/>{:else}<p>Nothing written yet.</p>{/if}
+					</div>
+					{#if unsaved}
+						<p class="note">
+							What you typed before it was closed, not saved. It can be saved once the Delve is
+							reopened:
+						</p>
+						<div class="other"><CommentWords words={comments.overallText} /></div>
+						<div class="actions">
+							<button
+								type="button"
+								onclick={() => {
+									comments.discardOverall();
+								}}
+							>
+								Discard changes
+							</button>
+						</div>
+					{/if}
+				</div>
 			{:else if loaded}
 				<form
 					aria-busy={writing.saving}
@@ -192,11 +233,6 @@
 					{/if}
 					{#if writing.problem !== ''}
 						<p class="problem" role="alert">{writing.problem}</p>
-					{/if}
-					{#if !open}
-						<p class="note">
-							This Delve is closed, so nothing can be saved. Reopen it to save this.
-						</p>
 					{/if}
 					<div class="actions">
 						<button type="submit" class="primary" aria-disabled={blocked}>
@@ -292,7 +328,8 @@
 		padding: 0 0.75rem 0.6rem;
 	}
 
-	form {
+	form,
+	.closed {
 		display: grid;
 		gap: 0.4rem;
 		max-width: 60rem;
