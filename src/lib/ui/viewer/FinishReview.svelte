@@ -82,7 +82,7 @@
 
 	/** What finishing would hand over, read again whenever the draft changes while it is shown. */
 	$effect(() => {
-		if (!previewOpen || saved.length === 0) return;
+		if (!open || !previewOpen || saved.length === 0) return;
 		let current = true;
 		void pageClient()
 			.previewReview(id, version)
@@ -107,15 +107,40 @@
 		}
 	}
 
+	/**
+	 * Copies text that is still to come, asking for the clipboard now, while the
+	 * press that asked is fresh: a browser may refuse a copy made only once a
+	 * round trip has ended. Where the clipboard cannot take text to come, it is
+	 * copied when it comes. Nothing is copied when it does not come.
+	 */
+	async function copyWhenReady(text: Promise<string | undefined>): Promise<boolean> {
+		if (typeof ClipboardItem === 'function' && typeof navigator.clipboard.write === 'function') {
+			try {
+				const blob = text.then((t) => {
+					if (t === undefined) throw new Error('Nothing to copy');
+					return new Blob([textToCopy(t)], { type: 'text/plain' });
+				});
+				await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]);
+				return true;
+			} catch {
+				// Refused, or nothing came: copied the plain way below, if it came.
+			}
+		}
+		const came = await text;
+		return came === undefined ? false : copy(came);
+	}
+
 	async function finish(): Promise<void> {
 		if (finishing) return;
 		finishing = true;
 		problem = '';
 		said = '';
-		const finished = await pageClient().finishReview(id, {
+		const request = pageClient().finishReview(id, {
 			version,
 			comments: saved.map((c) => ({ id: c.id, edits: c.edits }))
 		});
+		const copying = copyWhenReady(request.then((r) => (r.ok ? r.value.text : undefined)));
+		const finished = await request;
 		finishing = false;
 		if (!finished.ok) {
 			// Whatever went wrong, show the draft and the reviews as they are now.
@@ -124,7 +149,7 @@
 			return;
 		}
 		const review = finished.value;
-		const copied = await copy(review.text);
+		const copied = await copying;
 		reviews = [...(reviews ?? []), review];
 		now = review.submittedAt;
 		previewOpen = false;
@@ -150,7 +175,13 @@
 
 {#if saved.length > 0 || (reviews?.length ?? 0) > 0}
 	<section class="finish" aria-label="Finish your review">
-		{#if saved.length > 0}
+		<p class="said" role="status">{said}</p>
+		{#if saved.length > 0 && !open}
+			<p class="lead">
+				This Delve is closed, so your {countOf(saved.length, 'comment', 'comments')} cannot be finished.
+				Reopen it to finish {saved.length === 1 ? 'it' : 'them'} as review {next}.
+			</p>
+		{:else if saved.length > 0}
 			<p class="lead">
 				Finishing makes your {countOf(saved.length, 'comment', 'comments')} review {next}. The
 				review is copied, ready to paste to your agent, and your agent can also read it from diff
@@ -162,11 +193,9 @@
 				</p>
 			{/if}
 			<div class="actions">
-				{#if open}
-					<button type="button" class="primary" disabled={finishing} onclick={finish}>
-						{finishing ? 'Finishing…' : 'Finish and copy'}
-					</button>
-				{/if}
+				<button type="button" class="primary" disabled={finishing} onclick={finish}>
+					{finishing ? 'Finishing…' : 'Finish and copy'}
+				</button>
 				<button
 					type="button"
 					aria-expanded={previewOpen}
@@ -199,7 +228,6 @@
 		{#if problem !== ''}
 			<p class="problem" role="alert">{problem}</p>
 		{/if}
-		<p class="said" role="status">{said}</p>
 		{#if reviews !== undefined && reviews.length > 0}
 			<h3>Finished reviews</h3>
 			<ul>
@@ -298,7 +326,8 @@
 	}
 
 	.said {
-		margin: 0.5rem 0 0;
+		margin: 0 0 0.5rem;
+		max-width: 46rem;
 	}
 
 	.said:empty {

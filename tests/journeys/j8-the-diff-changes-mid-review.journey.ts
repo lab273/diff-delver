@@ -189,6 +189,20 @@ test.describe('J8 The diff changes mid-review', () => {
 			journey.byRole('heading', { name: 'Updated to version 3 just now' })
 		);
 
+		// The reviewer leaves a comment, not yet finished as a review.
+		await journey.activate(
+			journey
+				.within(journey.byRole('article', { name: 'src/checkout.ts' }))
+				.byRole('button', { name: 'Comment on line 15, before', exact: true })
+		);
+		const box = journey.within(
+			journey.byRole('form', { name: 'New comment on Before, line 15', exact: true })
+		);
+		await journey.expectFocused(box.byRole('textbox', { name: 'Comment', exact: true }));
+		await journey.type('Is this still needed?');
+		await journey.activate(box.byRole('button', { name: 'Save comment', exact: true }));
+		await journey.expectVisible(journey.byRole('button', { name: 'Draft comments (1)' }));
+
 		// The changes are committed: the page keeps the diff and offers the commit.
 		await journey.commitAll(shop, 'Round prices and add discounts');
 		await journey.returnToPage();
@@ -206,6 +220,15 @@ test.describe('J8 The diff changes mid-review', () => {
 		await journey.expectText(closed, 'You closed this Delve. You can still read it.');
 		// The button went with its notice: focus is on the notice that took its place.
 		await journey.expectFocused(journey.byRole('heading', { name: 'This Delve is closed' }));
+		// A closed Delve's draft cannot be finished: the page says to reopen it first.
+		const finish = journey.within(journey.byRole('region', { name: 'Finish your review' }));
+		await journey.expectVisible(
+			finish.byText(
+				'This Delve is closed, so your 1 comment cannot be finished. Reopen it to finish it as review 1.'
+			)
+		);
+		await journey.expectHidden(finish.byRole('button', { name: 'Show what will be copied' }));
+		await journey.expectHidden(finish.byRole('button', { name: 'Finish and copy' }));
 		await journey.step('The diff is closed');
 
 		await journey.activate(journey.within(closed).byRole('button', { name: 'Reopen this Delve' }));
