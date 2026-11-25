@@ -390,7 +390,7 @@
 				<p class="quiet">
 					{pulls === undefined
 						? `${gitHub.remote} is ${gitHub.repository} on GitHub. Open one of its pull requests as a Delve; diff delver asks GitHub only when you press the button.`
-						: `${pulls.heading} in ${pulls.repository}, most recently updated first. Choose one to review it.`}
+						: pulls.summary}
 				</p>
 				<button type="button" aria-disabled={askingPulls} onclick={askForPulls}>
 					{pulls === undefined ? 'Show open pull requests' : 'Ask GitHub again'}

@@ -7,7 +7,7 @@ import { gitHubRepositoryText } from '#lib/core/github/github-repository.ts';
 import {
 	describeListedDetails,
 	describeListedTitle,
-	describeOpenCount
+	describePullRequestList
 } from '#lib/core/github/listed-pull-request.ts';
 import type {
 	ApiErrorBody,
@@ -302,7 +302,11 @@ export function pullRequestsView(found: RepositoryPullRequests, now: Timestamp):
 	const { repository, pulls } = found;
 	return {
 		repository: gitHubRepositoryText(repository),
-		heading: describeOpenCount(pulls.pulls.length, pulls.more),
+		summary: describePullRequestList(
+			pulls.pulls.length,
+			pulls.more,
+			gitHubRepositoryText(repository)
+		),
 		pulls: pulls.pulls.map((pull) => ({
 			source: formatSourceSpec({
 				kind: 'pull-request',

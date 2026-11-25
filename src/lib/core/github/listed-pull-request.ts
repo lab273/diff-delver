@@ -47,9 +47,24 @@ export function describeListedDetails(pull: ListedPullRequest, now: Timestamp): 
 	);
 }
 
-/** What the list's heading says of how many there are: "3 open pull requests". */
-export function describeOpenCount(count: number, more: boolean): ReviewerMessage {
-	if (count === 0) return reviewerMessage('No open pull requests');
-	const counted = `${formatCount(count)} open pull ${count === 1 ? 'request' : 'requests'}`;
-	return reviewerMessage(more ? `The ${counted} updated most recently` : counted);
+/**
+ * What the list says of itself, given how many it lists, whether GitHub has
+ * more, and the repository as GitHub names it: "3 open pull requests in
+ * acme/shop, most recently updated first. Choose one to review it."
+ */
+export function describePullRequestList(
+	count: number,
+	more: boolean,
+	repository: string
+): ReviewerMessage {
+	if (count === 0) return reviewerMessage(`${repository} has no open pull requests.`);
+	if (count === 1 && !more) {
+		return reviewerMessage(`1 open pull request in ${repository}. Choose it to review it.`);
+	}
+	const counted = `${formatCount(count)} open pull requests`;
+	return reviewerMessage(
+		more
+			? `The ${counted} in ${repository} updated most recently. Choose one to review it.`
+			: `${counted} in ${repository}, most recently updated first. Choose one to review it.`
+	);
 }

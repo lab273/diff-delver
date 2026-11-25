@@ -49,7 +49,9 @@ describe('pull requests through the daemon', () => {
 		expect(github.requests).toEqual([]);
 		const listed = value(await client.pullRequests({ directory: clone.dir }));
 		expect(listed.repository).toBe('acme/shop');
-		expect(listed.heading).toBe('2 open pull requests');
+		expect(listed.summary).toBe(
+			'2 open pull requests in acme/shop, most recently updated first. Choose one to review it.'
+		);
 		expect(listed.pulls.map((p) => [p.source, p.title, p.draft])).toEqual([
 			['https://github.com/acme/shop/pull/7', '#7 Add a discount rate', false],
 			['https://github.com/acme/shop/pull/8', '#8 Print a receipt', true]

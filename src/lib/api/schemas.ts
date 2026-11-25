@@ -969,8 +969,8 @@ export type PullRequestsRequest = z.input<typeof PullRequestsRequestSchema>;
 export const PullRequestsSchema = z.object({
 	/** The repository on GitHub, as GitHub names it: `owner/name`. */
 	repository: z.string(),
-	/** How many are listed, as the list's heading says it. */
-	heading: message,
+	/** What the list says of itself: how many, in which repository, and what to do. */
+	summary: message,
 	pulls: z.array(
 		z.object({
 			/** Its address, which opens it. */

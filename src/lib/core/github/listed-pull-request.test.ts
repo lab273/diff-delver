@@ -5,7 +5,7 @@ import { parseGitHubOwner } from './github-owner.tiny.ts';
 import {
 	describeListedDetails,
 	describeListedTitle,
-	describeOpenCount,
+	describePullRequestList,
 	type ListedPullRequest
 } from './listed-pull-request.ts';
 import { parsePullRequestNumber } from './pull-request-number.tiny.ts';
@@ -53,9 +53,18 @@ describe('a listed pull request', () => {
 		).toBe('By a deleted account, from a fork’s discount into main, updated just now');
 	});
 
-	it('counts the list', () => {
-		expect(describeOpenCount(0, false)).toBe('No open pull requests');
-		expect(describeOpenCount(1, false)).toBe('1 open pull request');
-		expect(describeOpenCount(50, true)).toBe('The 50 open pull requests updated most recently');
+	it('says how many it lists, in which repository, and what to do', () => {
+		expect(describePullRequestList(0, false, 'acme/shop')).toBe(
+			'acme/shop has no open pull requests.'
+		);
+		expect(describePullRequestList(1, false, 'acme/shop')).toBe(
+			'1 open pull request in acme/shop. Choose it to review it.'
+		);
+		expect(describePullRequestList(3, false, 'acme/shop')).toBe(
+			'3 open pull requests in acme/shop, most recently updated first. Choose one to review it.'
+		);
+		expect(describePullRequestList(50, true, 'acme/shop')).toBe(
+			'The 50 open pull requests in acme/shop updated most recently. Choose one to review it.'
+		);
 	});
 });
