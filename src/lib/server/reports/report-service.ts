@@ -80,10 +80,15 @@ import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { ReportIdentity } from '#lib/core/report-identity.tiny.ts';
 import {
 	describeNothingToReview,
-	diffSizeOf,
 	reportTitle,
 	repositoryLabel
 } from '#lib/core/reports/describe-report.ts';
+import {
+	binaryBlobsOf,
+	binaryFilesOf,
+	diffSizeOf,
+	type BinaryFiles
+} from '#lib/core/reports/diff-size.ts';
 import {
 	nothingLeft,
 	type CommitsSince,
@@ -208,6 +213,7 @@ import {
 	insertRevision,
 	revisionsOf,
 	revisionAt,
+	setRevisionBinary,
 	setRevisionProgress,
 	snapshotInUse,
 	snapshotsInUse,
@@ -264,6 +270,7 @@ import {
 	listStores,
 	openSnapshotRef,
 	openStore,
+	readBlobSizes,
 	readSnapshotDiff,
 	readSnapshotFile,
 	readSnapshotFileStart,
@@ -304,9 +311,10 @@ export interface ReportSummary {
 	readonly state: ReportState;
 	readonly createdAt: Report['createdAt'];
 	readonly lastActivityAt: Report['lastActivityAt'];
-	/** The current revision's number, size and progress. */
+	/** The current revision's number, size, binary files and progress. */
 	readonly revision: Revision['number'];
 	readonly size: Revision['size'];
+	readonly binary: Revision['binary'];
 	readonly progress: Revision['progress'];
 	/** How many files could not be included; the report page lists them. */
 	readonly leftOut: FileCount;
@@ -627,6 +635,7 @@ interface Prepared {
 	readonly heads: TreeChanges;
 	readonly bases: TreeChanges;
 	readonly generated: ReadonlySet<RepoPath>;
+	readonly binary: BinaryFiles;
 }
 
 /** What a look at the source found, against the report's current revision. */
@@ -655,6 +664,12 @@ function notFreed(error: StoreError): ReviewerMessage {
 }
 
 /** How `#held` names a snapshot. */
+/** A diff's binary files with their sizes, read from the store in one call. */
+async function binaryOf(snapshot: Snapshot, diff: Diff): Promise<Result<BinaryFiles, ReportError>> {
+	const sizes = await readBlobSizes(snapshot, binaryBlobsOf(diff));
+	return sizes.ok ? ok(binaryFilesOf(diff, sizes.value)) : sizes;
+}
+
 function heldKey(store: StoreId, snapshot: SnapshotId): string {
 	return `${store}/${snapshot}`;
 }
@@ -684,6 +699,7 @@ function summaryOf(report: Report, revision: Revision): ReportSummary {
 		lastActivityAt: report.lastActivityAt,
 		revision: revision.number,
 		size: revision.size,
+		binary: revision.binary,
 		progress: revision.progress,
 		leftOut: fileCountOf(revision.leftOut.length)
 	};
@@ -2603,6 +2619,8 @@ export class ReportService {
 		const sorted = autoIgnore(diff.value, initialState(diff.value), {
 			markedGenerated: generated.value
 		});
+		const binary = await binaryOf(snapshot, diff.value);
+		if (!binary.ok) return discard(binary);
 		const now = this.#clock.now();
 		const report: Report = {
 			id: this.#ids.reportId(),
@@ -2628,7 +2646,8 @@ export class ReportService {
 			headCommit: taken.value.headCommit,
 			leftOut: taken.value.leftOut,
 			takenAt: now,
-			size: diffSizeOf(diff.value),
+			size: diffSizeOf(diff.value, sorted.state),
+			binary: binary.value,
 			progress: unitProgressOf(reviewProgress(diff.value, sorted.state, NO_MARKS, 'sections'))
 		};
 		const written = this.#db.write((q) =>
@@ -2762,6 +2781,8 @@ export class ReportService {
 			diff.value.files.map((f) => f.file.path)
 		);
 		if (!generated.ok) return discard(generated);
+		const binary = await binaryOf(snapshot, diff.value);
+		if (!binary.ok) return discard(binary);
 		return ok({
 			kind: 'changed',
 			prepared: {
@@ -2769,7 +2790,8 @@ export class ReportService {
 				diff: diff.value,
 				heads: heads.value,
 				bases: bases.value,
-				generated: generated.value
+				generated: generated.value,
+				binary: binary.value
 			}
 		});
 	}
@@ -2916,7 +2938,8 @@ export class ReportService {
 							headCommit: taken.headCommit,
 							leftOut: taken.leftOut,
 							takenAt: at,
-							size: diffSizeOf(diff),
+							size: diffSizeOf(diff, carried.state),
+							binary: prepared.binary,
 							progress: unitProgressOf(
 								reviewProgress(diff, carried.state, carried.marks, 'sections')
 							)
@@ -2985,7 +3008,8 @@ export class ReportService {
 						setRevisionProgress(
 							q,
 							revision.id,
-							unitProgressOf(reviewProgress(diff, changed.state, changed.marks, 'sections'))
+							unitProgressOf(reviewProgress(diff, changed.state, changed.marks, 'sections')),
+							diffSizeOf(diff, changed.state)
 						);
 						touchReport(q, id, this.#clock.now());
 						this.#frameVersions.edited(revision.id);
@@ -3015,15 +3039,16 @@ export class ReportService {
 	}
 
 	/**
-	 * Brings a revision written before a file with lines could also have a
-	 * file-level unit up to date (`revisions_to_check`), once: each such unit
-	 * without a row gets what a first version would have given it (the built-in
-	 * ignore rules and the snapshot's `linguist-generated` paths, the role its
-	 * path suggests, and no reviewed mark), and the revision's stored progress is
-	 * computed again from its rows, so the list of diffs, the page and the
-	 * command agree. Reads the database and the store only, never the reviewed
-	 * repository; for any other revision it is one small query. Returns the
-	 * revision with its progress as now stored.
+	 * Brings a revision an earlier diff delver saved up to date
+	 * (`revisions_to_check`), once: each file-level unit beside lines without a
+	 * row gets what a first version would have given it (the built-in ignore
+	 * rules and the snapshot's `linguist-generated` paths, the role its path
+	 * suggests, and no reviewed mark), the revision's stored progress and test
+	 * lines are computed again from its rows, and its binary files are counted
+	 * when they were not, so the list of diffs, the page and the command agree.
+	 * Reads the database and the store only, never the reviewed repository; for
+	 * any other revision it is one small query. Returns the revision as now
+	 * stored.
 	 */
 	async #complete(
 		revision: Revision,
@@ -3040,6 +3065,9 @@ export class ReportService {
 		const generated =
 			missing.size === 0 ? ok(new Set<RepoPath>()) : await generatedPaths(snapshot, [...missing]);
 		if (!generated.ok) return generated;
+		const binary =
+			revision.binary === undefined ? await binaryOf(snapshot, diff) : ok(revision.binary);
+		if (!binary.ok) return binary;
 		const first = autoIgnore(diff, initialState(diff), { markedGenerated: generated.value }).state;
 		return this.#db.write((q) => {
 			if (!isToCheck(q, revision.id)) {
@@ -3056,15 +3084,17 @@ export class ReportService {
 					andThen(reviewedRowsFor(q, revision.id), (marked) =>
 						andThen(reviewedMarksFromRows(diff, marked), (marks): Result<Revision, ReportError> => {
 							const progress = unitProgressOf(reviewProgress(diff, state, marks, 'sections'));
+							const size = diffSizeOf(diff, state);
 							this.#sorting.replaceAssignmentRows(
 								q,
 								revision.id,
 								lacking,
 								complete.filter((r) => lacking.has(r.path))
 							);
-							setRevisionProgress(q, revision.id, progress);
+							setRevisionProgress(q, revision.id, progress, size);
+							setRevisionBinary(q, revision.id, binary.value);
 							checkedRevision(q, revision.id);
-							return ok({ ...revision, progress });
+							return ok({ ...revision, size, binary: binary.value, progress });
 						})
 					)
 				);

@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { settableClock } from '#lib/core/clock.ts';
-import type { Report } from '#lib/core/reports/report.ts';
+import type { Report, Revision } from '#lib/core/reports/report.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { listDirectory } from '../../../../tests/support/directory-listing.ts';
@@ -23,7 +23,7 @@ import {
 	type Migration,
 	type TableName
 } from './index.ts';
-import { sqliteError } from './database.ts';
+import { sqliteError, type Queries } from './database.ts';
 import { schemaVersionOf } from '#lib/core/schema-version.tiny.ts';
 import {
 	deleteDraftComment,
@@ -54,6 +54,38 @@ function store(db: Database, report: Report): Result<void, DatabaseError> {
 function failure(result: Result<unknown, DatabaseError>): DatabaseError {
 	if (result.ok) throw new Error('expected a failure');
 	return result.error;
+}
+
+/**
+ * Adds a revision as a diff delver before migration 13 did, without its test
+ * lines and binary files, for a file made with an earlier schema.
+ */
+function insertEarlierRevision(q: Queries, revision: Revision): void {
+	q.run(
+		`INSERT INTO revisions (id, report_id, number, store_id, snapshot_id, base_tree, head_tree,
+			fingerprint, base_commit, head_commit, left_out, taken_at, file_count, added_lines,
+			deleted_lines, counted_units, reviewed_units, ignored_units, uncategorised_units)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		revision.id,
+		revision.report,
+		revision.number,
+		revision.store,
+		revision.snapshot,
+		revision.baseTree,
+		revision.headTree,
+		revision.fingerprint,
+		revision.baseCommit ?? null,
+		revision.headCommit ?? null,
+		JSON.stringify(revision.leftOut),
+		revision.takenAt,
+		revision.size.files,
+		revision.size.addedLines,
+		revision.size.deletedLines,
+		revision.progress.counted,
+		revision.progress.reviewed,
+		revision.progress.ignored,
+		revision.progress.uncategorised
+	);
 }
 
 /** The first schema version alone, to make a file as the first release of diff delver did. */
@@ -199,6 +231,11 @@ describe('the database', () => {
 				version: 12,
 				name: 'the overall review of each draft, and the one each finished review was finished with',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 13,
+				name: 'how many lines of each version are tests, and its binary files with their sizes',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -244,7 +281,7 @@ describe('the database', () => {
 		value(
 			one.write((q) => {
 				insertReport(q, aReport(id));
-				insertRevision(q, aRevision(ids.revisionId(), id));
+				insertEarlierRevision(q, aRevision(ids.revisionId(), id));
 				setReportState(q, id, { kind: 'closed', reason: 'source-empty' }, at(3_000));
 				return ok(undefined);
 			})
@@ -256,6 +293,19 @@ describe('the database', () => {
 		// Every row kept; the later migrations' tables are there, empty, except that the revision is to be checked.
 		expect(rowsOf(dir)).toEqual({
 			...before,
+			// No assignment rows, so no test lines; its binary files are not counted yet.
+			revisions: (Array.isArray(before.revisions) ? before.revisions : []).map((row: object) => ({
+				...row,
+				test_added_lines: 0,
+				test_deleted_lines: 0,
+				binary_added_files: null,
+				binary_added_bytes: null,
+				binary_removed_files: null,
+				binary_removed_bytes: null,
+				binary_changed_files: null,
+				binary_changed_before: null,
+				binary_changed_after: null
+			})),
 			new_units: [],
 			unmarked_units: [],
 			settings: [],
@@ -285,6 +335,59 @@ describe('the database', () => {
 		expect(checked).toEqual({ problems: [], reason: 'snapshot-gone', revisions: [] });
 	});
 
+	it('counts the test lines of versions saved before they were kept, from their rows, and their binary files later', async () => {
+		const dir = await tempDirectory();
+		const ids = sequentialIds();
+		const id = ids.reportId();
+		const revision = aRevision(ids.revisionId(), id);
+		const before = value(await Database.open(dir, clock(), MIGRATIONS.slice(0, 12)));
+		value(
+			before.write((q) => {
+				insertReport(q, aReport(id));
+				insertEarlierRevision(q, revision);
+				for (const [path, side, first, last, role] of [
+					['src/a.test.ts', 'new', 1, 3, 'test'],
+					['src/a.test.ts', 'file', 0, 0, 'test'],
+					['src/__snapshots__/a.snap', 'old', 2, 2, 'snapshot'],
+					['src/a.ts', 'new', 5, 9, 'code'],
+					['src/a.ts', 'old', 1, 4, 'code']
+				] as const) {
+					q.run(
+						`INSERT INTO assignments (revision_id, path, side, first_line, last_line, bucket, role)
+						VALUES (?, ?, ?, ?, ?, 'uncategorised', ?)`,
+						revision.id,
+						Buffer.from(path),
+						side,
+						first,
+						last,
+						role
+					);
+				}
+				return ok(undefined);
+			})
+		);
+		before.close();
+		const db = await opened(dir);
+		const read = value(
+			db.read((q) =>
+				ok({
+					revision: q.get(
+						'SELECT test_added_lines, test_deleted_lines, binary_added_files, binary_changed_after FROM revisions'
+					),
+					toCheck: q.all('SELECT revision_id FROM revisions_to_check')
+				})
+			)
+		);
+		db.close();
+		expect({ ...read.revision }).toEqual({
+			test_added_lines: 3,
+			test_deleted_lines: 1,
+			binary_added_files: null,
+			binary_changed_after: null
+		});
+		expect(read.toCheck.map((row) => ({ ...row }))).toEqual([{ revision_id: revision.id }]);
+	});
+
 	it('keeps comments saved before their times were kept, and never uses a deleted one’s id again', async () => {
 		const dir = await tempDirectory();
 		const ids = sequentialIds();
@@ -294,7 +397,7 @@ describe('the database', () => {
 		value(
 			before.write((q) => {
 				insertReport(q, aReport(id));
-				insertRevision(q, revision);
+				insertEarlierRevision(q, revision);
 				for (const [line, body] of [
 					[2, 'Written before the upgrade.'],
 					[5, 'And another.']
@@ -376,7 +479,7 @@ describe('the database', () => {
 		value(
 			before.write((q) => {
 				insertReport(q, aReport(id));
-				insertRevision(q, revision);
+				insertEarlierRevision(q, revision);
 				q.run(
 					`INSERT INTO reviews (report_id, number, revision_id, submitted_at, export_text,
 						counted, reviewed, ignored, uncategorised)

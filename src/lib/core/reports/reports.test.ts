@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { syntheticDiff } from '../../../../tests/support/synthetic-diff.ts';
 import { parseAbsolutePath } from '../absolute-path.tiny.ts';
-import { describeClosedReason, diffSizeOf, repositoryLabel } from './describe-report.ts';
+import { describeClosedReason, repositoryLabel } from './describe-report.ts';
 import {
 	applySectionChange,
 	applySectionRequests,
@@ -98,14 +98,6 @@ describe('reports in plain words', () => {
 
 	it('says why a report closed', () => {
 		expect(describeClosedReason('source-empty')).toMatch(/committed, merged or discarded/);
-	});
-
-	it('counts files and lines added and deleted', () => {
-		const d = syntheticDiff([
-			{ path: 'a.png', change: 'binary' },
-			{ path: 'b.ts', change: 'modified', hunks: [{ gap: 0, lines: ['-', '-', '+', ' '] }] }
-		]);
-		expect(diffSizeOf(d)).toEqual({ files: 2, addedLines: 1, deletedLines: 2 });
 	});
 });
 

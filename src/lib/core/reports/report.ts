@@ -6,9 +6,7 @@
 import type { AbsolutePath } from '../absolute-path.tiny.ts';
 import type { AgentMarkdown } from '../agent-markdown.tiny.ts';
 import type { CommitId } from '../commit-id.tiny.ts';
-import type { FileCount } from '../file-count.tiny.ts';
 import type { CommitRun } from '../history/commit-run.ts';
-import type { LineCount } from '../line-count.tiny.ts';
 import type { ReportId } from '../report-id.tiny.ts';
 import type { ReportIdentity } from '../report-identity.tiny.ts';
 import type { RepositoryName } from '../repository-name.tiny.ts';
@@ -24,6 +22,9 @@ import type { StoreId } from '../store-id.tiny.ts';
 import type { Timestamp } from '../timestamp.tiny.ts';
 import type { TreeId } from '../tree-id.tiny.ts';
 import type { UnitCount } from '../unit-count.tiny.ts';
+import type { BinaryFiles, DiffSize } from './diff-size.ts';
+
+export type { DiffSize } from './diff-size.ts';
 
 /**
  * What a report follows. Later: jj changes and GitHub pull requests. `run` is
@@ -69,13 +70,6 @@ export interface Report {
 	readonly lastActivityAt: Timestamp;
 }
 
-/** The size of a revision's diff. */
-export interface DiffSize {
-	readonly files: FileCount;
-	readonly addedLines: LineCount;
-	readonly deletedLines: LineCount;
-}
-
 /**
  * A revision's progress in units, for the reports list (DESIGN 5): `counted` is
  * every unit outside Ignored, `reviewed` those of them marked reviewed.
@@ -104,7 +98,13 @@ export interface Revision {
 	/** What could not be included, one sentence each, which the reviewer must be shown. */
 	readonly leftOut: readonly ReviewerMessage[];
 	readonly takenAt: Timestamp;
+	/** Its size, kept up to date with the roles of its lines, as `progress` is. */
 	readonly size: DiffSize;
+	/**
+	 * Its binary files and their sizes; undefined only for a revision an
+	 * earlier diff delver saved whose snapshot could not be read since.
+	 */
+	readonly binary: BinaryFiles | undefined;
 	readonly progress: UnitProgress;
 }
 

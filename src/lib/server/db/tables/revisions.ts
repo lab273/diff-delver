@@ -1,9 +1,11 @@
 /** The `revisions` table: one row per revision of a report (DESIGN 6.2). The only code that sees its rows. */
 import { z } from 'zod';
+import { parseByteSize } from '#lib/core/byte-size.tiny.ts';
 import { parseCommitId } from '#lib/core/commit-id.tiny.ts';
 import { parseFileCount } from '#lib/core/file-count.tiny.ts';
 import { parseLineCount } from '#lib/core/line-count.tiny.ts';
 import { parseReportId, type ReportId } from '#lib/core/report-id.tiny.ts';
+import type { BinaryFiles, DiffSize } from '#lib/core/reports/diff-size.ts';
 import type { Revision, UnitProgress } from '#lib/core/reports/report.ts';
 import { map, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
@@ -19,7 +21,7 @@ import type { Queries, RawRow } from '../database.ts';
 import type { StoredRowInvalid } from '../database-error.ts';
 
 const COLUMNS =
-	'id, report_id, number, store_id, snapshot_id, base_tree, head_tree, fingerprint, base_commit, head_commit, left_out, taken_at, file_count, added_lines, deleted_lines, counted_units, reviewed_units, ignored_units, uncategorised_units';
+	'id, report_id, number, store_id, snapshot_id, base_tree, head_tree, fingerprint, base_commit, head_commit, left_out, taken_at, file_count, added_lines, deleted_lines, test_added_lines, test_deleted_lines, binary_added_files, binary_added_bytes, binary_removed_files, binary_removed_bytes, binary_changed_files, binary_changed_before, binary_changed_after, counted_units, reviewed_units, ignored_units, uncategorised_units';
 
 /** What could not be included: a JSON array of sentences. */
 const leftOut = z
@@ -37,6 +39,8 @@ const leftOut = z
 	.transform((sentences) => sentences.map(reviewerMessage));
 
 const units = whole(parseUnitCount);
+const files = nullable(whole(parseFileCount));
+const bytes = nullable(whole(parseByteSize));
 
 const row = z.object({
 	id: text(parseRevisionId),
@@ -54,11 +58,49 @@ const row = z.object({
 	file_count: whole(parseFileCount),
 	added_lines: whole(parseLineCount),
 	deleted_lines: whole(parseLineCount),
+	test_added_lines: whole(parseLineCount),
+	test_deleted_lines: whole(parseLineCount),
+	binary_added_files: files,
+	binary_added_bytes: bytes,
+	binary_removed_files: files,
+	binary_removed_bytes: bytes,
+	binary_changed_files: files,
+	binary_changed_before: bytes,
+	binary_changed_after: bytes,
 	counted_units: units,
 	reviewed_units: units,
 	ignored_units: units,
 	uncategorised_units: units
 });
+
+/** The binary files as stored, or undefined while they have not been counted. */
+function binaryOf(r: z.output<typeof row>): BinaryFiles | undefined {
+	const {
+		binary_added_files: added,
+		binary_added_bytes: addedBytes,
+		binary_removed_files: removed,
+		binary_removed_bytes: removedBytes,
+		binary_changed_files: changed,
+		binary_changed_before: before,
+		binary_changed_after: after
+	} = r;
+	if (
+		added === undefined ||
+		addedBytes === undefined ||
+		removed === undefined ||
+		removedBytes === undefined ||
+		changed === undefined ||
+		before === undefined ||
+		after === undefined
+	) {
+		return undefined;
+	}
+	return {
+		added: { files: added, bytes: addedBytes },
+		removed: { files: removed, bytes: removedBytes },
+		changed: { files: changed, before, after }
+	};
+}
 
 function toRevision(raw: RawRow): Result<Revision, StoredRowInvalid> {
 	return map(parseRow('revisions', row, raw), (r) => ({
@@ -74,7 +116,13 @@ function toRevision(raw: RawRow): Result<Revision, StoredRowInvalid> {
 		headCommit: r.head_commit,
 		leftOut: r.left_out,
 		takenAt: r.taken_at,
-		size: { files: r.file_count, addedLines: r.added_lines, deletedLines: r.deleted_lines },
+		size: {
+			files: r.file_count,
+			addedLines: r.added_lines,
+			deletedLines: r.deleted_lines,
+			testLines: { added: r.test_added_lines, removed: r.test_deleted_lines }
+		},
+		binary: binaryOf(r),
 		progress: {
 			counted: r.counted_units,
 			reviewed: r.reviewed_units,
@@ -87,7 +135,9 @@ function toRevision(raw: RawRow): Result<Revision, StoredRowInvalid> {
 /** Adds a revision. */
 export function insertRevision(q: Queries, revision: Revision): void {
 	q.run(
-		`INSERT INTO revisions (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO revisions (${COLUMNS}) VALUES (${COLUMNS.split(',')
+			.map(() => '?')
+			.join(', ')})`,
 		revision.id,
 		revision.report,
 		revision.number,
@@ -103,6 +153,9 @@ export function insertRevision(q: Queries, revision: Revision): void {
 		revision.size.files,
 		revision.size.addedLines,
 		revision.size.deletedLines,
+		revision.size.testLines.added,
+		revision.size.testLines.removed,
+		...binaryColumns(revision.binary),
 		revision.progress.counted,
 		revision.progress.reviewed,
 		revision.progress.ignored,
@@ -175,14 +228,46 @@ export function revisionsOf(
 	return ok(revisions);
 }
 
-/** Replaces a revision's progress, after a write that changed it. */
-export function setRevisionProgress(q: Queries, id: RevisionId, progress: UnitProgress): void {
+function binaryColumns(binary: BinaryFiles | undefined): readonly (number | null)[] {
+	if (binary === undefined) return [null, null, null, null, null, null, null];
+	return [
+		binary.added.files,
+		binary.added.bytes,
+		binary.removed.files,
+		binary.removed.bytes,
+		binary.changed.files,
+		binary.changed.before,
+		binary.changed.after
+	];
+}
+
+/**
+ * Replaces a revision's progress and its count of test lines, which follow its
+ * sorting and marks, after a write that changed them.
+ */
+export function setRevisionProgress(
+	q: Queries,
+	id: RevisionId,
+	progress: UnitProgress,
+	size: DiffSize
+): void {
 	q.run(
-		'UPDATE revisions SET counted_units = ?, reviewed_units = ?, ignored_units = ?, uncategorised_units = ? WHERE id = ?',
+		'UPDATE revisions SET counted_units = ?, reviewed_units = ?, ignored_units = ?, uncategorised_units = ?, test_added_lines = ?, test_deleted_lines = ? WHERE id = ?',
 		progress.counted,
 		progress.reviewed,
 		progress.ignored,
 		progress.uncategorised,
+		size.testLines.added,
+		size.testLines.removed,
+		id
+	);
+}
+
+/** Records a revision's binary files, once they have been counted. */
+export function setRevisionBinary(q: Queries, id: RevisionId, binary: BinaryFiles): void {
+	q.run(
+		'UPDATE revisions SET binary_added_files = ?, binary_added_bytes = ?, binary_removed_files = ?, binary_removed_bytes = ?, binary_changed_files = ?, binary_changed_before = ?, binary_changed_after = ? WHERE id = ?',
+		...binaryColumns(binary),
 		id
 	);
 }

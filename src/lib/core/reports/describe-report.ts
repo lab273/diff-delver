@@ -5,8 +5,6 @@
 import { visibleText } from '../hidden-characters.ts';
 import { formatCount } from '../viewer/words.ts';
 import type { AbsolutePath } from '../absolute-path.tiny.ts';
-import { fileCountOf } from '../file-count.tiny.ts';
-import { parseLineCount, type LineCount } from '../line-count.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import { describeCommitRun } from '../history/commit-run.ts';
 import {
@@ -14,8 +12,7 @@ import {
 	isEmptyTreeRevision,
 	type GitSourceSpec
 } from '../sources/git-source-spec.ts';
-import type { Diff } from '../diff/diff.ts';
-import type { ClosedReason, DiffSize, ReportSource, UnitProgress } from './report.ts';
+import type { ClosedReason, ReportSource, UnitProgress } from './report.ts';
 
 /**
  * The report's title: its source in plain words, such as "Uncommitted changes",
@@ -82,43 +79,8 @@ export function describeNothingToReview(spec: GitSourceSpec): ReviewerMessage {
 	}
 }
 
-function lineCount(n: number): LineCount {
-	const parsed = parseLineCount(n);
-	if (!parsed.ok) throw new RangeError(`Not a count of lines: ${n}`);
-	return parsed.value;
-}
-
-/** How many files a diff changes, and how many lines it adds and deletes. */
-export function diffSizeOf(diff: Diff): DiffSize {
-	let added = 0;
-	let deleted = 0;
-	for (const file of diff.files) {
-		added += file.changed.new.size;
-		deleted += file.changed.old.size;
-	}
-	return {
-		files: fileCountOf(diff.files.length),
-		addedLines: lineCount(added),
-		deletedLines: lineCount(deleted)
-	};
-}
-
 function plural(count: number, one: string, many: string): string {
 	return `${formatCount(count)} ${count === 1 ? one : many}`;
-}
-
-/** A diff's size in words: "3 files changed, 40 lines added and 12 removed". */
-export function describeDiffSize(size: DiffSize): ReviewerMessage {
-	if (size.files === 0) return reviewerMessage('No files changed');
-	const files = `${plural(size.files, 'file', 'files')} changed`;
-	const added = size.addedLines;
-	const removed = size.deletedLines;
-	if (added === 0 && removed === 0) return reviewerMessage(`${files}, no lines added or removed`);
-	if (removed === 0) return reviewerMessage(`${files}, ${plural(added, 'line', 'lines')} added`);
-	if (added === 0) return reviewerMessage(`${files}, ${plural(removed, 'line', 'lines')} removed`);
-	return reviewerMessage(
-		`${files}, ${plural(added, 'line', 'lines')} added and ${formatCount(removed)} removed`
-	);
 }
 
 /** How far the review has got, in words: "Not started: 42 changes to review", "12 of 42 changes reviewed". */

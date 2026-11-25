@@ -66,8 +66,10 @@ export function aRevision(id: RevisionId, report: ReportId, n = 1): Revision {
 		size: {
 			files: value(parseFileCount(2)),
 			addedLines: value(parseLineCount(3)),
-			deletedLines: value(parseLineCount(1))
+			deletedLines: value(parseLineCount(1)),
+			testLines: { added: value(parseLineCount(2)), removed: value(parseLineCount(0)) }
 		},
+		binary: undefined,
 		progress: { counted: NO_UNITS, reviewed: NO_UNITS, ignored: NO_UNITS, uncategorised: NO_UNITS }
 	};
 }

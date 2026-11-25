@@ -227,12 +227,35 @@ describe('a branch’s commits', () => {
 		const [newest, , , oldest] = page.commits;
 		if (newest === undefined || oldest === undefined) throw new Error('missing commits');
 		const run = value(await readOnly(repo, () => rangeSize(found, undefined, newest.commit)));
-		expect(run).toEqual({ files: 3, added: 5, removed: 0 });
+		expect(run).toEqual({ files: 3, added: 5, removed: 0, tests: { added: 0, removed: 0 } });
 		const own = page.commits[2]?.commit;
 		expect(value(await rangeSize(found, own, newest.commit))).toEqual({
 			files: 1,
 			added: 2,
-			removed: 0
+			removed: 0,
+			tests: { added: 0, removed: 0 }
+		});
+	});
+
+	it('counts the lines of files whose paths say they are tests apart, a renamed one by its new path', async () => {
+		const repo = await emptyRepo();
+		await repo.write('src/cart.ts', 'one\ntwo\nthree\nfour\n');
+		await repo.write('cart-checks.txt', 'a\nb\nc\nd\ne\nf\n');
+		await repo.commit('Start');
+		await repo.write('src/cart.ts', 'one\n2\nthree\nfour\n');
+		await repo.write('src/cart.test.ts', 'it\nworks\n');
+		await repo.git('rm', '--quiet', 'cart-checks.txt');
+		await repo.write('cart.spec.txt', 'a\nb\nc\nd\ne\nF\n');
+		await repo.commit('Test the cart');
+		const found = await located(repo, (await reviewer()).gitEnv);
+		const page = value(
+			await readOnly(repo, () => listCommits(found, ref('refs/heads/main'), undefined, undefined))
+		);
+		expect(page.commits[0]?.size).toEqual({
+			files: 3,
+			added: 4,
+			removed: 2,
+			tests: { added: 3, removed: 1 }
 		});
 	});
 

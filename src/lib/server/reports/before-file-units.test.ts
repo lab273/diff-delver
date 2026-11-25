@@ -16,6 +16,7 @@ import { fileAssignment } from '#lib/core/diff/state.ts';
 import { fileUnitInSet } from '#lib/core/diff/unit-set.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
+import { diffSizeOf, NO_BINARY_FILES } from '#lib/core/reports/diff-size.ts';
 import { unitProgressOf } from '#lib/core/review/progress.ts';
 import { tempDirectory } from '../../../../tests/support/fixture-repos.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
@@ -70,6 +71,10 @@ async function everyReport(
 		const page = value(await service.load(listed.id));
 		expect(page.summary.progress).toEqual(listed.progress);
 		expect(unitProgressOf(page.progress)).toEqual(listed.progress);
+		// Its test lines and binary files, which the old code did not keep, are counted by now.
+		expect(listed.size).toEqual(diffSizeOf(page.diff, page.state));
+		expect(page.summary.size).toEqual(listed.size);
+		expect(listed.binary).toEqual(NO_BINARY_FILES);
 		reports.set(listed.repository, { listed, page });
 	}
 	return reports;

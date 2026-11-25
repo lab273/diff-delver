@@ -421,6 +421,39 @@ CREATE TABLE draft_summaries (
 -- The overall review a review was finished with, exactly as typed; '' for none.
 ALTER TABLE reviews ADD COLUMN summary TEXT NOT NULL DEFAULT '';
 `
+	},
+	{
+		version: schemaVersionOf(13),
+		name: 'how many lines of each version are tests, and its binary files with their sizes',
+		sql: `
+-- Of a revision's lines added and removed, those whose role is 'test' or
+-- 'snapshot', kept up to date with the roles as its progress is, so the list,
+-- the page and the command count tests apart alike. Counted here, for the
+-- revisions saved before, from their rows.
+ALTER TABLE revisions ADD COLUMN test_added_lines INTEGER NOT NULL DEFAULT 0 CHECK (test_added_lines >= 0);
+ALTER TABLE revisions ADD COLUMN test_deleted_lines INTEGER NOT NULL DEFAULT 0 CHECK (test_deleted_lines >= 0);
+UPDATE revisions SET
+	test_added_lines = (
+		SELECT coalesce(sum(last_line - first_line + 1), 0) FROM assignments AS a
+		WHERE a.revision_id = revisions.id AND a.side = 'new' AND a.role IN ('test', 'snapshot')
+	),
+	test_deleted_lines = (
+		SELECT coalesce(sum(last_line - first_line + 1), 0) FROM assignments AS a
+		WHERE a.revision_id = revisions.id AND a.side = 'old' AND a.role IN ('test', 'snapshot')
+	);
+-- The binary files a revision adds, removes and changes, with their sizes in
+-- bytes (those removed as they were, those changed before and after), read
+-- from the store once. All NULL for a revision saved before, until the report
+-- service counts them from its snapshot: it is a revision to check again.
+ALTER TABLE revisions ADD COLUMN binary_added_files INTEGER CHECK (binary_added_files >= 0);
+ALTER TABLE revisions ADD COLUMN binary_added_bytes INTEGER CHECK (binary_added_bytes >= 0);
+ALTER TABLE revisions ADD COLUMN binary_removed_files INTEGER CHECK (binary_removed_files >= 0);
+ALTER TABLE revisions ADD COLUMN binary_removed_bytes INTEGER CHECK (binary_removed_bytes >= 0);
+ALTER TABLE revisions ADD COLUMN binary_changed_files INTEGER CHECK (binary_changed_files >= 0);
+ALTER TABLE revisions ADD COLUMN binary_changed_before INTEGER CHECK (binary_changed_before >= 0);
+ALTER TABLE revisions ADD COLUMN binary_changed_after INTEGER CHECK (binary_changed_after >= 0);
+INSERT OR IGNORE INTO revisions_to_check (revision_id) SELECT id FROM revisions;
+`
 	}
 ];
 

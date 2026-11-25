@@ -396,7 +396,7 @@ describe('the report service', () => {
 		for (let n = 2; !call.settled; n += 1) {
 			other
 				.prepare(
-					`INSERT INTO revisions SELECT ?, report_id, ?, store_id, snapshot_id, base_tree, head_tree, fingerprint, base_commit, head_commit, left_out, taken_at, file_count, added_lines, deleted_lines, counted_units, reviewed_units, ignored_units, uncategorised_units FROM revisions WHERE id = 'v_1'`
+					`INSERT INTO revisions SELECT ?, report_id, ?, store_id, snapshot_id, base_tree, head_tree, fingerprint, base_commit, head_commit, left_out, taken_at, file_count, added_lines, deleted_lines, counted_units, reviewed_units, ignored_units, uncategorised_units, test_added_lines, test_deleted_lines, binary_added_files, binary_added_bytes, binary_removed_files, binary_removed_bytes, binary_changed_files, binary_changed_before, binary_changed_after FROM revisions WHERE id = 'v_1'`
 				)
 				.run(`v_other${String(n)}`, n);
 			await new Promise((resolve) => setImmediate(resolve));
@@ -433,7 +433,7 @@ describe('the report service', () => {
 			);
 			other.exec(`INSERT INTO revisions SELECT 'v_other', report_id, 2, store_id, snapshot_id,
 				base_tree, head_tree, fingerprint, base_commit, head_commit, left_out, taken_at, file_count,
-				added_lines, deleted_lines, counted_units, reviewed_units, ignored_units, uncategorised_units
+				added_lines, deleted_lines, counted_units, reviewed_units, ignored_units, uncategorised_units, test_added_lines, test_deleted_lines, binary_added_files, binary_added_bytes, binary_removed_files, binary_removed_bytes, binary_changed_files, binary_changed_before, binary_changed_after
 				FROM revisions WHERE id = 'v_1'`);
 			expect(failure(await saving)).toMatchObject({
 				kind: 'VersionOutOfDate',

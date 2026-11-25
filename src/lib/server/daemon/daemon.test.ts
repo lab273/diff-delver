@@ -1,10 +1,12 @@
 import { readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { describeApiError } from '#lib/api/client.ts';
 import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
+import { parseReportId } from '#lib/core/report-id.tiny.ts';
+import { mcpOverHttp } from '../../../../tests/support/mcp-client.ts';
 import { parseAbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import {
 	defineFixture,
@@ -46,7 +48,82 @@ const edited = defineFixture('daemon-edited', async (repo) => {
 	await repo.write('package-lock.json', '{ "lockfileVersion": 3 }\n');
 });
 
+/** A PNG's first bytes, then `size` more: binary, as git sees a NUL in it. */
+function png(size: number): Uint8Array {
+	const bytes = new Uint8Array(8 + size);
+	bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+	return bytes;
+}
+
+const testsAndPictures = defineFixture('daemon-tests-and-pictures', async (repo) => {
+	await repo.write('src/a.ts', 'export const a = 1;\n');
+	await repo.write('src/a.test.ts', 'test(a);\n');
+	await repo.write('logo.png', png(100));
+	await repo.write('old.png', png(40));
+	await repo.commit('base');
+	await repo.write('src/a.ts', 'export const a = 2;\n');
+	await repo.write('src/a.test.ts', 'test(a);\ntest(a, 2);\ntest(a, 3);\n');
+	await repo.write('logo.png', png(1_000));
+	await repo.write('icon.png', png(2_040));
+	await repo.remove('old.png');
+});
+
 describe('the daemon', () => {
+	it('counts tests and binary files alike in the command, the list and the page, after an agent and an update too', async () => {
+		const repo = await useFixture(testsAndPictures);
+		const daemon = await testDaemon();
+		const client = clientOf(daemon);
+		const name = basename(repo.dir);
+		const outcome = await startOutcome(client, repo.dir);
+		expect(outcome.lines[0]).toBe(
+			`Uncommitted changes in ${name}: 5 files changed, 1 line added and 1 removed, plus 2 added in tests; 3 binary files: 1 added (2 KB), 1 removed (48 bytes), 1 changed (108 bytes to 1,008 bytes).`
+		);
+		const id = outcome.page.split('/').at(-1) ?? '';
+		const agrees = async (size: unknown, sizeText: string): Promise<void> => {
+			const listed = value(await client.listDiffs()).diffs.find((d) => d.kind === 'diff');
+			const page = value(await client.loadDiff(value(parseReportId(id))));
+			for (const summary of [listed, page.summary]) {
+				expect(summary).toMatchObject({
+					size,
+					sizeText,
+					binaryText:
+						'3 binary files: 1 added (2 KB), 1 removed (48 bytes), 1 changed (108 bytes to 1,008 bytes)'
+				});
+			}
+		};
+		await agrees(
+			{ files: 5, added: 3, removed: 1, tests: { added: 2, removed: 0 } },
+			'5 files changed, 1 line added and 1 removed, plus 2 added in tests'
+		);
+
+		// An agent says src/a.ts is a test too, and the counts follow it everywhere.
+		const session = await mcpOverHttp({
+			origin: daemon.origin,
+			token: daemon.mcpToken,
+			directory: repo.dir
+		});
+		onTestFinished(() => session.close());
+		const assigned = await session.call('assign', {
+			report: id,
+			version: 1,
+			items: [{ file: 'src/a.ts', role: 'test' }]
+		});
+		expect(assigned.refused).toBe(false);
+		await agrees(
+			{ files: 5, added: 3, removed: 1, tests: { added: 3, removed: 1 } },
+			'5 files changed, 3 lines added and 1 removed, all in tests'
+		);
+
+		// An update keeps the agent's role on the lines it carries over.
+		await repo.write('src/a.test.ts', 'test(a);\ntest(a, 2);\ntest(a, 3);\ntest(a, 4);\n');
+		const updated = await startOutcome(client, repo.dir);
+		expect(updated.page).toBe(outcome.page);
+		await agrees(
+			{ files: 5, added: 4, removed: 1, tests: { added: 4, removed: 1 } },
+			'5 files changed, 4 lines added and 1 removed, all in tests'
+		);
+	});
+
 	it('opens, lists, loads, closes, reopens and deletes diffs through the typed client', async () => {
 		const repo = await useFixture(edited);
 		const daemon = await testDaemon();

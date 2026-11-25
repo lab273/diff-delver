@@ -63,7 +63,7 @@ describe('the choose page’s routes', () => {
 		const third = commits.commits[0]?.commit;
 		if (third === undefined) throw new Error('no commits');
 		const size = value(await client.runSize({ directory: repo.dir, from: undefined, to: third }));
-		expect(size.size).toEqual({ files: 2, added: 3, removed: 0 });
+		expect(size.size).toEqual({ files: 2, added: 3, removed: 0, tests: { added: 0, removed: 0 } });
 		const source = value(selectionSource(commits.commits, all));
 		const opened = value(
 			await client.open({ directory: repo.dir, source: formatGitSourceSpec(source) })

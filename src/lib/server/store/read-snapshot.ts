@@ -161,6 +161,40 @@ async function lookUp(
 	return ok({ kind: 'blob', mode: mode.value, blob: blob.value, size: size.value });
 }
 
+/**
+ * The sizes of some blobs of the store, such as the binary files of a diff, in
+ * one `cat-file` call, without reading their bytes. A blob the store does not
+ * have means it is damaged.
+ */
+export function readBlobSizes(
+	snapshot: Snapshot,
+	blobs: readonly BlobId[]
+): Promise<Result<ReadonlyMap<BlobId, ByteSize>, StoreError>> {
+	if (blobs.length === 0) return Promise.resolve(ok(new Map()));
+	return reading(snapshot, async (): Promise<Result<ReadonlyMap<BlobId, ByteSize>, StoreError>> => {
+		const checked = await runGit({
+			cwd: snapshot.store.dir,
+			args: ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'],
+			input: `${blobs.join('\n')}\n`
+		});
+		if (!checked.ok) return checked;
+		const sizes = new Map<BlobId, ByteSize>();
+		for (const line of checked.value.stdout.toString('latin1').split('\n')) {
+			if (line === '') continue;
+			const [id, type, sizeText] = line.split(' ');
+			const blob = parseBlobId(id ?? '');
+			const size = parseByteSize(Number(sizeText));
+			if (type !== 'blob' || !blob.ok || !size.ok) {
+				return err(damaged(snapshot, `cat-file answered "${line}"`));
+			}
+			sizes.set(blob.value, size.value);
+		}
+		const missing = blobs.find((blob) => !sizes.has(blob));
+		if (missing !== undefined) return err(damaged(snapshot, `the store has no blob ${missing}`));
+		return ok(sizes);
+	});
+}
+
 /** A file of one side of the snapshot by path, with its bytes. */
 export function readSnapshotFile(
 	snapshot: Snapshot,

@@ -26,7 +26,7 @@ import { err, ok, type Result } from '../result.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import { parseRevision, type Revision } from '../revision.tiny.ts';
 import type { GitSourceSpec } from '../sources/git-source-spec.ts';
-import { describeDiffSize } from '../reports/describe-report.ts';
+import { describeDiffSize } from '../reports/diff-size.ts';
 import type { DiffSize } from '../reports/report.ts';
 import { formatCount } from '../viewer/words.ts';
 import { commitCountOf, type CommitCount } from './commit-count.tiny.ts';

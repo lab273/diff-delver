@@ -68,7 +68,7 @@ import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { visibleText } from '#lib/core/hidden-characters.ts';
 import { jsonQuoted } from '#lib/core/json-quoted.ts';
 import { MAX_REFERENCES, MAX_SECTIONS } from '#lib/core/reports/section-requests.ts';
-import { describeDiffSize } from '#lib/core/reports/describe-report.ts';
+import { describeDiffSize } from '#lib/core/reports/diff-size.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';

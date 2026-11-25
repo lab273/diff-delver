@@ -27,14 +27,19 @@ import type {
 	StartResponse,
 	SuggestResponse,
 	UpdateResponse,
-	UpdateView
+	UpdateView,
+	DiffSizeView
 } from '#lib/api/schemas.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import type { Progress } from '#lib/core/review/progress.ts';
 import { describeUpdate, type UpdateSummary } from '#lib/core/update/update-summary.ts';
 import {
-	describeClosedReason,
+	describeBinaryFiles,
 	describeDiffSize,
+	type DiffSize
+} from '#lib/core/reports/diff-size.ts';
+import {
+	describeClosedReason,
 	describeUnitProgress,
 	repositoryLabel
 } from '#lib/core/reports/describe-report.ts';
@@ -84,6 +89,16 @@ import type {
 import type { RepositoryBranches } from '../reports/index.ts';
 import { describeRemoteCheckError } from '#lib/core/history/remote-check.ts';
 
+/** A diff's size as the API gives it. */
+export function diffSizeView(size: DiffSize): DiffSizeView {
+	return {
+		files: size.files,
+		added: size.addedLines,
+		removed: size.deletedLines,
+		tests: size.testLines
+	};
+}
+
 export function summaryView(summary: ReportSummary): DiffSummary {
 	return {
 		id: summary.id,
@@ -95,12 +110,11 @@ export function summaryView(summary: ReportSummary): DiffSummary {
 				? { kind: 'open' }
 				: { kind: 'closed', reason: describeClosedReason(summary.state.reason) },
 		lastActivityAt: summary.lastActivityAt,
-		size: {
-			files: summary.size.files,
-			added: summary.size.addedLines,
-			removed: summary.size.deletedLines
-		},
+		size: diffSizeView(summary.size),
 		sizeText: describeDiffSize(summary.size),
+		binary: summary.binary ?? null,
+		binaryText:
+			(summary.binary === undefined ? undefined : describeBinaryFiles(summary.binary)) ?? null,
 		progress: summary.progress,
 		progressText: describeUnitProgress(summary.progress),
 		leftOut: summary.leftOut,

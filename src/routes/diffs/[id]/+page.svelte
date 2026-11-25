@@ -1940,6 +1940,9 @@
 			<p class="details">
 				<span>{summary.repository}</span>
 				<span>{summary.sizeText}</span>
+				{#if summary.binaryText !== null}
+					<span>{summary.binaryText}</span>
+				{/if}
 				{#if summary.version > 1}
 					<span>Version {summary.version}</span>
 				{/if}

@@ -14,6 +14,7 @@ import type { GroupKey, ViewKind } from '#lib/core/diff/slices.ts';
 import type { AssignmentState } from '#lib/core/diff/state.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import { markReviewed, type ReviewTarget } from '#lib/core/review/mark-reviewed.ts';
+import { diffSizeOf } from '#lib/core/reports/diff-size.ts';
 import { reviewProgress, unitProgressOf } from '#lib/core/review/progress.ts';
 import {
 	NO_MARKS,
@@ -170,6 +171,10 @@ function checkStored(
 	expect(listed?.kind === 'report' ? listed.progress : undefined).toEqual(
 		unitProgressOf(reviewProgress(diff, model.state, model.marks, 'sections'))
 	);
+	// Its test lines follow the roles as its progress follows the sorting.
+	expect(listed?.kind === 'report' ? listed.size : undefined).toEqual(
+		diffSizeOf(diff, model.state)
+	);
 }
 
 /**
@@ -182,6 +187,9 @@ async function checkProgressAgrees(service: ReportService, report: ReportId): Pr
 	const computed = unitProgressOf(reviewProgress(page.diff, page.state, page.reviewed, 'sections'));
 	expect(listed?.kind === 'report' ? listed.progress : undefined).toEqual(computed);
 	expect(page.summary.progress).toEqual(computed);
+	const size = diffSizeOf(page.diff, page.state);
+	expect(listed?.kind === 'report' ? listed.size : undefined).toEqual(size);
+	expect(page.summary.size).toEqual(size);
 }
 
 /** What `load` gives the page, against the model. */

@@ -108,7 +108,12 @@ describe('choosing commits in a large repository', () => {
 			)
 		);
 		expect(top.commits).toHaveLength(COMMITS_PER_PAGE);
-		expect(top.commits[0]?.size).toEqual({ files: 1, added: 1, removed: 1 });
+		expect(top.commits[0]?.size).toEqual({
+			files: 1,
+			added: 1,
+			removed: 1,
+			tests: { added: 0, removed: 0 }
+		});
 		expect(top.next?.onMain).toBe(true);
 
 		// A page deep in the history, from a commit 90,000 down.

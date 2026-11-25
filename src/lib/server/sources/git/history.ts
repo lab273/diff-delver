@@ -15,6 +15,8 @@ import { fileCountOf, type FileCount } from '#lib/core/file-count.tiny.ts';
 import { lineCountOf, type LineCount } from '#lib/core/line-count.tiny.ts';
 import { EMPTY_TREE } from '#lib/core/object-format.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
+import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
+import { isTestPath, type LineTally } from '#lib/core/reports/diff-size.ts';
 import { parseRevision } from '#lib/core/revision.tiny.ts';
 import { parseTimestamp, type Timestamp } from '#lib/core/timestamp.tiny.ts';
 import { authorNameOf, type AuthorName } from '#lib/core/history/author-name.tiny.ts';
@@ -241,6 +243,14 @@ export interface CommitSize {
 	readonly files: FileCount;
 	readonly added: LineCount;
 	readonly removed: LineCount;
+	/** Of those, the lines of files whose path says they are tests, as a first version would guess. */
+	readonly tests: LineTally;
+}
+
+/** Whether git's path names a test, by the rule a Delve's first version uses. */
+function namesTest(path: string): boolean {
+	const parsed = parseRepoPath(path);
+	return parsed.ok && isTestPath(parsed.value);
 }
 
 /** Where a page of a branch's commits starts. */
@@ -289,19 +299,34 @@ function readSizes(
 	let files = 0;
 	let added = 0;
 	let removed = 0;
+	let testAdded = 0;
+	let testRemoved = 0;
 	let i = at;
 	for (;;) {
 		const token = tokens[i];
 		const match = token === undefined ? null : NUMSTAT.exec(token);
 		if (token === undefined || match === null) break;
 		files += 1;
-		added += match[1] === '-' ? 0 : Number(match[1]);
-		removed += match[2] === '-' ? 0 : Number(match[2]);
-		// A rename's two paths follow in tokens of their own.
-		i += token.slice(match[0].length) === '' ? 3 : 1;
+		const plus = match[1] === '-' ? 0 : Number(match[1]);
+		const minus = match[2] === '-' ? 0 : Number(match[2]);
+		added += plus;
+		removed += minus;
+		// A rename's two paths follow in tokens of their own; its new path is the one it is known by.
+		const own = token.slice(match[0].length);
+		const path = own === '' ? (tokens[i + 2] ?? '') : own;
+		if (namesTest(path)) {
+			testAdded += plus;
+			testRemoved += minus;
+		}
+		i += own === '' ? 3 : 1;
 	}
 	return {
-		size: { files: fileCountOf(files), added: lineCountOf(added), removed: lineCountOf(removed) },
+		size: {
+			files: fileCountOf(files),
+			added: lineCountOf(added),
+			removed: lineCountOf(removed),
+			tests: { added: lineCountOf(testAdded), removed: lineCountOf(testRemoved) }
+		},
 		next: i
 	};
 }

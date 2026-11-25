@@ -5,7 +5,7 @@
  * follows the command exactly as a person's terminal would.
  */
 import { describeApiError, type ApiClient, type ApiError } from '#lib/api/client.ts';
-import type { OpenResponse, StartResponse } from '#lib/api/schemas.ts';
+import type { DiffSummary, OpenResponse, StartResponse } from '#lib/api/schemas.ts';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { describeTooOldForDaemon } from '#lib/core/cli/replaced-daemon.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
@@ -44,6 +44,16 @@ function parsedSource(text: string): GitSourceSpec | undefined {
 	return spec.ok ? spec.value : undefined;
 }
 
+/**
+ * A diff's size inside a sentence, its tests apart and its binary files after
+ * them: "3 files changed, 40 lines added and 12 removed, plus 6 added in tests;
+ * 1 binary file added (12 KB)". Only its first letter is lowered, so "KB" stays.
+ */
+function sizeInSentence(diff: DiffSummary): string {
+	const size = `${diff.sizeText.charAt(0).toLowerCase()}${diff.sizeText.slice(1)}`;
+	return diff.binaryText === null ? size : `${size}; ${diff.binaryText}`;
+}
+
 function described(
 	response: StartResponse | OpenResponse,
 	directory: AbsolutePath,
@@ -55,7 +65,7 @@ function described(
 			const { update } = response;
 			const lines = [
 				!response.resumed
-					? `${diff.title} in ${diff.repository}: ${diff.sizeText.toLowerCase()}.`
+					? `${diff.title} in ${diff.repository}: ${sizeInSentence(diff)}.`
 					: update === null
 						? `${diff.title} in ${diff.repository}, opened again where you left it (${diff.progressText.toLowerCase()}). Nothing has changed since.`
 						: `${diff.title} in ${diff.repository}, updated to your files as they are now (version ${String(update.version)}). ${update.text}`

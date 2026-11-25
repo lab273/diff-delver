@@ -53,6 +53,7 @@ export type {
 export {
 	generatedPaths,
 	listSnapshotPaths,
+	readBlobSizes,
 	readSnapshotDiff,
 	readSnapshotFile,
 	readSnapshotFileStart,

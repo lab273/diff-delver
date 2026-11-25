@@ -75,7 +75,8 @@ describe('the report service at full scale', () => {
 		expect(opened.report.size).toEqual({
 			files: FILES,
 			addedLines: 100_000,
-			deletedLines: 100_000
+			deletedLines: 100_000,
+			testLines: { added: 0, removed: 0 }
 		});
 		service.close();
 

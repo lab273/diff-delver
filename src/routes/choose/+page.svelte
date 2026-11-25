@@ -113,7 +113,12 @@
 	function diffSizeOf(view: CommitView['size']): SizeOfDiff | undefined {
 		return view === null
 			? undefined
-			: { files: view.files, addedLines: view.added, deletedLines: view.removed };
+			: {
+					files: view.files,
+					addedLines: view.added,
+					deletedLines: view.removed,
+					testLines: view.tests
+				};
 	}
 
 	let finds = 0;
@@ -480,7 +485,11 @@
 										{/if}
 										{#if row.size !== null}
 											<span>
-												<DiffSize added={row.size.added} removed={row.size.removed} />
+												<DiffSize
+													added={row.size.added}
+													removed={row.size.removed}
+													tests={row.size.tests}
+												/>
 												{describeCommitFiles(row.size.files, row.size.added, row.size.removed)}
 											</span>
 										{/if}

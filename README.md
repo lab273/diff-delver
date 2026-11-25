@@ -178,6 +178,8 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 - Changed images (PNG, JPEG, GIF, WebP and SVG) shown as pictures, with their sizes:
   side by side, with a slider, in onion skin, or with the pixels that changed marked.
   An SVG shows its text too.
+- A diff's size with the lines of tests counted apart (`+40 −12 tests +20 −4`), and
+  its binary files with their sizes in bytes.
 - Ticking files and sections as reviewed, with progress, across restarts.
 - Updating a Delve when the code changes, keeping sections and ticks.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex

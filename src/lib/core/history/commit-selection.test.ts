@@ -141,10 +141,11 @@ describe('what the chosen commits open', () => {
 		const size = {
 			files: fileCountOf(12),
 			addedLines: lineCountOf(340),
-			deletedLines: lineCountOf(25)
+			deletedLines: lineCountOf(25),
+			testLines: { added: lineCountOf(40), removed: lineCountOf(0) }
 		};
 		expect(describeSelection(list, run, size)).toBe(
-			'4 commits, from “Commit 2” to “Commit 5”: 12 files changed, 340 lines added and 25 removed'
+			'4 commits, from “Commit 2” to “Commit 5”: 12 files changed, 300 lines added and 25 removed, plus 40 added in tests'
 		);
 		expect(describeReviewButton(run)).toBe('Review these 4 commits');
 		expect(describeReviewButton(tick(NOTHING_SELECTED, at(2)))).toBe('Review this commit');

@@ -3,7 +3,8 @@ import { expect, test } from '../support/journey.ts';
 // What Codex made of the shop: its recorded trial
 // (tests/agent-trials/recordings/shop.codex.json), replayed on the journey's own
 // daemon, as the person then sees it: the sections in reading order, one with
-// part of a file another section also has, and what was ignored.
+// part of a file another section also has, what was ignored, and the list of
+// Delves counting the lines the agent said are tests apart.
 test.describe('Trial shop sorted by Codex', () => {
 	test('the sections in reading order, a split file, and what was ignored', async ({ journey }) => {
 		const shop = await journey.repository('trial-shop');
@@ -184,5 +185,16 @@ test.describe('Trial shop sorted by Codex', () => {
 		await journey.expectFocused(
 			journey.byRole('heading', { name: /Make the deploy script executable/ })
 		);
+
+		// The list counts the lines that are tests apart: the test file, and the
+		// recorded fixture the agent said is a snapshot.
+		await journey.activate(journey.byRole('link', { name: 'Your Delves', exact: true }));
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
+		const delve = journey.nth(journey.byRole('listitem'), 1);
+		await journey.expectText(
+			delve,
+			/7 files\s+\+8 added\s+−6 removed\s+and in tests\s*:\s*\+3 added\s+−3 removed/
+		);
+		await journey.step('The list counts tests apart');
 	});
 });

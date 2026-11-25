@@ -90,6 +90,27 @@ const source = parsed(z.string(), sourceText);
 
 // ── Shared parts ─────────────────────────────────────────────────────────────
 
+const lines = z.object({ added: lineCount, removed: lineCount });
+
+/**
+ * A diff's size: its files, every line it adds and removes, and of those the
+ * lines that are tests, which a page shows apart (`core/reports/diff-size.ts`).
+ */
+export const DiffSizeSchema = z.object({
+	files: fileCount,
+	added: lineCount,
+	removed: lineCount,
+	tests: lines
+});
+export type DiffSizeView = z.output<typeof DiffSizeSchema>;
+
+/** A diff's binary files and their sizes in bytes. */
+export const BinaryFilesSchema = z.object({
+	added: z.object({ files: fileCount, bytes: byteSize }),
+	removed: z.object({ files: fileCount, bytes: byteSize }),
+	changed: z.object({ files: fileCount, before: byteSize, after: byteSize })
+});
+
 export const DiffSummarySchema = z.object({
 	id: reportId,
 	/** The source in plain words: "Uncommitted changes". */
@@ -103,9 +124,13 @@ export const DiffSummarySchema = z.object({
 		z.object({ kind: z.literal('closed'), reason: message })
 	]),
 	lastActivityAt: timestamp,
-	size: z.object({ files: fileCount, added: lineCount, removed: lineCount }),
-	/** In words: "3 files changed, 40 lines added and 12 removed". */
+	size: DiffSizeSchema,
+	/** In words, tests apart: "3 files changed, 40 lines added and 12 removed, plus 6 added in tests". */
 	sizeText: message,
+	/** Its binary files, or null when they could not be counted. */
+	binary: BinaryFilesSchema.nullable(),
+	/** In words, "1 binary file added (12 KB)"; null when there are none or they are not known. */
+	binaryText: message.nullable(),
 	progress: z.object({
 		counted: unitCount,
 		reviewed: unitCount,
@@ -871,7 +896,8 @@ export const CommitsQuerySchema = z.object({
 });
 export type CommitsQuery = z.output<typeof CommitsQuerySchema>;
 
-const CommitSizeSchema = z.object({ files: fileCount, added: lineCount, removed: lineCount });
+/** A commit's or a run's size, its tests told by their paths. */
+const CommitSizeSchema = DiffSizeSchema;
 
 export const CommitsSchema = z.object({
 	commits: z.array(
