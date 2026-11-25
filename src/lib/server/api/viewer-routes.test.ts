@@ -17,6 +17,9 @@ import { parseTimestamp } from '#lib/core/timestamp.tiny.ts';
 import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 import { parseSearchText } from '#lib/core/search/search-text.tiny.ts';
 import { ReportService } from '#lib/server/reports/index.ts';
+import { viewCookieName } from '#lib/core/daemon/request-gate.ts';
+import { parseReportId } from '#lib/core/report-id.tiny.ts';
+import { ApiErrorBodySchema } from '#lib/api/schemas.ts';
 import {
 	browserClient,
 	browserCookie,
@@ -30,7 +33,7 @@ import {
 	useFixture
 } from '../../../../tests/support/fixture-repos.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
-import { mcpOverHttp } from '../../../../tests/support/mcp-client.ts';
+import { mcpOverHttp, reportIn } from '../../../../tests/support/mcp-client.ts';
 
 const numbered = (from: number, to: number): string =>
 	Array.from({ length: to - from + 1 }, (_, i) => `line ${String(from + i)}\n`).join('');
@@ -1047,5 +1050,112 @@ describe('private draft comments', () => {
 			})
 		);
 		expect(last.id).toBeGreaterThan(after.id);
+	});
+});
+
+describe('finished reviews', () => {
+	it('lists, previews and finishes only for a browser that may write drafts, on the draft it showed', async () => {
+		const repo = await useFixture(viewed);
+		const daemon = await testDaemon();
+		// The agent opens the report and gives the person a link, which lets a browser read and tick only.
+		const agent = await mcpOverHttp({
+			origin: daemon.origin,
+			token: daemon.mcpToken,
+			directory: repo.dir
+		});
+		onTestFinished(() => agent.close());
+		const created = await agent.call('create_report', {});
+		const id = value(parseReportId(reportIn(created)));
+		const link = new URL(/in their browser: (http:\S+)/.exec(created.text)?.[1] ?? '');
+		const entered = await rawRequest(daemon.port, { path: link.pathname + link.search });
+		const view = entered.headers['set-cookie']?.[0]?.split(';', 1)[0] ?? '';
+		expect(view.split('=', 1)[0]).toBe(viewCookieName(daemon.port));
+		const review = await browserCookie(daemon);
+		const client = await browserClient(daemon);
+
+		const list = `/api/diffs/${id}/reviews`;
+		const preview = `${list}/preview?version=1`;
+		const json = { 'content-type': 'application/json' };
+		const finish = (headers: Readonly<Record<string, string>>, body: unknown) =>
+			rawRequest(daemon.port, { method: 'POST', path: list, headers, body: JSON.stringify(body) });
+		const refusedReason = (body: string): string =>
+			ApiErrorBodySchema.parse(JSON.parse(body)).error.kind;
+
+		// Neither a browser let in by a link, nor one with no cookie, nor another site may.
+		for (const cookie of [{ cookie: view }, {}]) {
+			for (const path of [list, preview]) {
+				const answer = await rawRequest(daemon.port, { path, headers: cookie });
+				expect(answer.status, path).toBe(403);
+			}
+			const answer = await finish(
+				{ ...cookie, ...json, origin: daemon.origin },
+				{ version: 1, comments: [] }
+			);
+			expect(answer.status).toBe(403);
+		}
+		expect(
+			refusedReason((await rawRequest(daemon.port, { path: list, headers: { cookie: view } })).body)
+		).toBe('BrowserSessionRequired');
+		expect(
+			(
+				await finish(
+					{ cookie: review, ...json, origin: 'http://example.test' },
+					{ version: 1, comments: [] }
+				)
+			).status
+		).toBe(403);
+
+		// The reviewer's own browser lists none yet, and cannot finish an empty draft.
+		const none = await rawRequest(daemon.port, { path: list, headers: { cookie: review } });
+		expect(none.status).toBe(200);
+		expect(none.headers['cache-control']).toBe('no-store');
+		expect(JSON.parse(none.body)).toMatchObject({ reviews: [] });
+		const empty = await finish(
+			{ cookie: review, ...json, origin: daemon.origin },
+			{ version: 1, comments: [] }
+		);
+		expect(empty.status).toBe(422);
+		expect(refusedReason(empty.body)).toBe('NothingToFinish');
+
+		const comment = value(
+			await client.addDraftComment(id, {
+				version: revision(1),
+				anchor: {
+					path: path('src/long.ts'),
+					side: 'new',
+					first: lineNumberOf(10),
+					last: lineNumberOf(10)
+				},
+				body: 'Why spell it out?'
+			})
+		);
+		const previewed = await rawRequest(daemon.port, { path: preview, headers: { cookie: review } });
+		expect(previewed.status).toBe(200);
+		expect(previewed.headers['cache-control']).toBe('no-store');
+		expect(JSON.parse(previewed.body)).toMatchObject({
+			number: 1,
+			comments: [{ id: comment.id, edits: comment.edits }]
+		});
+
+		// A page that showed another draft finishes nothing.
+		const stale = await finish(
+			{ cookie: review, ...json, origin: daemon.origin },
+			{ version: 1, comments: [] }
+		);
+		expect(stale.status).toBe(409);
+		expect(refusedReason(stale.body)).toBe('DraftChanged');
+
+		const shown = { version: 1, comments: [{ id: comment.id, edits: comment.edits }] };
+		const finished = await finish({ cookie: review, ...json, origin: daemon.origin }, shown);
+		expect(finished.status).toBe(201);
+		expect(finished.headers['cache-control']).toBe('no-store');
+		expect(JSON.parse(finished.body)).toMatchObject({ number: 1, version: 1, comments: 1 });
+
+		// Finishing the same comments again says they were finished, as review 1.
+		const twice = await finish({ cookie: review, ...json, origin: daemon.origin }, shown);
+		expect(twice.status).toBe(409);
+		expect(refusedReason(twice.body)).toBe('CommentsFinished');
+		const listed = await rawRequest(daemon.port, { path: list, headers: { cookie: review } });
+		expect(JSON.parse(listed.body)).toMatchObject({ reviews: [{ number: 1 }] });
 	});
 });
