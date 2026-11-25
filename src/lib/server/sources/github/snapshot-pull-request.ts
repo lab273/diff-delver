@@ -24,6 +24,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
+import type { StoreId } from '#lib/core/store-id.tiny.ts';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseCommitId, type CommitId } from '#lib/core/commit-id.tiny.ts';
 import { objectCountOf } from '#lib/core/object-count.tiny.ts';
@@ -202,20 +203,23 @@ async function dropRefs(store: Store, refs: string): Promise<void> {
 }
 
 /**
- * Takes a snapshot of the pull request as `details` describe it, in the local
- * repository's store, making the store if this is its first. `id`, new to the
- * store, names the snapshot.
+ * Takes a snapshot of the pull request as `details` describe it, in the store
+ * `storeId`, borrowing the local clone `repo`, making the store if this is its
+ * first. The store is usually the clone's own, and is another clone's for a
+ * Delve first opened there, so all its versions are in one store. `id`, new
+ * to the store, names the snapshot.
  */
 export async function snapshotPullRequest(
 	dataDirectory: AbsolutePath,
 	repo: LocalRepository,
+	storeId: StoreId,
 	details: PullRequestDetails,
 	access: GitHubAccess,
 	id: SnapshotId
 ): Promise<Result<GitSnapshot, GitHubSourceError>> {
 	const store = await ensureStore(
 		dataDirectory,
-		repo.storeId,
+		storeId,
 		repo.objectFormat,
 		repositoryNameOf(repo.commonDir)
 	);

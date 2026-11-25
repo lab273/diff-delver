@@ -199,6 +199,23 @@ export function setReportState(
 	);
 }
 
+/**
+ * Moves a report to another folder of its repository: a pull request's Delve
+ * opened from a second clone once the first is gone. Its store stays its own.
+ */
+export function setReportRepository(
+	q: Queries,
+	id: ReportId,
+	repository: { readonly name: Report['repositoryName']; readonly path: Report['repositoryPath'] }
+): void {
+	q.run(
+		'UPDATE reports SET repository_name = ?, repository_path = ? WHERE id = ?',
+		repository.name,
+		repository.path,
+		id
+	);
+}
+
 /** Records activity on a report at `at`. */
 export function touchReport(q: Queries, id: ReportId, at: Timestamp): void {
 	q.run('UPDATE reports SET last_activity_at = max(last_activity_at, ?) WHERE id = ?', at, id);

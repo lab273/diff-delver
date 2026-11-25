@@ -220,6 +220,7 @@ import {
 	openReportFor,
 	reportById,
 	reportExists,
+	setReportRepository,
 	setReportState,
 	touchReport
 } from '../db/tables/reports.ts';
@@ -739,6 +740,28 @@ type Look =
 
 function worktreeOf(repo: LocalRepository): AbsolutePath {
 	return repo.workTree ?? repo.gitDir;
+}
+
+/**
+ * Whether the repository is a clone of the pull request's repository on
+ * GitHub, whose objects opening it may borrow; `NotACloneOf` when it is not.
+ */
+async function cloneOf(
+	repo: LocalRepository,
+	pullRequest: PullRequestRef
+): Promise<Result<void, ReportError>> {
+	const gitHub = await gitHubRemoteOf(repo);
+	if (!gitHub.ok) return gitHub;
+	const found = gitHub.value?.repository;
+	if (found !== undefined && sameGitHubRepository(found, pullRequest.repository)) {
+		return ok(undefined);
+	}
+	return err({
+		kind: 'NotACloneOf',
+		directory: worktreeOf(repo),
+		wanted: pullRequest.repository,
+		found
+	});
 }
 
 function summaryOf(report: Report, revision: Revision): ReportSummary {
@@ -1263,17 +1286,8 @@ export class ReportService {
 		if (!repo.ok) return repo;
 		if (spec.kind === 'pull-request') {
 			// A pull request is opened from a clone of its repository, whose objects it borrows.
-			const gitHub = await gitHubRemoteOf(repo.value);
-			if (!gitHub.ok) return gitHub;
-			const found = gitHub.value?.repository;
-			if (found === undefined || !sameGitHubRepository(found, spec.pullRequest.repository)) {
-				return err({
-					kind: 'NotACloneOf',
-					directory: worktreeOf(repo.value),
-					wanted: spec.pullRequest.repository,
-					found
-				});
-			}
+			const clone = await cloneOf(repo.value, spec.pullRequest);
+			if (!clone.ok) return clone;
 		}
 		return this.#openIn(repo.value, spec);
 	}
@@ -2562,25 +2576,33 @@ export class ReportService {
 		this.#held.delete(heldKey(store.id, id));
 	}
 
-	/** Takes a snapshot of a source, held from tidying until a revision refers to it or it is discarded. */
+	/**
+	 * Takes a snapshot of a source, held from tidying until a revision refers to
+	 * it or it is discarded. A git source's goes into its repository's store; a
+	 * pull request's into `store`, its Delve's own, which may be another clone's
+	 * (`#pullRequestRepository`), so every version of the Delve is in one store.
+	 */
 	async #takeSnapshot(
 		repo: LocalRepository,
-		spec: SourceSpec
+		spec: SourceSpec,
+		store: StoreId
 	): Promise<Result<GitSnapshot, ReportError>> {
 		let take: (id: SnapshotId) => Promise<Result<GitSnapshot, ReportError>>;
+		let into = repo.storeId;
 		if (spec.kind === 'pull-request') {
 			// Of what GitHub said just before, which every caller has asked.
 			const details = await this.#pullRequestDetails(spec.pullRequest, Infinity);
 			if (!details.ok) return details;
+			into = store;
 			take = (id) =>
-				snapshotPullRequest(this.#dataDirectory, repo, details.value, this.#github, id);
+				snapshotPullRequest(this.#dataDirectory, repo, store, details.value, this.#github, id);
 		} else {
 			take = (id) => snapshotGitSource(this.#dataDirectory, repo, spec, id);
 		}
 		const id = this.#ids.snapshotId();
-		this.#held.add(heldKey(repo.storeId, id));
+		this.#held.add(heldKey(into, id));
 		const taken = await take(id);
-		if (!taken.ok) this.#held.delete(heldKey(repo.storeId, id));
+		if (!taken.ok) this.#held.delete(heldKey(into, id));
 		return taken;
 	}
 
@@ -2672,7 +2694,11 @@ export class ReportService {
 		if (existing.value === undefined) return this.#create(repo, spec, identity, undefined);
 		const { report, revision } = existing.value;
 		const readable = await this.#snapshotOf(report, revision);
-		if (readable.ok) return this.#resume(existing.value, repo);
+		if (readable.ok) {
+			if (report.source.kind === 'git') return this.#resume(existing.value, repo);
+			const own = await this.#pullRequestRepository(report, repo);
+			return own.ok ? this.#resume(own.value.found ?? existing.value, own.value.repo) : own;
+		}
 		if (readable.error.kind !== 'SnapshotGone') return readable;
 		// Its snapshot is gone, so it can never be shown: close it and start again.
 		const closed = this.#db.write((q) => {
@@ -2776,7 +2802,7 @@ export class ReportService {
 				});
 			}
 		}
-		const taken = await this.#takeSnapshot(repo, spec);
+		const taken = await this.#takeSnapshot(repo, spec, repo.storeId);
 		if (!taken.ok) return taken;
 		const { snapshot } = taken.value;
 		const discard = async <T>(result: Result<T, ReportError>): Promise<Result<T, ReportError>> => {
@@ -2873,14 +2899,42 @@ export class ReportService {
 		});
 	}
 
-	/** The report's repository, if it is still the one the report was opened in. */
+	/**
+	 * The report's repository, if it is still the one the report was opened in:
+	 * for a git source, the same repository; for a pull request, still a clone
+	 * of its repository on GitHub.
+	 */
 	async #repositoryOf(report: Report): Promise<Result<LocalRepository, ReportError>> {
 		const repo = await locateRepository(report.repositoryPath, this.#repository);
 		if (!repo.ok) return repo;
-		if (repo.value.storeId !== report.store) {
-			return err({ kind: 'RepositoryReplaced', path: report.repositoryPath });
-		}
-		return repo;
+		const same =
+			report.source.kind === 'github'
+				? (await cloneOf(repo.value, report.source.pullRequest)).ok
+				: repo.value.storeId === report.store;
+		return same ? repo : err({ kind: 'RepositoryReplaced', path: report.repositoryPath });
+	}
+
+	/**
+	 * The clone a pull request's Delve is updated through when it is opened from
+	 * `opened`: its own repository while that is there, so the page's checks and
+	 * every update use the same one; or else `opened`, which it then moves to,
+	 * with `found` its report as moved. The snapshots stay in the Delve's store
+	 * either way, so what was sorted and ticked is carried over.
+	 */
+	async #pullRequestRepository(
+		report: Report,
+		opened: LocalRepository
+	): Promise<Result<{ repo: LocalRepository; found: Current | undefined }, ReportError>> {
+		const own = await this.#repositoryOf(report);
+		if (own.ok) return ok({ repo: own.value, found: undefined });
+		const moved = this.#db.write((q) => {
+			setReportRepository(q, report.id, {
+				name: repositoryNameOf(opened.commonDir),
+				path: worktreeOf(opened)
+			});
+			return current(q, report.id);
+		});
+		return moved.ok ? ok({ repo: opened, found: moved.value }) : moved;
 	}
 
 	async #check(found: Current, repo: LocalRepository): Promise<Result<SourceCheck, ReportError>> {
@@ -2940,7 +2994,7 @@ export class ReportService {
 		const kept = await this.#keptProbe(report.id, revision.id, fingerprint);
 		if (kept !== undefined) return ok({ kind: 'changed', prepared: kept });
 		const spec = sourceSpecOf(report.source);
-		const taken = await this.#takeSnapshot(repo, spec);
+		const taken = await this.#takeSnapshot(repo, spec, report.store);
 		if (!taken.ok) return taken;
 		const { snapshot } = taken.value;
 		const discard = async <T>(result: Result<T, ReportError>): Promise<Result<T, ReportError>> => {

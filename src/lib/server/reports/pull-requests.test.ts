@@ -3,7 +3,7 @@
  * real repositories and the stand-in GitHub: listing them, opening one,
  * following it as commits are pushed, and what is said when GitHub refuses.
  */
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
@@ -186,6 +186,49 @@ describe('a GitHub pull request', () => {
 		]);
 		expect(page.progress.overall.reviewedUnits).toBe(4);
 		expect(updated.summary.reviewedKept).toBe(4);
+	});
+
+	it('keeps its sorting and ticks when opened from a second clone, and moves there when the first is gone', async () => {
+		const w = await world();
+		const second = await cloneShop(w.upstream, join(await tempDirectory(), 'shop'));
+		const id = created(await open(w));
+		value(await w.service.upsertSections(id, FIRST, [{ id: 'rate', title: 'The rate' }]));
+		value(await w.service.assign(id, FIRST, [{ file: 'src/discount.ts', section: 'rate' }]));
+		value(
+			await w.service.markReviewed(id, FIRST, { kind: 'file', path: path('src/discount.ts') }, true)
+		);
+		const kept = async (revision: number): Promise<void> => {
+			const page = value(await w.service.load(id));
+			expect(page.revision.number).toBe(revision);
+			expect(page.sections.map((s) => s.id)).toEqual(['rate']);
+			expect(page.progress.overall.reviewedUnits).toBe(4);
+		};
+
+		// The second clone resumes it, updated through the first, whose store it is in.
+		await push(w, 'src/coupon.ts', 'export const COUPON = 10;\n', 'Add a coupon');
+		const resumed = value(await w.service.open(second.dir, DISCOUNT));
+		expect(resumed).toMatchObject({ kind: 'resumed', report: { id, revision: 2 } });
+		await kept(2);
+		expect(value(await w.service.load(id)).summary.repositoryPath).toBe(w.clone.dir);
+		w.clock.advance(PULL_REQUEST_CHECK_EVERY_MS);
+		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
+
+		// And the first again.
+		await push(w, 'src/coupon.ts', 'export const COUPON = 20;\n', 'A larger coupon');
+		expect(await open(w)).toMatchObject({ kind: 'resumed', report: { id, revision: 3 } });
+		await kept(3);
+
+		// With the first gone, the second takes over, keeping everything.
+		await rm(w.clone.dir, { recursive: true, force: true });
+		await push(w, 'src/coupon.ts', 'export const COUPON = 30;\n', 'A larger coupon still');
+		expect(value(await w.service.open(second.dir, DISCOUNT))).toMatchObject({
+			kind: 'resumed',
+			report: { id, revision: 4 }
+		});
+		await kept(4);
+		expect(value(await w.service.load(id)).summary.repositoryPath).toBe(second.dir);
+		w.clock.advance(PULL_REQUEST_CHECK_EVERY_MS);
+		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
 	});
 
 	it('follows a force-push, and running it again counts as asking', async () => {
