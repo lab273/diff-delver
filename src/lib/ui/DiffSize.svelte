@@ -2,8 +2,9 @@
 	A diff's or a file's size as GitHub shows it: lines added in green with a +,
 	lines removed in red with a −, each only when there are some. Given how many
 	of them are tests, it shows those apart, after the rest ("+40 −12 tests +20
-	−4"), or alone when every line is one ("only tests +20 −4"), so the two add
-	up to the whole. The signs and the words read without colour.
+	−4"), or alone when every line is one ("all tests +20 −4", the word a
+	sentence uses too: "…, all in tests"), so the two add up to the whole. The
+	signs and the words read without colour.
 -->
 <script lang="ts">
 	import type { LineCount } from '#lib/core/line-count.tiny.ts';
@@ -43,7 +44,7 @@
 			{#if hasMain}
 				<span class="label"><span class="visually-hidden">and in&#32;</span>tests</span>
 			{:else}
-				<span class="label">only tests</span>
+				<span class="label">all tests</span>
 			{/if}
 			<span class="visually-hidden">:</span>
 			{#if testAdded > 0}
