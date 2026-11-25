@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { parseRemoteName, type RemoteName } from '../history/remote-name.tiny.ts';
-import { gitHubRepositoryOf, pickGitHubRemote, sameGitHubRepository } from './github-repository.ts';
+import {
+	gitHubRemotes,
+	gitHubRepositoryOf,
+	pickGitHubRemote,
+	sameGitHubRepository
+} from './github-repository.ts';
 
 function remote(name: string): RemoteName {
 	const parsed = parseRemoteName(name);
@@ -58,9 +63,19 @@ describe('gitHubRepositoryOf', () => {
 
 describe('pickGitHubRemote', () => {
 	const shop = 'https://github.com/acme/shop.git';
-	it('takes origin when it is on GitHub', () => {
+	it('takes upstream when it is on GitHub, as a clone of a fork names the repository forked', () => {
 		const picked = pickGitHubRemote([
-			{ remote: remote('upstream'), url: 'https://github.com/other/shop.git' },
+			{ remote: remote('origin'), url: 'https://github.com/octo/shop.git' },
+			{ remote: remote('upstream'), url: shop }
+		]);
+		expect(picked?.remote).toBe('upstream');
+		expect(picked?.repository.owner).toBe('acme');
+	});
+
+	it('takes origin when it is on GitHub and upstream is not', () => {
+		const picked = pickGitHubRemote([
+			{ remote: remote('upstream'), url: '/srv/git/shop.git' },
+			{ remote: remote('hub'), url: 'https://github.com/other/shop.git' },
 			{ remote: remote('origin'), url: shop }
 		]);
 		expect(picked?.remote).toBe('origin');
@@ -74,6 +89,19 @@ describe('pickGitHubRemote', () => {
 			{ remote: remote('hub'), url: shop }
 		]);
 		expect(picked?.remote).toBe('hub');
+	});
+
+	it('lists every remote on GitHub by name', () => {
+		expect(
+			gitHubRemotes([
+				{ remote: remote('origin'), url: 'https://github.com/octo/shop.git' },
+				{ remote: remote('local'), url: '/srv/git/shop.git' },
+				{ remote: remote('acme'), url: shop }
+			]).map((r) => [r.remote, r.repository.owner])
+		).toEqual([
+			['acme', 'acme'],
+			['origin', 'octo']
+		]);
 	});
 
 	it('is nothing when no remote is on GitHub', () => {

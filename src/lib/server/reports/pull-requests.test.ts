@@ -28,7 +28,8 @@ import {
 	DISCOUNT_PULL,
 	serveShop,
 	SHOP_NAME,
-	SHOP_OWNER
+	SHOP_OWNER,
+	SHOP_REMOTE
 } from '../../../../tests/support/pull-request-fixture.ts';
 import { at } from '../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../tests/support/reviewer-git.ts';
@@ -127,6 +128,24 @@ describe('a GitHub pull request', () => {
 			[8, 'Print a receipt', 'hubot', 'receipt', true, true]
 		]);
 		expect(w.github.requests.map((r) => r.authorization)).toEqual([undefined]);
+	});
+
+	it('lists upstream’s pull requests in a clone of a fork, and opens a pull request of any remote', async () => {
+		const w = await world();
+		await w.clone.git('remote', 'set-url', 'origin', 'https://github.com/octo/shop.git');
+		await w.clone.git('remote', 'add', 'upstream', SHOP_REMOTE);
+		expect(value(await w.service.branches(w.clone.dir, '')).gitHub).toEqual({
+			remote: 'upstream',
+			repository: { host: 'github.com', owner: 'acme', name: 'shop' }
+		});
+		const listed = value(await w.service.pullRequests(w.clone.dir));
+		expect(listed.remote).toBe('upstream');
+		expect(listed.pulls.pulls.map((p) => p.number)).toEqual([7, 8]);
+
+		// Named anything else, upstream's pull requests still open; origin's are the ones offered.
+		await w.clone.git('remote', 'rename', 'upstream', 'acme');
+		expect(value(await w.service.branches(w.clone.dir, '')).gitHub?.remote).toBe('origin');
+		created(await open(w));
 	});
 
 	it('is not offered by a repository with no remote on GitHub', async () => {

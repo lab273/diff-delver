@@ -63,21 +63,40 @@ export function gitHubRepositoryOf(url: string): GitHubRepository | undefined {
 	return repositoryAt(parsed.hostname, decodeURIComponent(parsed.pathname));
 }
 
-/**
- * The remote whose pull requests a local repository's Delves are of: `origin`
- * when it points at GitHub, or else the first remote by name that does; or
- * undefined when none does, and the repository offers no pull requests.
- */
-export function pickGitHubRemote(
-	remotes: readonly RemoteAddress[]
-): { readonly remote: RemoteName; readonly repository: GitHubRepository } | undefined {
-	const onGitHub = remotes
+/** A remote on GitHub and the repository it is. */
+export interface GitHubRemote {
+	readonly remote: RemoteName;
+	readonly repository: GitHubRepository;
+}
+
+/** The remotes on GitHub, by name. */
+export function gitHubRemotes(remotes: readonly RemoteAddress[]): readonly GitHubRemote[] {
+	return remotes
 		.flatMap((r) => {
 			const repository = gitHubRepositoryOf(r.url);
 			return repository === undefined ? [] : [{ remote: r.remote, repository }];
 		})
 		.sort((a, b) => (a.remote < b.remote ? -1 : a.remote > b.remote ? 1 : 0));
-	return onGitHub.find((r) => r.remote === 'origin') ?? onGitHub[0];
+}
+
+/**
+ * The remote whose pull requests a local repository offers: `upstream` when
+ * it points at GitHub, since a clone of a fork names the repository it was
+ * forked from so and pull requests are opened there; else `origin`; else the
+ * first remote by name that does; or undefined when none does, and the
+ * repository offers no pull requests. Any of them can open its own.
+ */
+export function pickGitHubRemote(remotes: readonly RemoteAddress[]): GitHubRemote | undefined {
+	return preferredGitHubRemote(gitHubRemotes(remotes));
+}
+
+/** `pickGitHubRemote`'s choice among remotes already known to be on GitHub. */
+export function preferredGitHubRemote(onGitHub: readonly GitHubRemote[]): GitHubRemote | undefined {
+	return (
+		onGitHub.find((r) => r.remote === 'upstream') ??
+		onGitHub.find((r) => r.remote === 'origin') ??
+		onGitHub[0]
+	);
 }
 
 /** Whether two are the same repository: GitHub compares owners and names in any case. */

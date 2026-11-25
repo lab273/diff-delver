@@ -165,7 +165,11 @@ import type { SourceIdentity } from '#lib/core/source-identity.tiny.ts';
 import type { GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import type { SourceSpec } from '#lib/core/sources/source-spec.ts';
 import type { RemoteName } from '#lib/core/history/remote-name.tiny.ts';
-import { sameGitHubRepository, type GitHubRepository } from '#lib/core/github/github-repository.ts';
+import {
+	preferredGitHubRemote,
+	sameGitHubRepository,
+	type GitHubRepository
+} from '#lib/core/github/github-repository.ts';
 import {
 	describePullRequest,
 	describePullRequestNothingToReview,
@@ -176,6 +180,7 @@ import {
 import { pullRequestTitleOf } from '#lib/core/github/pull-request-title.tiny.ts';
 import {
 	gitHubRemoteOf,
+	gitHubRemotesOf,
 	listOpenPullRequests,
 	machineGitHubAccess,
 	pullRequestFingerprint,
@@ -750,17 +755,16 @@ async function cloneOf(
 	repo: LocalRepository,
 	pullRequest: PullRequestRef
 ): Promise<Result<void, ReportError>> {
-	const gitHub = await gitHubRemoteOf(repo);
-	if (!gitHub.ok) return gitHub;
-	const found = gitHub.value?.repository;
-	if (found !== undefined && sameGitHubRepository(found, pullRequest.repository)) {
+	const remotes = await gitHubRemotesOf(repo);
+	if (!remotes.ok) return remotes;
+	if (remotes.value.some((r) => sameGitHubRepository(r.repository, pullRequest.repository))) {
 		return ok(undefined);
 	}
 	return err({
 		kind: 'NotACloneOf',
 		directory: worktreeOf(repo),
 		wanted: pullRequest.repository,
-		found
+		found: preferredGitHubRemote(remotes.value)?.repository
 	});
 }
 
@@ -1211,7 +1215,7 @@ export class ReportService {
 
 	/**
 	 * The open pull requests of the repository at `directory`, from its remote
-	 * on GitHub (`origin` first), most recently updated first: a network call,
+	 * on GitHub (`upstream`, then `origin`, first), most recently updated first: a network call,
 	 * made only when a person asks for the list. `NotOnGitHub` when no remote
 	 * of it is on GitHub. Writes nothing.
 	 */

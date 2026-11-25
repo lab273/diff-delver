@@ -9,5 +9,5 @@ export type { OpenPullRequests, PullRequestDetails } from './github-api.ts';
 export { listOpenPullRequests, PULL_REQUESTS_LISTED, readPullRequest } from './github-api.ts';
 export type { GitHubApiError, GitHubSourceError } from './github-error.ts';
 export { describeGitHubSourceError } from './github-error.ts';
-export { gitHubRemoteOf } from './github-remote.ts';
+export { gitHubRemoteOf, gitHubRemotesOf } from './github-remote.ts';
 export { pullRequestFingerprint, snapshotPullRequest } from './snapshot-pull-request.ts';
