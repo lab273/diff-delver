@@ -50,7 +50,7 @@ import { TOKEN_KINDS } from '#lib/core/highlight/colour-run.ts';
 import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { parseSectionId } from '#lib/core/section-id.tiny.ts';
 import { parseSectionTitle } from '#lib/core/section-title.tiny.ts';
-import type { GitSourceText } from '#lib/core/sources/git-source-text.tiny.ts';
+import type { SourceText } from '#lib/core/sources/source-text.tiny.ts';
 import { formatGitSourceSpec, parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import { parseTimestamp } from '#lib/core/timestamp.tiny.ts';
 import { parseSearchText } from '#lib/core/search/search-text.tiny.ts';
@@ -67,7 +67,7 @@ function parsed<I, T>(base: z.ZodType<I>, parse: (value: I) => Result<T, unknown
 	});
 }
 
-function sourceText(text: string): Result<GitSourceText, unknown> {
+function sourceText(text: string): Result<SourceText, unknown> {
 	const spec = parseGitSourceSpec(text);
 	return spec.ok ? ok(formatGitSourceSpec(spec.value)) : err(spec.error);
 }

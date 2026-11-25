@@ -15,7 +15,7 @@
 import type { FileCount } from '../file-count.tiny.ts';
 import { EMPTY_TREE } from '../object-format.ts';
 import { jsonQuoted } from '../json-quoted.ts';
-import { gitSourceText, type GitSourceText } from './git-source-text.tiny.ts';
+import { asSourceText, type SourceText } from './source-text.tiny.ts';
 import { err, ok, type Result } from '../result.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
 import { HEAD, parseRevision, type InvalidRevision, type Revision } from '../revision.tiny.ts';
@@ -88,16 +88,16 @@ export function parseGitSourceSpec(text: string): Result<GitSourceSpec, InvalidS
  * same source: `working-tree`, `staged`, the revision, or `from...to`. Use it
  * wherever a source is stored or compared as text, such as a report's identity.
  */
-export function formatGitSourceSpec(spec: GitSourceSpec): GitSourceText {
+export function formatGitSourceSpec(spec: GitSourceSpec): SourceText {
 	switch (spec.kind) {
 		case 'working-tree':
-			return gitSourceText('working-tree');
+			return asSourceText('working-tree');
 		case 'staged':
-			return gitSourceText('staged');
+			return asSourceText('staged');
 		case 'commit':
-			return gitSourceText(spec.revision);
+			return asSourceText(spec.revision);
 		case 'range':
-			return gitSourceText(`${spec.from}...${spec.to}`);
+			return asSourceText(`${spec.from}...${spec.to}`);
 	}
 }
 
