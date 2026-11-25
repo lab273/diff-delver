@@ -166,7 +166,7 @@ describe('images', () => {
 		});
 		expect(tooLarge.status).toBe(422);
 		expect(tooLarge.body).toContain(
-			'huge.png in the new version is too large to show as a picture: 16 MB, and diff delver shows images of up to 16 MB.'
+			'huge.png in the new version is too large to show as a picture: 16,777,217 bytes, and diff delver shows images of up to 16,777,216 bytes.'
 		);
 		const notImage = await rawRequest(daemon.port, {
 			path: `/api/diffs/${id}/image?version=1&side=new&path=fake.png`,

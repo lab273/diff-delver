@@ -52,6 +52,20 @@ export function spanOf(a: Dimensions, b: Dimensions): Dimensions {
 }
 
 /**
+ * An image too large to show and the largest shown, in words that never read
+ * the same: "20 MB" and "16 MB", or, when both round to the same, exact bytes,
+ * "16,777,217 bytes" and "16,777,216 bytes".
+ */
+export function describeTooLarge(
+	size: ByteSize,
+	largest: ByteSize
+): { readonly size: string; readonly largest: string } {
+	const [shown, most] = [describeByteSize(size), describeByteSize(largest)];
+	if (shown !== most) return { size: shown, largest: most };
+	return { size: `${formatCount(size)} bytes`, largest: `${formatCount(largest)} bytes` };
+}
+
+/**
  * A side of a file shown as an image that is no picture, such as the other
  * side of an image renamed to a name that is not an image's: "Not an image:
  * binary file, 140 bytes".

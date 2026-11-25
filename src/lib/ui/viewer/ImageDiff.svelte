@@ -24,6 +24,7 @@
 	import {
 		describeDimensions,
 		describeNotImage,
+		describeTooLarge,
 		drawnScale,
 		sameDimensions,
 		spanOf,
@@ -383,10 +384,9 @@
 					{#if shown.kind === 'other'}
 						<!-- No picture: its caption says what it is. -->
 					{:else if shown.kind === 'too-large'}
+						{@const tooLarge = describeTooLarge(shown.size, MAX_IMAGE_SIZE)}
 						<p class="about">
-							Too large to show: {describeByteSize(shown.size)}. diff delver shows images of up to {describeByteSize(
-								MAX_IMAGE_SIZE
-							)}.
+							Too large to show: {tooLarge.size}. diff delver shows images of up to {tooLarge.largest}.
 						</p>
 					{:else if failed[side]}
 						<p class="about">

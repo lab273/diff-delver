@@ -4,6 +4,7 @@ import { parseByteSize } from '../byte-size.tiny.ts';
 import {
 	describeDimensions,
 	describeNotImage,
+	describeTooLarge,
 	drawnScale,
 	sameDimensions,
 	spanOf
@@ -39,6 +40,23 @@ describe('images in words', () => {
 		expect(describeNotImage('binary', bytes(140))).toBe('Not an image: binary file, 140 bytes');
 		expect(describeNotImage('text', bytes(2048))).toBe('Not an image: text file, 2 KB');
 		expect(describeNotImage('link', bytes(12))).toBe('Not an image: a symbolic link');
+	});
+
+	it('says how much too large an image is in words that never read the same as the largest', () => {
+		const bytes = (n: number) => {
+			const parsed = parseByteSize(n);
+			if (!parsed.ok) throw new Error(String(n));
+			return parsed.value;
+		};
+		const largest = bytes(16 * 1024 * 1024);
+		expect(describeTooLarge(bytes(20 * 1024 * 1024), largest)).toEqual({
+			size: '20 MB',
+			largest: '16 MB'
+		});
+		expect(describeTooLarge(bytes(16 * 1024 * 1024 + 1), largest)).toEqual({
+			size: '16,777,217 bytes',
+			largest: '16,777,216 bytes'
+		});
 	});
 
 	it('steps through the ways to compare, back to the first', () => {

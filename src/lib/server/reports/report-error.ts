@@ -21,7 +21,7 @@ import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { ByteSize } from '#lib/core/byte-size.tiny.ts';
 import { MAX_IMAGE_SIZE } from '#lib/core/image/image-format.ts';
 import type { Side } from '#lib/core/side.tiny.ts';
-import { describeByteSize } from '#lib/core/viewer/words.ts';
+import { describeTooLarge } from '#lib/core/image/image-words.ts';
 import { describeDatabaseError, type DatabaseError } from '../db/index.ts';
 import {
 	describeLinesError,
@@ -301,10 +301,12 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 			return reviewerMessage(
 				`${shownRepoPath(error.path)} in ${sideName(error.side)} is not an image diff delver can show: only PNG, JPEG, GIF, WebP and SVG files are shown as pictures. Its change is still listed, and can be marked as reviewed.`
 			);
-		case 'ImageTooLarge':
+		case 'ImageTooLarge': {
+			const tooLarge = describeTooLarge(error.size, MAX_IMAGE_SIZE);
 			return reviewerMessage(
-				`${shownRepoPath(error.path)} in ${sideName(error.side)} is too large to show as a picture: ${describeByteSize(error.size)}, and diff delver shows images of up to ${describeByteSize(MAX_IMAGE_SIZE)}. Open it in another program to look at it.`
+				`${shownRepoPath(error.path)} in ${sideName(error.side)} is too large to show as a picture: ${tooLarge.size}, and diff delver shows images of up to ${tooLarge.largest}. Open it in another program to look at it.`
 			);
+		}
 		case 'FileNotInDiff':
 		case 'NothingToMark':
 			return describeMarkError(error);
