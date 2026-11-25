@@ -478,7 +478,8 @@ export const JOURNEY_REPOSITORIES = {
 	/**
 	 * A history to choose from (J17), made in the week before the journey's
 	 * clock: main with a merge, `discounts` three commits ahead of it and checked
-	 * out, an old local branch, a branch only on the remote, and a remote
+	 * out, the first two with a test file added and changed (so tests are counted
+	 * apart), an old local branch, a branch only on the remote, and a remote
 	 * (a bare repository inside the clone's .git folder, so it is copied with
 	 * it) whose main has a commit this copy has not fetched, while the local
 	 * main has one the remote has not been sent. The fetch is recorded only in
@@ -529,6 +530,14 @@ export const JOURNEY_REPOSITORIES = {
 			await repo.commit('Show the total in the basket');
 			await repo.git('checkout', '--quiet', '-b', 'discounts');
 			await repo.write('src/discount.ts', lines('export const RATES = { SPRING: 0.1 };'));
+			await repo.write(
+				'src/cart.test.ts',
+				lines(
+					"import { total } from './cart.ts';",
+					'',
+					"test('a basket of tea', () => expect(total(['tea'])).toBe(3));"
+				)
+			);
 			await repo.commit('Add a discount rate');
 			await repo.write(
 				'src/cart.ts',
@@ -540,6 +549,15 @@ export const JOURNEY_REPOSITORIES = {
 					'\tconst sum = items.reduce((sum, item) => sum + PRICES[item], 0);',
 					'\treturn code === undefined ? sum : sum * (1 - RATES[code]);',
 					'}'
+				)
+			);
+			await repo.write(
+				'src/cart.test.ts',
+				lines(
+					"import { total } from './cart.ts';",
+					'',
+					"test('tea costs 3', () => expect(total(['tea'])).toBe(3));",
+					"test('a spring discount', () => expect(total(['tea'], 'SPRING')).toBe(2.7));"
 				)
 			);
 			await repo.commit('Apply discounts at checkout');

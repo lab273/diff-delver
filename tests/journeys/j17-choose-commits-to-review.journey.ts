@@ -2,7 +2,7 @@ import { expect, test } from '../support/journey.ts';
 
 // J17 Choose commits to review: `diff-delver choose` opens the choose page for a
 // repository, with its branches and the checked-out one's commits, each with
-// its size and when it was made, and when the repository last fetched. A run
+// its size, its tests apart, and when it was made, and when the repository last fetched. A run
 // of commits is ticked with the keyboard (ticking a second takes in every
 // commit between) and opened, titled by its commits; a whole branch is opened compared with the main
 // branch; the remote is asked whether it has moved on; a branch is found by
@@ -38,6 +38,12 @@ test.describe('J17 Choose commits to review', () => {
 				)
 		);
 		await journey.expectText(commits, '3 days ago (11 January 2026, 21:30 UTC)');
+		// A commit's test lines are counted apart from the rest.
+		await journey.expectVisible(
+			journey.byRole('checkbox', {
+				name: /^Apply discounts at checkout .*and in tests ?: \+2 added −1 removed/
+			})
+		);
 		await journey.step('The branches and commits');
 
 		// Two ticks make a run: the newest and the oldest of the branch's own, and all between.
@@ -50,7 +56,7 @@ test.describe('J17 Choose commits to review', () => {
 		const ticked = journey.byRole('region', { name: 'Ticked commits' });
 		await journey.expectText(
 			ticked,
-			/^3 commits, from “Add a discount rate” to “Say which code was used”: 3 files changed, \d+ lines added and \d+ removed/
+			/^3 commits, from “Add a discount rate” to “Say which code was used”: 4 files changed, \d+ lines added and \d+ removed, plus 4 added in tests/
 		);
 		await journey.expectVisible(journey.byRole('button', { name: 'Review these 3 commits' }));
 		await journey.step('A run of commits ticked');
