@@ -664,13 +664,13 @@ function notFreed(error: StoreError): ReviewerMessage {
 	);
 }
 
-/** How `#held` names a snapshot. */
 /** A diff's binary files with their sizes, read from the store in one call. */
 async function binaryOf(snapshot: Snapshot, diff: Diff): Promise<Result<BinaryFiles, ReportError>> {
 	const sizes = await readBlobSizes(snapshot, binaryBlobsOf(diff));
 	return sizes.ok ? ok(binaryFilesOf(diff, sizes.value)) : sizes;
 }
 
+/** How `#held` names a snapshot. */
 function heldKey(store: StoreId, snapshot: SnapshotId): string {
 	return `${store}/${snapshot}`;
 }

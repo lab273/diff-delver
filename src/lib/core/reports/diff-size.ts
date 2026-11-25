@@ -1,5 +1,5 @@
 /**
- * The size of a diff (DESIGN 8.5): how many files it changes, how many lines it
+ * The size of a diff (DESIGN 4.4): how many files it changes, how many lines it
  * adds and removes, how many of those are tests, and its binary files with
  * their sizes in bytes. Lines of role `test` or `snapshot` are "tests"; the
  * rest are the diff's own lines, so the two always add up to the whole.
