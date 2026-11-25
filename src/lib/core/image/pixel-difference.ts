@@ -5,7 +5,9 @@
  * their channels are, or when both are wholly see-through, whatever colour
  * they would be; a pixel only one image covers has changed. The picture this
  * gives marks each changed pixel in magenta, over a faded copy of the new
- * image; what neither image covers, when their sizes differ, is left clear.
+ * image, its colours taken most of the way to white so it reads as a pale
+ * ground on a light background; what neither image covers, when their sizes
+ * differ, is left clear.
  */
 import { pixelCountOf, type PixelCount } from '../pixel-count.tiny.ts';
 import { spanOf, type Dimensions } from './image-words.ts';
@@ -24,8 +26,16 @@ export interface PixelDifference extends Pixels {
 /** The colour a changed pixel is marked in. */
 export const CHANGED_COLOUR: readonly [number, number, number, number] = [255, 0, 255, 255];
 
-/** How much of an unchanged pixel's opacity it keeps, so the image is a faded ground for the marks. */
+/**
+ * How much of an unchanged pixel's colour it keeps, the rest white, so the
+ * image is a pale ground for the marks. Its opacity it keeps whole.
+ */
 export const FADED = 0.25;
+
+/** A channel of an unchanged pixel, faded toward white. */
+function faded(channel: number): number {
+	return Math.round(channel * FADED + 255 * (1 - FADED));
+}
 
 /** The most pixels compared, over the area of both: 4,096 by 4,096. Larger images are not compared. */
 export const MAX_COMPARED_PIXELS = 4096 * 4096;
@@ -62,10 +72,10 @@ export function pixelDifference(before: Pixels, after: Pixels): PixelDifference 
 			if (i === -1 && j === -1) continue;
 			compared += 1;
 			if (i !== -1 && j !== -1 && same(before.data, i, after.data, j)) {
-				data[out] = after.data[j] ?? 0;
-				data[out + 1] = after.data[j + 1] ?? 0;
-				data[out + 2] = after.data[j + 2] ?? 0;
-				data[out + 3] = Math.round((after.data[j + 3] ?? 0) * FADED);
+				data[out] = faded(after.data[j] ?? 0);
+				data[out + 1] = faded(after.data[j + 1] ?? 0);
+				data[out + 2] = faded(after.data[j + 2] ?? 0);
+				data[out + 3] = after.data[j + 3] ?? 0;
 				continue;
 			}
 			changed += 1;

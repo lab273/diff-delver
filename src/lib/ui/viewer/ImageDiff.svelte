@@ -89,6 +89,14 @@
 		})
 	);
 
+	/** Whether either side is in a format that can be animated, of which only the first frame is drawn on a canvas. */
+	const mayBeAnimated = $derived(
+		(['old', 'new'] as const).some((side) => {
+			const shown = image[side];
+			return shown?.kind === 'image' && (shown.format === 'gif' || shown.format === 'webp');
+		})
+	);
+
 	/** Whether the two sides can be compared other than side by side: both are pictures the browser reads. */
 	const comparing = $derived(
 		image.old?.kind === 'image' && image.new?.kind === 'image' && !failed.old && !failed.new
@@ -506,15 +514,24 @@
 		{#if difference.kind === 'found'}
 			{@const found = difference.found}
 			<p class="count">
-				{#if found.changed === 0}
+				{#if found.changed === 0 && image.sameBytes}
+					No pixels changed: the file's bytes are the same before and after.
+				{:else if found.changed === 0}
 					No pixels changed: the two images look the same, though their files differ.
 				{:else}
 					<strong>
 						{formatCount(found.changed)} of {formatCount(found.compared)} pixels changed
 					</strong>, shown in magenta over a faded copy of the image after.
 				{/if}
+				{#if mayBeAnimated}
+					If an image is animated, only its first frame is compared.
+				{/if}
 			</p>
-			<div class="frame" role="img" aria-label="The pixels that changed in {name}, in magenta">
+			<div
+				class="frame light-ground"
+				role="img"
+				aria-label="The pixels that changed in {name}, in magenta"
+			>
 				<canvas use:paint={found} class:enlarged={scale > 1} style:width={drawnWidth(found.width)}
 				></canvas>
 			</div>
@@ -635,6 +652,15 @@
 	.sliding .after {
 		background: repeating-conic-gradient(var(--color-subtle) 0 25%, var(--color-background) 0 50%) 0
 			0 / 16px 16px;
+	}
+
+	/* The pixels that changed are marked over a pale copy of the image, read on light in both themes. */
+	.frame.light-ground {
+		background: repeating-conic-gradient(
+				var(--color-light-check) 0 25%,
+				var(--color-light-ground) 0 50%
+			)
+			0 0 / 16px 16px;
 	}
 
 	.frame {

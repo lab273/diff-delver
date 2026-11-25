@@ -111,5 +111,16 @@ test.describe('J13 Visual changes', () => {
 			{ checked: true }
 		);
 		await journey.step('An image marked as reviewed');
+
+		// A renamed image whose bytes did not change: no pixel changed, and the page says why.
+		await journey.press('j');
+		await journey.press('j');
+		const seal = journey.byRole('article', { name: 'assets/seal.png' });
+		await journey.expectFocused(journey.byRole('button', { name: 'assets/seal.png', exact: true }));
+		for (let n = 0; n < 3; n += 1) await journey.press('i');
+		await journey.expectText(
+			seal,
+			"No pixels changed: the file's bytes are the same before and after."
+		);
 	});
 });

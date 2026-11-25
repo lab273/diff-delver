@@ -54,6 +54,12 @@
 	 */
 	--font-body: 'Inter';
 	--font-code: 'JetBrains Mono';
+	/*
+	 * A light checked ground, the same in both themes, for the picture of the
+	 * pixels that changed, whose faded image is pale and must be read on light.
+	 */
+	--color-light-ground: #ffffff;
+	--color-light-check: #e6e9ed;
 }
 
 @media (prefers-color-scheme: dark) {

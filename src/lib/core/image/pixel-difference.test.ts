@@ -35,8 +35,8 @@ describe('pixel difference', () => {
 		expect(found.changed).toBe(1);
 		expect(found.compared).toBe(6);
 		expect(at(found, 1, 0)).toEqual([...CHANGED_COLOUR]);
-		// Unchanged: the new image's colour at a quarter of its opacity.
-		expect(at(found, 0, 0)).toEqual([0, 0, 255, 64]);
+		// Unchanged: the new image's colour taken three quarters of the way to white, as opaque as it was.
+		expect(at(found, 0, 0)).toEqual([191, 191, 255, 255]);
 	});
 
 	it('finds nothing changed between an image and itself, nor between two wholly see-through pixels', () => {
