@@ -34,13 +34,24 @@ export function reviewParts(text: string, length: number = PAGE_LENGTH): readonl
 	let rest = text;
 	while (rest.length > length) {
 		const cut = rest.lastIndexOf('\n', length);
-		// A single line longer than a part is cut where the part ends.
-		const end = cut <= 0 ? length : cut + 1;
+		// A single line longer than a part is cut where the part ends, between characters.
+		const end = cut <= 0 ? betweenCharacters(rest, length) : cut + 1;
 		parts.push(rest.slice(0, end));
 		rest = rest.slice(end);
 	}
 	if (rest !== '' || parts.length === 0) parts.push(rest);
 	return parts;
+}
+
+/**
+ * `at`, or one before it when that would split a character written as two
+ * UTF-16 units, such as an emoji; never less than one.
+ */
+function betweenCharacters(text: string, at: number): number {
+	const before = text.charCodeAt(at - 1);
+	const after = text.charCodeAt(at);
+	const splits = before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff;
+	return splits && at > 1 ? at - 1 : at;
 }
 
 /** The answer, or why that part does not exist. */

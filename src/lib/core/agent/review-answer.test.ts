@@ -87,7 +87,12 @@ describe('a finished review for an agent', () => {
 		expect(beyond.ok).toBe(false);
 	});
 
-	it('cuts a single line longer than a part', () => {
+	it('cuts a single line longer than a part, never inside a character', () => {
 		expect(reviewParts('x'.repeat(250), 100).map((p) => p.length)).toEqual([100, 100, 50]);
+		const emoji = `${'x'.repeat(99)}😀${'y'.repeat(10)}`;
+		const parts = reviewParts(emoji, 100);
+		expect(parts.join('')).toBe(emoji);
+		expect(parts[0]).toBe('x'.repeat(99));
+		expect(parts[1]?.startsWith('😀')).toBe(true);
 	});
 });

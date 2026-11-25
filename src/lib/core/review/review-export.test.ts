@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { syntheticDiff } from '../../../../tests/support/synthetic-diff.ts';
 import { assign } from '../diff/assign.ts';
 import { initialState } from '../diff/state.ts';
+import { parseCommitId } from '../commit-id.tiny.ts';
 import { parseLineNumber, type LineNumber } from '../line-number.tiny.ts';
 import { parseLineText, type LineText } from '../line-text.tiny.ts';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
@@ -82,6 +83,7 @@ function input(over: Partial<ReviewExportInput> = {}): ReviewExportInput {
 		title: reviewerMessage('Uncommitted changes'),
 		repository: reviewerMessage('shop'),
 		version: version(2),
+		headCommit: undefined,
 		comments: [comment()],
 		notReviewed: notReviewed(diff, state, marks, [discounts]),
 		progress: unitProgressOf(reviewProgress(diff, state, marks, 'sections', [discounts.id])),
@@ -166,6 +168,21 @@ describe('a finished review as text', () => {
 			'## Comments',
 			'## Not reviewed'
 		]);
+	});
+
+	it('names the commit a version is, and quotes a section title as a JSON string', () => {
+		const commit = sure(parseCommitId('4c1d9ae0'.repeat(5)));
+		const title = sure(parseSectionTitle('The "fast" path: a \u202Eturn'));
+		const text = renderReviewExport(
+			input({
+				headCommit: commit,
+				notReviewed: [
+					{ group: { kind: 'section', title }, files: [{ path: path('a.ts'), partly: false }] }
+				]
+			})
+		);
+		expect(text).toContain('report r_00000001, version 2, whose new side is commit 4c1d9ae. Each');
+		expect(text).toContain('- Section "The \\"fast\\" path: a \\u202Eturn": a.ts\n');
 	});
 
 	it('says when everything was reviewed, and keeps the reviewer’s words exactly', () => {

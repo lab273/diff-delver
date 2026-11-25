@@ -1956,6 +1956,7 @@ export class ReportService {
 								title: reportTitle(report.source),
 								repository: repositoryLabel(report.repositoryPath),
 								version: revision.number,
+								headCommit: revision.headCommit,
 								comments: rows.map((r) => r.comment),
 								notReviewed: notReviewed(diff, state, marks, sections),
 								progress

@@ -13,7 +13,9 @@
  * kept as they are, since they are the review, and given as a blockquote, so
  * nothing in them can pass for the review's own lines either.
  */
+import type { CommitId } from '../commit-id.tiny.ts';
 import type { Diff } from '../diff/diff.ts';
+import { jsonQuoted } from '../json-quoted.ts';
 import { agentPath, hiddenShown } from '../diff/agent-text.ts';
 import { groupOf, inReadingOrder, type GroupKey } from '../diff/slices.ts';
 import { assignedUnits, type AssignmentState } from '../diff/state.ts';
@@ -138,6 +140,8 @@ export interface ReviewExportInput {
 	readonly repository: ReviewerMessage;
 	/** The version the review was finished on. */
 	readonly version: RevisionNumber;
+	/** The commit that version's new side is, when it is one: not for uncommitted changes. */
+	readonly headCommit: CommitId | undefined;
 	readonly comments: readonly SubmittedComment[];
 	readonly notReviewed: readonly NotReviewedGroup[];
 	readonly progress: UnitProgress;
@@ -148,7 +152,7 @@ export function renderReviewExport(input: ReviewExportInput): TextForAgent {
 	const out: string[] = [
 		`# Review ${String(input.number)} of ${visibleText(input.title)} in ${visibleText(input.repository)}`,
 		'',
-		`A code review from diff delver: report ${input.report}, version ${String(input.version)}. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished, and the reviewer’s words follow it, each line after a >.`,
+		`A code review from diff delver: report ${input.report}, version ${String(input.version)}${input.headCommit === undefined ? '' : `, whose new side is commit ${input.headCommit.slice(0, 7)}`}. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished, and the reviewer’s words follow it, each line after a >.`,
 		'',
 		'## Comments'
 	];
@@ -226,7 +230,7 @@ function coverageLine(progress: UnitProgress): string {
 function groupLine(group: NotReviewedGroup): string {
 	const name =
 		group.group.kind === 'section'
-			? `Section "${visibleText(group.group.title)}"`
+			? `Section ${jsonQuoted(group.group.title)}`
 			: 'Not sorted into a section';
 	const named = group.files
 		.slice(0, MAX_FILES_NAMED)
