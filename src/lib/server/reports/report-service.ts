@@ -2074,6 +2074,7 @@ export class ReportService {
 								repository: repositoryLabel(report.repositoryPath),
 								version: revision.number,
 								headCommit: revision.headCommit,
+								overall: '',
 								comments: rows.map((r) => r.comment),
 								notReviewed: notReviewed(diff, state, marks, sections),
 								progress

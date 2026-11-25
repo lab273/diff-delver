@@ -1,7 +1,8 @@
 /**
  * A finished review as text written for a language model (DESIGN 8.6): what
  * the reviewer copies with "Finish and copy" and what `get_review` gives an
- * agent, the same text. Each comment names its file, its lines and the side
+ * agent, the same text. The reviewer's overall review, when they wrote one,
+ * comes first, under its own heading. Each comment names its file, its lines and the side
  * they are on, quotes the code it is on as the snapshot held it when the
  * review was finished, then gives the reviewer's words exactly as typed, quoted. Last
  * comes what was not reviewed, group by group.
@@ -35,6 +36,7 @@ import type { Timestamp } from '../timestamp.tiny.ts';
 import type { CommentCount } from '../comment-count.tiny.ts';
 import { countOf, formatCount } from '../viewer/words.ts';
 import type { CommentAnchor } from './draft-comment.ts';
+import { isWritten } from './overall-review.ts';
 import { countWithin } from './progress.ts';
 import { fileUnitReviewed, reviewedLines, type ReviewedMarks } from './reviewed-marks.ts';
 
@@ -142,6 +144,8 @@ export interface ReviewExportInput {
 	readonly version: RevisionNumber;
 	/** The commit that version's new side is, when it is one: not for uncommitted changes. */
 	readonly headCommit: CommitId | undefined;
+	/** The reviewer's overall review, exactly as typed; '' when they wrote none. */
+	readonly overall: string;
 	readonly comments: readonly SubmittedComment[];
 	readonly notReviewed: readonly NotReviewedGroup[];
 	readonly progress: UnitProgress;
@@ -149,13 +153,15 @@ export interface ReviewExportInput {
 
 /** A finished review as Markdown written for a language model. */
 export function renderReviewExport(input: ReviewExportInput): TextForAgent {
+	const written = isWritten(input.overall);
 	const out: string[] = [
 		`# Review ${String(input.number)} of ${visibleText(input.title)} in ${visibleText(input.repository)}`,
 		'',
-		`A code review from diff delver: report ${input.report}, version ${String(input.version)}${input.headCommit === undefined ? '' : `, whose new side is commit ${input.headCommit.slice(0, 7)}`}. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished, and the reviewer’s words follow it, each line after a >.`,
-		'',
-		'## Comments'
+		`A code review from diff delver: report ${input.report}, version ${String(input.version)}${input.headCommit === undefined ? '' : `, whose new side is commit ${input.headCommit.slice(0, 7)}`}. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished, and the reviewer’s words follow it, each line after a >.${written ? ' The reviewer’s overall review of the change comes first, quoted the same way.' : ''}`,
+		''
 	];
+	if (written) out.push('## Overall', '', ...wordsQuoted(input.overall), '');
+	out.push('## Comments');
 	if (input.comments.length === 0) out.push('', 'No comments.');
 	for (const comment of input.comments) out.push('', ...commentLines(comment, input.version));
 	out.push('', '## Not reviewed', '', coverageLine(input.progress));

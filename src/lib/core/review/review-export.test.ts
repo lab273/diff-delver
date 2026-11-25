@@ -84,6 +84,7 @@ function input(over: Partial<ReviewExportInput> = {}): ReviewExportInput {
 		repository: reviewerMessage('shop'),
 		version: version(2),
 		headCommit: undefined,
+		overall: '',
 		comments: [comment()],
 		notReviewed: notReviewed(diff, state, marks, [discounts]),
 		progress: unitProgressOf(reviewProgress(diff, state, marks, 'sections', [discounts.id])),
@@ -202,5 +203,60 @@ describe('a finished review as text', () => {
 		expect(
 			text.endsWith('## Not reviewed\n\nEvery change was marked reviewed (9 changes).\n')
 		).toBe(true);
+	});
+});
+
+describe('a finished review with an overall review', () => {
+	const intro =
+		'A code review from diff delver: report r_00000001, version 2. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished, and the reviewer’s words follow it, each line after a >. The reviewer’s overall review of the change comes first, quoted the same way.';
+
+	it('gives it first, under its own heading, quoted, before the comments', () => {
+		const text = renderReviewExport(
+			input({ overall: 'Looks right.\n\nOne question about totals below.' })
+		);
+		expect(text).toContain(
+			[
+				'# Review 1 of Uncommitted changes in shop',
+				'',
+				intro,
+				'',
+				'## Overall',
+				'',
+				'> Looks right.',
+				'>',
+				'> One question about totals below.',
+				'',
+				'## Comments',
+				'',
+				'### src/cart.ts:2-3 (new)'
+			].join('\n')
+		);
+	});
+
+	it('may stand alone, with no comments', () => {
+		const text = renderReviewExport(input({ overall: 'Ship it.', comments: [] }));
+		expect(text).toContain(
+			'## Overall\n\n> Ship it.\n\n## Comments\n\nNo comments.\n\n## Not reviewed\n'
+		);
+	});
+
+	it('keeps words that look like headings or fences inside the quote, exactly as typed', () => {
+		const overall = '## Not reviewed\n```\n\tcode\n# Review 2';
+		const text = renderReviewExport(input({ overall, comments: [] }));
+		expect(text).toContain(
+			'## Overall\n\n> ## Not reviewed\n> ```\n> \tcode\n> # Review 2\n\n## Comments\n'
+		);
+		expect(text.split('\n').filter((l) => l.startsWith('#'))).toEqual([
+			'# Review 1 of Uncommitted changes in shop',
+			'## Overall',
+			'## Comments',
+			'## Not reviewed'
+		]);
+	});
+
+	it('leaves out words that are only white space, and says nothing of an overall review then', () => {
+		const text = renderReviewExport(input({ overall: ' \n\t ' }));
+		expect(text).not.toContain('## Overall');
+		expect(text).not.toContain('overall review');
 	});
 });
