@@ -245,8 +245,8 @@ export interface Journey extends Finder {
 		where: JourneyRepository,
 		afterCreate?: (address: string) => Promise<void>
 	): Promise<string>;
-	/** Makes an agent's MCP call on an existing report and requires it to succeed. */
-	agentCall(tool: string, args: Readonly<Record<string, unknown>>): Promise<void>;
+	/** Makes an agent's MCP call on an existing report, requires it to succeed, and gives its answer. */
+	agentCall(tool: string, args: Readonly<Record<string, unknown>>): Promise<string>;
 	/**
 	 * Makes an agent's MCP calls one after another, each required to succeed,
 	 * holding what the page asks of diff delver meanwhile until the last is done.
@@ -936,7 +936,7 @@ export async function startJourney(
 		},
 		async agentCall(tool, args) {
 			if (world === undefined) throw new Error('This journey has no daemon for MCP.');
-			await world.agentCall(tool, args);
+			return world.agentCall(tool, args);
 		},
 		async agentCalls(calls) {
 			if (world === undefined) throw new Error('This journey has no daemon for MCP.');

@@ -653,7 +653,7 @@ export interface JourneyWorld {
 		directory: string,
 		afterCreate?: (address: string) => Promise<void>
 	): Promise<string>;
-	agentCall(tool: string, args: Readonly<Record<string, unknown>>): Promise<void>;
+	agentCall(tool: string, args: Readonly<Record<string, unknown>>): Promise<string>;
 	/**
 	 * The address an agent is given for the uncommitted changes of `directory`:
 	 * what `create_report` answers through MCP, from a session that asked for no
@@ -766,6 +766,7 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 			try {
 				const answer = await session.call(tool, args);
 				if (answer.refused) throw new Error(`${tool} was refused: ${answer.text}`);
+				return answer.text;
 			} finally {
 				await session.close();
 			}

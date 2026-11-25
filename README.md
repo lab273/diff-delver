@@ -17,9 +17,9 @@ your review progress on your machine.
   code changes, your ticks stay on the lines that did not.
 - **It stays on your machine.** diff delver never writes to the repository you review.
 
-> **Status: early build.** You can review a diff, save private draft comments, and
-> have an agent sort changes into sections. Submitting or copying a finished review
-> is still planned. It has been built and tested on Linux only. See
+> **Status: early build.** You can review a diff, write private draft comments,
+> finish them as a review to paste to an agent, and have an agent sort changes into
+> sections. It has been built and tested on Linux only. See
 > [What works today](#what-works-today).
 
 The pictures on this page are taken by the project's own tests, so they show the
@@ -58,6 +58,9 @@ On the page you can:
 - **Comment** on a line by pressing its number, or `c` on it. Drag over the numbers,
   or hold Shift, to take several lines. Comments are private drafts on your machine,
   shown at their lines, and you can edit or delete them.
+- **Finish and copy** your comments as a review: it goes on the clipboard, written
+  for an agent, with the code each comment is on. Paste it to your agent, or ask your
+  agent to act on your review in diff delver, and it reads the same review.
 - **Search** the whole diff (`/`), including files that are closed.
 - **Open file** (`t`) to find a filename and read it as of this Delve, before or after the changes.
 - **See every key** with `?`. Everything works from the keyboard.
@@ -169,7 +172,8 @@ To take comment access away from every browser, run `diff-delver stop`, delete
   changes hidden, unchanged lines opened, search, and a reading bookmark that
   survives reload in the same tab.
 - Writing, editing and deleting private draft comments on either side of a diff,
-  including unchanged lines.
+  including unchanged lines, and finishing them as a numbered review that is copied
+  for an agent and that an agent can read through the MCP server.
 - Ticking files and sections as reviewed, with progress, across restarts.
 - Updating a Delve when the code changes, keeping sections and ticks.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex
@@ -179,7 +183,8 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 Not built yet:
 
 - The agent’s cross-references between sections.
-- Submitting a review and copying it to the clipboard.
+- Flags, agent notes, replies to earlier reviews and asking the agent from the page.
+- Saving a review to a file or posting it to GitHub.
 - Pull requests as a source, and visual diffs.
 - A setup command and an installable Claude Code plugin. For now you add the MCP
   server and the skill yourself, as above.

@@ -14,7 +14,7 @@ test.describe('Regrouping a large change', () => {
 				{ id: 'after', title: 'After sorting again' }
 			]
 		});
-		const moveTo = (section: string): Promise<void> =>
+		const moveTo = (section: string): Promise<string> =>
 			journey.agentCall('assign', {
 				report,
 				version: 1,

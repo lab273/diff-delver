@@ -45,6 +45,7 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import CommentList from '#lib/ui/viewer/CommentList.svelte';
+	import FinishReview from '#lib/ui/viewer/FinishReview.svelte';
 	import { Writing, type CommentPlace, type Comments } from '#lib/ui/viewer/comments.svelte.ts';
 	import { keptComments } from '#lib/ui/viewer/kept-comments.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
@@ -2159,6 +2160,12 @@
 						{showNewer}
 						ongo={goToComment}
 						bind:control={draftsControl}
+					/>
+					<FinishReview
+						id={summary.id}
+						{comments}
+						version={summary.version}
+						open={summary.state.kind === 'open'}
 					/>
 				{/key}
 			{:else}
