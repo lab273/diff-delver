@@ -484,7 +484,11 @@ export function partLinesView(content: PartContent): PartLines {
 		image:
 			content.image === undefined
 				? null
-				: { old: content.image.old ?? null, new: content.image.new ?? null }
+				: {
+						old: content.image.old ?? null,
+						new: content.image.new ?? null,
+						sameBytes: content.image.sameBytes
+					}
 	};
 }
 

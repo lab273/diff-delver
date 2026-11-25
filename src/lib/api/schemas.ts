@@ -9,7 +9,7 @@
  * have the same keys.
  */
 import { z } from 'zod';
-import { IMAGE_FORMATS } from '#lib/core/image/image-format.ts';
+import { IMAGE_FORMATS, NOT_IMAGE_KINDS } from '#lib/core/image/image-format.ts';
 import { FILE_PAGE_LINES, FILE_QUERY_LENGTH } from '#lib/core/viewer/file-reader.ts';
 import { MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
@@ -439,10 +439,15 @@ export type LinesQuery = z.output<typeof LinesQuerySchema>;
 
 const LineSpanSchema = z.object({ first: lineNumber, last: lineNumber });
 
-/** One side of an image: its format and size, or only its size when it is too large to show. */
+/**
+ * One side of a file shown as an image: a picture, with its format and size;
+ * one too large to show, with its size; or a side that is no picture (a file
+ * that is not an image, or a link), with its size when it has one.
+ */
 const ImageSideSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('image'), format: z.enum(IMAGE_FORMATS), size: byteSize }),
-	z.object({ kind: z.literal('too-large'), size: byteSize })
+	z.object({ kind: z.literal('too-large'), size: byteSize }),
+	z.object({ kind: z.literal('other'), what: z.enum(NOT_IMAGE_KINDS), size: byteSize })
 ]);
 export type ImageSideView = z.output<typeof ImageSideSchema>;
 export type PartImageView = NonNullable<z.output<typeof PartLinesSchema>['image']>;
@@ -509,11 +514,18 @@ export const PartLinesSchema = z.object({
 	/** For a binary file, its size on each side it has. */
 	sizes: z.object({ old: byteSize.nullable(), new: byteSize.nullable() }).nullable(),
 	/**
-	 * For an image, each side the page shows as a picture (DESIGN 8.4), read
-	 * from `GET /api/diffs/:id/image`; null for a side that is not there or is
-	 * not an image, and null for any other file.
+	 * For a file one side of which is an image the page shows as a picture
+	 * (DESIGN 8.4), read from `GET /api/diffs/:id/image`: each side the file
+	 * has, null for a side it does not have, and whether its bytes are the same
+	 * on both, as when only its name or mode changed; null for any other file.
 	 */
-	image: z.object({ old: ImageSideSchema.nullable(), new: ImageSideSchema.nullable() }).nullable()
+	image: z
+		.object({
+			old: ImageSideSchema.nullable(),
+			new: ImageSideSchema.nullable(),
+			sameBytes: z.boolean()
+		})
+		.nullable()
 });
 export type PartLines = z.output<typeof PartLinesSchema>;
 export type PartBlockView = PartLines['blocks'][number];

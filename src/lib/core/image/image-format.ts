@@ -13,6 +13,13 @@ import type { RepoPath } from '../repo-path.tiny.ts';
 export const IMAGE_FORMATS = ['png', 'jpeg', 'gif', 'webp', 'svg'] as const;
 export type ImageFormat = (typeof IMAGE_FORMATS)[number];
 
+/**
+ * What a side of a file shown as an image is when it is no picture: a binary
+ * file, a text file, or a symbolic link.
+ */
+export const NOT_IMAGE_KINDS = ['binary', 'text', 'link'] as const;
+export type NotImageKind = (typeof NOT_IMAGE_KINDS)[number];
+
 /** The largest image diff delver shows, in bytes: 16 MiB. A larger one is described, not shown. */
 export const MAX_IMAGE_SIZE: ByteSize = (() => {
 	const size = parseByteSize(16 * 1024 * 1024);

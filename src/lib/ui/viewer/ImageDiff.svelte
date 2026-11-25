@@ -23,6 +23,7 @@
 	} from '#lib/core/image/compare-modes.ts';
 	import {
 		describeDimensions,
+		describeNotImage,
 		drawnScale,
 		sameDimensions,
 		spanOf,
@@ -69,9 +70,10 @@
 	/** How much the image after shows over the one before, in onion skin, from 0 to 100. */
 	let opacity = $state(50);
 
+	/** Whether the file has both sides, whatever each is: a changed file, not an added or deleted one. */
 	const both = $derived(image.old !== null && image.new !== null);
 
-	/** The sides there are, in order, each with what to call it. */
+	/** The sides the file has, in order, each with what to call it. */
 	const sides = $derived(
 		(['old', 'new'] as const).flatMap((side) => {
 			const shown = image[side];
@@ -257,9 +259,10 @@
 			: `${String((size.width / span.width) * 100)}%`;
 	}
 
-	/** What a side is: "PNG, 48 × 32 pixels, 140 bytes". */
+	/** What a side is: "PNG, 48 × 32 pixels, 140 bytes", or "Not an image: binary file, 140 bytes". */
 	function facts(side: Side, shown: ImageSideView): string {
 		if (shown.kind === 'too-large') return describeByteSize(shown.size);
+		if (shown.kind === 'other') return describeNotImage(shown.what, shown.size);
 		const size = sizes[side];
 		return [
 			formatName(shown.format),
@@ -303,7 +306,9 @@
 						<strong>{label}</strong>
 						<span class="facts">{facts(side, shown)}</span>
 					</figcaption>
-					{#if shown.kind === 'too-large'}
+					{#if shown.kind === 'other'}
+						<!-- No picture: its caption says what it is. -->
+					{:else if shown.kind === 'too-large'}
 						<p class="about">
 							Too large to show: {describeByteSize(shown.size)}. diff delver shows images of up to {describeByteSize(
 								MAX_IMAGE_SIZE

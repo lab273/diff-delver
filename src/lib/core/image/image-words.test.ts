@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { pixelCountOf } from '../pixel-count.tiny.ts';
-import { describeDimensions, drawnScale, sameDimensions, spanOf } from './image-words.ts';
+import { parseByteSize } from '../byte-size.tiny.ts';
+import {
+	describeDimensions,
+	describeNotImage,
+	drawnScale,
+	sameDimensions,
+	spanOf
+} from './image-words.ts';
 import { compareModeName, COMPARE_MODES, nextCompareMode } from './compare-modes.ts';
 
 const size = (w: number, h: number) => ({ width: pixelCountOf(w), height: pixelCountOf(h) });
@@ -21,6 +28,17 @@ describe('images in words', () => {
 		expect(sameDimensions(size(3, 4), size(3, 4))).toBe(true);
 		expect(sameDimensions(size(3, 4), size(4, 3))).toBe(false);
 		expect(spanOf(size(40, 16), size(30, 24))).toEqual(size(40, 24));
+	});
+
+	it('says what a side that is no picture is', () => {
+		const bytes = (n: number) => {
+			const parsed = parseByteSize(n);
+			if (!parsed.ok) throw new Error(String(n));
+			return parsed.value;
+		};
+		expect(describeNotImage('binary', bytes(140))).toBe('Not an image: binary file, 140 bytes');
+		expect(describeNotImage('text', bytes(2048))).toBe('Not an image: text file, 2 KB');
+		expect(describeNotImage('link', bytes(12))).toBe('Not an image: a symbolic link');
 	});
 
 	it('steps through the ways to compare, back to the first', () => {

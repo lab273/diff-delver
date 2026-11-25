@@ -47,7 +47,8 @@ import {
 	imageFormatOf,
 	MAX_IMAGE_SIZE,
 	namedAsImage,
-	type ImageFormat
+	type ImageFormat,
+	type NotImageKind
 } from '#lib/core/image/image-format.ts';
 import { fileSlices, groupKeyId, type GroupKey, type ViewKind } from '#lib/core/diff/slices.ts';
 import { lineCountOf, type LineCount } from '#lib/core/line-count.tiny.ts';
@@ -478,17 +479,25 @@ export interface PartColours {
 }
 
 /**
- * One side of an image a part shows as a picture (DESIGN 8.4): its format and
- * size, or only its size when it is larger than the page shows.
+ * One side of a file a part shows as an image (DESIGN 8.4): a picture, with
+ * its format and size; only its size when it is larger than the page shows;
+ * or what it is instead when it is no picture, such as the other side of an
+ * image renamed to a name that is not an image's, or replaced by bytes that
+ * are not one.
  */
 export type ImageSide =
 	| { readonly kind: 'image'; readonly format: ImageFormat; readonly size: ByteSize }
-	| { readonly kind: 'too-large'; readonly size: ByteSize };
+	| { readonly kind: 'too-large'; readonly size: ByteSize }
+	| { readonly kind: 'other'; readonly what: NotImageKind; readonly size: ByteSize };
 
-/** An image's sides, each undefined where the file is not there or is not an image. */
+/**
+ * A file at least one side of which is an image: each side, undefined where
+ * the file does not have it, and whether its bytes are the same on both.
+ */
 export interface PartImage {
 	readonly old: ImageSide | undefined;
 	readonly new: ImageSide | undefined;
+	readonly sameBytes: boolean;
 }
 
 /** One side of an image, to serve as it is (`readImage`). */
@@ -1510,13 +1519,21 @@ export class ReportService {
 				break;
 		}
 		let image: PartImage | undefined;
-		if (kind.kind !== 'submodule') {
+		const mayBeImage = (version: FileVersion | undefined): boolean =>
+			version !== undefined && namedAsImage(version.path) && isPlainFile(version);
+		if (kind.kind !== 'submodule' && (mayBeImage(old) || mayBeImage(now))) {
 			const before = await imageSideOf(snapshot, 'old', old);
 			if (!before.ok) return before;
 			const after = await imageSideOf(snapshot, 'new', now);
 			if (!after.ok) return after;
-			if (before.value !== undefined || after.value !== undefined) {
-				image = { old: before.value, new: after.value };
+			const shown = (side: ImageSide | undefined): boolean =>
+				side !== undefined && side.kind !== 'other';
+			if (shown(before.value) || shown(after.value)) {
+				image = {
+					old: before.value,
+					new: after.value,
+					sameBytes: old !== undefined && now !== undefined && old.blob === now.blob
+				};
 			}
 		}
 		return ok({
@@ -3099,24 +3116,30 @@ function isPlainFile(version: FileVersion): boolean {
 }
 
 /**
- * A side of a file as an image the page shows, read from the snapshot by the
- * path it has on that side: undefined when the file is not there, or is not an
- * image; only its size when it is larger than the page shows.
+ * A side of a file as a part shows it beside an image, read from the snapshot
+ * by the path it has on that side: undefined when the file does not have it;
+ * only its size when it is an image larger than the page shows; and what it is
+ * when it is no picture.
  */
 async function imageSideOf(
 	snapshot: Snapshot,
 	side: Side,
 	version: FileVersion | undefined
 ): Promise<Result<ImageSide | undefined, ReportError>> {
-	if (version === undefined || !namedAsImage(version.path) || !isPlainFile(version)) {
-		return ok(undefined);
-	}
+	if (version === undefined) return ok(undefined);
 	const entry = await snapshotEntry(snapshot, side, version.path);
 	if (!entry.ok) return entry;
-	if (entry.value.kind !== 'file') return ok(undefined);
-	if (entry.value.size > MAX_IMAGE_SIZE) return ok({ kind: 'too-large', size: entry.value.size });
+	if (entry.value.kind !== 'file') return err({ kind: 'PathNotFound', side, path: version.path });
+	const size = entry.value.size;
+	if (!isPlainFile(version)) return ok({ kind: 'other', what: 'link', size });
+	const named = namedAsImage(version.path);
+	if (named && size > MAX_IMAGE_SIZE) return ok({ kind: 'too-large', size });
 	const read = await readSnapshotFile(snapshot, side, version.path);
 	if (!read.ok) return read;
-	const format = imageFormatOf(version.path, read.value.bytes);
-	return ok(format === undefined ? undefined : { kind: 'image', format, size: read.value.size });
+	const format = named ? imageFormatOf(version.path, read.value.bytes) : undefined;
+	return ok(
+		format === undefined
+			? { kind: 'other', what: read.value.binary ? 'binary' : 'text', size }
+			: { kind: 'image', format, size }
+	);
 }

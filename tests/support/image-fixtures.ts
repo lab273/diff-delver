@@ -1,8 +1,8 @@
 /**
  * A repository of changed images (DESIGN 8.4), built by real git, for the
  * image route's tests and journey J13: a PNG changed in place, one whose size
- * changed, one added and one deleted, and an SVG changed, uncommitted on top
- * of a commit that has the earlier ones.
+ * changed, one added, one deleted and one renamed, and an SVG changed,
+ * uncommitted on top of a commit that has the earlier ones.
  */
 import { drawn, encodePng, type Colour } from './png.ts';
 import type { GitRepo } from './git-repo.ts';
@@ -50,7 +50,13 @@ const OLD_ICON = encodePng(
 	drawn(16, 16, INK, [{ x: 4, y: 4, width: 8, height: 8, colour: WHITE }])
 );
 
-const svg = (fill: string): string =>
+/** Renamed to `assets/seal.png`, its bytes unchanged. */
+export const STAMP = encodePng(
+	drawn(24, 24, GOLD, [{ x: 6, y: 6, width: 12, height: 12, colour: INK }])
+);
+
+/** An SVG, as text. */
+export const svg = (fill: string): string =>
 	[
 		'<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">',
 		'  <rect width="32" height="32" rx="6" fill="#2c3e50"/>',
@@ -64,10 +70,12 @@ export async function buildImages(repo: GitRepo): Promise<void> {
 	await repo.write('assets/banner.png', BANNER_BEFORE);
 	await repo.write('assets/old-icon.png', OLD_ICON);
 	await repo.write('assets/logo.svg', svg('#e74c3c'));
+	await repo.write('assets/stamp.png', STAMP);
 	await repo.commit('Add the images');
 	await repo.write('assets/badge.png', BADGE_AFTER);
 	await repo.write('assets/banner.png', BANNER_AFTER);
 	await repo.write('assets/new-icon.png', NEW_ICON);
 	await repo.remove('assets/old-icon.png');
 	await repo.write('assets/logo.svg', svg('#27ae60'));
+	await repo.move('assets/stamp.png', 'assets/seal.png');
 }

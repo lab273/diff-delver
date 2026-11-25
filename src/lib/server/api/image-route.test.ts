@@ -21,7 +21,9 @@ import { value } from '../../../../tests/support/git-source-helpers.ts';
 import {
 	BADGE_AFTER,
 	BADGE_BEFORE,
-	buildImages
+	buildImages,
+	STAMP,
+	svg
 } from '../../../../tests/support/image-fixtures.ts';
 
 const images = defineFixture('images', buildImages);
@@ -34,6 +36,30 @@ const odd = defineFixture('odd-images', async (repo) => {
 	large.set(BADGE_BEFORE.subarray(0, 8));
 	await repo.write('huge.png', large);
 	await repo.write('fake.png', new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3]));
+});
+
+/** 4 KiB of bytes git calls binary, the same each run. */
+const BLOB = Uint8Array.from({ length: 4096 }, (_, i) => (i * 37) % 251);
+
+/**
+ * Files an image on one side only: one renamed to a name that is not an
+ * image's, one replaced by bytes that are not a PNG, and a text file renamed
+ * to be an SVG; and a binary file renamed and changed a little.
+ */
+const halves = defineFixture('half-images', async (repo) => {
+	await repo.write('logo.png', BADGE_BEFORE);
+	await repo.write('broken.png', BADGE_AFTER);
+	await repo.write('data.txt', svg('#123456'));
+	await repo.write('kept.bin', BLOB);
+	await repo.commit('Start');
+	await repo.remove('kept.bin');
+	await repo.write(
+		'kept.dat',
+		Uint8Array.from(BLOB, (byte, i) => (i === 100 ? 7 : byte))
+	);
+	await repo.move('logo.png', 'logo.bin');
+	await repo.write('broken.png', new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]));
+	await repo.move('data.txt', 'data.svg');
 });
 
 const path = (text: string) => escapedRepoPath(value(parseRepoPath(text)));
@@ -63,7 +89,8 @@ describe('images', () => {
 		const badge = value(await client.readPart(id, part('assets/badge.png')));
 		expect(badge.image).toEqual({
 			old: { kind: 'image', format: 'png', size: BADGE_BEFORE.byteLength },
-			new: { kind: 'image', format: 'png', size: BADGE_AFTER.byteLength }
+			new: { kind: 'image', format: 'png', size: BADGE_AFTER.byteLength },
+			sameBytes: false
 		});
 		// An added image has only its new side, a deleted one only its old.
 		expect(value(await client.readPart(id, part('assets/new-icon.png'))).image).toMatchObject({
@@ -81,6 +108,13 @@ describe('images', () => {
 			new: { kind: 'image', format: 'svg' }
 		});
 		expect(logo.blocks.length).toBeGreaterThan(0);
+		// A renamed image has both sides, each read by its own path, with the same bytes.
+		expect(value(await client.readPart(id, part('assets/seal.png'))).image).toEqual({
+			old: { kind: 'image', format: 'png', size: STAMP.byteLength },
+			new: { kind: 'image', format: 'png', size: STAMP.byteLength },
+			sameBytes: true
+		});
+		expect(badge.image?.sameBytes).toBe(false);
 
 		const cookie = await browserCookie(daemon);
 		const read = (query: string) =>
@@ -115,7 +149,11 @@ describe('images', () => {
 	it('say when a file is too large to show or is not an image after all', async () => {
 		const { daemon, client, id, part } = await opened(odd);
 		const huge = value(await client.readPart(id, part('huge.png')));
-		expect(huge.image).toEqual({ old: null, new: { kind: 'too-large', size: MAX_IMAGE_SIZE + 1 } });
+		expect(huge.image).toEqual({
+			old: null,
+			new: { kind: 'too-large', size: MAX_IMAGE_SIZE + 1 },
+			sameBytes: false
+		});
 		// Its name says PNG, its bytes do not: it is a binary file and no picture.
 		const fake = value(await client.readPart(id, part('fake.png')));
 		expect(fake.image).toBeNull();
@@ -141,5 +179,43 @@ describe('images', () => {
 			headers: auth
 		});
 		expect(text.status).toBe(422);
+	});
+
+	it('say what a side that is no picture is, beside one that is', async () => {
+		const { daemon, client, id, part } = await opened(halves);
+		// Renamed to a name that is not an image's: still changed, not deleted, with each side's size.
+		const renamed = value(await client.readPart(id, part('logo.bin')));
+		expect(renamed.image).toEqual({
+			old: { kind: 'image', format: 'png', size: BADGE_BEFORE.byteLength },
+			new: { kind: 'other', what: 'binary', size: BADGE_BEFORE.byteLength },
+			sameBytes: true
+		});
+		// A binary file renamed and changed is measured by each side's own path.
+		const moved = value(await client.readPart(id, part('kept.dat')));
+		expect(moved.image).toBeNull();
+		expect(moved.sizes).toEqual({ old: 4096, new: 4096 });
+		// Replaced by bytes that are no PNG.
+		expect(value(await client.readPart(id, part('broken.png'))).image).toEqual({
+			old: { kind: 'image', format: 'png', size: BADGE_AFTER.byteLength },
+			new: { kind: 'other', what: 'binary', size: 10 },
+			sameBytes: false
+		});
+		// A text file that became an SVG keeps its lines.
+		const data = value(await client.readPart(id, part('data.svg')));
+		expect(data.image).toMatchObject({
+			old: { kind: 'other', what: 'text' },
+			new: { kind: 'image', format: 'svg' }
+		});
+		const auth = { authorization: `Bearer ${daemon.token}` };
+		const notImage = await rawRequest(daemon.port, {
+			path: `/api/diffs/${id}/image?version=1&side=new&path=logo.bin`,
+			headers: auth
+		});
+		expect(notImage.status).toBe(422);
+		const before = await rawRequest(daemon.port, {
+			path: `/api/diffs/${id}/image?version=1&side=old&path=logo.bin`,
+			headers: auth
+		});
+		expect(before.status).toBe(200);
 	});
 });

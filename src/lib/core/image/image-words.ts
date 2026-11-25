@@ -2,8 +2,10 @@
  * Images as the page draws and describes them (DESIGN 8.4): how much larger
  * a small image is drawn so its pixels can be seen, and its size in words.
  */
+import type { ByteSize } from '../byte-size.tiny.ts';
 import type { PixelCount } from '../pixel-count.tiny.ts';
-import { formatCount } from '../viewer/words.ts';
+import { describeByteSize, formatCount } from '../viewer/words.ts';
+import type { NotImageKind } from './image-format.ts';
 
 /** The width and height of an image, in pixels. */
 export interface Dimensions {
@@ -47,4 +49,20 @@ export function spanOf(a: Dimensions, b: Dimensions): Dimensions {
 		width: a.width > b.width ? a.width : b.width,
 		height: a.height > b.height ? a.height : b.height
 	};
+}
+
+/**
+ * A side of a file shown as an image that is no picture, such as the other
+ * side of an image renamed to a name that is not an image's: "Not an image:
+ * binary file, 140 bytes".
+ */
+export function describeNotImage(what: NotImageKind, size: ByteSize): string {
+	switch (what) {
+		case 'binary':
+			return `Not an image: binary file, ${describeByteSize(size)}`;
+		case 'text':
+			return `Not an image: text file, ${describeByteSize(size)}`;
+		case 'link':
+			return 'Not an image: a symbolic link';
+	}
 }
