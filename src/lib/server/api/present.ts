@@ -480,7 +480,11 @@ export function partLinesView(content: PartContent): PartLines {
 		sizes:
 			content.sizes === undefined
 				? null
-				: { old: content.sizes.old ?? null, new: content.sizes.new ?? null }
+				: { old: content.sizes.old ?? null, new: content.sizes.new ?? null },
+		image:
+			content.image === undefined
+				? null
+				: { old: content.image.old ?? null, new: content.image.new ?? null }
 	};
 }
 
@@ -548,6 +552,8 @@ export function statusOf(error: ReportError): number {
 		case 'PathIsDirectory':
 		case 'PathIsSubmodule':
 		case 'FileIsBinary':
+		case 'NotAnImage':
+		case 'ImageTooLarge':
 		case 'UnresolvedConflict':
 		case 'NoWorkingTree':
 		case 'UnknownRevision':

@@ -116,7 +116,12 @@ export type LinesState =
 	| { readonly kind: 'waiting' }
 	| { readonly kind: 'loading' }
 	| { readonly kind: 'failed'; readonly message: string }
-	| { readonly kind: 'loaded'; readonly blocks: BlockState[]; readonly sizes: PartLines['sizes'] };
+	| {
+			readonly kind: 'loaded';
+			readonly blocks: BlockState[];
+			readonly sizes: PartLines['sizes'];
+			readonly image: PartLines['image'];
+	  };
 
 /** The colours of a part's lines that have come, by side and line number. */
 export interface LineColours {
@@ -598,7 +603,7 @@ export class Viewer {
 
 	async #fetchLines(state: PartState): Promise<void> {
 		if (state.part.content !== 'text' && state.part.content !== 'binary') {
-			state.lines = { kind: 'loaded', blocks: [], sizes: null };
+			state.lines = { kind: 'loaded', blocks: [], sizes: null, image: null };
 			return;
 		}
 		state.lines = { kind: 'loading' };
@@ -623,6 +628,7 @@ export class Viewer {
 		state.lines = {
 			kind: 'loaded',
 			sizes: read.value.sizes,
+			image: read.value.image,
 			blocks: read.value.blocks.map((block): BlockState => {
 				switch (block.kind) {
 					case 'hidden':

@@ -18,6 +18,10 @@ import {
 	type StoredStateMismatch
 } from '#lib/core/storage/stored-units.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
+import type { ByteSize } from '#lib/core/byte-size.tiny.ts';
+import { MAX_IMAGE_SIZE } from '#lib/core/image/image-format.ts';
+import type { Side } from '#lib/core/side.tiny.ts';
+import { describeByteSize } from '#lib/core/viewer/words.ts';
 import { describeDatabaseError, type DatabaseError } from '../db/index.ts';
 import {
 	describeLinesError,
@@ -118,6 +122,21 @@ export interface PartNotFound {
 	readonly path: RepoPath;
 }
 
+/** A file's side asked for as a picture is not an image the page shows (DESIGN 8.4). */
+export interface NotAnImage {
+	readonly kind: 'NotAnImage';
+	readonly side: Side;
+	readonly path: RepoPath;
+}
+
+/** A file's side asked for as a picture is larger than the page shows (`MAX_IMAGE_SIZE`). */
+export interface ImageTooLarge {
+	readonly kind: 'ImageTooLarge';
+	readonly side: Side;
+	readonly path: RepoPath;
+	readonly size: ByteSize;
+}
+
 /** `upsertSections` was refused; nothing changed. */
 export interface SectionsRefused {
 	readonly kind: 'SectionsRefused';
@@ -163,7 +182,18 @@ export type ReportError =
 	| PathNotFound
 	| PathIsDirectory
 	| PathIsSubmodule
-	| FileIsBinary;
+	| FileIsBinary
+	| NotAnImage
+	| ImageTooLarge;
+
+function sideName(side: Side): string {
+	switch (side) {
+		case 'old':
+			return 'the old version';
+		case 'new':
+			return 'the new version';
+	}
+}
 
 /** What happened and what to do next, for the reviewer. */
 export function describeReportError(error: ReportError): ReviewerMessage {
@@ -267,6 +297,14 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'PathIsSubmodule':
 		case 'FileIsBinary':
 			return describeLinesError(error);
+		case 'NotAnImage':
+			return reviewerMessage(
+				`${shownRepoPath(error.path)} in ${sideName(error.side)} is not an image diff delver can show: only PNG, JPEG, GIF, WebP and SVG files are shown as pictures. Its change is still listed, and can be marked as reviewed.`
+			);
+		case 'ImageTooLarge':
+			return reviewerMessage(
+				`${shownRepoPath(error.path)} in ${sideName(error.side)} is too large to show as a picture: ${describeByteSize(error.size)}, and diff delver shows images of up to ${describeByteSize(MAX_IMAGE_SIZE)}. Open it in another program to look at it.`
+			);
 		case 'FileNotInDiff':
 		case 'NothingToMark':
 			return describeMarkError(error);

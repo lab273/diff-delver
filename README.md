@@ -174,6 +174,8 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 - Writing, editing and deleting private draft comments on either side of a diff,
   including unchanged lines, and finishing them as a numbered review that is copied
   for an agent and that an agent can read through the MCP server.
+- Changed images (PNG, JPEG, GIF, WebP and SVG) shown as pictures, before and after,
+  with their sizes. An SVG shows its text too.
 - Ticking files and sections as reviewed, with progress, across restarts.
 - Updating a Delve when the code changes, keeping sections and ticks.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex
@@ -185,7 +187,7 @@ Not built yet:
 - The agent’s cross-references between sections.
 - Flags, agent notes, replies to earlier reviews and asking the agent from the page.
 - Saving a review to a file or posting it to GitHub.
-- Pull requests as a source, and visual diffs.
+- Pull requests as a source, and snapshot-test images shown beside their tests.
 - A setup command and an installable Claude Code plugin. For now you add the MCP
   server and the skill yourself, as above.
 - macOS and Windows have not been tried.

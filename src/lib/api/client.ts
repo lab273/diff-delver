@@ -78,6 +78,7 @@ import {
 	type EntryCodeResponse,
 	type DiffList,
 	type DiffPage,
+	type ImageQuery,
 	type LinesQuery,
 	type LinesView,
 	type Marked,
@@ -374,6 +375,19 @@ export class ApiClient {
 			last: String(file.last)
 		});
 		return this.#call('GET', `/api/diffs/${id}/file?${query}`, FileReaderSchema);
+	}
+
+	/**
+	 * The address of one side of an image of the version the page shows, for an
+	 * `<img>`, which the browser fetches with the page's own cookie.
+	 */
+	imageAddress(id: ReportId, image: ImageQuery): string {
+		const query = new URLSearchParams({
+			version: String(image.version),
+			side: image.side,
+			path: image.path
+		});
+		return `${this.#options.base}/api/diffs/${id}/image?${query.toString()}`;
 	}
 
 	/** Lines of one side of a file, of the version the page shows, for unchanged lines a part opens. */

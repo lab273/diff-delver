@@ -2,7 +2,8 @@
 	One file's part within one group, as the reviewer reads and ticks it: its
 	path, how the file changed, its size, where its other parts are, what is new
 	in it, and the Reviewed tick; then, while open, what changed about the file
-	itself and its lines, fetched when it comes near the screen.
+	itself and its lines, fetched when it comes near the screen, and an image as
+	pictures.
 -->
 <script lang="ts">
 	import type { GroupKeyView, PartLines as PartLinesView } from '#lib/api/schemas.ts';
@@ -15,6 +16,8 @@
 	import DiffSize from '#lib/ui/DiffSize.svelte';
 	import type { Comments } from './comments.svelte.ts';
 	import PartLines from './PartLines.svelte';
+	import ImageDiff from './ImageDiff.svelte';
+	import type { Side } from '#lib/core/side.tiny.ts';
 	import { whereWhiteSpaceMatters } from '#lib/core/highlight/language.ts';
 	import TickRefused from './TickRefused.svelte';
 	import {
@@ -327,11 +330,25 @@
 				</button>
 			{:else if state.lines.kind === 'loaded'}
 				{@const lines = state.lines}
+				{#if lines.image !== null}
+					<ImageDiff
+						image={lines.image}
+						name={shown}
+						address={(side: Side) =>
+							viewer.client.imageAddress(viewer.id, {
+								version: viewer.version,
+								side,
+								path: part.path
+							})}
+					/>
+				{/if}
 				{#if lines.sizes !== null}
-					<p class="about">
-						A binary file, so it is not shown as text:
-						{sizesText(lines.sizes)}.
-					</p>
+					{#if lines.image === null}
+						<p class="about">
+							A binary file, so it is not shown as text:
+							{sizesText(lines.sizes)}.
+						</p>
+					{/if}
 				{:else if lines.blocks.length > 0}
 					{#if viewer.hasHidden(at)}
 						<div class="tools">

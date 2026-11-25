@@ -136,7 +136,7 @@ describe('the viewer’s routes', () => {
 			lineCount: 59
 		});
 		const logo = value(await client.readPart(id, part('logo.png')));
-		expect(logo).toEqual({ blocks: [], sizes: { old: 8, new: 10 } });
+		expect(logo).toEqual({ blocks: [], sizes: { old: 8, new: 10 }, image: null });
 
 		// A part the version does not have, and lines asked for wrongly, are refused in plain words.
 		const missing = await client.readPart(id, {

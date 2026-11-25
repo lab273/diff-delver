@@ -41,6 +41,14 @@ import { assign, type AssignOutcome, type AssignRequest } from '#lib/core/diff/a
 import { autoIgnore, type AutoIgnored } from '#lib/core/diff/auto-ignore.ts';
 import type { ByteSize } from '#lib/core/byte-size.tiny.ts';
 import { makeDiff, type Diff, type DiffFile } from '#lib/core/diff/diff.ts';
+import type { FileVersion } from '#lib/core/diff/file-diff.ts';
+import { fileModeKind } from '#lib/core/file-mode.tiny.ts';
+import {
+	imageFormatOf,
+	MAX_IMAGE_SIZE,
+	namedAsImage,
+	type ImageFormat
+} from '#lib/core/image/image-format.ts';
 import { fileSlices, groupKeyId, type GroupKey, type ViewKind } from '#lib/core/diff/slices.ts';
 import { lineCountOf, type LineCount } from '#lib/core/line-count.tiny.ts';
 import { lineNumberOf, type LineNumber } from '#lib/core/line-number.tiny.ts';
@@ -469,6 +477,26 @@ export interface PartColours {
 	readonly new: SideColours | undefined;
 }
 
+/**
+ * One side of an image a part shows as a picture (DESIGN 8.4): its format and
+ * size, or only its size when it is larger than the page shows.
+ */
+export type ImageSide =
+	| { readonly kind: 'image'; readonly format: ImageFormat; readonly size: ByteSize }
+	| { readonly kind: 'too-large'; readonly size: ByteSize };
+
+/** An image's sides, each undefined where the file is not there or is not an image. */
+export interface PartImage {
+	readonly old: ImageSide | undefined;
+	readonly new: ImageSide | undefined;
+}
+
+/** One side of an image, to serve as it is (`readImage`). */
+export interface ImageFile {
+	readonly format: ImageFormat;
+	readonly bytes: Uint8Array;
+}
+
 /** What one part of a revision shows when it is open (`partBlocks`). */
 export interface PartContent {
 	readonly file: DiffFile;
@@ -476,6 +504,8 @@ export interface PartContent {
 	/** For a binary file, its size on each side it has; undefined for any other file. */
 	readonly sizes:
 		{ readonly old: ByteSize | undefined; readonly new: ByteSize | undefined } | undefined;
+	/** For an image, a side of which is one the page shows as a picture; undefined for any other file. */
+	readonly image: PartImage | undefined;
 }
 
 /** One part's matches, for a search of the diff (`searchDiff`). */
@@ -1460,14 +1490,18 @@ export class ReportService {
 				}
 				break;
 			case 'binary': {
-				const size = async (side: Side, there: boolean) => {
-					if (!there) return ok(undefined);
-					const found = await readSnapshotFile(snapshot, side, path);
-					return found.ok ? ok(found.value.size) : found;
+				// Each side by its own path, which a rename changes.
+				const size = async (side: Side, there: FileVersion | undefined) => {
+					if (there === undefined) return ok(undefined);
+					const found = await snapshotEntry(snapshot, side, there.path);
+					if (!found.ok) return found;
+					return found.value.kind === 'file'
+						? ok(found.value.size)
+						: err({ kind: 'PathNotFound' as const, side, path: there.path });
 				};
-				const before = await size('old', old !== undefined);
+				const before = await size('old', old);
 				if (!before.ok) return before;
-				const after = await size('new', now !== undefined);
+				const after = await size('new', now);
 				if (!after.ok) return after;
 				sizes = { old: before.value, new: after.value };
 				break;
@@ -1475,11 +1509,61 @@ export class ReportService {
 			case 'submodule':
 				break;
 		}
+		let image: PartImage | undefined;
+		if (kind.kind !== 'submodule') {
+			const before = await imageSideOf(snapshot, 'old', old);
+			if (!before.ok) return before;
+			const after = await imageSideOf(snapshot, 'new', now);
+			if (!after.ok) return after;
+			if (before.value !== undefined || after.value !== undefined) {
+				image = { old: before.value, new: after.value };
+			}
+		}
 		return ok({
 			file,
 			blocks: partBlocks(file, group, state.value, view, fresh.value, headLines),
-			sizes
+			sizes,
+			image
 		});
+	}
+
+	/**
+	 * One side of an image of the revision numbered `version`, to show as a
+	 * picture: the file at `path` in its diff, read from the snapshot by the
+	 * path it has on that side. A side the file does not have is
+	 * `PathNotFound`; one that is not an image the page shows, `NotAnImage`;
+	 * one larger than `MAX_IMAGE_SIZE`, `ImageTooLarge`, from its size alone.
+	 */
+	async readImage(
+		id: ReportId,
+		version: RevisionNumber,
+		side: Side,
+		path: RepoPath
+	): Promise<Result<ImageFile, ReportError>> {
+		const shown = this.#db.read((q) => asOf(q, id, version));
+		if (!shown.ok) return shown;
+		const content = await this.#contentOf(shown.value.report, shown.value.revision);
+		if (!content.ok) return content;
+		const { snapshot, diff } = content.value;
+		const file = diff.byPath.get(path);
+		if (file === undefined) return err({ kind: 'FileNotInDiff', path });
+		if (file.file.content.kind === 'submodule') return err({ kind: 'NotAnImage', side, path });
+		const there = file.file[side];
+		if (there === undefined) return err({ kind: 'PathNotFound', side, path });
+		if (!namedAsImage(there.path) || !isPlainFile(there)) {
+			return err({ kind: 'NotAnImage', side, path });
+		}
+		const entry = await snapshotEntry(snapshot, side, there.path);
+		if (!entry.ok) return entry;
+		if (entry.value.kind !== 'file') return err({ kind: 'PathNotFound', side, path });
+		if (entry.value.size > MAX_IMAGE_SIZE) {
+			return err({ kind: 'ImageTooLarge', side, path, size: entry.value.size });
+		}
+		const read = await readSnapshotFile(snapshot, side, there.path);
+		if (!read.ok) return read;
+		const format = imageFormatOf(there.path, read.value.bytes);
+		if (format === undefined) return err({ kind: 'NotAnImage', side, path });
+		return ok({ format, bytes: read.value.bytes });
 	}
 
 	/**
@@ -3006,4 +3090,33 @@ function forgetMarkedAgain(
 		unitRowsOf(withoutUnits(unmarked.value, marks), files)
 	);
 	return ok(undefined);
+}
+
+/** Whether a side of a file is a file of its own, and not a link or a submodule. */
+function isPlainFile(version: FileVersion): boolean {
+	const kind = fileModeKind(version.mode);
+	return kind === 'regular' || kind === 'executable';
+}
+
+/**
+ * A side of a file as an image the page shows, read from the snapshot by the
+ * path it has on that side: undefined when the file is not there, or is not an
+ * image; only its size when it is larger than the page shows.
+ */
+async function imageSideOf(
+	snapshot: Snapshot,
+	side: Side,
+	version: FileVersion | undefined
+): Promise<Result<ImageSide | undefined, ReportError>> {
+	if (version === undefined || !namedAsImage(version.path) || !isPlainFile(version)) {
+		return ok(undefined);
+	}
+	const entry = await snapshotEntry(snapshot, side, version.path);
+	if (!entry.ok) return entry;
+	if (entry.value.kind !== 'file') return ok(undefined);
+	if (entry.value.size > MAX_IMAGE_SIZE) return ok({ kind: 'too-large', size: entry.value.size });
+	const read = await readSnapshotFile(snapshot, side, version.path);
+	if (!read.ok) return read;
+	const format = imageFormatOf(version.path, read.value.bytes);
+	return ok(format === undefined ? undefined : { kind: 'image', format, size: read.value.size });
 }

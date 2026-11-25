@@ -43,6 +43,7 @@ import {
 import { committedRecording, replay } from '../agent-trials/replay.ts';
 import { normaliser } from '../agent-trials/recording.ts';
 import { absolutePath, defineFixture, GitRepo, type Fixture } from './git-repo.ts';
+import { buildImages } from './image-fixtures.ts';
 import { buildLedger } from './ledger.ts';
 import { mcpOverHttp } from './mcp-client.ts';
 import { buildShop } from './scripted-categorisation.ts';
@@ -590,6 +591,9 @@ export const JOURNEY_REPOSITORIES = {
 		},
 		{ dates: { first: Math.floor(JOURNEY_TIME.getTime() / 1000) - 7 * 86_400, step: 12 * 3_600 } }
 	),
+
+	/** Changed images, uncommitted: one changed in place, one resized, one added, one deleted, and an SVG. */
+	images: defineFixture('images', buildImages),
 
 	/** On main, with nothing uncommitted and no other branch: nothing new to review. */
 	'nothing-new': defineFixture('nothing-new', async (repo) => {
