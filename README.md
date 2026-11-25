@@ -172,8 +172,9 @@ To take comment access away from every browser, run `diff-delver stop`, delete
   changes hidden, unchanged lines opened, search, and a reading bookmark that
   survives reload in the same tab.
 - Writing, editing and deleting private draft comments on either side of a diff,
-  including unchanged lines, and finishing them as a numbered review that is copied
-  for an agent and that an agent can read through the MCP server.
+  including unchanged lines, and an overall review in a bar at the foot of the page,
+  and finishing them as a numbered review that is copied for an agent and that an
+  agent can read through the MCP server.
 - Changed images (PNG, JPEG, GIF, WebP and SVG) shown as pictures, with their sizes:
   side by side, with a slider, in onion skin, or with the pixels that changed marked.
   An SVG shows its text too.

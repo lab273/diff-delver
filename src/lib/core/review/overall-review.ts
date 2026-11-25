@@ -63,3 +63,19 @@ export function teaserOf(body: string): string | undefined {
 export function describeDraftComments(count: number): string {
 	return count === 0 ? 'No comments yet' : countOf(count, 'comment', 'comments');
 }
+
+/**
+ * What a review holds, in words: "your overall review and 2 comments", "your
+ * 1 comment", "your overall review"; as a finished one is listed, "an overall
+ * review and 2 comments", "1 comment".
+ */
+export function describeReviewContents(
+	comments: number,
+	overall: boolean,
+	as: 'yours' | 'listed' = 'yours'
+): string {
+	const counted = countOf(comments, 'comment', 'comments');
+	if (!overall) return as === 'yours' ? `your ${counted}` : counted;
+	const what = comments === 0 ? 'overall review' : `overall review and ${counted}`;
+	return as === 'yours' ? `your ${what}` : `an ${what}`;
+}

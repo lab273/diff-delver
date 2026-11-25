@@ -75,7 +75,9 @@ test.describe('J1 Review local changes with an agent', () => {
 		await journey.expectFocused(finish.byRole('button', { name: 'Copy review 1' }));
 		await journey.expectVisible(journey.byRole('button', { name: 'Draft comments (0)' }));
 		await journey.expectVisible(
-			finish.byText('Your draft has no comments. Your next comment starts review 2.')
+			finish.byText(
+				'Your draft has no comments and no overall review. Your next comment or overall review starts review 2.'
+			)
 		);
 		const copied = await journey.readClipboard();
 		expect(copied).toContain('# Review 1 of Uncommitted changes in shop\n');

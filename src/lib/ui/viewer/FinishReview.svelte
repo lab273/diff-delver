@@ -1,6 +1,6 @@
 <!--
 	Finishing a review (DESIGN 8.6): one press of "Finish and copy" finishes the
-	draft's saved comments as the Delve's next review and puts it on the
+	draft's overall review and saved comments as the Delve's next review and puts it on the
 	clipboard, as Markdown written for a language model, the same text an
 	agent reads with `get_review`. What it will hand over can be read first, in
 	place. Each finished review can be copied again, or read, afterwards.
@@ -20,7 +20,7 @@
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
-	import { countOf } from '#lib/core/viewer/words.ts';
+	import { describeReviewContents, isWritten } from '#lib/core/review/overall-review.ts';
 	import VisibleText from '#lib/ui/VisibleText.svelte';
 	import { pageClient } from '#lib/ui/client.ts';
 	import type { Comments } from './comments.svelte.ts';
@@ -53,8 +53,14 @@
 	const previewId = $props.id();
 
 	const saved = $derived(comments.saved ?? []);
+	const overall = $derived(comments.overall);
+	const overallEdits = $derived(overall?.edits);
+	const written = $derived(isWritten(overall?.body ?? ''));
+	/** Something to finish: an overall review or a comment. */
+	const drafted = $derived(saved.length > 0 || written);
+	const contents = $derived(describeReviewContents(saved.length, written));
 	const next = $derived((reviews?.at(-1)?.number ?? 0) + 1);
-	const unsaved = $derived(comments.writing.some((w) => w.worthKeeping));
+	const unsaved = $derived(comments.overallUnsaved || comments.writing.some((w) => w.worthKeeping));
 
 	async function loadReviews(): Promise<void> {
 		const read = await pageClient().reviews(id);
@@ -83,7 +89,8 @@
 
 	/** What finishing would hand over, read again whenever the draft changes while it is shown. */
 	$effect(() => {
-		if (!open || !previewOpen || saved.length === 0) return;
+		// Read again when the overall review changes too.
+		if (!open || !previewOpen || !drafted || overallEdits === undefined) return;
 		let current = true;
 		void pageClient()
 			.previewReview(id, version)
@@ -175,27 +182,34 @@
 	}
 </script>
 
-{#if saved.length > 0 || (reviews?.length ?? 0) > 0}
-	<section class="finish" aria-label="Finish your review">
+{#if drafted || (reviews?.length ?? 0) > 0}
+	<section class="finish" id="finish-review" tabindex="-1" aria-label="Finish your review">
 		<p class="said" role="status">{said}</p>
-		{#if saved.length > 0 && !open}
+		{#if drafted && !open}
 			<p class="lead">
-				This Delve is closed, so your {countOf(saved.length, 'comment', 'comments')} cannot be finished.
-				Reopen it to finish {saved.length === 1 ? 'it' : 'them'} as review {next}.
+				This Delve is closed, so {contents} cannot be finished. Reopen it to finish
+				{saved.length === 1 || (saved.length === 0 && written) ? 'it' : 'them'} as review {next}.
 			</p>
-		{:else if saved.length > 0}
+		{:else if drafted}
 			<p class="lead">
-				Finishing makes your {countOf(saved.length, 'comment', 'comments')} review {next}. The
-				review is copied, ready to paste to your agent, and your agent can also read it from diff
-				delver. Your next comment starts review {next + 1}.
+				Finishing makes {contents} review {next}. The review is copied, ready to paste to your
+				agent, and your agent can also read it from diff delver. Your next comment or overall review
+				starts review {next + 1}.
 			</p>
 			{#if unsaved}
 				<p class="note">
-					What you are writing in a comment box is not saved, so it is not in this review.
+					What you are writing and have not saved, in a comment box or the overall review, is not in
+					this review.
 				</p>
 			{/if}
 			<div class="actions">
-				<button type="button" class="primary" disabled={finishing} onclick={finish}>
+				<button
+					type="button"
+					class="primary"
+					id="finish-and-copy"
+					disabled={finishing}
+					onclick={finish}
+				>
 					{finishing ? 'Finishing…' : 'Finish and copy'}
 				</button>
 				<button
@@ -225,7 +239,10 @@
 				{/if}
 			</div>
 		{:else}
-			<p class="lead">Your draft has no comments. Your next comment starts review {next}.</p>
+			<p class="lead">
+				Your draft has no comments and no overall review. Your next comment or overall review starts
+				review {next}.
+			</p>
 		{/if}
 		{#if problem !== ''}
 			<p class="problem" role="alert">{problem}</p>
@@ -236,7 +253,11 @@
 				{#each [...reviews].reverse() as review (review.number)}
 					<li>
 						<span>
-							Review {review.number}: {countOf(review.comments, 'comment', 'comments')}, finished
+							Review {review.number}: {describeReviewContents(
+								review.comments,
+								review.overall,
+								'listed'
+							)}, finished
 							{now === undefined ? '' : describeTimeAgo(review.submittedAt, now)} on version {review.version}
 						</span>
 						<button

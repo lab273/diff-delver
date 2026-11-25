@@ -51,6 +51,7 @@
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import CommentList from '#lib/ui/viewer/CommentList.svelte';
 	import FinishReview from '#lib/ui/viewer/FinishReview.svelte';
+	import OverallReview from '#lib/ui/viewer/OverallReview.svelte';
 	import { Writing, type CommentPlace, type Comments } from '#lib/ui/viewer/comments.svelte.ts';
 	import { keptComments } from '#lib/ui/viewer/kept-comments.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
@@ -1636,10 +1637,69 @@
 			case 'other-delves':
 				switcher.open = true;
 				return;
+			case 'overall-review':
+				overallKey();
+				return;
 			case 'help':
 				helpOpen = true;
 				return;
 		}
+	}
+
+	/** How tall the overall review's bar and, on a narrow screen, the bookmarks under it are. */
+	let overallHeight = $state(0);
+	let dockHeight = $state(0);
+
+	// What takes the keyboard is scrolled clear of the bar and the bookmarks at the foot.
+	// 16 pixels: the gap the bar keeps under it, and a little room above it.
+	$effect(() => {
+		const root = document.documentElement;
+		root.style.scrollPaddingBottom = `${String(overallHeight + dockHeight + 16)}px`;
+		return () => {
+			root.style.scrollPaddingBottom = '';
+		};
+	});
+
+	/** Opens or puts away the overall review's bar, and has diff delver remember it for every Delve. */
+	function setOverallOpen(open: boolean): void {
+		const change: SettingChange = { name: 'overall-review-open', value: open };
+		settings = withSetting(settings, change);
+		void pageClient()
+			.changeSetting(change)
+			.then((saved) => {
+				if (!saved.ok && viewer !== undefined) {
+					viewer.announcement = `Whether the overall review is open could not be remembered for next time: ${describeApiError(saved.error)}`;
+				}
+			});
+	}
+
+	/**
+	 * `v`: to the overall review's box, opening the bar if it is put away; from
+	 * the bar itself, it puts the bar away.
+	 */
+	function overallKey(): void {
+		if (viewer === undefined) return;
+		const comments = commentsFor(viewer.id);
+		const bar = document.querySelector('[data-overall-review]');
+		const inBar =
+			bar !== null && document.activeElement !== null && bar.contains(document.activeElement);
+		if (settings.overallReviewOpen && inBar) {
+			setOverallOpen(false);
+			void tick().then(() => bar.querySelector<HTMLElement>('[aria-expanded]')?.focus());
+			return;
+		}
+		if (!settings.overallReviewOpen) setOverallOpen(true);
+		comments.overallWriting.focusAsked += 1;
+	}
+
+	/** From the overall review's bar to Finish and copy, which takes the keyboard. */
+	async function goToFinish(): Promise<void> {
+		await tick();
+		const target =
+			document.getElementById('finish-and-copy') ?? document.getElementById('finish-review');
+		if (target === null) return;
+		target.focus({ preventScroll: true });
+		target.scrollIntoView({ block: 'center' });
 	}
 
 	/** Which part has focus, so keys act on the part the person is in. */
@@ -2137,6 +2197,7 @@
 			role="group"
 			aria-label="Reading bookmark"
 			bind:this={narrowBookmarks}
+			bind:offsetHeight={dockHeight}
 		>
 			{@render bookmarkButtons()}
 			<div aria-live="polite" class="bookmark-message">{bookmarkMessage}</div>
@@ -2145,6 +2206,7 @@
 		<div
 			class="content"
 			style:--search-height="{stickyTop}px"
+			style:--dock-height="{dockHeight}px"
 			role="presentation"
 			onfocusin={onFocusIn}
 		>
@@ -2300,6 +2362,16 @@
 				</div>
 			{/key}
 			<p class="all-diffs"><a href={resolve('/')}>See all your Delves</a></p>
+			<OverallReview
+				id={summary.id}
+				{comments}
+				open={summary.state.kind === 'open'}
+				canReview={data.canReview}
+				expanded={settings.overallReviewOpen}
+				onexpand={setOverallOpen}
+				onfinish={goToFinish}
+				bind:height={overallHeight}
+			/>
 		</div>
 	</div>
 	<div class="visually-hidden" aria-live="polite">{viewer.announcement}</div>

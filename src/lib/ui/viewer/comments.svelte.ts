@@ -4,13 +4,21 @@
  * It is made by the page and outlives every viewer, so an update, a regroup or
  * a file put away never loses what was typed (DESIGN 1.1, commitment 7): each
  * piece of writing is drawn under its lines while they are on the page, and
- * in the list of comments when they are not.
+ * in the list of comments when they are not. The draft's overall review is
+ * held here too, saved and as typed, for the bar at the foot of the page.
  */
 import { describeApiError, type ApiClient } from '#lib/api/client.ts';
 import type { AddDraftComment, DraftCommentView, OverallReviewView } from '#lib/api/schemas.ts';
 import type { EscapedPath } from '#lib/core/path-bytes.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import { isCommentBody, MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
+import {
+	isOverallReviewBody,
+	isWritten,
+	MAX_OVERALL_REVIEW_LENGTH,
+	storedOverallReview
+} from '#lib/core/review/overall-review.ts';
+import { formatCount } from '#lib/core/viewer/words.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 
@@ -74,6 +82,26 @@ export class Writing {
 	}
 }
 
+/**
+ * The draft's overall review as it is being written: what is typed, and the
+ * saved words it started from. Its words are the saved ones until the
+ * reviewer types, and the saved ones again once what was typed is saved or
+ * put away.
+ */
+export class OverallWriting {
+	/** What is typed, while it may differ from the saved words; undefined when nothing is. */
+	typed = $state<string>();
+	/** The saved overall review the typing started from, which a save names. */
+	base = $state.raw<OverallReviewView>();
+	/** Its words were changed elsewhere since the typing started: the bar shows them. */
+	changedElsewhere = $state(false);
+	/** Why the last save did not happen, in place. */
+	problem = $state('');
+	saving = $state(false);
+	/** Counts each time its box is asked to take the keyboard. */
+	focusAsked = $state(0);
+}
+
 /** What a list or a file's lines draw of the comments on one version of one file. */
 export interface CommentsHere {
 	readonly saved: readonly DraftCommentView[];
@@ -102,6 +130,8 @@ export class Comments {
 	/** Why the draft could not be read. */
 	problem = $state('');
 	writing = $state.raw<readonly Writing[]>([]);
+	/** The overall review being written. */
+	readonly overallWriting = new OverallWriting();
 	/** What just happened, for a screen reader: "Comment saved." */
 	said = $state('');
 	#keys = 0;
@@ -220,6 +250,83 @@ export class Comments {
 		this.writing = this.writing.filter((w) => w.editing?.id !== comment.id);
 		this.said = 'Comment deleted.';
 		return undefined;
+	}
+
+	/** The overall review's words as the bar's box shows them: what is typed, else what is saved. */
+	get overallText(): string {
+		return this.overallWriting.typed ?? this.overall?.body ?? '';
+	}
+
+	set overallText(text: string) {
+		const writing = this.overallWriting;
+		if (writing.saving) return;
+		if (writing.typed === undefined) writing.base = this.overall;
+		writing.typed = text;
+	}
+
+	/** Whether something typed in the overall review is not saved. */
+	get overallUnsaved(): boolean {
+		const { typed, base } = this.overallWriting;
+		// Only white space where nothing was saved would save nothing.
+		return (
+			typed !== undefined && storedOverallReview(typed) !== ((base ?? this.overall)?.body ?? '')
+		);
+	}
+
+	/** Whether there is anything to finish: a saved comment, or a saved overall review. */
+	get finishable(): boolean {
+		return (this.saved ?? []).length > 0 || isWritten(this.overall?.body ?? '');
+	}
+
+	/** Puts away what was typed in the overall review: the box shows the saved words again. */
+	discardOverall(): void {
+		const writing = this.overallWriting;
+		if (writing.saving) return;
+		writing.typed = undefined;
+		writing.base = undefined;
+		writing.changedElsewhere = false;
+		writing.problem = '';
+	}
+
+	/**
+	 * Saves what is typed in the overall review, on the saved words it started
+	 * from. When those were changed elsewhere since, as in another tab, nothing
+	 * is saved: the bar keeps what was typed and shows the words as they are
+	 * now, and saving again puts what was typed in their place.
+	 */
+	async saveOverall(): Promise<boolean> {
+		const writing = this.overallWriting;
+		const from = writing.base ?? this.overall;
+		if (writing.saving || from === undefined) return false;
+		const body = this.overallText;
+		if (!isOverallReviewBody(body)) {
+			writing.problem = `This overall review is too long to save: keep it to ${formatCount(MAX_OVERALL_REVIEW_LENGTH)} characters.`;
+			return false;
+		}
+		writing.problem = '';
+		writing.saving = true;
+		const saved = await this.#client.saveOverallReview(this.id, { edits: from.edits, body });
+		if (
+			!saved.ok &&
+			saved.error.kind === 'refused' &&
+			saved.error.reason === 'OverallReviewChanged'
+		) {
+			await this.load();
+			writing.base = this.overall;
+			writing.changedElsewhere = true;
+		}
+		writing.saving = false;
+		if (!saved.ok) {
+			writing.problem = describeApiError(saved.error);
+			return false;
+		}
+		this.overall = saved.value;
+		writing.typed = undefined;
+		writing.base = undefined;
+		writing.changedElsewhere = false;
+		this.said = isWritten(saved.value.body) ? 'Overall review saved.' : 'Overall review emptied.';
+		void this.load();
+		return true;
 	}
 
 	/** Puts away something being written, with its words. */

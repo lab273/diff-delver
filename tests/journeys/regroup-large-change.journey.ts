@@ -67,7 +67,8 @@ test.describe('Regrouping a large change', () => {
 
 		// A restored bookmark must also open the large change and draw its chunk
 		// when the fresh page only has the file header.
-		for (let i = 0; i < 8; i += 1) await journey.scroll('PageDown');
+		// Nine pages: each is a window less the overall review's bar, which the browser keeps clear.
+		for (let i = 0; i < 9; i += 1) await journey.scroll('PageDown');
 		await expect.poll(() => journey.verticalPosition(original)).toBeLessThan(-4_500);
 		await journey.press('b');
 		const announcement = journey.byText(/^Bookmarked data\/rows\.txt, line \d+\.$/);

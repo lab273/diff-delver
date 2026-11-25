@@ -278,3 +278,49 @@ describe('the comments a page holds', () => {
 		expect(comments.saved).toEqual([]);
 	});
 });
+
+describe('the overall review a page holds', () => {
+	it('shows the saved words until something is typed, and keeps what was typed when another tab saved first', async () => {
+		const { client, comments, id } = await opened();
+		expect(comments.overallText).toBe('');
+		expect(comments.overallUnsaved).toBe(false);
+		expect(comments.finishable).toBe(false);
+
+		// Only white space where nothing is saved would save nothing, so nothing is unsaved.
+		comments.overallText = '  \n';
+		expect(comments.overallUnsaved).toBe(false);
+		comments.overallText = 'Looks right.';
+		expect(comments.overallUnsaved).toBe(true);
+		expect(await comments.saveOverall()).toBe(true);
+		expect(comments.overall).toMatchObject({ body: 'Looks right.', edits: 1 });
+		expect(comments.overallUnsaved).toBe(false);
+		expect(comments.finishable).toBe(true);
+		expect(comments.said).toBe('Overall review saved.');
+
+		// Another tab, which read the same words, saves first.
+		const other = new Comments(id, client);
+		await other.load();
+		comments.overallText = 'Mine.';
+		other.overallText = 'Theirs.';
+		expect(await other.saveOverall()).toBe(true);
+
+		// This tab saves nothing, keeps what it typed, and shows their words.
+		expect(await comments.saveOverall()).toBe(false);
+		expect(comments.overallText).toBe('Mine.');
+		expect(comments.overallWriting.changedElsewhere).toBe(true);
+		expect(comments.overallWriting.base?.body).toBe('Theirs.');
+		expect(comments.overallWriting.problem).toMatch(/changed since this page read it/);
+		// Saving again, having seen them, puts its words in their place.
+		expect(await comments.saveOverall()).toBe(true);
+		expect(comments.overall?.body).toBe('Mine.');
+
+		// Discarding what is typed shows the saved words again; emptying it is saved too.
+		comments.overallText = 'Not this.';
+		comments.discardOverall();
+		expect(comments.overallText).toBe('Mine.');
+		comments.overallText = '';
+		expect(await comments.saveOverall()).toBe(true);
+		expect(comments.said).toBe('Overall review emptied.');
+		expect(comments.finishable).toBe(false);
+	});
+});

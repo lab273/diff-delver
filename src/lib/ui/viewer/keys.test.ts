@@ -19,6 +19,7 @@ describe('the diff page’s shortcuts', () => {
 		expect(shortcutOf(press('s'))).toBe('side-by-side');
 		expect(shortcutOf(press('w'))).toBe('white-space');
 		expect(shortcutOf(press('d'))).toBe('other-delves');
+		expect(shortcutOf(press('v'))).toBe('overall-review');
 		expect(shortcutOf(press('?'))).toBe('help');
 		expect(shortcutOf(press('/'))).toBe('search');
 		expect(shortcutOf(press('x'))).toBeUndefined();

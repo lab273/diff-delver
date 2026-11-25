@@ -614,7 +614,8 @@ export const SettingsSchema = z.object({
 	hideWhiteSpace: z.boolean(),
 	searchMatchCase: z.boolean(),
 	searchChangedOnly: z.boolean(),
-	searchSkipClosed: z.boolean()
+	searchSkipClosed: z.boolean(),
+	overallReviewOpen: z.boolean()
 });
 export type SettingsView = z.output<typeof SettingsSchema>;
 
@@ -625,7 +626,8 @@ export const SettingChangeSchema = z.discriminatedUnion('name', [
 	z.object({ name: z.literal('hide-white-space'), value: z.boolean() }),
 	z.object({ name: z.literal('search-match-case'), value: z.boolean() }),
 	z.object({ name: z.literal('search-changed-only'), value: z.boolean() }),
-	z.object({ name: z.literal('search-skip-closed'), value: z.boolean() })
+	z.object({ name: z.literal('search-skip-closed'), value: z.boolean() }),
+	z.object({ name: z.literal('overall-review-open'), value: z.boolean() })
 ]);
 export type SettingChangeRequest = z.output<typeof SettingChangeSchema>;
 

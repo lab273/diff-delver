@@ -21,6 +21,11 @@ export interface ViewSettings {
 	readonly searchChangedOnly: boolean;
 	/** A search of the diff passes over files that are closed. */
 	readonly searchSkipClosed: boolean;
+	/**
+	 * The overall review's bar at the foot of a Delve's page open, with its box,
+	 * or put away, showing only its first words and the count of comments.
+	 */
+	readonly overallReviewOpen: boolean;
 }
 
 export const DEFAULT_SETTINGS: ViewSettings = {
@@ -29,7 +34,10 @@ export const DEFAULT_SETTINGS: ViewSettings = {
 	hideWhiteSpace: false,
 	searchMatchCase: false,
 	searchChangedOnly: false,
-	searchSkipClosed: false
+	searchSkipClosed: false,
+	// Put away, the bar still says what is written and how many comments there
+	// are, and the diff keeps the room an open box would take.
+	overallReviewOpen: false
 };
 
 /** One setting changed: its name and its new value. */
@@ -39,7 +47,8 @@ export type SettingChange =
 	| { readonly name: 'hide-white-space'; readonly value: boolean }
 	| { readonly name: 'search-match-case'; readonly value: boolean }
 	| { readonly name: 'search-changed-only'; readonly value: boolean }
-	| { readonly name: 'search-skip-closed'; readonly value: boolean };
+	| { readonly name: 'search-skip-closed'; readonly value: boolean }
+	| { readonly name: 'overall-review-open'; readonly value: boolean };
 
 /** The settings with one changed. */
 export function withSetting(settings: ViewSettings, change: SettingChange): ViewSettings {
@@ -56,5 +65,7 @@ export function withSetting(settings: ViewSettings, change: SettingChange): View
 			return { ...settings, searchChangedOnly: change.value };
 		case 'search-skip-closed':
 			return { ...settings, searchSkipClosed: change.value };
+		case 'overall-review-open':
+			return { ...settings, overallReviewOpen: change.value };
 	}
 }
