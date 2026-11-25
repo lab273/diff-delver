@@ -531,6 +531,8 @@ export function statusOf(error: ReportError): number {
 		case 'RevisionChangedWhileSaving':
 		case 'CommentChanged':
 		case 'DraftChanged':
+		case 'CommentsFinished':
+		case 'CommentFinished':
 		case 'VersionOutOfDate':
 		case 'SortingChanged':
 		case 'AssignmentsChanged':

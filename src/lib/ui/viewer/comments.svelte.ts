@@ -200,8 +200,12 @@ export class Comments {
 			!deleted.ok &&
 			!(deleted.error.kind === 'refused' && deleted.error.reason === 'CommentNotFound')
 		) {
-			// Changed elsewhere since this page read it: show it as it is now.
-			if (deleted.error.kind === 'refused' && deleted.error.reason === 'CommentChanged') {
+			// Changed elsewhere since this page read it, or finished in a review: show
+			// the draft as it is now.
+			if (
+				deleted.error.kind === 'refused' &&
+				(deleted.error.reason === 'CommentChanged' || deleted.error.reason === 'CommentFinished')
+			) {
 				await this.load();
 			}
 			return {

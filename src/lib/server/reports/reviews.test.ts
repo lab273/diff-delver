@@ -157,6 +157,53 @@ describe('finishing a review', () => {
 		}
 	});
 
+	it('says the comments a second tab shows were finished already, as which review', async () => {
+		const { service, id } = await setUp();
+		try {
+			const comment = value(
+				await service.addDraftComment(
+					id,
+					FIRST,
+					{ path: path('src/cart.ts'), side: 'new', first: lineNumberOf(1), last: lineNumberOf(1) },
+					'Once.'
+				)
+			);
+			const shown = [{ id: comment.id, edits: comment.edits }];
+			value(await service.finishReview(id, FIRST, shown));
+
+			const again = failure(await service.finishReview(id, FIRST, shown));
+			expect(again).toEqual({ kind: 'CommentsFinished', number: 1 });
+			expect(describeReportError(again)).toMatch(/finished already, as review 1/);
+
+			// A new comment in the draft does not hide that the ones shown were finished.
+			value(
+				await service.addDraftComment(
+					id,
+					FIRST,
+					{ path: path('src/cart.ts'), side: 'new', first: lineNumberOf(2), last: lineNumberOf(2) },
+					'Twice.'
+				)
+			);
+			expect(failure(await service.finishReview(id, FIRST, shown))).toEqual({
+				kind: 'CommentsFinished',
+				number: 1
+			});
+			expect(value(service.reviews(id))).toHaveLength(1);
+
+			const edited = failure(
+				service.editDraftComment(id, FIRST, comment.id, comment.edits, 'Changed.')
+			);
+			expect(edited).toEqual({ kind: 'CommentFinished', number: 1 });
+			expect(describeReportError(edited)).toMatch(/finished as part of review 1/);
+			expect(failure(service.deleteDraftComment(id, FIRST, comment.id, comment.edits))).toEqual({
+				kind: 'CommentFinished',
+				number: 1
+			});
+		} finally {
+			service.close();
+		}
+	});
+
 	it('says which version a comment written on an earlier one is on', async () => {
 		const { repo, service, id } = await setUp();
 		try {

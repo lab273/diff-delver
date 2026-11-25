@@ -58,6 +58,8 @@ export function describeForAgent(error: ReportError): TextForAgent {
 		case 'CommentChanged':
 		case 'NothingToFinish':
 		case 'DraftChanged':
+		case 'CommentsFinished':
+		case 'CommentFinished':
 		case 'ReviewNotFound':
 		case 'FileNotInDiff':
 		case 'NothingToMark':

@@ -154,6 +154,10 @@ export type ReportError =
 	| { readonly kind: 'NothingToFinish' }
 	/** The draft holds other comments, or other words, than the page that finished it showed. */
 	| { readonly kind: 'DraftChanged' }
+	/** The comments the page showed were finished since, as review `number`, as from another tab. */
+	| { readonly kind: 'CommentsFinished'; readonly number: ReviewNumber }
+	/** The comment was finished as part of review `number`, so it is no longer in the draft. */
+	| { readonly kind: 'CommentFinished'; readonly number: ReviewNumber }
 	/** The report has no finished review with that number. */
 	| { readonly kind: 'ReviewNotFound'; readonly number: ReviewNumber }
 	| PathNotFound
@@ -241,6 +245,14 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'DraftChanged':
 			return reviewerMessage(
 				'Your draft changed since this page showed it, perhaps in another tab, so the review was not finished. Look at what it will hand over now, then finish it again.'
+			);
+		case 'CommentsFinished':
+			return reviewerMessage(
+				`These comments were finished already, as review ${String(error.number)}, perhaps in another tab, so nothing more was finished. Review ${String(error.number)} is listed under Finished reviews, to copy or read.`
+			);
+		case 'CommentFinished':
+			return reviewerMessage(
+				`This comment was finished as part of review ${String(error.number)}, perhaps in another tab, so it can no longer be changed and nothing was changed. If you want to add to it, write a new comment: it starts the next review.`
 			);
 		case 'ReviewNotFound':
 			return reviewerMessage(

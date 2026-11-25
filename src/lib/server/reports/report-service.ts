@@ -111,7 +111,11 @@ import {
 	insertDraftComment,
 	updateDraftComment
 } from '../db/tables/draft-comments.ts';
-import { insertReviewComments, type ReviewCommentRow } from '../db/tables/review-comments.ts';
+import {
+	insertReviewComments,
+	reviewHolding,
+	type ReviewCommentRow
+} from '../db/tables/review-comments.ts';
 import { copyReviewMarks } from '../db/tables/review-marks.ts';
 import { insertReview, latestReviewNumber, reviewOf, reviewsOf } from '../db/tables/reviews.ts';
 import {
@@ -796,6 +800,47 @@ function sameDraft(draft: readonly DraftComment[], shown: readonly ShownComment[
 	return draft.every((c) => edits.get(c.id) === c.edits);
 }
 
+/**
+ * Whether the draft may be finished as a page showed it: only when it holds
+ * exactly the comments shown, each with the words shown, and at least one.
+ * When the comments shown are no longer in the draft because they were
+ * finished, as from another tab, it says as which review.
+ */
+function finishable(
+	q: Queries,
+	report: ReportId,
+	draft: readonly DraftComment[],
+	shown: readonly ShownComment[]
+): Result<undefined, ReportError> {
+	if (sameDraft(draft, shown)) {
+		return draft.length === 0 ? err({ kind: 'NothingToFinish' }) : ok(undefined);
+	}
+	const inDraft = new Set(draft.map((c) => c.id));
+	for (const comment of shown) {
+		if (inDraft.has(comment.id)) continue;
+		const holding = reviewHolding(q, report, comment.id);
+		if (!holding.ok) return holding;
+		if (holding.value !== undefined)
+			return err({ kind: 'CommentsFinished', number: holding.value });
+	}
+	return err({ kind: 'DraftChanged' });
+}
+
+/** Why a comment is not in the draft: finished as part of a review, or deleted. */
+function notInDraft(
+	q: Queries,
+	report: ReportId,
+	comment: DraftCommentId
+): Result<never, ReportError> {
+	const holding = reviewHolding(q, report, comment);
+	if (!holding.ok) return holding;
+	return err(
+		holding.value === undefined
+			? { kind: 'CommentNotFound' }
+			: { kind: 'CommentFinished', number: holding.value }
+	);
+}
+
 /** The draft's comments as a finished review keeps them, each on the revision it was written on. */
 function frozenComments(
 	q: Queries,
@@ -815,6 +860,7 @@ function frozenComments(
 			});
 		}
 		rows.push({
+			draft: c.id,
 			revision: revision.value.id,
 			comment: { anchor: c.anchor, version: c.version, body: c.body, quoted: quoted[i] ?? [] },
 			writtenAt: c.writtenAt
@@ -1709,7 +1755,7 @@ export class ReportService {
 		return this.#db.write((q) =>
 			andThen(currentAsSeen(q, id, seen), () =>
 				andThen(draftCommentOf(q, id, comment), (found): Result<DraftComment, ReportError> => {
-					if (found === undefined) return err({ kind: 'CommentNotFound' });
+					if (found === undefined) return notInDraft(q, id, comment);
 					if (found.edits !== edits) return err({ kind: 'CommentChanged' });
 					if (found.body === body) return ok(found);
 					const at = this.#clock.now();
@@ -1733,7 +1779,7 @@ export class ReportService {
 		return this.#db.write((q) =>
 			andThen(currentAsSeen(q, id, seen), () =>
 				andThen(draftCommentOf(q, id, comment), (found): Result<DraftComment, ReportError> => {
-					if (found === undefined) return err({ kind: 'CommentNotFound' });
+					if (found === undefined) return notInDraft(q, id, comment);
 					if (found.edits !== edits) return err({ kind: 'CommentChanged' });
 					deleteDraftComment(q, comment);
 					touchReport(q, id, this.#clock.now());
@@ -1778,17 +1824,17 @@ export class ReportService {
 		seen: RevisionNumber,
 		shown: readonly ShownComment[]
 	): Promise<Result<FinishedReview, ReportError>> {
-		const prepared = await this.#prepareReview(id, seen);
+		const prepared = await this.#prepareReview(id, seen, shown);
 		if (!prepared.ok) return prepared;
 		const { found, diff, draft, quoted } = prepared.value;
-		if (!sameDraft(draft, shown)) return err({ kind: 'DraftChanged' });
 		return this.#db.write((q) =>
 			andThen(currentAsSeen(q, id, seen), (now): Result<FinishedReview, ReportError> => {
 				if (now.revision.id !== found.revision.id) {
 					return err({ kind: 'RevisionChangedWhileSaving', report: id });
 				}
 				return andThen(draftCommentsOf(q, id), (draftNow): Result<FinishedReview, ReportError> => {
-					if (!sameDraft(draftNow, shown)) return err({ kind: 'DraftChanged' });
+					const may = finishable(q, id, draftNow, shown);
+					if (!may.ok) return may;
 					return andThen(
 						this.#reviewText(q, found, diff, draft, quoted),
 						({ number, text, progress, comments }): Result<FinishedReview, ReportError> => {
@@ -1831,20 +1877,31 @@ export class ReportService {
 		);
 	}
 
-	/** The draft, on the version the page saw, with the code each comment is on. */
+	/**
+	 * The draft, on the version the page saw, with the code each comment is on.
+	 * Given the comments a page showed, only when it may be finished as shown.
+	 */
 	async #prepareReview(
 		id: ReportId,
-		seen: RevisionNumber
+		seen: RevisionNumber,
+		shown?: readonly ShownComment[]
 	): Promise<Result<PreparedReview, ReportError>> {
 		const read = this.#db.read(
 			(q): Result<{ found: Current; draft: readonly DraftComment[] }, ReportError> =>
 				andThen(currentAsSeen(q, id, seen), (found) =>
-					andThen(draftCommentsOf(q, id), (draft) => ok({ found, draft }))
+					andThen(
+						draftCommentsOf(q, id),
+						(draft): Result<{ found: Current; draft: readonly DraftComment[] }, ReportError> => {
+							if (shown === undefined) {
+								return draft.length === 0 ? err({ kind: 'NothingToFinish' }) : ok({ found, draft });
+							}
+							return andThen(finishable(q, id, draft, shown), () => ok({ found, draft }));
+						}
+					)
 				)
 		);
 		if (!read.ok) return read;
 		const { found, draft } = read.value;
-		if (draft.length === 0) return err({ kind: 'NothingToFinish' });
 		const content = await this.#contentOf(found.report, found.revision);
 		if (!content.ok) return content;
 		const quoted: (readonly LineText[])[] = [];

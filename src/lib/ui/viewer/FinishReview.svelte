@@ -65,8 +65,19 @@
 		now = read.value.now;
 	}
 
+	// Read once, and again whenever the person comes back to the page, since
+	// another tab may have finished a review meanwhile.
 	$effect(() => {
-		void loadReviews();
+		const read = (): void => {
+			if (document.visibilityState === 'visible') void loadReviews();
+		};
+		read();
+		window.addEventListener('focus', read);
+		document.addEventListener('visibilitychange', read);
+		return () => {
+			window.removeEventListener('focus', read);
+			document.removeEventListener('visibilitychange', read);
+		};
 	});
 
 	/** What finishing would hand over, read again whenever the draft changes while it is shown. */
@@ -107,8 +118,9 @@
 		});
 		finishing = false;
 		if (!finished.ok) {
+			// Whatever went wrong, show the draft and the reviews as they are now.
+			await Promise.all([comments.load(), loadReviews()]);
 			problem = describeApiError(finished.error);
-			void comments.load();
 			return;
 		}
 		const review = finished.value;

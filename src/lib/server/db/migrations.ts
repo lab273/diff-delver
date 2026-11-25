@@ -364,13 +364,15 @@ CREATE TABLE reviews (
 	uncategorised INTEGER NOT NULL CHECK (uncategorised >= 0 AND uncategorised <= counted),
 	PRIMARY KEY (report_id, number)
 ) STRICT;
--- Each comment of a finished review, in the order it was written, frozen: its
--- lines in the revision it was written on, its words, and the code it is on
--- (a JSON array of at most the first 40 lines) as that revision's snapshot held it.
+-- Each comment of a finished review, in the order it was written, frozen: the
+-- draft comment it was (whose id is never given to another), its lines in the
+-- revision it was written on, its words, and the code it is on (a JSON array
+-- of at most the first 40 lines) as that revision's snapshot held it.
 CREATE TABLE review_comments (
 	report_id TEXT NOT NULL,
 	review_number INTEGER NOT NULL,
 	position INTEGER NOT NULL CHECK (position >= 1),
+	draft_comment_id INTEGER NOT NULL CHECK (draft_comment_id >= 1),
 	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
 	path BLOB NOT NULL,
 	side TEXT NOT NULL CHECK (side IN ('old', 'new')),
@@ -398,6 +400,7 @@ CREATE TABLE review_marks (
 ) STRICT, WITHOUT ROWID;
 CREATE INDEX reviews_by_revision ON reviews (revision_id);
 CREATE INDEX review_comments_by_revision ON review_comments (revision_id);
+CREATE UNIQUE INDEX review_comments_by_draft ON review_comments (report_id, draft_comment_id);
 `
 	}
 ];
