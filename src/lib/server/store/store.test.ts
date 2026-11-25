@@ -39,6 +39,7 @@ import {
 	openStore,
 	readSnapshotDiff,
 	readSnapshotFile,
+	readSnapshotFileStart,
 	readSnapshotLines,
 	removeStaleFolders,
 	snapshotRefOf,
@@ -146,6 +147,12 @@ describe('the snapshot store', () => {
 		expect(file).toMatchObject({ mode: '100644', kind: 'regular', size: 53, binary: false });
 		const old = value(await readSnapshotFile(snapshot, 'old', path('deleted.txt')));
 		expect(Buffer.from(old.bytes).toString('utf8')).toBe('gone\nfor\ngood\n');
+		// Only the start of a file, when that is all that is wanted, with its whole size.
+		const start = value(await readSnapshotFileStart(snapshot, 'new', path('modified.txt'), 4));
+		expect(Buffer.from(start.start).toString('utf8')).toBe('one\n');
+		expect(start).toMatchObject({ kind: 'regular', size: 53 });
+		const whole = value(await readSnapshotFileStart(snapshot, 'old', path('deleted.txt'), 100));
+		expect(Buffer.from(whole.start).toString('utf8')).toBe('gone\nfor\ngood\n');
 		// The snapshot is complete without the repository: git finds nothing missing.
 		const check = await runGit({
 			cwd: target.dir,

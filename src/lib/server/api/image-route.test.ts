@@ -151,7 +151,7 @@ describe('images', () => {
 		const huge = value(await client.readPart(id, part('huge.png')));
 		expect(huge.image).toEqual({
 			old: null,
-			new: { kind: 'too-large', size: MAX_IMAGE_SIZE + 1 },
+			new: { kind: 'too-large', format: 'png', size: MAX_IMAGE_SIZE + 1 },
 			sameBytes: false
 		});
 		// Its name says PNG, its bytes do not: it is a binary file and no picture.

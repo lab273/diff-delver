@@ -43,12 +43,19 @@ export {
 	snapshotRefOf,
 	takeSnapshot
 } from './snapshots.ts';
-export type { SnapshotEntry, SnapshotFile, SnapshotLines, TreeEntry } from './read-snapshot.ts';
+export type {
+	SnapshotEntry,
+	SnapshotFile,
+	SnapshotFileStart,
+	SnapshotLines,
+	TreeEntry
+} from './read-snapshot.ts';
 export {
 	generatedPaths,
 	listSnapshotPaths,
 	readSnapshotDiff,
 	readSnapshotFile,
+	readSnapshotFileStart,
 	readSnapshotLines,
 	readSnapshotLinesWithin,
 	readTreeDiff,

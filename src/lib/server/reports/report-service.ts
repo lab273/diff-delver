@@ -44,6 +44,7 @@ import { makeDiff, type Diff, type DiffFile } from '#lib/core/diff/diff.ts';
 import type { FileVersion } from '#lib/core/diff/file-diff.ts';
 import { fileModeKind } from '#lib/core/file-mode.tiny.ts';
 import {
+	bytesToKnowFormat,
 	imageFormatOf,
 	MAX_IMAGE_SIZE,
 	namedAsImage,
@@ -66,7 +67,7 @@ import type { SearchText } from '#lib/core/search/search-text.tiny.ts';
 import { shownRepoPath } from '#lib/core/shown-path.tiny.ts';
 import type { ColourRun } from '#lib/core/highlight/colour-run.ts';
 import { languageOf } from '#lib/core/highlight/language.ts';
-import { linesOf } from '#lib/core/file-text.ts';
+import { linesOf, looksBinary } from '#lib/core/file-text.ts';
 import { ColourCache, type PlainReason } from '#lib/server/highlight/file-colours.ts';
 import { DEFAULT_SETTINGS, type SettingChange, type ViewSettings } from '#lib/core/settings.ts';
 import { readSettings, writeSetting } from '../db/tables/settings.ts';
@@ -257,6 +258,7 @@ import {
 	openStore,
 	readSnapshotDiff,
 	readSnapshotFile,
+	readSnapshotFileStart,
 	readSnapshotLines,
 	readTreeDiff,
 	type Snapshot,
@@ -480,14 +482,14 @@ export interface PartColours {
 
 /**
  * One side of a file a part shows as an image (DESIGN 8.4): a picture, with
- * its format and size; only its size when it is larger than the page shows;
+ * its format and size, and the same when it is larger than the page shows;
  * or what it is instead when it is no picture, such as the other side of an
  * image renamed to a name that is not an image's, or replaced by bytes that
  * are not one.
  */
 export type ImageSide =
 	| { readonly kind: 'image'; readonly format: ImageFormat; readonly size: ByteSize }
-	| { readonly kind: 'too-large'; readonly size: ByteSize }
+	| { readonly kind: 'too-large'; readonly format: ImageFormat; readonly size: ByteSize }
 	| { readonly kind: 'other'; readonly what: NotImageKind; readonly size: ByteSize };
 
 /**
@@ -3117,9 +3119,10 @@ function isPlainFile(version: FileVersion): boolean {
 
 /**
  * A side of a file as a part shows it beside an image, read from the snapshot
- * by the path it has on that side: undefined when the file does not have it;
- * only its size when it is an image larger than the page shows; and what it is
- * when it is no picture.
+ * by the path it has on that side, of which only the start is read: undefined
+ * when the file does not have it; its format and size when it is an image,
+ * marked when it is larger than the page shows; and what it is when it is no
+ * picture.
  */
 async function imageSideOf(
 	snapshot: Snapshot,
@@ -3132,14 +3135,19 @@ async function imageSideOf(
 	if (entry.value.kind !== 'file') return err({ kind: 'PathNotFound', side, path: version.path });
 	const size = entry.value.size;
 	if (!isPlainFile(version)) return ok({ kind: 'other', what: 'link', size });
-	const named = namedAsImage(version.path);
-	if (named && size > MAX_IMAGE_SIZE) return ok({ kind: 'too-large', size });
-	const read = await readSnapshotFile(snapshot, side, version.path);
+	// Only its start: enough to know its format, or whether it is binary.
+	const read = await readSnapshotFileStart(
+		snapshot,
+		side,
+		version.path,
+		bytesToKnowFormat(version.path)
+	);
 	if (!read.ok) return read;
-	const format = named ? imageFormatOf(version.path, read.value.bytes) : undefined;
+	const format = imageFormatOf(version.path, read.value.start);
+	if (format === undefined) {
+		return ok({ kind: 'other', what: looksBinary(read.value.start) ? 'binary' : 'text', size });
+	}
 	return ok(
-		format === undefined
-			? { kind: 'other', what: read.value.binary ? 'binary' : 'text', size }
-			: { kind: 'image', format, size }
+		size > MAX_IMAGE_SIZE ? { kind: 'too-large', format, size } : { kind: 'image', format, size }
 	);
 }

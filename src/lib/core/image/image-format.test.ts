@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
-import { contentTypeOf, imageFormatOf, namedAsImage } from './image-format.ts';
+import {
+	bytesToKnowFormat,
+	contentTypeOf,
+	imageFormatOf,
+	namedAsImage,
+	SVG_BYTES
+} from './image-format.ts';
 
 function path(text: string): RepoPath {
 	const parsed = parseRepoPath(text);
@@ -51,6 +57,13 @@ describe('image formats', () => {
 		// Raster bytes are not an SVG, nor an SVG a raster image.
 		expect(imageFormatOf(path('logo.svg'), PNG)).toBeUndefined();
 		expect(imageFormatOf(path('logo.png'), svg)).toBeUndefined();
+		// Its svg element must start within its first SVG_BYTES, as only those are read.
+		const late = (at: number) =>
+			new Uint8Array([...bytes(`<!--${' '.repeat(at - 7)}-->`), ...bytes('<svg/>')]);
+		expect(imageFormatOf(path('logo.svg'), late(SVG_BYTES - 4))).toBe('svg');
+		expect(imageFormatOf(path('logo.svg'), late(SVG_BYTES))).toBeUndefined();
+		expect(bytesToKnowFormat(path('logo.svg'))).toBe(SVG_BYTES);
+		expect(bytesToKnowFormat(path('logo.png'))).toBeGreaterThanOrEqual(12);
 	});
 
 	it('are served with their content type', () => {

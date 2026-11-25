@@ -50,6 +50,18 @@ export interface SnapshotFile {
 	readonly bytes: Uint8Array;
 }
 
+/** The start of a file of one of a snapshot's trees, with how large the whole file is. */
+export interface SnapshotFileStart {
+	readonly path: RepoPath;
+	readonly side: Side;
+	readonly mode: FileMode;
+	readonly kind: FileModeKind;
+	readonly blob: BlobId;
+	readonly size: ByteSize;
+	/** Its first bytes, as many as were asked for or the whole file when it is shorter. */
+	readonly start: Uint8Array;
+}
+
 /** Some lines of a text file of a snapshot. */
 export interface SnapshotLines {
 	/** The lines asked for that exist, each with its number. */
@@ -180,6 +192,41 @@ export function readSnapshotFile(
 					binary: looksBinary(bytes),
 					bytes
 				});
+			}
+		}
+	});
+}
+
+/**
+ * The first `length` bytes of a file of one side by path, without reading the
+ * rest of it, and its size.
+ */
+export function readSnapshotFileStart(
+	snapshot: Snapshot,
+	side: Side,
+	path: RepoPath,
+	length: number
+): Promise<Result<SnapshotFileStart, FileLookupError>> {
+	return reading(snapshot, async (): Promise<Result<SnapshotFileStart, FileLookupError>> => {
+		const entry = await lookUp(snapshot, treeOf(snapshot, side), path);
+		if (!entry.ok) return entry;
+		switch (entry.value.kind) {
+			case 'missing':
+				return err({ kind: 'PathNotFound', side, path });
+			case 'tree':
+				return err({ kind: 'PathIsDirectory', side, path });
+			case 'submodule':
+				return err({ kind: 'PathIsSubmodule', side, path });
+			case 'blob': {
+				const { mode, blob, size } = entry.value;
+				const content = await runGit({
+					cwd: snapshot.store.dir,
+					args: ['cat-file', 'blob', blob],
+					...(length < size ? { readUpTo: length } : {})
+				});
+				if (!content.ok) return content;
+				const start = new Uint8Array(content.value.stdout);
+				return ok({ path, side, mode, kind: fileModeKind(mode), blob, size, start });
 			}
 		}
 	});

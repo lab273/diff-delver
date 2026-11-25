@@ -55,6 +55,12 @@ export interface GitCommand {
 	 * session of its own, with no terminal it or ssh could ask anything on.
 	 */
 	readonly stopWhen?: AbortSignal;
+	/**
+	 * Reads no more of git's output than this many bytes: once it has them, git
+	 * is stopped and they are the output, as when only the start of a large
+	 * file is wanted.
+	 */
+	readonly readUpTo?: number;
 }
 
 export interface GitOutput {
@@ -251,7 +257,19 @@ function spawnGit(command: GitCommand): Promise<Result<GitOutput, GitError>> {
 		}
 		const stdout: Buffer[] = [];
 		const stderr: Buffer[] = [];
-		child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+		const readUpTo = command.readUpTo;
+		let read = 0;
+		let enough = false;
+		child.stdout.on('data', (chunk: Buffer) => {
+			if (enough) return;
+			stdout.push(chunk);
+			read += chunk.byteLength;
+			if (readUpTo !== undefined && read >= readUpTo) {
+				enough = true;
+				child.stdout.destroy();
+				child.kill('SIGKILL');
+			}
+		});
 		child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
 		// git may exit before reading all of its input; that is reported by its exit code.
 		child.stdin.on('error', () => undefined);
@@ -264,7 +282,9 @@ function spawnGit(command: GitCommand): Promise<Result<GitOutput, GitError>> {
 		child.on('close', (code) => {
 			const errText = gitStderr(Buffer.concat(stderr).toString('utf8'));
 			const dubious = DUBIOUS_OWNERSHIP.exec(errText);
-			if (code === 0) {
+			if (enough && readUpTo !== undefined) {
+				resolve(ok({ stdout: Buffer.concat(stdout).subarray(0, readUpTo), stderr: errText }));
+			} else if (code === 0) {
 				resolve(ok({ stdout: Buffer.concat(stdout), stderr: errText }));
 			} else if (dubious !== null) {
 				const repository = dubious[1] ?? command.cwd;

@@ -5,7 +5,7 @@
 import { parseLineText, type LineText } from './line-text.tiny.ts';
 
 /** How far into a file git looks for a NUL byte to decide that it is binary. */
-const BINARY_PROBE_BYTES = 8000;
+export const BINARY_PROBE_BYTES = 8000;
 
 /**
  * Whether git would treat the content as binary: a NUL byte in its first 8000

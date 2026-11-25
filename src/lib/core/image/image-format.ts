@@ -5,9 +5,11 @@
  * says among the five, and an SVG is text that holds an `<svg` element. So a
  * file named `.png` that holds something else is shown as the binary file it
  * is, and the content type an image is served with is the one its bytes have.
+ * Only a file's start is read to know: the few bytes of a raster image's
+ * signature, and `SVG_BYTES` of an SVG, whose `<svg` element must start there.
  */
 import { parseByteSize, type ByteSize } from '../byte-size.tiny.ts';
-import { looksBinary } from '../file-text.ts';
+import { BINARY_PROBE_BYTES, looksBinary } from '../file-text.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 
 export const IMAGE_FORMATS = ['png', 'jpeg', 'gif', 'webp', 'svg'] as const;
@@ -27,12 +29,23 @@ export const MAX_IMAGE_SIZE: ByteSize = (() => {
 	return size.value;
 })();
 
+/** How far into an SVG its `<svg` element must start, past any declaration and comments: 64 KiB. */
+export const SVG_BYTES = 64 * 1024;
+
 const RASTER_EXTENSIONS: ReadonlySet<string> = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
 
 function extensionOf(path: RepoPath): string {
 	const name = path.slice(path.lastIndexOf('/') + 1);
 	const dot = name.lastIndexOf('.');
 	return dot <= 0 ? '' : name.slice(dot + 1).toLowerCase();
+}
+
+/**
+ * How many of a file's first bytes `imageFormatOf` needs to know whether it is
+ * an image, and, for one that is not, whether git would call it binary.
+ */
+export function bytesToKnowFormat(path: RepoPath): number {
+	return extensionOf(path) === 'svg' ? SVG_BYTES : BINARY_PROBE_BYTES;
 }
 
 /** Whether a file's name says it is an image the page could show, before its bytes are read. */
@@ -70,14 +83,17 @@ function holdsSvgElement(bytes: Uint8Array): boolean {
 }
 
 /**
- * The format of the image at `path` with these bytes, or undefined when it is
- * not an image the page shows: its name is not an image's, or its bytes are
- * not one of the five formats.
+ * The format of the image at `path` that starts with these bytes, or
+ * undefined when it is not an image the page shows: its name is not an
+ * image's, or its bytes are not one of the five formats. Only its first
+ * `bytesToKnowFormat(path)` bytes are looked at, so its start, or all of it,
+ * gives the same answer.
  */
 export function imageFormatOf(path: RepoPath, bytes: Uint8Array): ImageFormat | undefined {
 	const extension = extensionOf(path);
 	if (extension === 'svg') {
-		return !looksBinary(bytes) && holdsSvgElement(bytes) ? 'svg' : undefined;
+		const start = bytes.subarray(0, SVG_BYTES);
+		return !looksBinary(start) && holdsSvgElement(start) ? 'svg' : undefined;
 	}
 	if (!RASTER_EXTENSIONS.has(extension)) return undefined;
 	return rasterFormatOf(bytes);

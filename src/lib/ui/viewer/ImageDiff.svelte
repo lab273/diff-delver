@@ -327,7 +327,6 @@
 
 	/** What a side is: "PNG, 48 × 32 pixels, 140 bytes", or "Not an image: binary file, 140 bytes". */
 	function facts(side: Side, shown: ImageSideView): string {
-		if (shown.kind === 'too-large') return describeByteSize(shown.size);
 		if (shown.kind === 'other') return describeNotImage(shown.what, shown.size);
 		const size = sizes[side];
 		return [

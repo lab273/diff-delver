@@ -441,12 +441,12 @@ const LineSpanSchema = z.object({ first: lineNumber, last: lineNumber });
 
 /**
  * One side of a file shown as an image: a picture, with its format and size;
- * one too large to show, with its size; or a side that is no picture (a file
+ * one too large to show, with the same; or a side that is no picture (a file
  * that is not an image, or a link), with its size when it has one.
  */
 const ImageSideSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('image'), format: z.enum(IMAGE_FORMATS), size: byteSize }),
-	z.object({ kind: z.literal('too-large'), size: byteSize }),
+	z.object({ kind: z.literal('too-large'), format: z.enum(IMAGE_FORMATS), size: byteSize }),
 	z.object({ kind: z.literal('other'), what: z.enum(NOT_IMAGE_KINDS), size: byteSize })
 ]);
 export type ImageSideView = z.output<typeof ImageSideSchema>;
