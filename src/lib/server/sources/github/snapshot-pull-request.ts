@@ -45,19 +45,20 @@ import type { PullRequestDetails } from './github-api.ts';
 import type { GitHubSourceError } from './github-error.ts';
 
 /**
- * The pull request's fingerprint (DESIGN 3.2): its branch's commit and its
- * base branch, by name and by the commit GitHub last saw it at. A new commit
- * pushed, a force-push or a new base changes it; a base branch that moved on
- * may change it without changing the diff, which the trees then show.
+ * The pull request's fingerprint (DESIGN 3.2): its branch's commit, `head`,
+ * and its base branch, by name and by the commit GitHub last saw it at. A new
+ * commit pushed, a force-push or a new base changes it; a base branch that
+ * moved on may change it without changing the diff, which the trees then
+ * show. A snapshot's is of the commit it fetched, which is newer than the
+ * one GitHub's answer named when a push came in between, so the next look
+ * at GitHub finds that push already taken.
  */
-export function pullRequestFingerprint(details: PullRequestDetails): SourceIdentity {
+export function pullRequestFingerprint(
+	details: PullRequestDetails,
+	head: CommitId = details.head.commit
+): SourceIdentity {
 	const hash = createHash('sha256');
-	for (const part of [
-		'pull-request',
-		details.head.commit,
-		details.base.branch,
-		details.base.commit
-	]) {
+	for (const part of ['pull-request', head, details.base.branch, details.base.commit]) {
 		hash.update(part);
 		hash.update('\0');
 	}
@@ -282,7 +283,7 @@ export async function snapshotPullRequest(
 		if (!taken.ok) return taken;
 		return ok({
 			snapshot: taken.value.snapshot,
-			identity: pullRequestFingerprint(details),
+			identity: pullRequestFingerprint(details, sides?.head),
 			baseCommit: sides?.base,
 			headCommit: sides?.head,
 			copied: objectCountOf(taken.value.copied),
