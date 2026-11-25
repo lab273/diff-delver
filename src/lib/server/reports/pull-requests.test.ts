@@ -14,6 +14,7 @@ import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { parseSourceSpec, type SourceSpec } from '#lib/core/sources/source-spec.ts';
 import { listingsAround } from '../../../../tests/support/directory-listing.ts';
+import { partialClone } from '../../../../tests/support/partial-clone.ts';
 import { tempDirectory } from '../../../../tests/support/fixture-repos.ts';
 import { absolutePath, GitRepo } from '../../../../tests/support/git-repo.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
@@ -98,6 +99,14 @@ async function world(
 
 async function open(w: World, spec: SourceSpec = DISCOUNT): Promise<OpenOutcome> {
 	return value(await w.service.open(w.clone.dir, spec));
+}
+
+/** The partial clone's server, and a clone of it with only `feat`'s newest commit. */
+async function shallowClone(): Promise<{ server: GitRepo; clone: GitRepo }> {
+	const { server } = await partialClone('blob:none');
+	const dir = absolutePath(join(await tempDirectory(), 'shallow'));
+	await server.git('clone', '--quiet', '--depth=1', '--branch=feat', `file://${server.dir}`, dir);
+	return { server, clone: GitRepo.open(dir) };
 }
 
 /** Pushes a commit to the pull request's branch on the stand-in. */
@@ -386,6 +395,39 @@ describe('a GitHub pull request', () => {
 		w.clock.advance(60_000);
 		expect(value(await w.service.update(id))).toMatchObject({ kind: 'unchanged' });
 		expect(count()).toBe(limitedAt + 1);
+	});
+
+	it('downloads everything it needs into a blobless or a shallow clone’s store', async () => {
+		for (const kind of ['blobless', 'shallow'] as const) {
+			const github = await startGitHubStandIn();
+			standIns.push(github);
+			const { server, clone } =
+				kind === 'blobless' ? await partialClone('blob:none') : await shallowClone();
+			github.addRepository(SHOP_OWNER, SHOP_NAME, server);
+			await github.setPull(SHOP_OWNER, SHOP_NAME, { ...DISCOUNT_PULL, head: 'feat' });
+			await clone.git('remote', 'set-url', 'origin', SHOP_REMOTE);
+			const who = await reviewer();
+			const service = value(
+				await ReportService.open({
+					dataDirectory: absolutePath(join(await tempDirectory(), 'data')),
+					clock: settableClock(at(1_700_000_100_000)),
+					ids: sequentialIds(),
+					repository: { gitEnv: who.gitEnv },
+					github: github.access()
+				})
+			);
+			const { before, after, result } = await listingsAround([clone.dir], async () =>
+				value(await service.open(clone.dir, DISCOUNT))
+			);
+			expect(after).toEqual(before);
+			const id = created(result);
+			const page = value(await service.load(id));
+			expect(page.diff.files.map((f) => f.file.path)).toEqual(['d/c.txt']);
+			const lines = value(
+				await service.readPart(id, FIRST, 'sections', { kind: 'uncategorised' }, path('d/c.txt'))
+			);
+			expect(JSON.stringify(lines)).toContain('line 101');
+		}
 	});
 
 	it('stops a download of its commits that takes too long, by its own limit, and says so', async () => {

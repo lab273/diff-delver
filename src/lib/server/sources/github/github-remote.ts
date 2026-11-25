@@ -20,7 +20,8 @@ async function remoteAddresses(
 	if (!listed.ok) return listed;
 	const remotes: RemoteAddress[] = [];
 	for (const line of listed.value.stdout.toString('utf8').split('\n')) {
-		const match = /^(\S+)\t(.*) \(fetch\)$/.exec(line);
+		// A partial clone's remote ends with its filter: `origin\t<url> (fetch) [blob:none]`.
+		const match = /^(\S+)\t(.*) \(fetch\)(?: \[[^\]]*\])?$/.exec(line);
 		const name = parseRemoteName(match?.[1] ?? '');
 		if (match !== null && name.ok) remotes.push({ remote: name.value, url: match[2] ?? '' });
 	}

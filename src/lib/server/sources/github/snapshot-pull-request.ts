@@ -15,7 +15,9 @@
  *
  * Everything is fetched, not only what a blobless fetch would bring: with
  * the clone borrowed that is little more, and it leaves the snapshot whole in
- * the store, so reading it later never needs the network or a token.
+ * the store, so reading it later never needs the network or a token. A
+ * partial or shallow clone is not borrowed (`borrowable`), so everything the
+ * pull request's two sides need is downloaded.
  *
  * The person's token, when there is one, is given to git as a header for
  * GitHub's address, in git's environment (`GIT_CONFIG_*`), never on its
@@ -63,6 +65,21 @@ export function pullRequestFingerprint(details: PullRequestDetails): SourceIdent
 	return identity.value;
 }
 
+/**
+ * Whether the clone's objects can be borrowed: not when it is partial or
+ * shallow. git would tell GitHub it has what the clone has, and GitHub would
+ * leave out what that clone never downloaded (a blobless clone's old files, a
+ * shallow clone's history), which nothing then fetches.
+ */
+function borrowable(repo: LocalRepository): boolean {
+	return !repo.partialClone && !repo.shallow;
+}
+
+/** The clone's objects borrowed, as git's environment, when they can be. */
+function borrowed(repo: LocalRepository): Readonly<Record<string, string>> {
+	return borrowable(repo) ? borrowObjects(repo.objects) : {};
+}
+
 /** git's environment for a fetch from GitHub: the token as a header for its address, and nothing asked. */
 function fetchEnvironment(
 	repo: LocalRepository,
@@ -71,7 +88,7 @@ function fetchEnvironment(
 	token: GitHubToken | undefined
 ): Readonly<Record<string, string>> {
 	const quiet = {
-		...borrowObjects(repo.objects),
+		...borrowed(repo),
 		GIT_TERMINAL_PROMPT: '0',
 		GIT_ASKPASS: 'false',
 		SSH_ASKPASS: 'false',
@@ -170,7 +187,7 @@ async function fetchSides(
 		});
 	}
 	// What the clone had already was not sent, so it is read from the clone.
-	const read = borrowObjects(repo.objects);
+	const read = borrowed(repo);
 	const head = await commitAt(store, `${refs}head`, read);
 	const tip = await commitAt(store, `${refs}base`, read);
 	if (head === undefined || tip === undefined) {
@@ -239,7 +256,10 @@ export async function snapshotPullRequest(
 			const fetched = await fetchSides(writer.store, repo, details, access, refs);
 			if (!fetched.ok) return fetched;
 			sides = fetched.value;
-			return ok({ ...fetched.value.trees, copyFrom: repo.objects });
+			return ok({
+				...fetched.value.trees,
+				copyFrom: borrowable(repo) ? repo.objects : undefined
+			});
 		});
 		if (!taken.ok) return taken;
 		return ok({
