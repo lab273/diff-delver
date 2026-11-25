@@ -27,7 +27,8 @@ import {
 	type PullRequestTitle
 } from '#lib/core/github/pull-request-title.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
-import { parseTimestamp } from '#lib/core/timestamp.tiny.ts';
+import { parseTimestamp, type Timestamp } from '#lib/core/timestamp.tiny.ts';
+import { parseGitHubEtag, type GitHubEtag } from '#lib/core/github/github-etag.tiny.ts';
 import type { GitHubAccess } from './github-access.ts';
 import type { GitHubApiError } from './github-error.ts';
 
@@ -112,7 +113,8 @@ async function ask(
 	access: GitHubAccess,
 	repository: GitHubRepository,
 	path: string,
-	token: GitHubToken | undefined
+	token: GitHubToken | undefined,
+	etag?: GitHubEtag
 ): Promise<Result<Answer, GitHubApiError>> {
 	const headers: Record<string, string> = {
 		Accept: 'application/vnd.github+json',
@@ -120,6 +122,7 @@ async function ask(
 		'User-Agent': 'diff-delver'
 	};
 	if (token !== undefined) headers.Authorization = `Bearer ${token}`;
+	if (etag !== undefined) headers['If-None-Match'] = etag;
 	let response: Response;
 	try {
 		response = await fetch(`${access.apiBase(repository.host)}${path}`, {
@@ -137,24 +140,46 @@ async function ask(
 	}
 	let body: unknown;
 	try {
-		body = await response.json();
+		body = response.status === 304 ? undefined : await response.json();
 	} catch {
 		body = undefined;
 	}
 	return ok({ status: response.status, headers: response.headers, body });
 }
 
+/**
+ * How many seconds from `now` GitHub asks to be left alone, from a refusal's
+ * `retry-after` (seconds from now) or `x-ratelimit-reset` (when the limit is
+ * reset, in seconds since 1970); undefined when it says neither.
+ */
+function secondsToWait(headers: Headers, now: Timestamp): number | undefined {
+	const after = Number(headers.get('retry-after') ?? '');
+	if (headers.has('retry-after') && Number.isFinite(after) && after >= 0) return Math.ceil(after);
+	const reset = Number(headers.get('x-ratelimit-reset') ?? '');
+	if (!headers.has('x-ratelimit-reset') || !Number.isFinite(reset)) return undefined;
+	return Math.max(0, Math.ceil(reset - now / 1000));
+}
+
 /** What a refusal means: who is asking matters for every one of them. */
 function refusal(
 	answer: Answer,
 	repository: GitHubRepository,
-	token: GitHubToken | undefined
+	token: GitHubToken | undefined,
+	now: Timestamp
 ): GitHubApiError {
 	const signedIn = token !== undefined;
 	const limited =
 		answer.status === 429 ||
-		(answer.status === 403 && answer.headers.get('x-ratelimit-remaining') === '0');
-	if (limited) return { kind: 'GitHubRateLimited', host: repository.host, signedIn };
+		(answer.status === 403 &&
+			(answer.headers.get('x-ratelimit-remaining') === '0' || answer.headers.has('retry-after')));
+	if (limited) {
+		return {
+			kind: 'GitHubRateLimited',
+			host: repository.host,
+			signedIn,
+			waitSeconds: secondsToWait(answer.headers, now)
+		};
+	}
 	if (answer.status === 401) {
 		return signedIn
 			? { kind: 'GitHubSignInRefused', host: repository.host }
@@ -184,28 +209,66 @@ function fromFork(pull: PullShape): boolean {
 	);
 }
 
-/** One pull request, as GitHub has it now. */
+/**
+ * What reading a pull request found: its details, with the tag GitHub gave
+ * this answer (`ETag`) to ask with next time, or, asked with the tag it gave
+ * last, that nothing has changed since.
+ */
+export type ReadPullRequest =
+	| {
+			readonly kind: 'read';
+			readonly details: PullRequestDetails;
+			readonly etag: GitHubEtag | undefined;
+	  }
+	| { readonly kind: 'not-modified' };
+
+/** Each answer of `readPullRequest`, with whether it was asked signed in. */
+export interface PullRequestAnswer {
+	readonly signedIn: boolean;
+	readonly read: Result<ReadPullRequest, GitHubApiError>;
+}
+
+/**
+ * One pull request, as GitHub has it now. With `etag`, the tag of the answer
+ * read last, GitHub may answer that nothing has changed (304), which it does
+ * not count against a signed-in person's requests. `now`, by the caller's
+ * clock, says how long a refusal for too many requests asks to wait.
+ */
 export async function readPullRequest(
 	access: GitHubAccess,
-	ref: PullRequestRef
-): Promise<Result<PullRequestDetails, GitHubApiError>> {
+	ref: PullRequestRef,
+	now: Timestamp,
+	etag?: GitHubEtag
+): Promise<PullRequestAnswer> {
+	const token = await access.token(ref.repository.host);
+	return { signedIn: token !== undefined, read: await readWith(access, ref, now, token, etag) };
+}
+
+async function readWith(
+	access: GitHubAccess,
+	ref: PullRequestRef,
+	now: Timestamp,
+	token: GitHubToken | undefined,
+	etag: GitHubEtag | undefined
+): Promise<Result<ReadPullRequest, GitHubApiError>> {
 	const { repository } = ref;
-	const token = await access.token(repository.host);
 	const asked = await ask(
 		access,
 		repository,
 		`${repositoryPath(repository)}/pulls/${String(ref.number)}`,
-		token
+		token,
+		etag
 	);
 	if (!asked.ok) return asked;
+	if (asked.value.status === 304 && etag !== undefined) return ok({ kind: 'not-modified' });
 	if (asked.value.status === 404) {
 		// Not found: the pull request, or the repository? Only the repository can say.
 		const repo = await ask(access, repository, repositoryPath(repository), token);
 		if (!repo.ok) return repo;
 		if (repo.value.status === 200) return err({ kind: 'PullRequestNotFound', pullRequest: ref });
-		return err(refusal(repo.value, repository, token));
+		return err(refusal(repo.value, repository, token, now));
 	}
-	if (asked.value.status !== 200) return err(refusal(asked.value, repository, token));
+	if (asked.value.status !== 200) return err(refusal(asked.value, repository, token, now));
 	const read = pullShape.safeParse(asked.value.body);
 	if (!read.success) {
 		return err({
@@ -215,7 +278,8 @@ export async function readPullRequest(
 		});
 	}
 	const pull = read.data;
-	return ok({
+	const tag = parseGitHubEtag(asked.value.headers.get('etag') ?? '');
+	const details: PullRequestDetails = {
 		ref,
 		title: pull.title,
 		description: pullRequestDescriptionOf(pull.body),
@@ -224,7 +288,8 @@ export async function readPullRequest(
 		author: pull.user?.login,
 		head: { commit: pull.head.sha, branch: pull.head.ref },
 		base: { commit: pull.base.sha, branch: pull.base.ref, cloneUrl: pull.base.repo.clone_url }
-	});
+	};
+	return ok({ kind: 'read', details, etag: tag.ok ? tag.value : undefined });
 }
 
 /** A page of a repository's open pull requests. */
@@ -237,7 +302,8 @@ export interface OpenPullRequests {
 /** The repository's open pull requests, most recently updated first, at most `PULL_REQUESTS_LISTED`. */
 export async function listOpenPullRequests(
 	access: GitHubAccess,
-	repository: GitHubRepository
+	repository: GitHubRepository,
+	now: Timestamp
 ): Promise<Result<OpenPullRequests, GitHubApiError>> {
 	const token = await access.token(repository.host);
 	const query = new URLSearchParams({
@@ -253,7 +319,7 @@ export async function listOpenPullRequests(
 		token
 	);
 	if (!asked.ok) return asked;
-	if (asked.value.status !== 200) return err(refusal(asked.value, repository, token));
+	if (asked.value.status !== 200) return err(refusal(asked.value, repository, token, now));
 	const read = z.array(pullShape).safeParse(asked.value.body);
 	if (!read.success) {
 		return err({

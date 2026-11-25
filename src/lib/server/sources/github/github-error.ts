@@ -47,6 +47,8 @@ export interface GitHubRateLimited {
 	readonly kind: 'GitHubRateLimited';
 	readonly host: GitHubHost;
 	readonly signedIn: boolean;
+	/** How many seconds from now GitHub asks to be left alone, when it said. */
+	readonly waitSeconds: number | undefined;
 }
 
 /** The repository is there, and has no pull request with that number. */
@@ -115,6 +117,15 @@ export type GitHubSourceError =
 const SIGN_IN =
 	'Sign in with the GitHub command, "gh auth login", or set GITHUB_TOKEN to a token that can read it, then try again.';
 
+/** When to try again, from how long GitHub asked to wait: "Try again in 3 minutes." */
+function describeWait(seconds: number | undefined): string {
+	if (seconds === undefined) return 'Wait a few minutes, then try again.';
+	if (seconds <= 60) return 'Try again in a minute.';
+	const minutes = Math.ceil(seconds / 60);
+	if (minutes < 120) return `Try again in ${String(minutes)} minutes.`;
+	return `Try again in ${String(Math.ceil(minutes / 60))} hours.`;
+}
+
 /** What happened and what to do next, for the reviewer. */
 export function describeGitHubSourceError(error: GitHubSourceError): ReviewerMessage {
 	switch (error.kind) {
@@ -138,12 +149,14 @@ export function describeGitHubSourceError(error: GitHubSourceError): ReviewerMes
 			return reviewerMessage(
 				`GitHub says ${gitHubRepositoryText(error.repository)} is not there, or that you may not see it. Check the address, and that the account you signed in with ("gh auth status" shows it) can read it.`
 			);
-		case 'GitHubRateLimited':
+		case 'GitHubRateLimited': {
+			const wait = describeWait(error.waitSeconds);
 			return reviewerMessage(
 				error.signedIn
-					? `GitHub has had too many requests from your account for now. Wait a few minutes, then try again.`
-					: `GitHub has had too many requests from this computer for now, and allows many more to a signed-in person. ${SIGN_IN}`
+					? `GitHub has had too many requests from your account for now. ${wait}`
+					: `GitHub has had too many requests from this computer for now. ${wait} GitHub allows many more to a signed-in person: sign in with the GitHub command, "gh auth login", or set GITHUB_TOKEN to a token.`
 			);
+		}
 		case 'PullRequestNotFound':
 			return reviewerMessage(
 				`${pullRequestShortName(error.pullRequest)} is not a pull request: GitHub has none with that number. Check the address, then try again.`

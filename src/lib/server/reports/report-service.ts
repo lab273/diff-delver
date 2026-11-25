@@ -178,6 +178,7 @@ import {
 	type PullRequestRef
 } from '#lib/core/github/pull-request.ts';
 import { pullRequestTitleOf } from '#lib/core/github/pull-request-title.tiny.ts';
+import type { GitHubEtag } from '#lib/core/github/github-etag.tiny.ts';
 import {
 	gitHubRemoteOf,
 	gitHubRemotesOf,
@@ -187,6 +188,7 @@ import {
 	readPullRequest,
 	snapshotPullRequest,
 	type GitHubAccess,
+	type GitHubApiError,
 	type OpenPullRequests,
 	type PullRequestDetails
 } from '../sources/github/index.ts';
@@ -342,6 +344,39 @@ export interface ReportServiceOptions {
  * person asks for, always ask again.
  */
 export const PULL_REQUEST_CHECK_EVERY_MS = 60_000;
+
+/**
+ * How often a page's check asks GitHub when the person is not signed in:
+ * GitHub allows a computer only 60 requests an hour then, and counts even
+ * the answers that say nothing has changed.
+ */
+export const PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS = 300_000;
+
+/** How long to leave GitHub alone after it refused for too many requests without saying. */
+const RATE_LIMIT_WAIT_SECONDS = 60;
+
+/**
+ * Who asks what GitHub says of a pull request: a page's check, which takes
+ * what it said within the last minute (five, signed out); a person, who
+ * opened it, updated it or ran the command, and is asked for now; or a
+ * snapshot, which takes what was asked just before.
+ */
+type GitHubAsking = 'check' | 'person' | 'just-asked';
+
+/** What GitHub last said of a pull request, kept by the service. */
+interface KeptPullRequest {
+	/** When GitHub last gave its details, or said they had not changed. */
+	readonly at: Timestamp;
+	readonly details: PullRequestDetails;
+	/** The tag of the answer that gave the details, to ask with next. */
+	readonly etag: GitHubEtag | undefined;
+	/** Whether it was last asked signed in, which says how often a page's check asks again. */
+	readonly signedIn: boolean;
+}
+
+function checkEvery(signedIn: boolean): number {
+	return signedIn ? PULL_REQUEST_CHECK_EVERY_MS : PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS;
+}
 
 /** A report as a list or a page header shows it. */
 export interface ReportSummary {
@@ -1083,9 +1118,11 @@ export class ReportService {
 	readonly #frameVersions = new FrameVersions();
 	readonly #github: GitHubAccess;
 	/** What GitHub last said of each pull request, by its identity, and when. */
-	readonly #pullRequests = new Map<
+	readonly #pullRequests = new Map<string, KeptPullRequest>();
+	/** GitHub's last refusal to say, by the pull request's identity, when, and for how many milliseconds it stands. */
+	readonly #pullRequestRefusals = new Map<
 		string,
-		{ readonly at: Timestamp; readonly details: PullRequestDetails }
+		{ readonly error: GitHubApiError; readonly at: Timestamp; readonly wait: number }
 	>();
 
 	private constructor(db: Database, options: ReportServiceOptions) {
@@ -1229,7 +1266,7 @@ export class ReportService {
 		if (gitHub.value === undefined)
 			return err({ kind: 'NotOnGitHub', directory: worktreeOf(repo.value) });
 		const { remote, repository } = gitHub.value;
-		const pulls = await listOpenPullRequests(this.#github, repository);
+		const pulls = await listOpenPullRequests(this.#github, repository, this.#clock.now());
 		return pulls.ok ? ok({ remote, repository, pulls: pulls.value }) : pulls;
 	}
 
@@ -2595,7 +2632,7 @@ export class ReportService {
 		let into = repo.storeId;
 		if (spec.kind === 'pull-request') {
 			// Of what GitHub said just before, which every caller has asked.
-			const details = await this.#pullRequestDetails(spec.pullRequest, Infinity);
+			const details = await this.#pullRequestDetails(spec.pullRequest, 'just-asked');
 			if (!details.ok) return details;
 			into = store;
 			take = (id) =>
@@ -2611,21 +2648,52 @@ export class ReportService {
 	}
 
 	/**
-	 * What GitHub says of a pull request: what it said less than `maxAge`
-	 * milliseconds ago by the service's clock, or else asked now.
+	 * What GitHub says of a pull request, asked as `asking` says (see
+	 * `GitHubAsking`), with the tag of its last answer so that an unchanged
+	 * pull request costs a signed-in person nothing. A refusal is kept too: one
+	 * for too many requests until GitHub said to try again, for every caller;
+	 * any other for `PULL_REQUEST_CHECK_EVERY_MS`, for a page's checks only.
 	 */
 	async #pullRequestDetails(
 		ref: PullRequestRef,
-		maxAge: number
+		asking: GitHubAsking
 	): Promise<Result<PullRequestDetails, ReportError>> {
 		const key = pullRequestIdentityParts(ref).join('/');
 		const now = this.#clock.now();
 		const kept = this.#pullRequests.get(key);
-		if (kept !== undefined && now - kept.at < maxAge) return ok(kept.details);
-		const asked = await readPullRequest(this.#github, ref);
-		if (!asked.ok) return asked;
-		this.#pullRequests.set(key, { at: now, details: asked.value });
-		return asked;
+		if (asking === 'just-asked' && kept !== undefined) return ok(kept.details);
+		const refused = this.#pullRequestRefusals.get(key);
+		const left = refused === undefined ? 0 : refused.wait - timeBetween(refused.at, now);
+		if (refused !== undefined && left > 0) {
+			if (refused.error.kind === 'GitHubRateLimited') {
+				return err({ ...refused.error, waitSeconds: Math.ceil(left / 1000) });
+			}
+			if (asking === 'check') return err(refused.error);
+		}
+		if (asking === 'check' && kept !== undefined && now - kept.at < checkEvery(kept.signedIn)) {
+			return ok(kept.details);
+		}
+		const { signedIn, read } = await readPullRequest(this.#github, ref, now, kept?.etag);
+		if (!read.ok) {
+			const { error } = read;
+			const wait =
+				error.kind === 'GitHubRateLimited'
+					? (error.waitSeconds ?? RATE_LIMIT_WAIT_SECONDS) * 1000
+					: PULL_REQUEST_CHECK_EVERY_MS;
+			this.#pullRequestRefusals.set(key, { error, at: now, wait });
+			return read;
+		}
+		this.#pullRequestRefusals.delete(key);
+		if (read.value.kind === 'not-modified') {
+			if (kept === undefined) {
+				return err({ kind: 'GitHubAnswerUnreadable', host: ref.repository.host, status: 304 });
+			}
+			this.#pullRequests.set(key, { ...kept, at: now, signedIn });
+			return ok(kept.details);
+		}
+		const { details, etag } = read.value;
+		this.#pullRequests.set(key, { at: now, details, etag, signedIn });
+		return ok(details);
 	}
 
 	/** The source of a new report of `spec`, with what it is named by. */
@@ -2645,13 +2713,13 @@ export class ReportService {
 	/**
 	 * A look at the report's source before any snapshot: its fingerprint now,
 	 * or, for a pull request that has been merged or closed, that nothing is
-	 * left. A pull request is asked of GitHub unless what it said is less than
-	 * `maxAge` old; when asked, a new title or description is kept.
+	 * left. A pull request is asked of GitHub as `asking` says; a new title or
+	 * description is kept.
 	 */
 	async #lookAt(
 		report: Report,
 		repo: LocalRepository,
-		maxAge: number
+		asking: GitHubAsking
 	): Promise<Result<Look, ReportError>> {
 		const { source } = report;
 		if (source.kind === 'git') {
@@ -2660,7 +2728,7 @@ export class ReportService {
 				? ok({ kind: 'fingerprint', fingerprint: fingerprint.value })
 				: fingerprint;
 		}
-		const details = await this.#pullRequestDetails(source.pullRequest, maxAge);
+		const details = await this.#pullRequestDetails(source.pullRequest, asking);
 		if (!details.ok) return details;
 		const { title, description, state } = details.value;
 		if (title !== source.title || description !== source.description) {
@@ -2792,7 +2860,7 @@ export class ReportService {
 	): Promise<Result<OpenOutcome, ReportError>> {
 		if (spec.kind === 'pull-request') {
 			// Asked now, since opening it is a request to see it as it is.
-			const details = await this.#pullRequestDetails(spec.pullRequest, 0);
+			const details = await this.#pullRequestDetails(spec.pullRequest, 'person');
 			if (!details.ok) return details;
 			const { state, title } = details.value;
 			if (state !== 'open') {
@@ -2943,7 +3011,7 @@ export class ReportService {
 
 	async #check(found: Current, repo: LocalRepository): Promise<Result<SourceCheck, ReportError>> {
 		const { report, revision } = found;
-		const look = await this.#lookAt(report, repo, PULL_REQUEST_CHECK_EVERY_MS);
+		const look = await this.#lookAt(report, repo, 'check');
 		if (!look.ok) return look;
 		if (look.value.kind === 'nothing-left') return ok(look.value);
 		const { fingerprint } = look.value;
@@ -3118,7 +3186,7 @@ export class ReportService {
 			const unchanged = (): Result<UpdateOutcome, ReportError> =>
 				ok({ kind: 'unchanged', report: summaryOf(report, revision) });
 			// Asked for by a person, so GitHub is asked again.
-			const look = await this.#lookAt(report, repo, 0);
+			const look = await this.#lookAt(report, repo, 'person');
 			if (!look.ok) return look;
 			if (look.value.kind === 'nothing-left') {
 				const { reason, next } = look.value;

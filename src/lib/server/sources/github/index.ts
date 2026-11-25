@@ -5,7 +5,12 @@
  */
 export type { GitHubAccess } from './github-access.ts';
 export { GITHUB_SECONDS, machineGitHubAccess } from './github-access.ts';
-export type { OpenPullRequests, PullRequestDetails } from './github-api.ts';
+export type {
+	OpenPullRequests,
+	PullRequestAnswer,
+	PullRequestDetails,
+	ReadPullRequest
+} from './github-api.ts';
 export { listOpenPullRequests, PULL_REQUESTS_LISTED, readPullRequest } from './github-api.ts';
 export type { GitHubApiError, GitHubSourceError } from './github-error.ts';
 export { describeGitHubSourceError } from './github-error.ts';

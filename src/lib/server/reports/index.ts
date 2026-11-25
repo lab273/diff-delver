@@ -47,7 +47,11 @@ export type {
 	ShownDraft,
 	ReviewPreview
 } from './report-service.ts';
-export { PULL_REQUEST_CHECK_EVERY_MS, ReportService } from './report-service.ts';
+export {
+	PULL_REQUEST_CHECK_EVERY_MS,
+	PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS,
+	ReportService
+} from './report-service.ts';
 export type {
 	AnotherReportOpen,
 	RepositoryReplaced,

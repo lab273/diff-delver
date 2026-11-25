@@ -36,6 +36,7 @@ import { reviewer } from '../../../../tests/support/reviewer-git.ts';
 import {
 	describeReportError,
 	PULL_REQUEST_CHECK_EVERY_MS,
+	PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS,
 	ReportService,
 	type OpenOutcome
 } from './index.ts';
@@ -189,9 +190,11 @@ describe('a GitHub pull request', () => {
 		// A commit the clone has never seen: only GitHub has it.
 		await push(w, 'src/coupon.ts', 'export const COUPON = 10;\n', 'Add a coupon');
 
-		// A page's check asks GitHub at most once a minute.
+		// A page's check asks GitHub at most every five minutes when signed out.
 		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
 		w.clock.advance(PULL_REQUEST_CHECK_EVERY_MS);
+		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
+		w.clock.advance(PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS - PULL_REQUEST_CHECK_EVERY_MS);
 		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'changed', files: 1 });
 		const updated = value(await w.service.update(id));
 		if (updated.kind !== 'updated') throw new Error(updated.kind);
@@ -270,7 +273,7 @@ describe('a GitHub pull request', () => {
 		const w = await world();
 		const id = created(await open(w));
 		await w.github.setPull(SHOP_OWNER, SHOP_NAME, { ...DISCOUNT_PULL, state: 'merged' });
-		w.clock.advance(PULL_REQUEST_CHECK_EVERY_MS);
+		w.clock.advance(PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS);
 		expect(value(await w.service.checkForChanges(id))).toEqual({
 			kind: 'nothing-left',
 			reason:
@@ -311,11 +314,73 @@ describe('a GitHub pull request', () => {
 		);
 		busy.github.refuseWith(undefined);
 		expect(!missing.ok && missing.error.kind).toBe('GitHubRateLimited');
+		// GitHub said not when to try again, so a minute is left.
+		busy.clock.advance(60_000);
 		const none = await busy.service.open(
 			busy.clone.dir,
 			value(parseSourceSpec('https://github.com/acme/shop/pull/99'))
 		);
 		expect(!none.ok && none.error.kind).toBe('PullRequestNotFound');
+	});
+
+	it('asks a page’s checks with the last answer’s tag, once a minute signed in', async () => {
+		const w = await world({ token: STAND_IN_TOKEN });
+		const id = created(await open(w));
+		const asked = w.github.requests.length;
+		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
+		expect(w.github.requests.length).toBe(asked);
+		w.clock.advance(PULL_REQUEST_CHECK_EVERY_MS);
+		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
+		const [check, ...more] = w.github.requests.slice(asked);
+		expect(more).toEqual([]);
+		expect(check?.status).toBe(304);
+		expect(check?.ifNoneMatch).toMatch(/^W\/"/);
+
+		await push(w, 'src/coupon.ts', 'export const COUPON = 10;\n', 'Add a coupon');
+		w.clock.advance(PULL_REQUEST_CHECK_EVERY_MS);
+		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'changed', files: 1 });
+		expect(w.github.requests.at(-1)?.status).toBe(200);
+	});
+
+	it('keeps a refusal for a page’s checks, and asks again for a person unless told to wait', async () => {
+		const w = await world();
+		const id = created(await open(w));
+		w.clock.advance(PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS);
+		w.github.refuseWith(502);
+		const count = (): number => w.github.requests.length;
+		const failed = await w.service.checkForChanges(id);
+		expect(!failed.ok && failed.error.kind).toBe('GitHubAnswerUnreadable');
+		const asked = count();
+		const again = await w.service.checkForChanges(id);
+		expect(!again.ok && again.error.kind).toBe('GitHubAnswerUnreadable');
+		expect(count()).toBe(asked);
+		// Updating is the person asking, so GitHub is asked again.
+		const updated = await w.service.update(id);
+		expect(!updated.ok && updated.error.kind).toBe('GitHubAnswerUnreadable');
+		expect(count()).toBe(asked + 1);
+
+		// Too many requests: nobody asks again until GitHub said to.
+		const resetAt = Math.floor(w.clock.now() / 1000) + 150;
+		w.github.refuseWith(429, { resetAt });
+		const limited = await w.service.update(id);
+		expect(!limited.ok && limited.error).toMatchObject({
+			kind: 'GitHubRateLimited',
+			waitSeconds: 150
+		});
+		if (!limited.ok)
+			expect(describeReportError(limited.error)).toContain('Try again in 3 minutes.');
+		const limitedAt = count();
+		w.github.refuseWith(undefined);
+		w.clock.advance(90_000);
+		const still = await w.service.update(id);
+		expect(!still.ok && still.error).toMatchObject({ kind: 'GitHubRateLimited', waitSeconds: 60 });
+		if (!still.ok) expect(describeReportError(still.error)).toContain('Try again in a minute.');
+		const checked = await w.service.checkForChanges(id);
+		expect(!checked.ok && checked.error.kind).toBe('GitHubRateLimited');
+		expect(count()).toBe(limitedAt);
+		w.clock.advance(60_000);
+		expect(value(await w.service.update(id))).toMatchObject({ kind: 'unchanged' });
+		expect(count()).toBe(limitedAt + 1);
 	});
 
 	it('signs in with the person’s token, and keeps it nowhere', async () => {

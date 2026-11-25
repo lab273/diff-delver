@@ -9,6 +9,7 @@
  * the machine. It records every request, so a test can check what was asked
  * and with which sign-in.
  */
+import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { GitHubAccess } from '#lib/server/sources/github/index.ts';
 import { GITHUB_COM } from '#lib/core/github/github-host.tiny.ts';
@@ -43,10 +44,13 @@ interface StandInRepository {
 	readonly pulls: Map<number, StandInPull>;
 }
 
-/** A request the stand-in answered: its path and query, and its sign-in, if any. */
+/** A request the stand-in answered: its path and query, its sign-in and tag, if any, and its status. */
 export interface StandInRequest {
 	readonly path: string;
 	readonly authorization: string | undefined;
+	/** The tag it asked with (`If-None-Match`). */
+	readonly ifNoneMatch: string | undefined;
+	readonly status: number;
 }
 
 export interface GitHubStandIn {
@@ -58,8 +62,12 @@ export interface GitHubStandIn {
 	addRepository(owner: string, name: string, repo: GitRepo, options?: { private?: boolean }): void;
 	/** Opens or changes a pull request, pointing `refs/pull/<number>/head` at its branch now. */
 	setPull(owner: string, name: string, pull: StandInPull): Promise<void>;
-	/** Answers every request with this status for now, such as 401 or 429, or undefined to answer again. */
-	refuseWith(status: number | undefined): void;
+	/**
+	 * Answers every request with this status for now, such as 401 or 429, or
+	 * undefined to answer again. A 429 or 403 says no requests are left, and,
+	 * with `resetAt` (seconds since 1970), when they are reset, as GitHub does.
+	 */
+	refuseWith(status: number | undefined, options?: { readonly resetAt?: number }): void;
 	/** The requests answered so far, oldest first. */
 	readonly requests: readonly StandInRequest[];
 	close(): Promise<void>;
@@ -111,22 +119,40 @@ async function pullJson(repository: StandInRepository, pull: StandInPull): Promi
 	};
 }
 
+/** The tag of an answer, as GitHub makes one: weak, from what it says. */
+function etagOf(body: unknown): string {
+	return `W/"${createHash('sha256').update(JSON.stringify(body)).digest('hex').slice(0, 32)}"`;
+}
+
 export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 	const repositories = new Map<string, StandInRepository>();
 	const requests: StandInRequest[] = [];
-	let refusing: number | undefined;
+	let refusing: { readonly status: number; readonly resetAt: number | undefined } | undefined;
 	const key = (owner: string, name: string): string => `${owner}/${name}`.toLowerCase();
 
 	const answer = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
 		const url = new URL(request.url ?? '/', 'http://stand-in');
 		const authorization = request.headers.authorization;
-		requests.push({ path: `${url.pathname}${url.search}`, authorization });
+		const ifNoneMatch = request.headers['if-none-match'];
+		response.on('finish', () => {
+			requests.push({
+				path: `${url.pathname}${url.search}`,
+				authorization,
+				ifNoneMatch,
+				status: response.statusCode
+			});
+		});
 		if (refusing !== undefined) {
+			const { status, resetAt } = refusing;
+			const limited = status === 429 || status === 403;
 			json(
 				response,
-				refusing,
+				status,
 				{ message: 'refused' },
-				refusing === 429 ? { 'x-ratelimit-remaining': '0' } : {}
+				{
+					...(limited ? { 'x-ratelimit-remaining': '0' } : {}),
+					...(limited && resetAt !== undefined ? { 'x-ratelimit-reset': String(resetAt) } : {})
+				}
 			);
 			return;
 		}
@@ -151,8 +177,16 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 		}
 		if (match[4] !== undefined) {
 			const pull = repository.pulls.get(Number(match[4]));
-			if (pull === undefined) json(response, 404, { message: 'Not Found' });
-			else json(response, 200, await pullJson(repository, pull));
+			if (pull === undefined) {
+				json(response, 404, { message: 'Not Found' });
+				return;
+			}
+			const body = await pullJson(repository, pull);
+			const etag = etagOf(body);
+			if (ifNoneMatch === etag) {
+				response.writeHead(304, { etag });
+				response.end();
+			} else json(response, 200, body, { etag });
 			return;
 		}
 		const open = [...repository.pulls.values()]
@@ -213,8 +247,8 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 			);
 			repository.pulls.set(pull.number, pull);
 		},
-		refuseWith(status) {
-			refusing = status;
+		refuseWith(status, options = {}) {
+			refusing = status === undefined ? undefined : { status, resetAt: options.resetAt };
 		},
 		requests,
 		async close() {
