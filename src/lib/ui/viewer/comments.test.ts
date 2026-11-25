@@ -323,4 +323,25 @@ describe('the overall review a page holds', () => {
 		expect(comments.said).toBe('Overall review emptied.');
 		expect(comments.finishable).toBe(false);
 	});
+
+	it('keeps what is typed after this page finishes a review, as the start of the next one', async () => {
+		const { client, comments, id } = await opened();
+		comments.overallText = 'Looks right.';
+		expect(await comments.saveOverall()).toBe(true);
+		comments.overallText = 'Looks right. One more thing.';
+		const shown = comments.overall?.edits;
+		if (shown === undefined) throw new Error('the overall review was read');
+		value(await client.finishReview(id, { version: version(1), comments: [], overall: shown }));
+		await comments.reviewFinished(shown);
+
+		// The finished review emptied the draft: what is typed is not saved, and not
+		// said to have been changed elsewhere.
+		expect(comments.overall?.body).toBe('');
+		expect(comments.overallText).toBe('Looks right. One more thing.');
+		expect(comments.overallUnsaved).toBe(true);
+		expect(comments.overallWriting.changedElsewhere).toBe(false);
+		expect(await comments.saveOverall()).toBe(true);
+		expect(comments.overall?.body).toBe('Looks right. One more thing.');
+		expect(comments.overallWriting.problem).toBe('');
+	});
 });

@@ -143,10 +143,11 @@
 		finishing = true;
 		problem = '';
 		said = '';
+		const overallShown = comments.overall?.edits ?? NO_EDITS;
 		const request = pageClient().finishReview(id, {
 			version,
 			comments: saved.map((c) => ({ id: c.id, edits: c.edits })),
-			overall: comments.overall?.edits ?? NO_EDITS
+			overall: overallShown
 		});
 		const copying = copyWhenReady(request.then((r) => (r.ok ? r.value.text : undefined)));
 		const finished = await request;
@@ -163,7 +164,7 @@
 		now = review.submittedAt;
 		previewOpen = false;
 		preview = undefined;
-		await comments.load();
+		await comments.reviewFinished(overallShown);
 		said = copied
 			? `Review ${String(review.number)} is finished and copied. Paste it to your agent, or ask your agent to act on your review in diff delver.`
 			: `Review ${String(review.number)} is finished, but this browser would not let diff delver copy it. Press “Copy review ${String(review.number)}” to try again, or show it and copy the text yourself.`;

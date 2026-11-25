@@ -9,6 +9,7 @@
  */
 import { describeApiError, type ApiClient } from '#lib/api/client.ts';
 import type { AddDraftComment, DraftCommentView, OverallReviewView } from '#lib/api/schemas.ts';
+import type { EditCount } from '#lib/core/edit-count.tiny.ts';
 import type { EscapedPath } from '#lib/core/path-bytes.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import { isCommentBody, MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
@@ -327,6 +328,24 @@ export class Comments {
 		this.said = isWritten(saved.value.body) ? 'Overall review saved.' : 'Overall review emptied.';
 		void this.load();
 		return true;
+	}
+
+	/**
+	 * After this page finished a review, which empties the draft: reads the
+	 * draft again, and when what is typed in the overall review started from
+	 * the one just finished, as it was when the page sent it, starts it again
+	 * from the empty one. Saving it then starts the next review's overall
+	 * review, and is not refused as though another tab had changed it.
+	 */
+	async reviewFinished(finished: EditCount): Promise<void> {
+		await this.load();
+		const writing = this.overallWriting;
+		const now = this.overall;
+		if (writing.typed === undefined || writing.saving || now === undefined) return;
+		if (now.edits === finished || (writing.base?.edits ?? finished) !== finished) return;
+		writing.base = now;
+		writing.changedElsewhere = false;
+		writing.problem = '';
 	}
 
 	/** Puts away something being written, with its words. */
