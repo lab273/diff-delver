@@ -150,6 +150,18 @@ store that diff delver owns. Each source adapter reduces its input to that.
 | jj revision or revset | Resolve to commit ids in the backing git store. The jj working copy is already a commit. |
 | GitHub PR | Fetch the PR head and its merge base into diff delver's store, as a blobless fetch that pulls file contents on demand. A local clone of the same repo, if there is one, is used to avoid downloading what is already on disk. Base is the merge base, as GitHub shows it. Auth comes from `gh` or `GITHUB_TOKEN`. |
 
+**Pull requests, as built.** A repository whose remote is on GitHub offers its
+open pull requests on the choose page, asked of GitHub only when the person
+presses the button, and `diff-delver open <pull request address>` opens one. The
+pull request is fetched into diff delver's own store, borrowing the local clone's
+objects so only what it lacks is downloaded, and nothing is written to the clone.
+The sign-in is `gh`'s, or `GITHUB_TOKEN`, and is kept nowhere. Opening it again
+resumes the same Delve, and a push to it is the Delve's next version, offered as
+any update is; the page asks GitHub about that at most once a minute. A merged or
+closed pull request has nothing left to review. For now a pull request opens only
+from a local clone of its repository; with no clone, and on GitHub Enterprise, it
+does not yet. The agent reads its title and description as quoted text.
+
 **Choosing commits.** The choose page lists a repository's branches and, for the
 one chosen, its commits, newest first, each with when it was made and how many
 lines and files it changes. What a person picks there is always one of the sources
