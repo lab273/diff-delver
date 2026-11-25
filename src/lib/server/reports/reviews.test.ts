@@ -15,7 +15,9 @@ import { emptyRepo, tempDirectory } from '../../../../tests/support/fixture-repo
 import { value } from '../../../../tests/support/git-source-helpers.ts';
 import { at } from '../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../tests/support/reviewer-git.ts';
-import { DATABASE_FILE } from '../db/index.ts';
+import { Database, DATABASE_FILE } from '../db/index.ts';
+import { reviewCommentsOf } from '../db/tables/review-comments.ts';
+import { reviewMarkRowsOf } from '../db/tables/review-marks.ts';
 import { describeReportError, ReportService, type ReportError } from './index.ts';
 
 const FIRST = value(parseRevisionNumber(1));
@@ -116,6 +118,60 @@ describe('finishing a review', () => {
 			expect(second.number).toBe(2);
 			expect(value(service.review(id))?.number).toBe(2);
 			expect(value(service.reviews(id)).map((r) => r.number)).toEqual([1, 2]);
+		} finally {
+			service.close();
+		}
+	});
+
+	it('keeps each comment with its side, lines, version and quoted code, and the marks as they were', async () => {
+		const { data, clock, service, id } = await setUp();
+		try {
+			const after = value(
+				await service.addDraftComment(
+					id,
+					FIRST,
+					{ path: path('src/cart.ts'), side: 'new', first: lineNumberOf(2), last: lineNumberOf(4) },
+					'New lines.'
+				)
+			);
+			const before = value(
+				await service.addDraftComment(
+					id,
+					FIRST,
+					{ path: path('src/cart.ts'), side: 'old', first: lineNumberOf(3), last: lineNumberOf(3) },
+					'An old line.\n\nWith a gap.'
+				)
+			);
+			value(await service.markReviewed(id, FIRST, { kind: 'file', path: path('README.md') }, true));
+			const shown = [after, before].map((c) => ({ id: c.id, edits: c.edits }));
+			const number = value(await service.finishReview(id, FIRST, shown)).number;
+			// A tick after finishing is not the review's.
+			value(
+				await service.markReviewed(id, FIRST, { kind: 'file', path: path('src/cart.ts') }, true)
+			);
+
+			const db = value(await Database.open(data, clock));
+			try {
+				expect(value(db.read((q) => reviewCommentsOf(q, id, number)))).toEqual([
+					{
+						anchor: { path: 'src/cart.ts', side: 'new', first: 2, last: 4 },
+						version: 1,
+						body: 'New lines.',
+						quoted: ['2', '3', 'four']
+					},
+					{
+						anchor: { path: 'src/cart.ts', side: 'old', first: 3, last: 3 },
+						version: 1,
+						body: 'An old line.\n\nWith a gap.',
+						quoted: ['three']
+					}
+				]);
+				expect(value(db.read((q) => reviewMarkRowsOf(q, id, number)))).toEqual([
+					{ path: 'README.md', units: { kind: 'lines', range: { side: 'new', first: 1, last: 1 } } }
+				]);
+			} finally {
+				db.close();
+			}
 		} finally {
 			service.close();
 		}
