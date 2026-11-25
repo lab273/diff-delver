@@ -24,6 +24,8 @@ describe('the diff page’s shortcuts', () => {
 		expect(shortcutOf(press('x'))).toBeUndefined();
 		// On a checkbox a letter types nothing, so the shortcut works there too.
 		expect(shortcutOf(press('r', { tagName: 'INPUT', type: 'checkbox' }))).toBe('toggle-reviewed');
+		// Nor on a slider, which takes only the arrow keys and the like.
+		expect(shortcutOf(press('i', { tagName: 'INPUT', type: 'range' }))).toBe('compare-images');
 	});
 
 	it('never fires while typing in a field, or with Control, Alt or Meta held', () => {

@@ -13,7 +13,7 @@
 	the chosen way shows is drawn, or has failed.
 -->
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import type { ImageSideView, PartImageView } from '#lib/api/schemas.ts';
 	import {
@@ -94,6 +94,26 @@
 		image.old?.kind === 'image' && image.new?.kind === 'image' && !failed.old && !failed.new
 	);
 	const shownMode = $derived<CompareMode>(comparing ? mode : 'side-by-side');
+
+	/** The pictures and controls, and each way's button. */
+	let container = $state<HTMLDivElement>();
+	const buttons = $state<Partial<Record<CompareMode, HTMLButtonElement>>>({});
+
+	// A slider with the focus goes when the way changes, by its button or by
+	// `i`: the focus goes to the button of the way now chosen, not to the page.
+	$effect.pre(() => {
+		const now = shownMode;
+		const active = document.activeElement;
+		const held =
+			active instanceof HTMLInputElement &&
+			active.type === 'range' &&
+			untrack(() => container)?.contains(active) === true;
+		if (!held) return;
+		void tick().then(() => {
+			if (container?.contains(document.activeElement) === true) return;
+			buttons[now]?.focus();
+		});
+	});
 
 	const scale = $derived(
 		drawnScale(
@@ -318,13 +338,14 @@
 	}
 </script>
 
-<div class="images" aria-busy={busy}>
+<div class="images" aria-busy={busy} bind:this={container}>
 	{#if comparing}
 		<div class="modes">
 			<div class="switch" role="group" aria-label="Compare the images of {name}">
 				{#each COMPARE_MODES as each (each)}
 					<button
 						type="button"
+						bind:this={buttons[each]}
 						aria-pressed={mode === each}
 						onclick={() => {
 							onmode(each);

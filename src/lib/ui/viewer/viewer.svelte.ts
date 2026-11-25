@@ -31,7 +31,8 @@ import type {
 } from '#lib/api/schemas.ts';
 import { groupKeyId } from '#lib/core/group-key-id.tiny.ts';
 import { lineNumberOf, type LineNumber } from '#lib/core/line-number.tiny.ts';
-import type { EscapedPath } from '#lib/core/path-bytes.ts';
+import { resolveEscapedPath, type EscapedPath } from '#lib/core/path-bytes.ts';
+import { namedAsImage } from '#lib/core/image/image-format.ts';
 import { shownPath } from '#lib/core/shown-path.tiny.ts';
 import type { LineText } from '#lib/core/line-text.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
@@ -574,6 +575,22 @@ export class Viewer {
 	/** The part shown before the one the person is on (or the last), stopping at the top. */
 	previousShown(): PartIndex | undefined {
 		return previousShown(this.shown, this.current);
+	}
+
+	/**
+	 * Whether any part may have an image changed in place to compare: one whose
+	 * lines have come with a picture on both sides, or one named as an image
+	 * whose lines have not come yet.
+	 */
+	hasImagesToCompare(): boolean {
+		return this.parts.some((state) => {
+			if (state.lines.kind === 'loaded') {
+				const image = state.lines.image;
+				return image?.old?.kind === 'image' && image.new?.kind === 'image';
+			}
+			const path = resolveEscapedPath(state.part.path);
+			return path !== undefined && namedAsImage(path);
+		});
 	}
 
 	/** Whether a part is drawn large, behind its control. */

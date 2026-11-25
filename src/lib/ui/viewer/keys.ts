@@ -106,7 +106,7 @@ export interface KeyPress {
 }
 
 /** Inputs that take no typing, where a letter key means nothing to the control. */
-const NOT_TYPED = new Set(['checkbox', 'radio', 'button', 'submit', 'reset']);
+const NOT_TYPED = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'range']);
 
 /** Whether the press was made while typing in a field. */
 export function inField(target: KeyPress['target']): boolean {

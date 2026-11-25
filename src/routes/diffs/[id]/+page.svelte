@@ -1615,6 +1615,10 @@
 				setLayout(settings.layout === 'side-by-side' ? 'unified' : 'side-by-side');
 				return;
 			case 'compare-images':
+				if (!viewer.hasImagesToCompare()) {
+					viewer.announcement = 'There are no changed images here to compare.';
+					return;
+				}
 				setImageMode(nextCompareMode(imageMode));
 				return;
 			case 'bookmark':

@@ -35,10 +35,11 @@ test.describe('J13 Visual changes', () => {
 		await journey.expectState(slider, { value: '30' });
 		await journey.step('Comparing with a slider');
 
-		// Onion skin, from the keyboard: the image after over the one before, as see-through as chosen.
-		await journey.press('Shift+Tab');
+		// Onion skin, from the keyboard, even on the slider: the image after over
+		// the one before, as see-through as chosen. The focus goes to the way chosen.
 		await journey.press('i');
 		await journey.expectState(ways.byRole('button', { name: 'Onion skin' }), { pressed: true });
+		await journey.expectFocused(ways.byRole('button', { name: 'Onion skin' }));
 		const opacity = ways.byRole('slider', { name: /^How much the image after shows/ });
 		await journey.tabTo(opacity);
 		for (let n = 0; n < 20; n += 1) await journey.press('ArrowRight');
@@ -46,7 +47,6 @@ test.describe('J13 Visual changes', () => {
 		await journey.step('Comparing in onion skin');
 
 		// The pixels that changed, in magenta, counted.
-		await journey.press('Shift+Tab');
 		await journey.press('i');
 		await journey.expectState(ways.byRole('button', { name: 'Pixel difference' }), {
 			pressed: true
