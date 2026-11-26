@@ -15,6 +15,7 @@ import {
 	type GitHubPosting
 } from '#lib/core/github/github-review.ts';
 import { parseGitHubToken } from '#lib/core/github/github-token.tiny.ts';
+import { parseReviewMark } from '#lib/core/github/review-mark.tiny.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
 import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
@@ -147,6 +148,9 @@ function failure<T>(result: Result<T, ReportError>): ReportError {
 	return result.error;
 }
 
+/** The secret part of the mark of the `n`th post, as the counted ids make it. */
+const markOf = (n: number) => value(parseReviewMark(n.toString(16).padStart(32, '0')));
+
 const reviewsOnGitHub = (w: World) => w.github.reviews(SHOP_OWNER, SHOP_NAME, 7);
 const posts = (w: World) => w.github.requests.filter((r) => r.method === 'POST');
 
@@ -211,7 +215,7 @@ describe('posting a review to its pull request', () => {
 				'```',
 				'> Unchanged, far from the change.',
 				'',
-				reviewMarker(w.id, value(parseReviewNumber(1)))
+				reviewMarker(w.id, value(parseReviewNumber(1)), markOf(1))
 			].join('\n')
 		);
 		// Finished as diff delver's review too, with the text copied, and the draft emptied.
@@ -427,6 +431,35 @@ describe('posting a review to its pull request', () => {
 		expect(review.posted).toMatchObject({ postedAs: 'draft', inText: 1, address: `${PULL}/files` });
 		expect(review.earlier).toEqual({ draftKept: false });
 		expect(value(w.service.draftComments(w.id))).toEqual([]);
+	});
+
+	it('never takes a review planted to look like the one an unanswered post left for its own', async () => {
+		const w = await world();
+		overall(w, 'Mine.');
+		const one = value(parseReviewNumber(1));
+		w.github.refuseReviews({ kind: 'status', status: 502, message: 'Bad Gateway' });
+		failure(await post(w));
+		// Another account copies the mark of the post that never reached GitHub, and one
+		// without its secret is planted as the reviewer's own.
+		w.github.plantReview(SHOP_OWNER, SHOP_NAME, 7, {
+			user: 'someone-else',
+			state: 'APPROVED',
+			body: `Planted.\n\n${reviewMarker(w.id, one, markOf(1))}`
+		});
+		w.github.plantReview(SHOP_OWNER, SHOP_NAME, 7, {
+			user: 'reviewer',
+			state: 'COMMENTED',
+			body: `Guessed.\n\n<!-- diff delver: review 1 of ${w.id} -->`
+		});
+
+		const review = value(await post(w));
+
+		expect(review.earlier).toBeUndefined();
+		expect(posts(w)).toHaveLength(2);
+		const mine = reviewsOnGitHub(w).at(-1);
+		expect(mine?.body).toBe(`Mine.\n\n${reviewMarker(w.id, one, markOf(2))}`);
+		expect(review.posted?.address).toBe(`${PULL}#pullrequestreview-${String(mine?.id)}`);
+		expect(w.github.requests.some((r) => r.path === '/user')).toBe(true);
 	});
 
 	it('posts once when an unanswered post never reached GitHub, after looking for it there', async () => {

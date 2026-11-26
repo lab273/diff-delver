@@ -515,7 +515,9 @@ CREATE TABLE review_deliveries (
 ) STRICT;
 -- A review of the draft that is being posted to GitHub, written before it is
 -- sent and removed once it is recorded or GitHub refused it: the number it is
--- posted as, and exactly what was sent, as the review would record it: the
+-- posted as, the secret part of the mark its text ends with, made for this
+-- post so nobody can know it beforehand, and exactly what was sent, as the
+-- review would record it: the
 -- revision, the text handed over, how far the review had got, the overall
 -- review and how many times its words had been changed, how it was asked to
 -- be posted, whether every comment went in its text (as when GitHub refused
@@ -527,6 +529,7 @@ CREATE TABLE review_deliveries (
 CREATE TABLE github_review_posts (
 	report_id TEXT PRIMARY KEY REFERENCES reports (id) ON DELETE CASCADE,
 	review_number INTEGER NOT NULL CHECK (review_number >= 1),
+	mark TEXT NOT NULL CHECK (length(mark) = 32),
 	started_at INTEGER NOT NULL CHECK (started_at >= 0),
 	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
 	export_text TEXT NOT NULL CHECK (export_text <> ''),

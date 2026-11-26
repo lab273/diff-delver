@@ -124,6 +124,13 @@ export interface GitHubStandIn {
 	refuseReviews(...refusals: readonly ReviewRefusal[]): void;
 	/** The reviews of a pull request, oldest first, as posted. */
 	reviews(owner: string, name: string, number: number): readonly StandInReview[];
+	/** Adds a review to a pull request as someone posted it on GitHub, by any account. */
+	plantReview(
+		owner: string,
+		name: string,
+		number: number,
+		review: Pick<StandInReview, 'user' | 'state' | 'body'>
+	): void;
 	/** The requests answered so far, oldest first. */
 	readonly requests: readonly StandInRequest[];
 	close(): Promise<void>;
@@ -134,6 +141,9 @@ export const STAND_IN_TOKEN = 'stand-in-token';
 
 /** Who is signed in with `STAND_IN_TOKEN`. */
 export const STAND_IN_USER = 'reviewer';
+
+/** The account id of `STAND_IN_USER`; any other account's is another. */
+export const STAND_IN_USER_ID = 7001;
 
 /** The id the stand-in gives the first review posted to it; each next one is one more. */
 export const FIRST_REVIEW_ID = 4001;
@@ -265,6 +275,14 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 	let refusing: { readonly status: number; readonly resetAt: number | undefined } | undefined;
 	const reviewRefusals: ReviewRefusal[] = [];
 	let nextReviewId = FIRST_REVIEW_ID;
+	const userIds = new Map<string, number>([[STAND_IN_USER, STAND_IN_USER_ID]]);
+	const userId = (login: string): number => {
+		const known = userIds.get(login);
+		if (known !== undefined) return known;
+		const made = STAND_IN_USER_ID + userIds.size;
+		userIds.set(login, made);
+		return made;
+	};
 	const key = (owner: string, name: string): string => `${owner}/${name}`.toLowerCase();
 
 	const answer = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
@@ -297,6 +315,11 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 		const signedIn = authorization === `Bearer ${STAND_IN_TOKEN}`;
 		if (authorization !== undefined && !signedIn) {
 			json(response, 401, { message: 'Bad credentials' });
+			return;
+		}
+		if (url.pathname === '/user') {
+			if (signedIn) json(response, 200, { login: STAND_IN_USER, id: STAND_IN_USER_ID });
+			else json(response, 401, { message: 'Requires authentication' });
 			return;
 		}
 		const reviewsMatch = /^\/repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\/reviews$/.exec(url.pathname);
@@ -363,7 +386,7 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 		repository.reviews.set(pull.number, all);
 		const shown = (review: StandInReview): unknown => ({
 			id: review.id,
-			user: { login: review.user },
+			user: { login: review.user, id: userId(review.user) },
 			body: review.body,
 			state: review.state,
 			commit_id: review.commitId,
@@ -531,6 +554,17 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 		},
 		reviews(owner, name, number) {
 			return repositories.get(key(owner, name))?.reviews.get(number) ?? [];
+		},
+		plantReview(owner, name, number, review) {
+			const repository = repositories.get(key(owner, name));
+			const pull = repository?.pulls.get(number);
+			if (repository === undefined || pull === undefined) {
+				throw new Error(`The stand-in has no ${owner}/${name}#${String(number)}`);
+			}
+			const all = repository.reviews.get(number) ?? [];
+			repository.reviews.set(number, all);
+			all.push({ ...review, id: nextReviewId, commitId: pull.head, comments: [] });
+			nextReviewId += 1;
 		},
 		requests,
 		async close() {

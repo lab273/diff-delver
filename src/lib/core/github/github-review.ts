@@ -38,6 +38,7 @@ import { hasOddBytes } from '../path-codec.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import type { ReportId } from '../report-id.tiny.ts';
 import type { ReviewNumber } from '../review-number.tiny.ts';
+import type { ReviewMark } from './review-mark.tiny.ts';
 import type { RevisionNumber } from '../revision-number.tiny.ts';
 import type { Side } from '../side.tiny.ts';
 import { isWritten } from '../review/overall-review.ts';
@@ -200,21 +201,33 @@ export interface GitHubReviewInput {
 	readonly comments: readonly SubmittedComment[];
 	/** Every comment in the text, as when GitHub refused to place them on their lines. */
 	readonly allInText: boolean;
+	/**
+	 * The secret part of the review's mark, made for this post; undefined to
+	 * leave the mark out, as what will be posted is shown before it is made.
+	 */
+	readonly mark: ReviewMark | undefined;
 }
 
 /**
  * The mark at the end of every review diff delver posts, which GitHub does
- * not show (an HTML comment): it names the Delve and the review, so a post
- * that GitHub took, but whose answer never came, is found on GitHub before
- * it would be posted again.
+ * not show (an HTML comment): it names the Delve and the review, with a
+ * secret made for the post, so a post that GitHub took, but whose answer
+ * never came, is found on GitHub before it would be posted again, and a
+ * review someone else wrote to look like it cannot be, since its secret
+ * is not known until it is posted.
  */
-export function reviewMarker(report: ReportId, number: ReviewNumber): string {
-	return `<!-- diff delver: review ${String(number)} of ${report} -->`;
+export function reviewMarker(report: ReportId, number: ReviewNumber, mark: ReviewMark): string {
+	return `<!-- diff delver: review ${String(number)} of ${report}, ${mark} -->`;
 }
 
-/** Whether a review's text on GitHub carries the mark of review `number` of `report`. */
-export function hasReviewMarker(body: string, report: ReportId, number: ReviewNumber): boolean {
-	return body.includes(reviewMarker(report, number));
+/** Whether a review's text on GitHub carries the mark of review `number` of `report`, made for one post. */
+export function hasReviewMarker(
+	body: string,
+	report: ReportId,
+	number: ReviewNumber,
+	mark: ReviewMark
+): boolean {
+	return body.includes(reviewMarker(report, number, mark));
 }
 
 /** The heading over the comments in the review's text. */
@@ -238,7 +251,7 @@ export function gitHubReview(input: GitHubReviewInput): GitHubReviewDraft {
 			[IN_TEXT_HEADING, ...inText.map((c) => inTextComment(c, input.version))].join('\n\n')
 		);
 	}
-	parts.push(reviewMarker(input.report, input.number));
+	if (input.mark !== undefined) parts.push(reviewMarker(input.report, input.number, input.mark));
 	return { body: parts.join('\n\n'), comments: onLines, inText: commentCountOf(inText.length) };
 }
 

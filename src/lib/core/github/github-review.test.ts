@@ -10,6 +10,7 @@ import { parseReportId, type ReportId } from '../report-id.tiny.ts';
 import { parseReviewNumber, type ReviewNumber } from '../review-number.tiny.ts';
 import { parseRevisionNumber, type RevisionNumber } from '../revision-number.tiny.ts';
 import type { SubmittedComment } from '../review/review-export.ts';
+import { parseReviewMark } from './review-mark.tiny.ts';
 import type { Side } from '../side.tiny.ts';
 import {
 	gitHubReview,
@@ -29,6 +30,8 @@ const version = (n: number): RevisionNumber => value(parseRevisionNumber(n));
 const line = (text: string): LineText => value(parseLineText(text));
 const REPORT: ReportId = value(parseReportId('r_0000000000000001'));
 const REVIEW: ReviewNumber = value(parseReviewNumber(2));
+const MARK = value(parseReviewMark('0123456789abcdef0123456789abcdef'));
+const OTHER_MARK = value(parseReviewMark('fedcba9876543210fedcba9876543210'));
 
 function awkwardDiff(): Diff {
 	const files = parseDiffTreeOutput(new TextEncoder().encode(awkward));
@@ -193,7 +196,8 @@ describe('gitHubReview', () => {
 		number: REVIEW,
 		diff,
 		version: V2,
-		allInText: false
+		allInText: false,
+		mark: MARK
 	};
 
 	it('gives the overall review as the text, the comments on their lines, and the mark last', () => {
@@ -202,13 +206,20 @@ describe('gitHubReview', () => {
 			overall: 'Looks right.\n\nShip it.',
 			comments: [comment('modified.txt', 'new', 3, 3, { body: 'Why **three**?' })]
 		});
-		expect(review.body).toBe(`Looks right.\n\nShip it.\n\n${reviewMarker(REPORT, REVIEW)}`);
+		expect(review.body).toBe(`Looks right.\n\nShip it.\n\n${reviewMarker(REPORT, REVIEW, MARK)}`);
 		expect(review.comments).toEqual([
 			{ path: 'modified.txt', side: 'RIGHT', line: 3, startLine: undefined, body: 'Why **three**?' }
 		]);
 		expect(review.inText).toBe(0);
-		expect(hasReviewMarker(review.body, REPORT, REVIEW)).toBe(true);
-		expect(hasReviewMarker(review.body, REPORT, value(parseReviewNumber(3)))).toBe(false);
+		expect(hasReviewMarker(review.body, REPORT, REVIEW, MARK)).toBe(true);
+		expect(hasReviewMarker(review.body, REPORT, value(parseReviewNumber(3)), MARK)).toBe(false);
+		// Another post of the same review has a mark of its own.
+		expect(hasReviewMarker(review.body, REPORT, REVIEW, OTHER_MARK)).toBe(false);
+	});
+
+	it('leaves the mark out when it is not made yet, as when what will be posted is shown', () => {
+		const review = gitHubReview({ ...base, mark: undefined, overall: 'Fine.', comments: [] });
+		expect(review.body).toBe('Fine.');
 	});
 
 	it('puts what GitHub cannot place in the text, with its file, lines and code, never dropping it', () => {
@@ -248,7 +259,7 @@ describe('gitHubReview', () => {
 				'>',
 				'> Still true.',
 				'',
-				reviewMarker(REPORT, REVIEW)
+				reviewMarker(REPORT, REVIEW, MARK)
 			].join('\n')
 		);
 	});

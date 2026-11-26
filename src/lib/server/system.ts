@@ -7,6 +7,7 @@ import { randomBytes } from 'node:crypto';
 import type { Clock } from '#lib/core/clock.ts';
 import { parseEntryCode, type EntryCode } from '#lib/core/entry-code.tiny.ts';
 import type { IdSource } from '#lib/core/ids.ts';
+import { parseReviewMark } from '#lib/core/github/review-mark.tiny.ts';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import { parseRevisionId } from '#lib/core/revision-id.tiny.ts';
 import { parseSnapshotId } from '#lib/core/snapshot-id.tiny.ts';
@@ -50,5 +51,11 @@ export const randomIds: IdSource = {
 		const id = parseSnapshotId(randomBytes(16).toString('hex'));
 		if (!id.ok) throw new Error('A random snapshot id did not parse.');
 		return id.value;
+	},
+	reviewMark: () => {
+		// 128 bits: it must not be guessed from the reviews posted before.
+		const mark = parseReviewMark(randomBytes(16).toString('hex'));
+		if (!mark.ok) throw new Error('A random review mark did not parse.');
+		return mark.value;
 	}
 };

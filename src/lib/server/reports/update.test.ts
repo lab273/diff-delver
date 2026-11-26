@@ -579,6 +579,7 @@ describe('updating a diff', () => {
 		const counting: IdSource = {
 			reportId: () => ids.reportId(),
 			revisionId: () => ids.revisionId(),
+			reviewMark: () => ids.reviewMark(),
 			snapshotId: () => {
 				snapshots += 1;
 				return ids.snapshotId();

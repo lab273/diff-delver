@@ -2408,6 +2408,22 @@ export class ReportService {
 		const text = this.#db.read((q) => this.#reviewText(q, found, diff, draft, quoted));
 		if (!text.ok) return text;
 		const { number } = text.value;
+		const noted = this.#db.read((q) => reviewBeingPosted(q, id));
+		if (!noted.ok) return noted;
+		if (noted.value?.number === number) {
+			const before = await findReview(
+				this.#github,
+				pullRequest,
+				reviewMarker(id, number, noted.value.mark),
+				this.#clock.now()
+			);
+			if (!before.ok) return refused(before.error);
+			if (before.value !== undefined) {
+				return this.#recordPosted(id, seen, pullRequest, before.value, true);
+			}
+		}
+		// A mark of its own for each post, so it is not known before it is posted.
+		const mark = this.#ids.reviewMark();
 		const review = (allInText: boolean): GitHubReviewDraft =>
 			gitHubReview({
 				report: id,
@@ -2416,22 +2432,9 @@ export class ReportService {
 				version: found.revision.number,
 				overall: draft.overall.body,
 				comments: text.value.comments.map((r) => r.comment),
-				allInText
+				allInText,
+				mark
 			});
-		const noted = this.#db.read((q) => reviewBeingPosted(q, id));
-		if (!noted.ok) return noted;
-		if (noted.value?.number === number) {
-			const before = await findReview(
-				this.#github,
-				pullRequest,
-				reviewMarker(id, number),
-				this.#clock.now()
-			);
-			if (!before.ok) return refused(before.error);
-			if (before.value !== undefined) {
-				return this.#recordPosted(id, seen, pullRequest, before.value, true);
-			}
-		}
 		const first = review(false);
 		const edits = new Map(draft.comments.map((c) => [c.id, c.edits]));
 		const note = this.#db.write((q): Result<undefined, ReportError> => {
@@ -2454,6 +2457,7 @@ export class ReportService {
 				id,
 				{
 					number,
+					mark,
 					revision: found.revision.id,
 					text: text.value.text,
 					progress: text.value.progress,

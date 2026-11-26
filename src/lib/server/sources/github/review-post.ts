@@ -132,8 +132,13 @@ const reviewShape = z.object({
 		return z.NEVER;
 	}),
 	body: z.string().nullable().optional(),
-	state: z.string()
+	state: z.string(),
+	/** Its author; null for an account since deleted. */
+	user: z.object({ id: z.number() }).nullable().optional()
 });
+
+/** The signed-in account, as `GET /user` gives it. */
+const userShape = z.object({ id: z.number().int().positive() });
 
 /** What GitHub's 422 says is wrong, from its message and errors, which are GitHub's own words. */
 function unprocessable(answer: Answer, kind: GitHubReviewKind | undefined): ReviewPostProblem {
@@ -186,9 +191,11 @@ export async function postReview(
 const REVIEW_PAGES_SEARCHED = 10;
 
 /**
- * The review on the pull request whose text holds `marker`, as a review
- * posted before whose answer never came would; undefined when there is none.
- * GitHub lists the signed-in person's own draft among them.
+ * The review on the pull request whose text holds `marker` and whose author
+ * is the account signed in, as a review posted before whose answer never
+ * came would be; undefined when there is none. Anyone can post a review
+ * whose text looks like diff delver's, so one by another account is never
+ * taken for it. GitHub lists the signed-in person's own draft among them.
  */
 export async function findReview(
 	access: GitHubAccess,
@@ -198,6 +205,13 @@ export async function findReview(
 ): Promise<Result<GitHubReviewFound | undefined, ReviewPostProblem>> {
 	const token: GitHubToken | undefined = await access.token(ref.repository.host);
 	if (token === undefined) return err({ kind: 'signed-out' });
+	const who = await ask(access, ref.repository, '/user', token);
+	if (!who.ok) return err(problemOf(who.error));
+	if (who.value.status !== 200) {
+		return err(problemOf(refusal(who.value, ref.repository, token, now)));
+	}
+	const me = userShape.safeParse(who.value.body);
+	if (!me.success) return err({ kind: 'unreadable', status: who.value.status });
 	for (let page = 1; page <= REVIEW_PAGES_SEARCHED; page += 1) {
 		const query = new URLSearchParams({ per_page: '100', page: String(page) });
 		const asked = await ask(
@@ -212,7 +226,9 @@ export async function findReview(
 		}
 		const read = z.array(reviewShape).safeParse(asked.value.body);
 		if (!read.success) return err({ kind: 'unreadable', status: asked.value.status });
-		const found = read.data.find((r) => (r.body ?? '').includes(marker));
+		const found = read.data.find(
+			(r) => r.user?.id === me.data.id && (r.body ?? '').includes(marker)
+		);
 		if (found !== undefined) return ok({ id: found.id, postedAs: postedAsOf(found.state) });
 		if (!/rel="next"/.test(asked.value.headers.get('link') ?? '')) return ok(undefined);
 	}

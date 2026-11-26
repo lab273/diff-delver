@@ -13,6 +13,7 @@ import { parseCommentCount, type CommentCount } from '#lib/core/comment-count.ti
 import { parseDraftCommentId, type DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 import { parseEditCount, type EditCount } from '#lib/core/edit-count.tiny.ts';
 import type { PostedAs } from '#lib/core/github/github-review.ts';
+import { parseReviewMark, type ReviewMark } from '#lib/core/github/review-mark.tiny.ts';
 import { repoPathBytes } from '#lib/core/path-bytes.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { UnitProgress } from '#lib/core/reports/report.ts';
@@ -36,6 +37,8 @@ export interface SentComment {
 /** A review being posted to GitHub, as it was sent. */
 export interface ReviewPostNote {
 	readonly number: ReviewNumber;
+	/** The secret part of the mark its text ends with, made for this post. */
+	readonly mark: ReviewMark;
 	readonly revision: RevisionId;
 	readonly text: TextForAgent;
 	readonly progress: UnitProgress;
@@ -60,6 +63,7 @@ export interface ReviewToNote extends Omit<ReviewPostNote, 'comments'> {
 const row = z
 	.object({
 		number: whole(parseReviewNumber),
+		mark: text(parseReviewMark),
 		revision: text(parseRevisionId),
 		text: text((t) => (t === '' ? err(t) : ok(textForAgent(t)))),
 		counted: whole(parseUnitCount),
@@ -95,7 +99,7 @@ export function reviewBeingPosted(
 	report: ReportId
 ): Result<ReviewPostNote | undefined, StoredRowInvalid> {
 	const found = q.get(
-		`SELECT review_number AS number, revision_id AS revision, export_text AS text, counted,
+		`SELECT review_number AS number, mark, revision_id AS revision, export_text AS text, counted,
 			reviewed, ignored, uncategorised, summary AS overall, summary_edits AS overallEdits,
 			posted_as AS postedAs, all_in_text AS allInText, in_text AS inText
 		 FROM github_review_posts WHERE report_id = ?`,
@@ -131,12 +135,13 @@ export function notePosting(
 ): void {
 	forgetPosting(q, report);
 	q.run(
-		`INSERT INTO github_review_posts (report_id, review_number, started_at, revision_id,
+		`INSERT INTO github_review_posts (report_id, review_number, mark, started_at, revision_id,
 			export_text, counted, reviewed, ignored, uncategorised, summary, summary_edits,
 			posted_as, all_in_text, in_text)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		report,
 		review.number,
+		review.mark,
 		now,
 		review.revision,
 		review.text,
