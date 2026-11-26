@@ -60,19 +60,27 @@ export function lineInView(part: HTMLElement, top: number, bottom: number): Book
 	for (let i = first; i < rows.length; i += 1) {
 		const row = rows[i];
 		if (row === undefined || row.getBoundingClientRect().top >= bottom) break;
-		const marker =
-			row.querySelector('[data-reading-line^="new:"]') ??
-			row.querySelector('[data-reading-line^="old:"]');
-		const [side, line] = marker?.getAttribute('data-reading-line')?.split(':') ?? [];
-		if (side === 'old' || side === 'new') return { side, line: Number(line) };
+		const line = readingLine(row);
+		if (line !== null) return line;
 	}
 	return null;
+}
+
+/** The line a row draws, the new side's first. */
+export function readingLine(row: HTMLTableRowElement): BookmarkLine | null {
+	const marker =
+		row.querySelector('[data-reading-line^="new:"]') ??
+		row.querySelector('[data-reading-line^="old:"]');
+	const [side, line] = marker?.getAttribute('data-reading-line')?.split(':') ?? [];
+	return side === 'old' || side === 'new' ? { side, line: Number(line) } : null;
 }
 
 export interface BookmarkDestination {
 	readonly part: PartState;
 	readonly block: BlockState;
 	readonly index: number;
+	/** Where the line is drawn in its block, counting the block's rows in reading order. */
+	readonly row: number;
 	/** Prefer the part that owns the change, then context drawn with its own hunk. */
 	readonly priority: number;
 }
@@ -86,14 +94,14 @@ export function bookmarkDestination(
 		if (block.kind === 'hidden') {
 			const span = block[target.side];
 			if (target.line >= span.first && target.line <= span.last) {
-				return { part, block, index, priority: 1 };
+				return { part, block, index, row: target.line - span.first, priority: 1 };
 			}
 			continue;
 		}
-		for (const line of block.lines) {
+		for (const [row, line] of block.lines.entries()) {
 			if (line.kind === 'context') {
 				if (line[target.side] === target.line) {
-					return { part, block, index, priority: block.kind === 'hunk' ? 2 : 1 };
+					return { part, block, index, row, priority: block.kind === 'hunk' ? 2 : 1 };
 				}
 			} else if (
 				line.home.kind === 'here' &&
@@ -101,7 +109,7 @@ export function bookmarkDestination(
 					? target.side === 'new' && line.new === target.line
 					: target.side === 'old' && line.old === target.line)
 			) {
-				return { part, block, index, priority: 3 };
+				return { part, block, index, row, priority: 3 };
 			}
 		}
 	}

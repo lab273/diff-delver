@@ -84,6 +84,15 @@ test.describe('J6 Comment and flag', () => {
 		await journey.expectVisible(bar.byText('1 comment and 2 flags', { exact: true }));
 		await journey.step('A comment and two flags');
 
+		// `F` goes from the line the keyboard is on to each flag in reading order, then round.
+		await journey.press('F');
+		await journey.expectFocused(file.byRole('article', { name: 'Your flag on After, line 1' }));
+		await journey.press('F');
+		await journey.expectFocused(file.byRole('article', { name: 'Your flag on After, line 2' }));
+		await journey.press('F');
+		await journey.expectFocused(file.byRole('article', { name: 'Your flag on After, line 1' }));
+		await journey.expectVisible(journey.byText('Back to the first flag.'));
+
 		// A flag's words are added in place; the other is cleared with one press.
 		await journey.activate(
 			flagged(2).byRole('button', { name: 'Add words to your flag on After, line 2', exact: true })

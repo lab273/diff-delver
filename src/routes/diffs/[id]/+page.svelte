@@ -25,7 +25,6 @@
 	} from '#lib/api/schemas.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import { parseEscapedPath, type EscapedPath } from '#lib/core/path-bytes.ts';
-	import type { DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
 	import type { LineNumber } from '#lib/core/line-number.tiny.ts';
 	import FileOpener from '#lib/ui/viewer/FileOpener.svelte';
@@ -69,6 +68,7 @@
 		bookmarkDestination,
 		bookmarkedRow,
 		lineInView,
+		readingLine,
 		readBookmark,
 		saveBookmark,
 		type Bookmark,
@@ -2058,18 +2058,8 @@
 		const line: BookmarkLine = { side: place.anchor.side, line: place.anchor.last };
 		const files = shown.parts.filter((part) => part.part.path === place.anchor.path);
 		const name = shownPath(place.anchor.path);
-		let destination: BookmarkDestination | undefined;
-		for (const part of files) {
-			await shown.load(part.index);
-			if (!going()) return;
-			const found = bookmarkDestination(part, line);
-			if (
-				found !== undefined &&
-				(destination === undefined || found.priority > destination.priority)
-			)
-				destination = found;
-			if (destination?.priority === 3) break;
-		}
+		const destination = await linesHome(shown, files, line, going);
+		if (!going()) return;
 		const part = destination?.part ?? files[0];
 		if (part === undefined) {
 			comments.said = `${name} is not in this version of the Delve.`;
@@ -2121,14 +2111,86 @@
 		}
 	}
 
-	/** The flag `F` last went to, so the next press goes on from it. */
-	let lastFlag: DraftCommentId | undefined;
+	/**
+	 * Where a line of the version shown is drawn: in the part of its file that
+	 * owns it, else where it is drawn as context, with the parts' lines loaded.
+	 */
+	async function linesHome(
+		shown: Viewer,
+		files: readonly PartState[],
+		line: BookmarkLine,
+		going: () => boolean
+	): Promise<BookmarkDestination | undefined> {
+		let destination: BookmarkDestination | undefined;
+		for (const part of files) {
+			await shown.load(part.index);
+			if (!going()) return undefined;
+			const found = bookmarkDestination(part, line);
+			if (
+				found !== undefined &&
+				(destination === undefined || found.priority > destination.priority)
+			)
+				destination = found;
+			if (destination?.priority === 3) break;
+		}
+		return destination;
+	}
+
+	/** A place in reading order: the part, then the block and the row it is drawn in. */
+	type ReadingPlace = readonly [part: number, block: number, row: number];
+
+	function placeOf(destination: BookmarkDestination | undefined): ReadingPlace | undefined {
+		return destination === undefined
+			? undefined
+			: [destination.part.index, destination.index, destination.row];
+	}
+
+	function comparePlaces(a: ReadingPlace, b: ReadingPlace): number {
+		return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+	}
+
+	/**
+	 * Where the reader is, for `F`: the line the keyboard is on, or the flag,
+	 * or else the first line of the part they are on that is on the screen,
+	 * or else the start of that part.
+	 */
+	function readingPlace(shown: Viewer): ReadingPlace | undefined {
+		const at = currentPart();
+		const part = at === undefined ? undefined : shown.parts[at];
+		if (part === undefined) return undefined;
+		const start: ReadingPlace = [part.index, -1, -1];
+		const element = document.getElementById(`part-${String(part.index)}`);
+		if (element === null || part.lines.kind !== 'loaded') return start;
+		const active = document.activeElement;
+		let line: BookmarkLine | null = null;
+		if (active !== null && element.contains(active)) {
+			// A comment or flag is drawn under its last line: the row before it says which.
+			let row = active.closest('tr');
+			while (row !== null && line === null) {
+				line = readingLine(row);
+				row =
+					row.previousElementSibling instanceof HTMLTableRowElement
+						? row.previousElementSibling
+						: null;
+			}
+		}
+		if (line === null) {
+			const box = element.getBoundingClientRect();
+			const header = element.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+			if (box.bottom > 0 && box.top < window.innerHeight)
+				line = lineInView(element, Math.max(0, box.top, header), window.innerHeight);
+		}
+		return line === null ? start : (placeOf(bookmarkDestination(part, line)) ?? start);
+	}
+
+	/** The `F` press under way, which a later one, or another viewer, replaces. */
+	let flagJump: object | undefined;
 
 	/**
 	 * `F`: to the next flag on the version shown, in reading order, after the
-	 * one it last went to, or from the file the reader is on; after the last,
-	 * back to the first. A flag on an earlier version is in the list of
-	 * comments, which says so.
+	 * place the reader is on: by the part that draws its lines, then where they
+	 * are drawn in it. After the last, back to the first. A flag on an earlier
+	 * version is in the list of comments, which says so.
 	 */
 	async function nextFlag(): Promise<void> {
 		const shown = viewer;
@@ -2147,22 +2209,34 @@
 					: 'Your flags are on lines of an earlier version. Open Draft comments to see them.';
 			return;
 		}
-		const place = (f: DraftCommentView): number =>
-			shown.parts.find((part) => part.part.path === f.anchor.path)?.index ?? Infinity;
-		const ordered = [...here].sort(
-			(a, b) =>
-				place(a) - place(b) ||
-				(a.anchor.side === b.anchor.side ? 0 : a.anchor.side === 'old' ? -1 : 1) ||
-				a.anchor.last - b.anchor.last
-		);
-		const last = ordered.findIndex((f) => f.id === lastFlag);
-		const at = currentPart() ?? 0;
-		const next = last >= 0 ? ordered[last + 1] : ordered.find((f) => place(f) >= at);
-		const flag = next ?? ordered[0];
-		if (flag === undefined) return;
-		lastFlag = flag.id;
-		if (next === undefined && ordered.length > 1) comments.said = 'Back to the first flag.';
-		await goToComment(flag, flag);
+		const jump = {};
+		flagJump = jump;
+		const going = (): boolean => flagJump === jump && viewer === shown;
+		// Where the reader is, taken before the flags' files are loaded.
+		const from = readingPlace(shown);
+		const on = document.activeElement?.closest('[data-comment]')?.getAttribute('data-comment');
+		const placed: { flag: DraftCommentView; place: ReadingPlace }[] = [];
+		for (const flag of here) {
+			const files = shown.parts.filter((part) => part.part.path === flag.anchor.path);
+			const line = { side: flag.anchor.side, line: flag.anchor.last };
+			const home = await linesHome(shown, files, line, going);
+			if (!going()) return;
+			const first = files[0];
+			const place = placeOf(home) ?? (first === undefined ? undefined : [first.index, -1, -1]);
+			if (place !== undefined) placed.push({ flag, place });
+		}
+		placed.sort((a, b) => comparePlaces(a.place, b.place) || Number(a.flag.id) - Number(b.flag.id));
+		const at = placed.findIndex((p) => String(p.flag.id) === on);
+		const next =
+			at >= 0
+				? placed[at + 1]
+				: from === undefined
+					? placed[0]
+					: placed.find((p) => comparePlaces(p.place, from) >= 0);
+		const target = next ?? placed[0];
+		if (target === undefined) return;
+		if (next === undefined && placed.length > 1) comments.said = 'Back to the first flag.';
+		await goToComment(target.flag, target.flag);
 	}
 
 	/**
