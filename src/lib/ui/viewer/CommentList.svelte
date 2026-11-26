@@ -1,6 +1,6 @@
 <!--
-	Every comment of the reviewer's draft, in one place above the diff: how many
-	there are, each with its file, its lines and when it was written, on
+	Every comment and flag of the reviewer's draft, in one place above the
+	diff: how many there are, each with its file, its lines and when it was written, on
 	whichever version it was written; and whatever is being written whose lines
 	are not on the page, so it is never out of reach.
 -->
@@ -55,7 +55,11 @@
 		aria-controls={panelId}
 		onclick={() => (expanded = !expanded)}
 	>
-		Draft comments{saved === undefined ? '' : ` (${String(saved.length)})`}
+		Draft comments{saved === undefined
+			? ''
+			: comments.flagCount === 0
+				? ` (${String(comments.commentCount)})`
+				: ` (${String(comments.commentCount)}) and flags (${String(comments.flagCount)})`}
 	</button>
 	{#if underLines.length > 0}
 		<ul class="unsaved" aria-label="Comments not saved yet">
@@ -109,8 +113,8 @@
 		{:else if saved.length === 0}
 			<p>
 				No comments yet. To write one, press the number of a line in a file below, or press
-				<kbd>c</kbd> on a line. Drag over the numbers, or hold Shift with the arrow keys, to take several
-				lines.
+				<kbd>c</kbd> on a line. Drag over the numbers, or hold Shift with the arrow keys, to take
+				several lines. To flag lines to look at again, press <kbd>f</kbd> on one.
 			</p>
 		{:else}
 			<ul>

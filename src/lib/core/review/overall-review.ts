@@ -59,23 +59,48 @@ export function teaserOf(body: string): string | undefined {
 	return `${kept.replace(/[\s.,;:!?-]+$/, '')}…`;
 }
 
-/** How many comments the draft holds, in words: "No comments yet", "1 comment", "3 comments". */
-export function describeDraftComments(count: number): string {
-	return count === 0 ? 'No comments yet' : countOf(count, 'comment', 'comments');
+/**
+ * How many comments and flags the draft holds, in words: "No comments yet",
+ * "1 comment", "3 comments and 1 flag", "2 flags".
+ */
+export function describeDraftComments(count: number, flags = 0): string {
+	if (count === 0 && flags === 0) return 'No comments yet';
+	return inWords([
+		count === 0 ? undefined : countOf(count, 'comment', 'comments'),
+		flags === 0 ? undefined : countOf(flags, 'flag', 'flags')
+	]);
+}
+
+/** What a review holds: how many comments and flags, and whether an overall review. */
+export interface ReviewContents {
+	readonly comments: number;
+	readonly flags: number;
+	readonly overall: boolean;
 }
 
 /**
  * What a review holds, in words: "your overall review and 2 comments", "your
- * 1 comment", "your overall review"; as a finished one is listed, "an overall
- * review and 2 comments", "1 comment".
+ * 1 comment", "your overall review", "your 2 comments and 1 flag"; as a
+ * finished one is listed, "an overall review and 2 comments", "1 comment".
  */
 export function describeReviewContents(
-	comments: number,
-	overall: boolean,
+	{ comments, flags, overall }: ReviewContents,
 	as: 'yours' | 'listed' = 'yours'
 ): string {
-	const counted = countOf(comments, 'comment', 'comments');
-	if (!overall) return as === 'yours' ? `your ${counted}` : counted;
-	const what = comments === 0 ? 'overall review' : `overall review and ${counted}`;
-	return as === 'yours' ? `your ${what}` : `an ${what}`;
+	const what = inWords([
+		overall ? 'overall review' : undefined,
+		comments > 0 || (!overall && flags === 0)
+			? countOf(comments, 'comment', 'comments')
+			: undefined,
+		flags === 0 ? undefined : countOf(flags, 'flag', 'flags')
+	]);
+	if (as === 'yours') return `your ${what}`;
+	return overall ? `an ${what}` : what;
+}
+
+/** Things in words, as a list is said: "a", "a and b", "a, b and c". */
+function inWords(things: readonly (string | undefined)[]): string {
+	const said = things.filter((t) => t !== undefined);
+	const last = said.at(-1) ?? '';
+	return said.length <= 1 ? last : `${said.slice(0, -1).join(', ')} and ${last}`;
 }

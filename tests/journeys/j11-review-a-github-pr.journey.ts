@@ -86,7 +86,11 @@ test.describe('J11 Review a GitHub PR', () => {
 		// A comment on the new file's line, and an overall review.
 		const coupon = journey.within(journey.byRole('article', { name: 'src/coupon.ts' }));
 		await journey.activate(
-			coupon.byRole('button', { name: 'Comment on line 1, after', exact: true })
+			coupon.byRole('button', { name: 'Comment on or flag line 1, after', exact: true })
+		);
+		// The menu under the line: Comment, or Flag.
+		await journey.activate(
+			journey.byRole('button', { name: 'Comment on After, line 1', exact: true })
 		);
 		const box = journey.within(
 			journey.byRole('form', { name: 'New comment on After, line 1', exact: true })
@@ -143,7 +147,11 @@ test.describe('J11 Review a GitHub PR', () => {
 
 		// A second review, posted as a draft on GitHub: its kind is set aside.
 		await journey.activate(
-			coupon.byRole('button', { name: 'Comment on line 1, after', exact: true })
+			coupon.byRole('button', { name: 'Comment on or flag line 1, after', exact: true })
+		);
+		// The menu under the line: Comment, or Flag.
+		await journey.activate(
+			journey.byRole('button', { name: 'Comment on After, line 1', exact: true })
 		);
 		await journey.type('And say which are seasonal.');
 		await journey.activate(

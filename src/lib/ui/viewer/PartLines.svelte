@@ -39,6 +39,7 @@
 		selectionBetween,
 		type LineSelection
 	} from '#lib/core/review/comment-places.ts';
+	import { describeCommentLines } from '#lib/core/review/draft-comment.ts';
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import CommentBox from './CommentBox.svelte';
 	import SavedComment from './SavedComment.svelte';
@@ -268,8 +269,10 @@
 	}
 	// ── Commenting from a line ──────────────────────────────────────────────────
 	//
-	// Each line's number is the control that comments on it, as GitHub's + is:
-	// pressed, it opens the box under the line. Dragging over numbers, or Shift
+	// Each line's number is the control that comments on it or flags it, as
+	// GitHub's + is: pressed, it opens a small menu under the line, Comment and
+	// Flag, for the lines taken (DESIGN 8.1); the `c` and `f` keys do either at
+	// once, through a `diffdelver:raise` event on the number. Dragging over numbers, or Shift
 	// with a press or the arrow keys, takes a run of lines on one side. The
 	// numbers are one stop for Tab in each file, and the arrow keys move among
 	// them (`gutter-lines.ts`). One set of listeners on the table serves every
@@ -283,6 +286,9 @@
 	let drag = $state<number>();
 	/** A browser let in by a link pressed these lines: say how to turn comments on, under them. */
 	let asking = $state.raw<LineSelection>();
+	/** The lines whose menu, Comment or Flag, is open under them. */
+	let menu = $state.raw<LineSelection>();
+	let menuElement = $state<HTMLElement>();
 	let buildingGutter = $state(false);
 	const gutter = $derived(buildingGutter ? new GutterLines(gutterRows()) : undefined);
 
@@ -344,7 +350,8 @@
 	type Under =
 		| { readonly kind: 'saved'; readonly key: string; readonly comment: DraftCommentView }
 		| { readonly kind: 'writing'; readonly key: string; readonly writing: Writing }
-		| { readonly kind: 'asking'; readonly key: string; readonly lines: LineSelection };
+		| { readonly kind: 'asking'; readonly key: string; readonly lines: LineSelection }
+		| { readonly kind: 'menu'; readonly key: string; readonly lines: LineSelection };
 	const under = $derived(
 		byLastLine<Under>(
 			[
@@ -360,7 +367,10 @@
 				})),
 				...(asking === undefined || canReview
 					? []
-					: [{ kind: 'asking', key: 'asking', lines: asking } satisfies Under])
+					: [{ kind: 'asking', key: 'asking', lines: asking } satisfies Under]),
+				...(menu === undefined || !canReview
+					? []
+					: [{ kind: 'menu', key: 'menu', lines: menu } satisfies Under])
 			],
 			(item) =>
 				item.kind === 'saved'
@@ -406,7 +416,12 @@
 
 	/** Whether a line is among those taken, or those a comment being written is on. */
 	function isMarked(side: Side, line: LineNumber): boolean {
-		if (inSelection(taken, side, line) || inSelection(asking, side, line)) return true;
+		if (
+			inSelection(taken, side, line) ||
+			inSelection(asking, side, line) ||
+			inSelection(menu, side, line)
+		)
+			return true;
 		for (const writing of here.writing) {
 			if (inSelection(writing.place.anchor, side, line)) return true;
 		}
@@ -479,18 +494,72 @@
 		cursor = next;
 	}
 
-	/** Opens the box for the lines taken, or for this line alone when it is not among them. */
-	function compose(line: GutterLine): void {
+	/** The lines taken, when `line` is among them, or else `line` alone; the run taken is let go. */
+	function linesFor(line: GutterLine): LineSelection {
 		const alone = selectionBetween(line.side, line.line, line.line);
 		const lines = inSelection(taken, line.side, line.line) ? (taken ?? alone) : alone;
 		cursor = { side: line.side, line: line.line };
 		from = line.line;
+		return lines;
+	}
+
+	/** Opens the menu, Comment or Flag, for the lines taken, or for this line alone. */
+	async function compose(line: GutterLine): Promise<void> {
+		const lines = linesFor(line);
 		if (!canReview) {
 			asking = lines;
 			return;
 		}
-		comments.start({ version: viewer.version, anchor: { path, ...lines } });
+		menu = lines;
+		await tick();
+		// The whole menu on the screen, clear of the bar at the foot of the page.
+		menuElement?.scrollIntoView({ block: 'nearest' });
+		menuElement?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
 	}
+
+	/** Comments on the lines, or flags them, at once: from the menu, or the `c` and `f` keys. */
+	function raise(lines: LineSelection, kind: 'comment' | 'flag'): void {
+		menu = undefined;
+		if (!canReview) {
+			asking = lines;
+			return;
+		}
+		const place = { version: viewer.version, anchor: { path, ...lines } };
+		if (kind === 'comment') {
+			comments.start(place);
+			return;
+		}
+		void comments.flag(place).then(async (flag) => {
+			// Saved, the flag and the way to finish appear: the flag stays on the screen.
+			await tick();
+			const shown =
+				flag === undefined
+					? buttonFor({ side: lines.side, line: lines.last })
+					: table.querySelector(`[data-comment="${String(flag.id)}"]`);
+			shown?.scrollIntoView({ block: 'nearest' });
+		});
+	}
+
+	/** Puts the menu away, and the keyboard back on the line it was opened from. */
+	async function closeMenu(lines: LineSelection): Promise<void> {
+		menu = undefined;
+		await tick();
+		afterBox(lines);
+	}
+
+	// The `c` and `f` keys on a line's number ask for one of the two at once.
+	$effect(() => {
+		const onRaise = (event: Event): void => {
+			const line = lineAt(event.target);
+			const kind: unknown = event instanceof CustomEvent ? event.detail : undefined;
+			if (line === undefined || (kind !== 'comment' && kind !== 'flag')) return;
+			raise(linesFor(line), kind);
+		};
+		table.addEventListener('diffdelver:raise', onRaise);
+		return () => {
+			table.removeEventListener('diffdelver:raise', onRaise);
+		};
+	});
 
 	async function drawAndFocus(
 		line: GutterLine & { readonly chunk: string | undefined }
@@ -559,7 +628,7 @@
 		if (event.pointerId !== drag) return;
 		drag = undefined;
 		dragged = true;
-		if (cursor !== undefined) compose(cursor);
+		if (cursor !== undefined) void compose(cursor);
 	}
 
 	function onClick(event: MouseEvent): void {
@@ -570,7 +639,7 @@
 		if (answered) return;
 		// Enter or Space, the `c` key, a touch, or a screen reader's press.
 		if (event.shiftKey) move({ side: line.side, line: line.line }, true);
-		compose(line);
+		void compose(line);
 	}
 
 	/** Where the keyboard goes when what was under a row has gone: the number it was opened from. */
@@ -591,7 +660,7 @@
 				class:marked
 				tabindex="-1"
 				data-reading-line={`${side}:${line}`}
-				aria-label="Comment on line {line}, {side === 'old' ? 'before' : 'after'}"
+				aria-label="Comment on or flag line {line}, {side === 'old' ? 'before' : 'after'}"
 				aria-pressed={marked ? 'true' : undefined}
 			>
 				{line}
@@ -632,6 +701,55 @@
 								afterBox(item.writing.place.anchor);
 							}}
 						/>
+					{:else if item.kind === 'menu'}
+						{@const lines = item.lines}
+						{@const words = describeCommentLines(lines)}
+						<!-- Escape anywhere in the menu puts it away: one listener for its buttons. -->
+						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+						<div
+							class="line-menu"
+							role="group"
+							aria-label="{words}: comment or flag"
+							data-line-menu
+							bind:this={menuElement}
+							onkeydown={(event) => {
+								if (event.key !== 'Escape') return;
+								event.preventDefault();
+								void closeMenu(lines);
+							}}
+						>
+							<span>{words}</span>
+							<button
+								type="button"
+								data-raise="comment"
+								aria-label="Comment on {words}"
+								onclick={() => {
+									raise(lines, 'comment');
+								}}
+							>
+								Comment
+							</button>
+							<button
+								type="button"
+								data-raise="flag"
+								aria-label="Flag {words} to look at again"
+								onclick={async () => {
+									raise(lines, 'flag');
+									await tick();
+									afterBox(lines);
+								}}
+							>
+								Flag
+							</button>
+							<button
+								type="button"
+								onclick={() => {
+									void closeMenu(lines);
+								}}
+							>
+								Cancel
+							</button>
+						</div>
 					{:else}
 						<div class="asking">
 							<ReviewAccess diff={viewer.id} what="comments" />
@@ -938,7 +1056,7 @@
 	class:split
 	aria-label="{split ? 'Lines side by side' : 'Lines'} of {shownPath(path)}"
 	aria-busy={busy}
-	data-selecting-comment={taken === undefined ? undefined : ''}
+	data-selecting-comment={taken === undefined && menu === undefined ? undefined : ''}
 	onfocusin={onFocus}
 	onkeydown={onKey}
 	onclick={onClick}
@@ -1218,6 +1336,23 @@
 	.folded-comments {
 		color: var(--color-text);
 		font-weight: 700;
+	}
+
+	.line-menu {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.4rem 0.6rem;
+		max-width: 46rem;
+		margin: 0.4rem 0.75rem;
+		font-family: var(--font-body);
+		font-size: 0.875rem;
+		line-height: 1.5;
+	}
+
+	.line-menu button {
+		padding: 0.1rem 0.6rem;
+		font-size: 0.8125rem;
 	}
 
 	.asking {

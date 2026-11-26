@@ -100,7 +100,13 @@
 	const written = $derived(isWritten(overall?.body ?? ''));
 	/** Something to finish: an overall review or a comment. */
 	const drafted = $derived(saved.length > 0 || written);
-	const contents = $derived(describeReviewContents(saved.length, written));
+	const contents = $derived(
+		describeReviewContents({
+			comments: comments.commentCount,
+			flags: comments.flagCount,
+			overall: written
+		})
+	);
 	const next = $derived((reviews?.at(-1)?.number ?? 0) + 1);
 	const unsaved = $derived(comments.overallUnsaved || comments.writing.some((w) => w.worthKeeping));
 	/** The draft's comments and their words, so what finishing would hand over is read again when they change. */
@@ -112,7 +118,9 @@
 	const previewed = $derived(
 		(preview?.comments ?? []).flatMap((shown) => saved.filter((c) => c.id === shown.id))
 	);
-	const inText = $derived(previewed.filter((c) => !onLines.has(c.id)));
+	const inText = $derived(previewed.filter((c) => c.kind === 'comment' && !onLines.has(c.id)));
+	/** Flags go in the review's text on GitHub, never on lines. */
+	const flagsInText = $derived(previewed.filter((c) => c.kind === 'flag'));
 	const lineComments = $derived(previewed.filter((c) => onLines.has(c.id)));
 
 	async function loadReviews(): Promise<void> {
@@ -309,7 +317,7 @@
 				class="note in-text"
 				aria-busy={preview === undefined && previewProblem === '' ? 'true' : undefined}
 			>
-				{inTextWords(inText.length, previewed.length)}
+				{inTextWords(inText.length, previewed.length - flagsInText.length)}
 			</p>
 			{#if unsaved}
 				<p class="note">
@@ -398,6 +406,14 @@
 							<h4>In the review’s text, since GitHub does not show their lines</h4>
 							<ul class="placed">
 								{#each inText as c (c.id)}
+									<li><PathText path={c.anchor.path} />, {describeCommentLines(c.anchor)}</li>
+								{/each}
+							</ul>
+						{/if}
+						{#if flagsInText.length > 0}
+							<h4>Flagged for another look, in the review’s text</h4>
+							<ul class="placed">
+								{#each flagsInText as c (c.id)}
 									<li><PathText path={c.anchor.path} />, {describeCommentLines(c.anchor)}</li>
 								{/each}
 							</ul>
@@ -494,11 +510,7 @@
 				{#each [...reviews].reverse() as review (review.number)}
 					<li>
 						<span>
-							Review {review.number}: {describeReviewContents(
-								review.comments,
-								review.overall,
-								'listed'
-							)}, finished
+							Review {review.number}: {describeReviewContents(review, 'listed')}, finished
 							{now === undefined ? '' : describeTimeAgo(review.submittedAt, now)} on version {review.version}
 						</span>
 						<button

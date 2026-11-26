@@ -55,7 +55,11 @@
 	const editing = $derived(writing.editing !== undefined);
 	/** Away from its lines, it names its file too. */
 	const docked = $derived(where === 'waiting' || where === 'listed');
-	const title = $derived(editing ? 'Editing your comment' : 'New comment');
+	/** The words of a flag, which may be none: emptied and saved, the flag stays, with no words. */
+	const flag = $derived(writing.editing?.kind === 'flag');
+	const title = $derived(
+		flag ? 'Words for your flag' : editing ? 'Editing your comment' : 'New comment'
+	);
 	/** A new comment whose lines are in a version the page no longer shows. */
 	const waiting = $derived(!editing && writing.place.version !== version);
 	const behind = $derived(writing.behindOn === version);
@@ -155,7 +159,7 @@
 		</p>
 	{/if}
 	<label>
-		<span class="label">Comment</span>
+		<span class="label">{flag ? 'Why look again (optional)' : 'Comment'}</span>
 		<!-- No limit on the field itself: it would cut a long paste short without a word. -->
 		<textarea
 			rows="3"
@@ -186,7 +190,7 @@
 	{/if}
 	<div class="actions">
 		<button type="submit" class="primary" aria-disabled={blocked}>
-			{writing.saving ? 'Saving…' : editing ? 'Save changes' : 'Save comment'}
+			{writing.saving ? 'Saving…' : flag ? 'Save words' : editing ? 'Save changes' : 'Save comment'}
 		</button>
 		{#if behind}
 			<button type="button" onclick={showNewer}>Show the new version</button>

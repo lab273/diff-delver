@@ -4,7 +4,9 @@
  * people know from other tools where one exists: `j` and `k` (and `]` and `[`)
  * to the next and previous file, as in GitLab and Gmail; `r` to mark reviewed
  * and go on to the next file waiting, as in Gerrit; `o` to open or close, as
- * in Gmail; `c` to comment, as in Gerrit and GitLab; `d` to open another
+ * in Gmail; `c` to comment, as in Gerrit and GitLab; `f` to flag lines to
+ * look at again, and `F` to go from flag to flag, as `b` and `B` do for the
+ * bookmark; `d` to open another
  * Delve; `v`, for review, to write the overall review; `?` for this list, as
  * on GitHub. They never fire while the person types in a field, nor with
  * Control, Alt or Meta held, so the browser's and the system's own keys still
@@ -18,6 +20,8 @@ export type KeyAction =
 	| 'mark-reviewed'
 	| 'toggle-open'
 	| 'comment'
+	| 'flag'
+	| 'next-flag'
 	| 'whole-file'
 	| 'only-unreviewed'
 	| 'side-by-side'
@@ -53,6 +57,12 @@ export const SHORTCUTS: readonly {
 		does: 'Comment on the line you are on. From anywhere else, go to the lines of the file you are on: the arrow keys move between lines, and Shift with them takes several',
 		action: 'comment'
 	},
+	{
+		keys: ['f'],
+		does: 'Flag the line you are on, or the lines taken, to look at again. From anywhere else, go to the lines of the file you are on',
+		action: 'flag'
+	},
+	{ keys: ['F'], does: 'Go to the next flag', action: 'next-flag' },
 	{
 		keys: ['e'],
 		does: 'Show the whole file you are on, or only its changes',

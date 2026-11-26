@@ -7,6 +7,11 @@
 	While the Delve is open its words can be changed in place, in the box they
 	were written in, and it can be deleted, which asks first, as deleting does
 	everywhere: nothing brings a deleted comment back.
+
+	A flag is drawn the same way, marked as a flag in the page's colour for
+	attention, with its words when the reviewer wrote some: they can be added
+	or changed in the same box, and Clear takes it off at once, without asking,
+	since flagging the lines again is one press.
 -->
 <script lang="ts">
 	import type { DraftCommentView } from '#lib/api/schemas.ts';
@@ -60,6 +65,10 @@
 	let deleting = $state(false);
 	let notDeleted = $state.raw<NotDeleted>();
 
+	const flag = $derived(comment.kind === 'flag');
+	/** What it is, as its buttons name it: "your comment", "your flag". */
+	const yours = $derived(flag ? 'your flag' : 'your comment');
+
 	async function remove(): Promise<void> {
 		if (deleting) return;
 		deleting = true;
@@ -90,9 +99,12 @@
 	bind:this={article}
 	class="comment"
 	class:listed
+	class:flag
 	tabindex="-1"
 	data-comment={listed ? undefined : comment.id}
-	aria-label="Your comment on {listed ? `${shownPath(comment.anchor.path)}, ` : ''}{lines}"
+	aria-label="{flag ? 'Your flag' : 'Your comment'} on {listed
+		? `${shownPath(comment.anchor.path)}, `
+		: ''}{lines}"
 >
 	{#if changing !== undefined && here}
 		<CommentBox
@@ -108,13 +120,17 @@
 		/>
 	{:else}
 		<p class="where">
-			<strong>Your comment</strong>
+			{#if flag}
+				<strong>Flagged to look at again</strong>
+			{:else}
+				<strong>Your comment</strong>
+			{/if}
 			{#if listed}<span class="path"><PathText path={comment.anchor.path} /></span>{/if}
 			<span>{lines}</span>
 			{#if when !== ''}<span>{when}</span>{/if}
 		</p>
 		{#if listed && elsewhere !== undefined}<p class="elsewhere">{elsewhere}</p>{/if}
-		<CommentWords words={comment.body} />
+		{#if comment.body !== ''}<CommentWords words={comment.body} />{/if}
 		{#if changing !== undefined}
 			<p class="elsewhere">
 				You are changing its words {listed
@@ -123,7 +139,9 @@
 			</p>
 		{/if}
 		{#if notDeleted !== undefined}
-			<p class="problem" role="alert">It was not deleted. {notDeleted.message}</p>
+			<p class="problem" role="alert">
+				It was not {flag ? 'cleared' : 'deleted'}. {notDeleted.message}
+			</p>
 		{/if}
 		{#if open || (listed && elsewhere === undefined && ongo !== undefined)}
 			<p class="actions">
@@ -137,25 +155,34 @@
 					</button>
 				{/if}
 				{#if open}
+					{@const words = flag ? (comment.body === '' ? 'Add words' : 'Edit words') : 'Edit'}
 					<button
 						type="button"
-						aria-label="Edit your comment on {name}"
+						aria-label="{words} {flag ? 'to' : 'your comment on'} {flag
+							? `${yours} on ${name}`
+							: name}"
 						onclick={() => {
 							notDeleted = undefined;
 							comments.edit(comment, listed ? 'list' : 'lines');
 						}}
 					>
-						Edit
+						{words}
 					</button>
-					<button
-						type="button"
-						aria-label="Delete your comment on {name}"
-						onclick={() => {
-							asking = true;
-						}}
-					>
-						Delete
-					</button>
+					{#if flag}
+						<button type="button" aria-label="Clear {yours} on {name}" onclick={remove}>
+							{deleting ? 'Clearing…' : 'Clear'}
+						</button>
+					{:else}
+						<button
+							type="button"
+							aria-label="Delete your comment on {name}"
+							onclick={() => {
+								asking = true;
+							}}
+						>
+							Delete
+						</button>
+					{/if}
 				{/if}
 				{#if notDeleted?.behind === true}
 					<button type="button" onclick={showNewer}>Show the new version</button>
@@ -207,6 +234,12 @@
 
 	.where strong {
 		color: var(--color-text);
+	}
+
+	.comment.flag {
+		border-color: var(--color-attention-border);
+		border-left-width: 3px;
+		background: var(--color-attention-background);
 	}
 
 	.comment.listed {

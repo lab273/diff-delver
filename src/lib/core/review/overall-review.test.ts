@@ -64,16 +64,24 @@ describe('the draft’s comments in words', () => {
 		expect(describeDraftComments(0)).toBe('No comments yet');
 		expect(describeDraftComments(1)).toBe('1 comment');
 		expect(describeDraftComments(1234)).toBe('1,234 comments');
+		expect(describeDraftComments(3, 1)).toBe('3 comments and 1 flag');
+		expect(describeDraftComments(0, 2)).toBe('2 flags');
 	});
 });
 
 describe('what a review holds, in words', () => {
 	it('names the overall review first, and counts the comments', () => {
-		expect(describeReviewContents(2, true)).toBe('your overall review and 2 comments');
-		expect(describeReviewContents(1, false)).toBe('your 1 comment');
-		expect(describeReviewContents(0, true)).toBe('your overall review');
-		expect(describeReviewContents(0, true, 'listed')).toBe('an overall review');
-		expect(describeReviewContents(3, true, 'listed')).toBe('an overall review and 3 comments');
-		expect(describeReviewContents(3, false, 'listed')).toBe('3 comments');
+		const of = (comments: number, overall: boolean, flags = 0) => ({ comments, flags, overall });
+		expect(describeReviewContents(of(2, true))).toBe('your overall review and 2 comments');
+		expect(describeReviewContents(of(1, false))).toBe('your 1 comment');
+		expect(describeReviewContents(of(0, true))).toBe('your overall review');
+		expect(describeReviewContents(of(0, true), 'listed')).toBe('an overall review');
+		expect(describeReviewContents(of(3, true), 'listed')).toBe('an overall review and 3 comments');
+		expect(describeReviewContents(of(3, false), 'listed')).toBe('3 comments');
+		expect(describeReviewContents(of(2, true, 1))).toBe(
+			'your overall review, 2 comments and 1 flag'
+		);
+		expect(describeReviewContents(of(0, false, 2))).toBe('your 2 flags');
+		expect(describeReviewContents(of(0, true, 1), 'listed')).toBe('an overall review and 1 flag');
 	});
 });

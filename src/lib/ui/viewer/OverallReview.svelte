@@ -63,7 +63,8 @@
 	const loaded = $derived(comments.overall !== undefined);
 	const teaser = $derived(teaserOf(comments.overall?.body ?? ''));
 	const unsaved = $derived(comments.overallUnsaved);
-	const savedCount = $derived(comments.saved?.length ?? 0);
+	const savedCount = $derived(comments.commentCount);
+	const flagCount = $derived(comments.flagCount);
 	const beingWritten = $derived(
 		comments.writing.filter((w) => w.editing === undefined && w.worthKeeping).length
 	);
@@ -149,10 +150,10 @@
 			{#if unsaved}<span class="unsaved">Not saved</span>{/if}
 			<span class="count">
 				{beingWritten === 0
-					? describeDraftComments(savedCount)
-					: savedCount === 0
+					? describeDraftComments(savedCount, flagCount)
+					: savedCount === 0 && flagCount === 0
 						? `${countOf(beingWritten, 'comment', 'comments')} being written`
-						: `${describeDraftComments(savedCount)}, ${formatCount(beingWritten)} more being written`}
+						: `${describeDraftComments(savedCount, flagCount)}, ${formatCount(beingWritten)} more being written`}
 			</span>
 			{#if open && comments.finishable}
 				<button type="button" class="finish" onclick={onfinish}>Finish your review</button>

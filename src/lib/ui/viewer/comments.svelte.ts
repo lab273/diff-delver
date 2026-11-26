@@ -6,13 +6,15 @@
  * piece of writing is drawn under its lines while they are on the page, and
  * in the list of comments when they are not. The draft's overall review is
  * held here too, saved and as typed, for the bar at the foot of the page.
+ * Flags are kept here beside the comments, as the draft keeps them: a flag
+ * is saved at once, with no words, and its words are written as a comment's.
  */
 import { describeApiError, type ApiClient } from '#lib/api/client.ts';
 import type { AddDraftComment, DraftCommentView, OverallReviewView } from '#lib/api/schemas.ts';
 import type { EditCount } from '#lib/core/edit-count.tiny.ts';
 import type { EscapedPath } from '#lib/core/path-bytes.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
-import { isCommentBody, MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
+import { isThreadBody, MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
 import {
 	isOverallReviewBody,
 	isWritten,
@@ -249,7 +251,7 @@ export class Comments {
 		}
 		this.saved = (this.saved ?? []).filter((c) => c.id !== comment.id);
 		this.writing = this.writing.filter((w) => w.editing?.id !== comment.id);
-		this.said = 'Comment deleted.';
+		this.said = comment.kind === 'flag' ? 'Flag cleared.' : 'Comment deleted.';
 		return undefined;
 	}
 
@@ -272,6 +274,44 @@ export class Comments {
 		return (
 			typed !== undefined && storedOverallReview(typed) !== ((base ?? this.overall)?.body ?? '')
 		);
+	}
+
+	/** How many saved comments the draft holds, flags apart. */
+	get commentCount(): number {
+		return (this.saved ?? []).filter((c) => c.kind === 'comment').length;
+	}
+
+	/** How many saved flags the draft holds. */
+	get flagCount(): number {
+		return (this.saved ?? []).filter((c) => c.kind === 'flag').length;
+	}
+
+	/**
+	 * Flags lines of the version shown, at once and with no words. Lines
+	 * flagged already keep the flag they have, which is given back. A flag
+	 * that is refused says why, for a screen reader and in `problem`'s place.
+	 */
+	async flag(place: CommentPlace): Promise<DraftCommentView | undefined> {
+		const there = (this.saved ?? []).find((c) => c.kind === 'flag' && samePlace(c, place));
+		if (there !== undefined) {
+			this.said = 'Those lines are flagged already. Clear the flag under them to take it off.';
+			return there;
+		}
+		const saved = await this.#client.addDraftComment(this.id, {
+			...place,
+			kind: 'flag',
+			body: ''
+		});
+		if (!saved.ok) {
+			this.said = `The lines were not flagged. ${describeApiError(saved.error)}`;
+			return undefined;
+		}
+		if (!(this.saved ?? []).some((c) => c.id === saved.value.id)) {
+			this.saved = [...(this.saved ?? []), saved.value];
+		}
+		this.said = 'Flagged to look at again.';
+		void this.load();
+		return saved.value;
 	}
 
 	/** Whether there is anything to finish: a saved comment, or a saved overall review. */
@@ -365,7 +405,7 @@ export class Comments {
 		if (writing.saving || (editing === undefined && writing.place.version !== shown)) {
 			return { kind: 'not-saved' };
 		}
-		if (!isCommentBody(writing.body)) {
+		if (!isThreadBody(editing?.kind ?? 'comment', writing.body)) {
 			writing.problem =
 				writing.body.trim() === ''
 					? 'Write a comment before saving.'
@@ -410,7 +450,12 @@ export class Comments {
 				? [...(this.saved ?? []), saved.value]
 				: (this.saved ?? []).map((c) => (c.id === editing.id ? saved.value : c));
 		this.discard(writing);
-		this.said = editing === undefined ? 'Comment saved.' : 'Comment changed.';
+		this.said =
+			editing === undefined
+				? 'Comment saved.'
+				: editing.kind === 'flag'
+					? 'Flag’s words saved.'
+					: 'Comment changed.';
 		// Read again for the daemon's time, and for what another tab saved meanwhile.
 		void this.load();
 		return { kind: 'saved', comment: saved.value };

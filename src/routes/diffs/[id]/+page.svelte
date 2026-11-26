@@ -25,6 +25,7 @@
 	} from '#lib/api/schemas.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import { parseEscapedPath, type EscapedPath } from '#lib/core/path-bytes.ts';
+	import type { DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
 	import type { LineNumber } from '#lib/core/line-number.tiny.ts';
 	import FileOpener from '#lib/ui/viewer/FileOpener.svelte';
@@ -1860,7 +1861,13 @@
 				void goToPart(at, false);
 				return;
 			case 'comment':
-				void commentKey();
+				void commentKey('comment');
+				return;
+			case 'flag':
+				void commentKey('flag');
+				return;
+			case 'next-flag':
+				void nextFlag();
 				return;
 			case 'whole-file':
 				if (byFile || at === undefined) return;
@@ -2114,28 +2121,79 @@
 		}
 	}
 
+	/** The flag `F` last went to, so the next press goes on from it. */
+	let lastFlag: DraftCommentId | undefined;
+
 	/**
-	 * The `c` key. On a line's number, it comments on that line, or on the lines
-	 * taken with it. Anywhere else, it goes to the lines of the file the person
-	 * is on, at the first one on the screen, from where the arrow keys move.
+	 * `F`: to the next flag on the version shown, in reading order, after the
+	 * one it last went to, or from the file the reader is on; after the last,
+	 * back to the first. A flag on an earlier version is in the list of
+	 * comments, which says so.
 	 */
-	async function commentKey(): Promise<void> {
+	async function nextFlag(): Promise<void> {
+		const shown = viewer;
+		if (shown === undefined) return;
+		const comments = commentsFor(shown.id);
+		if (byFile) {
+			shown.announcement = 'Flags are drawn at their lines. Choose By section to see them.';
+			return;
+		}
+		const flags = (comments.saved ?? []).filter((c) => c.kind === 'flag');
+		const here = flags.filter((f) => f.version === shown.version);
+		if (here.length === 0) {
+			shown.announcement =
+				flags.length === 0
+					? 'No lines are flagged yet. Press f on a line to flag it.'
+					: 'Your flags are on lines of an earlier version. Open Draft comments to see them.';
+			return;
+		}
+		const place = (f: DraftCommentView): number =>
+			shown.parts.find((part) => part.part.path === f.anchor.path)?.index ?? Infinity;
+		const ordered = [...here].sort(
+			(a, b) =>
+				place(a) - place(b) ||
+				(a.anchor.side === b.anchor.side ? 0 : a.anchor.side === 'old' ? -1 : 1) ||
+				a.anchor.last - b.anchor.last
+		);
+		const last = ordered.findIndex((f) => f.id === lastFlag);
+		const at = currentPart() ?? 0;
+		const next = last >= 0 ? ordered[last + 1] : ordered.find((f) => place(f) >= at);
+		const flag = next ?? ordered[0];
+		if (flag === undefined) return;
+		lastFlag = flag.id;
+		if (next === undefined && ordered.length > 1) comments.said = 'Back to the first flag.';
+		await goToComment(flag, flag);
+	}
+
+	/**
+	 * The `c` and `f` keys. On a line's number, `c` comments on that line, or on
+	 * the lines taken with it, and `f` flags them; in the menu under them, each
+	 * presses its button. Anywhere else, they go to the lines of the file the
+	 * person is on, at the first one on the screen, from where the arrow keys move.
+	 */
+	async function commentKey(kind: 'comment' | 'flag'): Promise<void> {
 		const shown = viewer;
 		if (shown === undefined) return;
 		if (byFile) {
-			shown.announcement = 'Comments are written on lines. Choose By section to see them.';
+			shown.announcement = `${kind === 'flag' ? 'Flags are raised' : 'Comments are written'} on lines. Choose By section to see them.`;
 			return;
 		}
 		const on = document.activeElement;
 		if (on instanceof HTMLButtonElement && on.matches('.pick-line')) {
-			on.click();
+			on.dispatchEvent(new CustomEvent('diffdelver:raise', { bubbles: true, detail: kind }));
+			return;
+		}
+		const menu = on?.closest('[data-line-menu]');
+		if (menu != null) {
+			menu.querySelector<HTMLButtonElement>(`[data-raise="${kind}"]`)?.click();
 			return;
 		}
 		const at = currentPart();
 		const state = at === undefined ? undefined : shown.parts[at];
 		if (at === undefined || state === undefined) return;
 		if (shown.summary.state.kind !== 'open') {
-			shown.announcement = 'This Delve is closed, so it cannot be commented on. Reopen it first.';
+			shown.announcement =
+				'This Delve is closed, so its lines cannot be commented on or flagged. Reopen it first.';
 			return;
 		}
 		const name = shownPath(state.part.path);
@@ -2160,7 +2218,7 @@
 			return;
 		}
 		line.focus();
-		shown.announcement = `On ${line.getAttribute('aria-label')?.replace('Comment on ', '') ?? 'a line'} of ${name}. Press c again to comment on it; the arrow keys move between lines, and Shift with them takes several.`;
+		shown.announcement = `On ${line.getAttribute('aria-label')?.replace('Comment on or flag ', '') ?? 'a line'} of ${name}. Press ${kind === 'flag' ? 'f again to flag it' : 'c again to comment on it'}; the arrow keys move between lines, and Shift with them takes several.`;
 	}
 </script>
 

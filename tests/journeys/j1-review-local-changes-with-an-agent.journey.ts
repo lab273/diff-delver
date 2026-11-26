@@ -46,7 +46,11 @@ test.describe('J1 Review local changes with an agent', () => {
 		await journey.activate(journey.byRole('checkbox', { name: 'Reviewed: src/cart.ts' }), 'Space');
 		const discount = journey.within(journey.byRole('article', { name: 'src/discount.ts' }));
 		await journey.activate(
-			discount.byRole('button', { name: 'Comment on line 1, after', exact: true })
+			discount.byRole('button', { name: 'Comment on or flag line 1, after', exact: true })
+		);
+		// The menu under the line: Comment, or Flag.
+		await journey.activate(
+			journey.byRole('button', { name: 'Comment on After, line 1', exact: true })
 		);
 		const box = journey.within(
 			journey.byRole('form', { name: 'New comment on After, line 1', exact: true })

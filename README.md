@@ -17,8 +17,8 @@ your review progress on your machine.
   code changes, your ticks stay on the lines that did not.
 - **It stays on your machine.** diff delver never writes to the repository you review.
 
-> **Status: early build.** You can review a diff, write private draft comments,
-> finish them as a review to paste to an agent, and have an agent sort changes into
+> **Status: early build.** You can review a diff, write private draft comments
+> and flag lines, finish them as a review to paste to an agent, and have an agent sort changes into
 > sections. It has been built and tested on Linux only. See
 > [What works today](#what-works-today).
 
@@ -56,11 +56,12 @@ On the page you can:
   are on and moves to the next you have not reviewed, so pressing it again and again
   works through the diff. The bar on the left shows how far you have got.
 - **Move on** to the next file you have not reviewed (`n`).
-- **Comment** on a line by pressing its number, or `c` on it. Drag over the numbers,
-  or hold Shift, to take several lines. Comments are private drafts on your machine,
-  shown at their lines, and you can edit or delete them.
-- **Finish and copy** your comments as a review: it goes on the clipboard, written
-  for an agent, with the code each comment is on. Paste it to your agent, or ask your
+- **Comment** on a line, or **flag** it to look at again: press its number and
+  choose, or press `c` or `f` on it. Drag over the numbers, or hold Shift, to take
+  several lines. Comments and flags are private drafts on your machine, shown at
+  their lines; a flag needs no words, and `F` goes from flag to flag.
+- **Finish and copy** your comments and flags as a review: it goes on the clipboard,
+  written for an agent, with the code each comment is on. Paste it to your agent, or ask your
   agent to act on your review in diff delver, and it reads the same review.
 - **Search** the whole diff (`/`), including files that are closed.
 - **Open file** (`t`) to find a filename and read it as of this Delve, before or after the changes.
@@ -167,7 +168,7 @@ Finishing a review of a pull request posts it to GitHub as one review from your
 account, as a comment, an approval or a request for changes, or, with **Post as a
 draft on GitHub** ticked, as a draft only you see until you submit it there. A
 comment on lines GitHub does not show goes in the review's text, so nothing is
-left out; **Show what will be posted** shows it all first. Posting needs you signed in with a token that can write pull requests;
+left out, and so do flags; **Show what will be posted** shows it all first. Posting needs you signed in with a token that can write pull requests;
 **Finish and copy only** hands the review over without posting it.
 
 <picture>
@@ -200,8 +201,8 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 - Reading a diff: code coloured by language, one column or side by side, white-space
   changes hidden, unchanged lines opened, search, and a reading bookmark that
   survives reload in the same tab.
-- Writing, editing and deleting private draft comments on either side of a diff,
-  including unchanged lines, and an overall review in a bar at the foot of the page,
+- Writing, editing and deleting private draft comments, and flagging lines to look
+  at again, on either side of a diff, including unchanged lines, and an overall review in a bar at the foot of the page,
   and finishing them as a numbered review that is copied for an agent and that an
   agent can read through the MCP server.
 - Changed images (PNG, JPEG, GIF, WebP and SVG) shown as pictures, with their sizes:
@@ -218,7 +219,7 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 Not built yet:
 
 - The agent’s cross-references between sections.
-- Flags, agent notes, replies to earlier reviews and asking the agent from the page.
+- Agent notes, replies to earlier reviews and asking the agent from the page.
 - Saving a review to a file.
 - A pull request with no clone of its repository on this machine, and GitHub
   Enterprise.

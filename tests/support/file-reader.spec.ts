@@ -44,7 +44,8 @@ for (const { reload, startPinned, name } of [
 				.getByRole('form', { name: /^New comment/ })
 				.getByRole('textbox', { name: 'Comment', exact: true });
 			if (!reload) {
-				await part.getByRole('button', { name: 'Comment on line 1, after' }).click();
+				await part.getByRole('button', { name: 'Comment on or flag line 1, after' }).click();
+				await part.getByRole('button', { name: 'Comment on After, line 1', exact: true }).click();
 				await draft.fill('Keep this draft through history.');
 				await page.getByRole('button', { name: 'Open file', exact: true }).focus();
 			}
