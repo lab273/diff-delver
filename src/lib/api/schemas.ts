@@ -14,6 +14,8 @@ import { z } from 'zod';
 import { IMAGE_FORMATS, NOT_IMAGE_KINDS } from '#lib/core/image/image-format.ts';
 import { FILE_PAGE_LINES, FILE_QUERY_LENGTH } from '#lib/core/viewer/file-reader.ts';
 import { MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
+import { NOTE_LABELS } from '#lib/core/review/agent-note.ts';
+import { parseAgentNoteId } from '#lib/core/agent-note-id.tiny.ts';
 import { MAX_OVERALL_REVIEW_LENGTH } from '#lib/core/review/overall-review.ts';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
@@ -375,12 +377,35 @@ const FileSchema = z.object({
 });
 export type FileView = z.output<typeof FileSchema>;
 
+const agentNoteId = parsed(z.number(), parseAgentNoteId);
+
+/**
+ * One agent note of the version shown (DESIGN 5): its label, its lines, the
+ * agent's words, to be drawn as agent text, and whether it was dismissed. A
+ * promoted note is not sent: it is a comment of the draft by then.
+ */
+export const AgentNoteSchema = z.strictObject({
+	id: agentNoteId,
+	label: z.enum(NOTE_LABELS),
+	anchor: z.strictObject({
+		path: escapedPath,
+		side: z.enum(['old', 'new']),
+		first: lineNumber,
+		last: lineNumber
+	}),
+	text: parsed(z.string(), parseAgentMarkdown),
+	dismissed: z.boolean()
+});
+export type AgentNoteView = z.output<typeof AgentNoteSchema>;
+
 /** GET /api/diffs/:id: a diff's page, without the code, which comes a part at a time. */
 const frameStamp = z.string().min(1).max(256);
 export const DiffPageSchema = z.object({
 	now: timestamp,
 	summary: DiffSummarySchema,
 	overview: parsed(z.string(), parseAgentMarkdown).nullable(),
+	/** The agent's notes on this version, in the order they were added. */
+	notes: z.array(AgentNoteSchema),
 	/** Identifies the frame of this version and view for a conditional read. */
 	frame: frameStamp,
 	/** The sorting the reviewer saw when deciding to tick a slice or group. */
@@ -642,7 +667,8 @@ export const SettingsSchema = z.object({
 	searchMatchCase: z.boolean(),
 	searchChangedOnly: z.boolean(),
 	searchSkipClosed: z.boolean(),
-	overallReviewOpen: z.boolean()
+	overallReviewOpen: z.boolean(),
+	agentNotes: z.boolean()
 });
 export type SettingsView = z.output<typeof SettingsSchema>;
 
@@ -654,7 +680,8 @@ export const SettingChangeSchema = z.discriminatedUnion('name', [
 	z.object({ name: z.literal('search-match-case'), value: z.boolean() }),
 	z.object({ name: z.literal('search-changed-only'), value: z.boolean() }),
 	z.object({ name: z.literal('search-skip-closed'), value: z.boolean() }),
-	z.object({ name: z.literal('overall-review-open'), value: z.boolean() })
+	z.object({ name: z.literal('overall-review-open'), value: z.boolean() }),
+	z.object({ name: z.literal('agent-notes'), value: z.boolean() })
 ]);
 export type SettingChangeRequest = z.output<typeof SettingChangeSchema>;
 
@@ -1081,6 +1108,25 @@ export const DraftCommentsSchema = z.strictObject({
 	overall: OverallReviewSchema
 });
 export type DraftCommentsView = z.infer<typeof DraftCommentsSchema>;
+
+/**
+ * POST /api/diffs/[id]/notes, from a page that shows `version`, the current
+ * one: dismisses a note, promotes one into the draft, or brings back every
+ * note dismissed on the version.
+ */
+export const NoteActionSchema = z.discriminatedUnion('action', [
+	z.strictObject({ action: z.literal('dismiss'), version, note: agentNoteId }),
+	z.strictObject({ action: z.literal('promote'), version, note: agentNoteId }),
+	z.strictObject({ action: z.literal('bring-back'), version })
+]);
+export type NoteAction = z.infer<typeof NoteActionSchema>;
+
+/** What a note action left: the version's notes, and the comment a promoted note became. */
+export const NotesChangedSchema = z.strictObject({
+	notes: z.array(AgentNoteSchema),
+	comment: DraftCommentSchema.nullable()
+});
+export type NotesChangedView = z.infer<typeof NotesChangedSchema>;
 
 /** A comment's id in an address, where it is text. */
 export const DraftCommentIdInAddressSchema = parsed(

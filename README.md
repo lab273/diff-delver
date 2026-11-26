@@ -218,11 +218,15 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex
   have both done it in the project's [recorded trials](tests/agent-trials/README.md).
 - The agent's overview and section summaries appear while the Delve is open.
+- Agent notes: the agent can point at lines with a label (possible bug, risk,
+  question, info). They are shown at their lines as the agent's, after your own
+  comments; `a` hides them all, Dismiss puts one away, and **Promote to review**
+  makes one a comment of yours. Only promoted ones go in your review.
 
 Not built yet:
 
 - The agent’s cross-references between sections.
-- Agent notes, replies to earlier reviews and asking the agent from the page.
+- Replies to earlier reviews and asking the agent from the page.
 - Saving a review to a file.
 - A pull request with no clone of its repository on this machine, and GitHub
   Enterprise.

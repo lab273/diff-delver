@@ -36,6 +36,7 @@
 		open,
 		canReview,
 		expanded,
+		notesWaiting = 0,
 		onexpand,
 		onfinish,
 		height = $bindable(0)
@@ -48,6 +49,8 @@
 		canReview: boolean;
 		/** Whether the bar is open, with its box. */
 		expanded: boolean;
+		/** The agent's notes on the version shown that wait, counted apart from the reviewer's own. */
+		notesWaiting?: number;
 		/** The person opened or put away the bar. */
 		onexpand: (expanded: boolean) => void;
 		/** The person asked to finish the review: the page takes them to Finish and copy. */
@@ -155,6 +158,11 @@
 						? `${countOf(beingWritten, 'comment', 'comments')} being written`
 						: `${describeDraftComments(savedCount, flagCount)}, ${formatCount(beingWritten)} more being written`}
 			</span>
+			{#if notesWaiting > 0}
+				<span class="agent-count">
+					{countOf(notesWaiting, 'agent note', 'agent notes')} waiting
+				</span>
+			{/if}
 			{#if open && comments.finishable}
 				<button type="button" class="finish" onclick={onfinish}>Finish your review</button>
 			{/if}
@@ -313,6 +321,7 @@
 
 	.muted,
 	.count,
+	.agent-count,
 	.private,
 	.note {
 		color: var(--color-muted);

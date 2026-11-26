@@ -221,13 +221,15 @@ describe('the person’s settings', () => {
 				searchMatchCase: false,
 				searchChangedOnly: false,
 				searchSkipClosed: false,
-				overallReviewOpen: false
+				overallReviewOpen: false,
+				agentNotes: true
 			});
 			value(await client.changeSetting({ name: 'colours', value: false }));
 			value(await client.changeSetting({ name: 'hide-white-space', value: true }));
 			value(await client.changeSetting({ name: 'search-match-case', value: true }));
 			value(await client.changeSetting({ name: 'search-skip-closed', value: true }));
 			value(await client.changeSetting({ name: 'overall-review-open', value: true }));
+			value(await client.changeSetting({ name: 'agent-notes', value: false }));
 			expect(value(await client.changeSetting({ name: 'layout', value: 'side-by-side' }))).toEqual({
 				colours: false,
 				layout: 'side-by-side',
@@ -235,7 +237,8 @@ describe('the person’s settings', () => {
 				searchMatchCase: true,
 				searchChangedOnly: false,
 				searchSkipClosed: true,
-				overallReviewOpen: true
+				overallReviewOpen: true,
+				agentNotes: false
 			});
 		} finally {
 			await first.stop();
@@ -249,7 +252,8 @@ describe('the person’s settings', () => {
 				searchMatchCase: true,
 				searchChangedOnly: false,
 				searchSkipClosed: true,
-				overallReviewOpen: true
+				overallReviewOpen: true,
+				agentNotes: false
 			});
 		} finally {
 			await second.stop();

@@ -50,6 +50,7 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import CommentList from '#lib/ui/viewer/CommentList.svelte';
+	import AgentNotes from '#lib/ui/viewer/AgentNotes.svelte';
 	import FinishReview from '#lib/ui/viewer/FinishReview.svelte';
 	import OverallReview from '#lib/ui/viewer/OverallReview.svelte';
 	import { Writing, type CommentPlace, type Comments } from '#lib/ui/viewer/comments.svelte.ts';
@@ -612,6 +613,7 @@
 		if (viewer !== undefined) {
 			viewer.colouring = settings.colours;
 			viewer.hideWhiteSpace = settings.hideWhiteSpace;
+			viewer.showNotes = settings.agentNotes;
 			viewer.announcement = said;
 		}
 		const saved = await pageClient().changeSetting(change);
@@ -637,6 +639,15 @@
 			hide
 				? 'Changes that only change white space are drawn as unchanged lines. They are still counted, and marking a file reviewed covers them.'
 				: 'Changes that only change white space are shown.'
+		);
+	}
+
+	function setShowNotes(shown: boolean): void {
+		void changeSetting(
+			{ name: 'agent-notes', value: shown },
+			shown
+				? 'Agent notes are shown at their lines.'
+				: 'Agent notes are hidden. They are still counted above the diff; press a to show them again.'
 		);
 	}
 
@@ -1881,6 +1892,13 @@
 			case 'white-space':
 				setHideWhiteSpace(!settings.hideWhiteSpace);
 				return;
+			case 'agent-notes':
+				if (viewer.notes.length === 0) {
+					viewer.announcement = 'The agent left no notes on this version.';
+					return;
+				}
+				setShowNotes(!settings.agentNotes);
+				return;
 			case 'side-by-side':
 				setLayout(settings.layout === 'side-by-side' ? 'unified' : 'side-by-side');
 				return;
@@ -2716,6 +2734,16 @@
 						: 'The sections were updated. They show here once you leave the comment you are writing.'}
 				</p>
 			{/if}
+			{#if viewer.notes.length > 0}
+				<AgentNotes
+					waiting={viewer.notes.filter((n) => !n.dismissed).length}
+					dismissed={viewer.notes.filter((n) => n.dismissed).length}
+					shown={settings.agentNotes}
+					act={data.canReview && summary.state.kind === 'open'}
+					onshow={setShowNotes}
+					onrestore={() => viewer.changeNotes({ action: 'bring-back' })}
+				/>
+			{/if}
 			{#if data.canReview}
 				{#if reviewTurnedOn}
 					<p class="turned-on" role="status">Comments are on in this browser now.</p>
@@ -2854,6 +2882,7 @@
 				open={summary.state.kind === 'open'}
 				canReview={data.canReview}
 				expanded={settings.overallReviewOpen}
+				notesWaiting={viewer.notes.filter((n) => !n.dismissed).length}
 				onexpand={setOverallOpen}
 				onfinish={goToFinish}
 				bind:height={overallHeight}

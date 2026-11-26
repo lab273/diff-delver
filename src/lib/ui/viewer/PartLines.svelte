@@ -31,7 +31,7 @@
 	import type { Mark } from '#lib/core/search/marks.ts';
 	import { ROWS_PER_CHUNK } from '#lib/core/viewer/chunks.ts';
 	import { GutterLines, type GutterLine, type GutterRow } from './gutter-lines.ts';
-	import type { DraftCommentView } from '#lib/api/schemas.ts';
+	import type { AgentNoteView, DraftCommentView } from '#lib/api/schemas.ts';
 	import {
 		byLastLine,
 		inSelection,
@@ -43,6 +43,7 @@
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import CommentBox from './CommentBox.svelte';
 	import SavedComment from './SavedComment.svelte';
+	import AgentNote from './AgentNote.svelte';
 	import type { Comments, Writing } from './comments.svelte.ts';
 	import { parseLineNumber, type LineNumber } from '#lib/core/line-number.tiny.ts';
 	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
@@ -351,7 +352,12 @@
 		| { readonly kind: 'saved'; readonly key: string; readonly comment: DraftCommentView }
 		| { readonly kind: 'writing'; readonly key: string; readonly writing: Writing }
 		| { readonly kind: 'asking'; readonly key: string; readonly lines: LineSelection }
-		| { readonly kind: 'menu'; readonly key: string; readonly lines: LineSelection };
+		| { readonly kind: 'menu'; readonly key: string; readonly lines: LineSelection }
+		| { readonly kind: 'note'; readonly key: string; readonly note: AgentNoteView };
+	/** The agent's notes on this file, drawn after the reviewer's own, unless dismissed or all hidden. */
+	const notesHere = $derived(
+		viewer.showNotes ? viewer.notes.filter((n) => !n.dismissed && n.anchor.path === path) : []
+	);
 	const under = $derived(
 		byLastLine<Under>(
 			[
@@ -370,14 +376,17 @@
 					: [{ kind: 'asking', key: 'asking', lines: asking } satisfies Under]),
 				...(menu === undefined || !canReview
 					? []
-					: [{ kind: 'menu', key: 'menu', lines: menu } satisfies Under])
+					: [{ kind: 'menu', key: 'menu', lines: menu } satisfies Under]),
+				...notesHere.map((note): Under => ({ kind: 'note', key: `note:${String(note.id)}`, note }))
 			],
 			(item) =>
 				item.kind === 'saved'
 					? item.comment.anchor
 					: item.kind === 'writing'
 						? item.writing.place.anchor
-						: item.lines
+						: item.kind === 'note'
+							? item.note.anchor
+							: item.lines
 		)
 	);
 
@@ -722,6 +731,29 @@
 							{showNewer}
 							onclosed={() => {
 								afterBox(item.writing.place.anchor);
+							}}
+						/>
+					{:else if item.kind === 'note'}
+						{@const note = item.note}
+						<AgentNote
+							{note}
+							act={canComment && canReview}
+							ondismiss={async () => {
+								const problem = await viewer.changeNotes({ action: 'dismiss', note: note.id });
+								if (problem === undefined) {
+									await tick();
+									afterBox(note.anchor);
+								}
+								return problem;
+							}}
+							onpromote={async () => {
+								const problem = await viewer.changeNotes({ action: 'promote', note: note.id });
+								if (problem === undefined) {
+									await comments.load();
+									await tick();
+									afterBox(note.anchor);
+								}
+								return problem;
 							}}
 						/>
 					{:else if item.kind === 'menu'}

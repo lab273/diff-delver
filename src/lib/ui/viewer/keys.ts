@@ -7,7 +7,8 @@
  * in Gmail; `c` to comment, as in Gerrit and GitLab; `f` to flag lines to
  * look at again, and `F` to go from flag to flag, as `b` and `B` do for the
  * bookmark; `d` to open another
- * Delve; `v`, for review, to write the overall review; `?` for this list, as
+ * Delve; `v`, for review, to write the overall review; `a` to hide or show
+ * the agent's notes; `?` for this list, as
  * on GitHub. They never fire while the person types in a field, nor with
  * Control, Alt or Meta held, so the browser's and the system's own keys still
  * work.
@@ -26,6 +27,7 @@ export type KeyAction =
 	| 'only-unreviewed'
 	| 'side-by-side'
 	| 'white-space'
+	| 'agent-notes'
 	| 'compare-images'
 	| 'bookmark'
 	| 'return-to-bookmark'
@@ -82,6 +84,11 @@ export const SHORTCUTS: readonly {
 		keys: ['w'],
 		does: 'Hide changes that only change white space, or show them',
 		action: 'white-space'
+	},
+	{
+		keys: ['a'],
+		does: 'Hide the agent’s notes, or show them again',
+		action: 'agent-notes'
 	},
 	{
 		keys: ['i'],

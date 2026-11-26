@@ -22,6 +22,7 @@ import type {
 	FileView,
 	GroupKeyView,
 	Marked,
+	NoteAction,
 	PartLines,
 	PartView,
 	ShownLineView,
@@ -338,6 +339,10 @@ export type TickOutcome =
 	| { readonly kind: 'refused'; readonly outOfDate: boolean }
 	| { readonly kind: 'sorting-changed'; readonly message: string };
 
+/** What can be done to the agent's notes, without the version, which is the one shown. */
+export type NoteActionKind = DistributiveOmit<NoteAction, 'version'>;
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
 export class Viewer {
 	readonly id: ReportId;
 	readonly version: RevisionNumber;
@@ -350,6 +355,10 @@ export class Viewer {
 	readonly sorted: boolean;
 	groups: readonly GroupInfo[];
 	overview = $state<DiffPage['overview']>(null);
+	/** The agent's notes on this version, dismissed ones too; promoted ones are comments by then. */
+	notes = $state.raw<DiffPage['notes']>([]);
+	/** Whether the agent's notes are drawn at their lines; the person's setting. */
+	showNotes = $state(true);
 	summary: DiffSummary;
 	parts: PartState[];
 	files: FileView[];
@@ -414,6 +423,7 @@ export class Viewer {
 		this.summary = $state.raw(page.summary);
 		this.colouring = settings.colours;
 		this.hideWhiteSpace = settings.hideWhiteSpace;
+		this.showNotes = settings.agentNotes;
 		this.onlyWaiting = $state(onlyWaiting);
 		this.id = page.summary.id;
 		this.version = page.summary.version;
@@ -423,6 +433,7 @@ export class Viewer {
 		this.assignments = page.assignments;
 		this.sorted = page.sorted;
 		this.overview = page.overview;
+		this.notes = page.notes;
 		const groups: GroupInfo[] = [];
 		const parts: PartState[] = [];
 		const byKey = new SvelteMap<string, PartIndex>();
@@ -974,6 +985,7 @@ export class Viewer {
 		this.#frame = frame.frame;
 		this.#sorting = frame.sorting;
 		this.overview = frame.overview;
+		this.notes = frame.notes;
 		this.summary = frame.summary;
 		for (const group of frame.groups) {
 			for (const part of group.parts) {
@@ -991,6 +1003,24 @@ export class Viewer {
 				: { ...info, name, summary: group.summary };
 		});
 		this.#putFiles(frame.files);
+	}
+
+	/**
+	 * Dismisses an agent note, promotes one into the draft, or brings back
+	 * those dismissed, on the version shown. The notes are those the daemon
+	 * gives back; what went wrong, in words, or undefined.
+	 */
+	async changeNotes(action: NoteActionKind): Promise<string | undefined> {
+		const changed = await this.client.changeNotes(this.id, { ...action, version: this.version });
+		if (!changed.ok) return describeApiError(changed.error);
+		this.notes = changed.value.notes;
+		this.announcement =
+			action.action === 'dismiss'
+				? 'Agent note dismissed. “Bring back dismissed notes”, above the diff, shows it again.'
+				: action.action === 'promote'
+					? 'Agent note promoted: it is a comment of yours now, which you can edit.'
+					: 'Dismissed agent notes are back.';
+		return undefined;
 	}
 
 	/** Puts files the daemon sent in place of the page's own. */

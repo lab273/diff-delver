@@ -26,6 +26,8 @@ export interface ViewSettings {
 	 * or put away, showing only its first words and the count of comments.
 	 */
 	readonly overallReviewOpen: boolean;
+	/** The agent's notes drawn at their lines, or hidden all at once (they are still counted). */
+	readonly agentNotes: boolean;
 }
 
 export const DEFAULT_SETTINGS: ViewSettings = {
@@ -37,7 +39,8 @@ export const DEFAULT_SETTINGS: ViewSettings = {
 	searchSkipClosed: false,
 	// Put away, the bar still says what is written and how many comments there
 	// are, and the diff keeps the room an open box would take.
-	overallReviewOpen: false
+	overallReviewOpen: false,
+	agentNotes: true
 };
 
 /** One setting changed: its name and its new value. */
@@ -48,7 +51,8 @@ export type SettingChange =
 	| { readonly name: 'search-match-case'; readonly value: boolean }
 	| { readonly name: 'search-changed-only'; readonly value: boolean }
 	| { readonly name: 'search-skip-closed'; readonly value: boolean }
-	| { readonly name: 'overall-review-open'; readonly value: boolean };
+	| { readonly name: 'overall-review-open'; readonly value: boolean }
+	| { readonly name: 'agent-notes'; readonly value: boolean };
 
 /** The settings with one changed. */
 export function withSetting(settings: ViewSettings, change: SettingChange): ViewSettings {
@@ -67,5 +71,7 @@ export function withSetting(settings: ViewSettings, change: SettingChange): View
 			return { ...settings, searchSkipClosed: change.value };
 		case 'overall-review-open':
 			return { ...settings, overallReviewOpen: change.value };
+		case 'agent-notes':
+			return { ...settings, agentNotes: change.value };
 	}
 }

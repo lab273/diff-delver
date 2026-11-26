@@ -9,7 +9,9 @@ import {
 	describeListedTitle,
 	describePullRequestList
 } from '#lib/core/github/listed-pull-request.ts';
+import type { AgentNote } from '#lib/core/review/agent-note.ts';
 import type {
+	AgentNoteView,
 	ApiErrorBody,
 	Candidate,
 	CommitsView,
@@ -397,6 +399,7 @@ export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): 
 		now,
 		summary: summaryView(loaded.summary),
 		overview: loaded.overview ?? null,
+		notes: notesView(loaded.notes),
 		frame: `${view}:${loaded.frame}`,
 		sorting: loaded.sorting,
 		assignments: loaded.assignments,
@@ -741,4 +744,17 @@ export function badRequest(what: string): Response {
 			`diff delver could not read this request (${what}). Reload the page and try again.`
 		)
 	);
+}
+
+/** The agent's notes as a page draws them: promoted ones are comments of the draft by then. */
+export function notesView(notes: readonly AgentNote[]): AgentNoteView[] {
+	return notes
+		.filter((note) => note.state !== 'promoted')
+		.map((note) => ({
+			id: note.id,
+			label: note.label,
+			anchor: { ...note.anchor, path: escapedRepoPath(note.anchor.path) },
+			text: note.text,
+			dismissed: note.state === 'dismissed'
+		}));
 }

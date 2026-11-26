@@ -16,6 +16,9 @@ import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-messag
 import {
 	ApiErrorBodySchema,
 	DraftCommentSchema,
+	NotesChangedSchema,
+	type NoteAction,
+	type NotesChangedView,
 	DraftCommentsSchema,
 	JustFinishedSchema,
 	FinishedReviewsSchema,
@@ -459,6 +462,11 @@ export class ApiClient {
 		request: SaveOverallReview
 	): Promise<Result<OverallReviewView, ApiError>> {
 		return this.#call('POST', `/api/diffs/${id}/overall`, OverallReviewSchema, request);
+	}
+
+	/** Dismisses, promotes or brings back the agent's notes, from a page that shows the current version. */
+	changeNotes(id: ReportId, request: NoteAction): Promise<Result<NotesChangedView, ApiError>> {
+		return this.#call('POST', `/api/diffs/${id}/notes`, NotesChangedSchema, request);
 	}
 
 	/** What finishing the draft now would hand over, for a page that shows `version`. */

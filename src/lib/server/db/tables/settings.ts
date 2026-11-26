@@ -40,6 +40,10 @@ const row = z.discriminatedUnion('name', [
 	z.object({
 		name: z.literal('overall-review-open'),
 		value: z.enum(['on', 'off']).transform((v) => v === 'on')
+	}),
+	z.object({
+		name: z.literal('agent-notes'),
+		value: z.enum(['on', 'off']).transform((v) => v === 'on')
 	})
 ]);
 
@@ -59,6 +63,7 @@ function stored(change: SettingChange): string {
 		case 'search-changed-only':
 		case 'search-skip-closed':
 		case 'overall-review-open':
+		case 'agent-notes':
 			return change.value ? 'on' : 'off';
 		case 'layout':
 			return change.value;
