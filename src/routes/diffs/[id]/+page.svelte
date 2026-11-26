@@ -9,7 +9,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { goto, invalidate } from '$app/navigation';
-	import { tick, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import { page as shownPage } from '$app/state';
 	import {
 		compareModeName,
@@ -1110,7 +1110,7 @@
 		readerMoved: boolean,
 		moveOn: (() => boolean) | undefined
 	): Promise<void> {
-		if (viewer === undefined) return;
+		if (viewer === undefined || leftPage()) return;
 		if (outcome.kind !== 'marked') dropMarks();
 		switch (outcome.kind) {
 			case 'sorting-changed':
@@ -1130,7 +1130,7 @@
 				const beforeRefresh = viewer;
 				if (outcome.refresh) await refreshReview(true);
 				await tick();
-				if (viewer !== beforeRefresh) return;
+				if (viewer !== beforeRefresh || leftPage()) return;
 				// `r` goes on to the next part waiting, unless the reader moved away
 				// meanwhile, when the next press acts where they went.
 				if (moveOn?.() === true) {
@@ -1596,9 +1596,28 @@
 	);
 	const fileReaderOpen = $derived(readerPath.ok && readerSide.ok && readerVersion.ok);
 
-	/** Whether a dialog is open over the diff: the shortcuts, the file opener or reader, or the switcher. */
+	/**
+	 * Whether a dialog is open over the diff: the shortcuts, the file opener or
+	 * reader, the switcher, or one that asks first, such as before deleting a comment.
+	 */
 	function dialogOpen(): boolean {
-		return helpOpen || fileOpener || fileReaderOpen || switcher.open;
+		return (
+			helpOpen ||
+			fileOpener ||
+			fileReaderOpen ||
+			switcher.open ||
+			document.querySelector('dialog[open]') !== null
+		);
+	}
+
+	/** Whether the person has left this page, so an answer that comes later moves nothing. */
+	let left = false;
+	onDestroy(() => {
+		left = true;
+	});
+	/** Asked anew after each wait, since the page may have been left meanwhile. */
+	function leftPage(): boolean {
+		return left;
 	}
 
 	$effect(() => {
