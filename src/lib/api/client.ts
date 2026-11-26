@@ -103,6 +103,7 @@ import {
 	type StartResponse,
 	type StateChange,
 	type Stopping,
+	type StopRequest,
 	type SuggestResponse,
 	type UpdateResponse
 } from './schemas.ts';
@@ -544,7 +545,8 @@ export class ApiClient {
 		return this.#call('GET', `/api/diffs/${id}/agent`, AgentSortingSchema);
 	}
 
-	stopDaemon(): Promise<Result<Stopping, ApiError>> {
-		return this.#call('POST', '/api/daemon/stop', StoppingSchema);
+	/** Asks the daemon to stop, saying why, for its log. */
+	stopDaemon(request: StopRequest): Promise<Result<Stopping, ApiError>> {
+		return this.#call('POST', '/api/daemon/stop', StoppingSchema, request);
 	}
 }

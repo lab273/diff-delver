@@ -12,6 +12,7 @@ import { machineDataDirectory } from '../store/index.ts';
 import { randomEntryCode } from '../system.ts';
 import { codeVersion } from '../version.ts';
 import type { DaemonContext } from './context.ts';
+import { daemonLog } from './daemon-log.ts';
 import { agentSetupOf } from './daemon.ts';
 
 let made: Promise<DaemonContext> | undefined;
@@ -29,6 +30,7 @@ async function make(): Promise<DaemonContext> {
 		isReviewBrowser: () => true,
 		isCommand: () => true,
 		clock: systemClock,
+		log: daemonLog(systemClock),
 		version: codeVersion(),
 		// `vite dev` serves no /mcp, so no agent is ever heard from here.
 		agentSetup: agentSetupOf({

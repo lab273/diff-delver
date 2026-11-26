@@ -862,6 +862,18 @@ export const ReviewWindowSchema = z.strictObject({
 });
 export type ReviewWindow = z.output<typeof ReviewWindowSchema>;
 
+/**
+ * POST /api/daemon/stop: why, for the daemon's log. A command older than this
+ * sends no body, and a daemon older than this reads none.
+ */
+export const StopRequestSchema = z.object({
+	by: z.discriminatedUnion('kind', [
+		z.object({ kind: z.literal('command') }),
+		z.object({ kind: z.literal('replacement'), version: parsed(z.string(), parseCodeVersion) })
+	])
+});
+export type StopRequest = z.output<typeof StopRequestSchema>;
+
 /** POST /api/daemon/stop. */
 export const StoppingSchema = z.object({ stopping: z.literal(true) });
 export type Stopping = z.output<typeof StoppingSchema>;

@@ -73,12 +73,15 @@ export const handle: Handle = async ({ event, resolve }) => {
  */
 export const handleError: HandleServerError = (caught) => {
 	switch (caught.kind) {
-		case 'unknown':
-			console.error('diff delver hit an error it did not expect:', caught.error);
+		case 'unknown': {
+			// The daemon's log, with the time; before a daemon was found, standard error.
+			const log = 'daemon' in caught.event.locals ? caught.event.locals.daemon.log : console.error;
+			log('diff delver hit an error it did not expect:', caught.error);
 			return {
 				message:
 					'Something went wrong in diff delver. Reload the page; if it keeps happening, please report it as a bug.'
 			};
+		}
 		case 'framework':
 			return caught.error.status === 404
 				? { message: 'There is no page at this address.' }

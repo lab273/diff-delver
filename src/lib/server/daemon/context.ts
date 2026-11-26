@@ -8,15 +8,19 @@
 import type { AgentServerSetup } from '#lib/core/agent-setup/agent-server.ts';
 import type { Clock } from '#lib/core/clock.ts';
 import type { AgentActivity } from '#lib/core/daemon/agent-activity.ts';
+import type { StopReason } from '#lib/core/daemon/stop-reason.ts';
 import type { ReviewWindowOutcome } from '#lib/core/daemon/review-windows.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import type { EntryCode } from '#lib/core/entry-code.tiny.ts';
 import type { PortNumber } from '#lib/core/port-number.tiny.ts';
 import type { ReportService } from '../reports/index.ts';
+import type { DaemonLog } from './daemon-log.ts';
 
 export interface DaemonContext {
 	readonly service: ReportService;
 	readonly clock: Clock;
+	/** Where the daemon writes what it has to say, each line with its time (`daemon-log.ts`). */
+	readonly log: DaemonLog;
 	readonly version: CodeVersion;
 	/** How an agent is given this daemon as its MCP server: this copy, on this data folder. */
 	readonly agentSetup: AgentServerSetup;
@@ -32,8 +36,8 @@ export interface DaemonContext {
 	 * and never sees the address (`openForReview` in `daemon.ts`).
 	 */
 	readonly openForReview: (page: string) => Promise<ReviewWindowOutcome>;
-	/** Asks the daemon to stop once the current response is sent. */
-	readonly requestStop: () => void;
+	/** Asks the daemon to stop once the current response is sent, saying why in its log. */
+	readonly requestStop: (reason: StopReason) => void;
 }
 
 function registry(): Map<number, DaemonContext> {

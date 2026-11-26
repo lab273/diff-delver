@@ -20,6 +20,7 @@ import { describeNoDataDirectory } from '#lib/core/data-directory.ts';
 import { preferredPortFor } from '#lib/core/daemon/stable-port.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { loadAppHandler } from '../daemon/app-handler.ts';
+import { daemonLog } from '../daemon/daemon-log.ts';
 import { describeDaemonStartError, entryAddress, startDaemon } from '../daemon/daemon.ts';
 import {
 	describeLaunchError,
@@ -102,7 +103,10 @@ async function serve(
 ): Promise<number> {
 	const app = await loadAppHandler();
 	const machine = machineDataDirectory();
+	// The daemon's log: each line with its time, as the daemon writes its own.
+	const log = daemonLog(systemClock);
 	const started = await startDaemon({
+		log,
 		dataDirectory,
 		clock: systemClock,
 		ids: randomIds,
@@ -126,18 +130,21 @@ async function serve(
 			return 0;
 		}
 		const message = describeDaemonStartError(started.error);
-		if (background) signalParent({ kind: 'failed', message });
-		terminal.printError(message);
+		// In the background, standard error is the daemon's log.
+		if (background) {
+			signalParent({ kind: 'failed', message });
+			log(message);
+		} else terminal.printError(message);
 		return 1;
 	}
 	const daemon = started.value;
 	for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
 		process.once(signal, () => {
-			void daemon.stop();
+			void daemon.stop({ kind: 'signal', signal });
 		});
 	}
 	if (background) {
-		console.log(`diff delver started at ${daemon.origin}, serving ${dataDirectory}.`);
+		log(`diff delver ${codeVersion()} started at ${daemon.origin}, serving ${dataDirectory}.`);
 		signalParent(
 			daemon.portNotice === undefined
 				? { kind: 'ready' }

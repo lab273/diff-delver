@@ -16,6 +16,7 @@ import {
 	type Refusal
 } from '#lib/core/daemon/request-gate.ts';
 import type { AppHandler } from './app-handler.ts';
+import type { DaemonLog } from './daemon-log.ts';
 
 /** Headers on every answer: an entry code never leaves in a Referer, and no other site may frame or read the pages. */
 const ALWAYS = {
@@ -133,6 +134,7 @@ export type McpHandler = (req: IncomingMessage, res: ServerResponse) => Promise<
 export function daemonServer(
 	app: AppHandler,
 	settings: () => GateSettings | undefined,
+	log: DaemonLog,
 	mcp?: McpHandler
 ): Server {
 	return createServer((req, res) => {
@@ -158,7 +160,7 @@ export function daemonServer(
 			case 'serve':
 				if (mcp !== undefined && isMcpTarget(req.url ?? '/')) {
 					mcp(req, res).catch((error: unknown) => {
-						console.error(
+						log(
 							`diff delver could not answer an MCP request: ${error instanceof Error ? error.message : String(error)}`
 						);
 						if (!res.headersSent) {

@@ -35,6 +35,7 @@ import { execFile, spawn } from 'node:child_process';
 import { mkdir, open, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
+import type { StopRequest } from '#lib/api/schemas.ts';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseCodeVersion, type CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { orderOfDaemon } from '#lib/core/cli/replaced-daemon.ts';
@@ -121,9 +122,10 @@ async function lockReleased(
 export async function stopDaemonOf(
 	dataDirectory: AbsolutePath,
 	lock: Lock,
-	text: string
+	text: string,
+	why: StopRequest
 ): Promise<boolean> {
-	await clientFor(lock).stopDaemon();
+	await clientFor(lock).stopDaemon(why);
 	if (await lockReleased(dataDirectory, text, STOP_WITHIN_MS)) return true;
 	if ((await probeLock(lock)).kind === 'answering') {
 		try {
@@ -256,7 +258,8 @@ export async function ensureDaemon(
 						}
 						break;
 				}
-				if (!(await stopDaemonOf(dataDirectory, content.lock, content.text))) {
+				const why: StopRequest = { by: { kind: 'replacement', version } };
+				if (!(await stopDaemonOf(dataDirectory, content.lock, content.text, why))) {
 					return err({ kind: 'OldDaemonWouldNotStop', lock: content.lock });
 				}
 				found = { kind: 'replaced', version: probe.version, port: content.lock.port };
@@ -321,7 +324,9 @@ export async function stopDaemon(dataDirectory: AbsolutePath): Promise<StopOutco
 		await removeLockfileIf(dataDirectory, content.text);
 		return { kind: 'stale' };
 	}
-	return (await stopDaemonOf(dataDirectory, content.lock, content.text))
+	return (await stopDaemonOf(dataDirectory, content.lock, content.text, {
+		by: { kind: 'command' }
+	}))
 		? { kind: 'stopped' }
 		: { kind: 'would-not-stop', pid: content.lock.pid };
 }

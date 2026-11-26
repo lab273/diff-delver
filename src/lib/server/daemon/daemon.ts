@@ -71,6 +71,8 @@ import { randomEntryCode } from '../system.ts';
 import type { AppHandler } from './app-handler.ts';
 import { registerDaemon, unregisterDaemon } from './context.ts';
 import { browserAccess } from './browser-access.ts';
+import { daemonLog, type DaemonLog } from './daemon-log.ts';
+import { describeStop, type StopReason } from '#lib/core/daemon/stop-reason.ts';
 import { daemonServer } from './http-server.ts';
 import { mcpHandler } from '../mcp/mcp-server.ts';
 import { probeLock } from './probe.ts';
@@ -114,6 +116,12 @@ export interface DaemonOptions {
 	 * when it is in use, the daemon takes a free port.
 	 */
 	readonly preferredPort?: PortNumber | undefined;
+	/**
+	 * Where the daemon writes what it has to say, each line with its time by the
+	 * daemon's clock: its standard error by default, which is `daemon.log` when
+	 * the command started it in the background.
+	 */
+	readonly log?: DaemonLog;
 	/** Called once the daemon has stopped, however it was asked to. */
 	readonly onStopped?: () => void;
 	/**
@@ -196,8 +204,11 @@ export interface RunningDaemon extends DaemonConnection {
 	 * starting begins once the daemon is serving, with the versions it counted.
 	 */
 	readonly binaryCounted: Promise<readonly RevisionId[]>;
-	/** Stops serving, closes the database and removes the lockfile. Stopping twice is stopping once. */
-	stop(): Promise<void>;
+	/**
+	 * Stops serving, closes the database and removes the lockfile. Stopping twice
+	 * is stopping once. With a reason, the log says it first.
+	 */
+	stop(reason?: StopReason): Promise<void>;
 	/** Settles once the daemon has stopped. */
 	readonly stopped: Promise<void>;
 }
@@ -367,10 +378,12 @@ async function lockFor(
 export async function startDaemon(
 	options: DaemonOptions
 ): Promise<Result<RunningDaemon, DaemonStartError>> {
+	const log = options.log ?? daemonLog(options.clock);
 	const opened = await ReportService.open({
 		dataDirectory: options.dataDirectory,
 		clock: options.clock,
 		ids: options.ids,
+		log,
 		...(options.repository === undefined ? {} : { repository: options.repository }),
 		...(options.github === undefined ? {} : { github: options.github })
 	});
@@ -411,6 +424,7 @@ export async function startDaemon(
 	const server = daemonServer(
 		options.app,
 		() => gate.settings,
+		log,
 		mcpHandler({
 			service,
 			version: options.version,
@@ -451,7 +465,7 @@ export async function startDaemon(
 	});
 	const cleaned = service.removeUnusedSnapshots().then((removed) => {
 		if (!removed.ok) {
-			console.error(
+			log(
 				`diff delver could not remove snapshots left behind: ${describeReportError(removed.error)}`
 			);
 		}
@@ -468,15 +482,14 @@ export async function startDaemon(
 		tidying = service.tidyStores().then((tidied) => {
 			tidying = undefined;
 			if (!tidied.ok) {
-				console.error(
-					`diff delver could not tidy its saved changes: ${describeReportError(tidied.error)}`
-				);
+				log(`diff delver could not tidy its saved changes: ${describeReportError(tidied.error)}`);
 			}
 		});
 		await tidying;
 	};
-	const stop = (): Promise<void> => {
+	const stop = (reason?: StopReason): Promise<void> => {
 		stopping ??= (async () => {
+			if (reason !== undefined) log(describeStop(reason));
 			stopChecking();
 			stopCounting.abort();
 			unregisterDaemon(lock.port);
@@ -495,7 +508,7 @@ export async function startDaemon(
 	// The data folder's, so a browser that may write drafts still may after a restart.
 	const browser = await browserAccess(options.dataDirectory);
 	if (browser.notKept !== undefined) {
-		console.error(
+		log(
 			`diff delver could not keep its browser access in ${options.dataDirectory} (${browser.notKept}), so browsers will need letting in again after it next starts.`
 		);
 	}
@@ -513,15 +526,16 @@ export async function startDaemon(
 		},
 		service,
 		clock: options.clock,
+		log,
 		version: options.version,
 		agentSetup: agentSetupOf(options),
 		agents,
 		entryCode,
 		openForReview,
-		requestStop: () => {
+		requestStop: (reason) => {
 			// After the answer saying so has gone.
 			setTimeout(() => {
-				void stop();
+				void stop(reason);
 			}, 0);
 		}
 	});
@@ -531,10 +545,7 @@ export async function startDaemon(
 		const now = await readLockfile(options.dataDirectory).catch(() => undefined);
 		if (now === undefined || stopping !== undefined) return;
 		if (now.kind === 'none' || now.text !== text) {
-			console.log(
-				`diff delver is stopping: its lockfile in ${options.dataDirectory} is gone or belongs to another diff delver, so nothing else could find or stop it.`
-			);
-			await stop();
+			await stop({ kind: 'lockfile-gone', dataDirectory: options.dataDirectory });
 			return;
 		}
 		await tidyIfDue();
@@ -553,7 +564,7 @@ export async function startDaemon(
 		options.preferredPort === undefined || listening.value.notPreferred === undefined
 			? undefined
 			: describeStablePortTaken(options.preferredPort, port, listening.value.notPreferred);
-	if (portNotice !== undefined) console.log(portNotice);
+	if (portNotice !== undefined) log(portNotice);
 	return ok({
 		...connectionOf(lock),
 		mcpToken,
