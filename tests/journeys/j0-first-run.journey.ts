@@ -82,7 +82,8 @@ test.describe('J0 First run', () => {
 		await journey.expectHidden(shortcuts);
 
 		// r marks the file reviewed, puts it away and goes on to the next one to read.
-		await journey.press('r');
+		// Held down until it repeats, it still marks only the one file.
+		await journey.holdKey('r', 8);
 		await journey.expectState(
 			journey.within(cart).byRole('checkbox', { name: 'Reviewed: src/cart.ts' }),
 			{ checked: true }

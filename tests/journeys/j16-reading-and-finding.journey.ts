@@ -315,5 +315,48 @@ test.describe('J16 Reading and finding', () => {
 		await journey.expectVisible(bookmark);
 		await journey.press('Shift+KeyB');
 		await journey.expectFocused(savedRow);
+
+		// Reading on with the keyboard, the reviewer marks each file with r as they
+		// finish it, even while diff delver is slow to answer. Opening the shortcuts
+		// while a file is being marked keeps the page where it is under them: the
+		// file is marked, and the press made meanwhile is dropped, so nothing moves
+		// or is marked behind the dialog.
+		const nameOf = (path: string): ReturnType<typeof journey.byRole> =>
+			journey.byRole('button', { name: path, exact: true });
+		const tickOf = (path: string): ReturnType<typeof journey.byRole> =>
+			journey.byRole('checkbox', { name: `Reviewed: ${path}` });
+		const shortcuts = journey.byRole('dialog', { name: 'Keyboard shortcuts' });
+		const marking = await journey.holdTick();
+		await journey.press('r');
+		await marking.requested;
+		await journey.press('r');
+		await journey.press('?');
+		marking.release();
+		await journey.expectState(tickOf('src/pairs.ts'), { checked: true });
+		await journey.expectFocused(journey.within(shortcuts).byRole('button', { name: 'Close' }));
+		await journey.step('The shortcuts opened while a file was being marked');
+		await journey.press('Escape');
+		await journey.expectHidden(shortcuts);
+		await journey.expectFocused(nameOf('src/pairs.ts'));
+		await journey.expectState(tickOf('styles/site.css'), { checked: false });
+
+		// Moving while a file is being marked wins: r does not go on from where the
+		// reader went, and the press made after the move acts there, on a file
+		// already reviewed, which it says.
+		await journey.press('k');
+		await journey.expectFocused(nameOf('src/marks.ts'));
+		const moving = await journey.holdTick();
+		await journey.press('r');
+		await moving.requested;
+		await journey.press('j');
+		await journey.press('r');
+		moving.release();
+		await journey.expectState(tickOf('src/marks.ts'), { checked: true });
+		await journey.expectVisible(
+			journey.byText('src/pairs.ts is already reviewed.', { exact: true })
+		);
+		await journey.expectFocused(nameOf('styles/site.css'));
+		await journey.expectState(tickOf('styles/site.css'), { checked: false });
+		await journey.step('Moved on while a file was being marked');
 	});
 });

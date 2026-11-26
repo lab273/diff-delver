@@ -150,11 +150,17 @@ test.describe('J8 The diff changes mid-review', () => {
 		expect(later.output).toContain(
 			'Uncommitted changes in shop, updated to your files as they are now (version 3).'
 		);
-		// Back on the page, it says so; ticking there anyway changes nothing.
+		// Back on the page, it says so; marking the file there anyway with r changes
+		// nothing. Pressed again while the first press waits for its answer, r is
+		// refused once, not once a press.
 		await journey.returnToPage();
 		const newer = journey.byRole('region', { name: 'This Delve has a newer version' });
 		await journey.expectText(newer, 'It was updated to version 3 while this page was open');
-		await journey.activate(discountTick, 'Space');
+		const marking = await journey.holdTick();
+		await journey.press('r');
+		await marking.requested;
+		await journey.press('r');
+		marking.release();
 		const discount = journey.byRole('article', { name: 'src/discount.ts' });
 		await journey.expectText(
 			journey.within(discount).byRole('alert'),
@@ -163,7 +169,9 @@ test.describe('J8 The diff changes mid-review', () => {
 		await journey.expectState(discountTick, { checked: false });
 		// The page is refused, as it should be, and says so in place.
 		const refusedTick = { route: '/api/diffs/[id]/reviewed', status: 409 };
-		await journey.step('A tick from a page that is behind', { refusals: [refusedTick] });
+		await journey.step('A tick from a page that is behind', {
+			refusals: [{ ...refusedTick, times: 1 }]
+		});
 		// A tick of the whole group says so too, under the group's heading, and its box
 		// shows again that some of it is reviewed.
 		const notSorted = journey.byRole('region', { name: 'Not sorted yet' });
