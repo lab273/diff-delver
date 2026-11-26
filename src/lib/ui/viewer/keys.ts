@@ -3,9 +3,12 @@
  * Each is a faster way to a control the page also shows, and each key is one
  * people know from other tools where one exists: `j` and `k` (and `]` and `[`)
  * to the next and previous file, as in GitLab and Gmail; `r` to mark reviewed
- * and go on to the next file waiting, as in Gerrit; `o` to open or close, as in Gmail; `c` to comment, as in
- * Gerrit and GitLab; `d` to open another Delve; `v`, for review, to write the overall review; `?` for this list, as on GitHub. They never fire while the person types in a field, nor with Control,
- * Alt or Meta held, so the browser's and the system's own keys still work.
+ * and go on to the next file waiting, as in Gerrit; `o` to open or close, as
+ * in Gmail; `c` to comment, as in Gerrit and GitLab; `d` to open another
+ * Delve; `v`, for review, to write the overall review; `?` for this list, as
+ * on GitHub. They never fire while the person types in a field, nor with
+ * Control, Alt or Meta held, so the browser's and the system's own keys still
+ * work.
  */
 
 export type KeyAction =
@@ -41,7 +44,7 @@ export const SHORTCUTS: readonly {
 	{ keys: ['k', '['], does: 'Go to the previous file', action: 'previous-part' },
 	{
 		keys: ['r'],
-		does: 'Mark the file you are on as reviewed and go to the next you have not reviewed. Its tick box, with Space, takes the mark off',
+		does: 'Mark the file you are on as reviewed and go to the next you have not reviewed. To take the mark off, use the file’s tick box',
 		action: 'mark-reviewed'
 	},
 	{ keys: ['o'], does: 'Show or hide the changes of the file you are on', action: 'toggle-open' },
