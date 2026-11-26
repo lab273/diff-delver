@@ -2450,7 +2450,7 @@ export class ReportService {
 		);
 		if (!found.ok) return unchecked(found.error);
 		if (found.value !== undefined) {
-			return this.#recordPosted(id, seen, pullRequest, found.value, true);
+			return this.#recordPosted(id, pullRequest, found.value, true);
 		}
 		// Not there yet, but GitHub may still be making it.
 		const wait = this.#stillAnswering(note);
@@ -2542,7 +2542,7 @@ export class ReportService {
 			);
 			if (!before.ok) return refused(before.error);
 			if (before.value !== undefined) {
-				return this.#recordPosted(id, seen, pullRequest, before.value, true);
+				return this.#recordPosted(id, pullRequest, before.value, true);
 			}
 			// Not there yet, but GitHub may still be making it: posting now could make two.
 			const wait = this.#stillAnswering(earlier);
@@ -2617,7 +2617,7 @@ export class ReportService {
 			}
 			return refused(sent.error);
 		}
-		return this.#recordPosted(id, seen, pullRequest, sent.value, false);
+		return this.#recordPosted(id, pullRequest, sent.value, false);
 	}
 
 	/**
@@ -2637,17 +2637,18 @@ export class ReportService {
 	 * comments and marks, and how many comments went in its text, with what
 	 * it is on GitHub taken from GitHub's own answer. What was sent leaves the
 	 * draft; a comment added since, or one or an overall review whose words
-	 * were changed since, stays in it, and the outcome says so.
+	 * were changed since, stays in it, and the outcome says so. GitHub has
+	 * the review, so it is recorded even when the Delve was updated or closed
+	 * while it was being posted: the note holds the version it was on.
 	 */
 	#recordPosted(
 		id: ReportId,
-		seen: RevisionNumber,
 		pullRequest: PullRequestRef,
 		made: GitHubReviewFound,
 		earlier: boolean
 	): Result<JustFinished, ReportError> {
 		return this.#db.write((q) =>
-			andThen(currentAsSeen(q, id, seen), (): Result<JustFinished, ReportError> =>
+			andThen(current(q, id), (): Result<JustFinished, ReportError> =>
 				andThen(reviewBeingPosted(q, id), (note): Result<JustFinished, ReportError> => {
 					if (note === undefined) {
 						return err({

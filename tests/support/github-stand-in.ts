@@ -88,7 +88,12 @@ export type ReviewRefusal =
 	 * The connection drops before any answer, and GitHub makes the review
 	 * only later, when `makeLateReviews` is called, as after a time-out.
 	 */
-	| { readonly kind: 'make-late' };
+	| { readonly kind: 'make-late' }
+	/**
+	 * GitHub takes its time: `arrived` is called when the review is posted,
+	 * and it is made and answered only once `until` settles.
+	 */
+	| { readonly kind: 'wait'; readonly arrived: () => void; readonly until: Promise<void> };
 
 /** A request the stand-in answered: its path and query, its sign-in and tag, if any, and its status. */
 export interface StandInRequest {
@@ -427,6 +432,10 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 		if (refusal?.kind === 'status') {
 			json(response, refusal.status, { message: refusal.message });
 			return;
+		}
+		if (refusal?.kind === 'wait') {
+			refusal.arrived();
+			await refusal.until;
 		}
 		const read = postedReview.safeParse(body);
 		if (!read.success) {

@@ -605,6 +605,39 @@ describe('posting a review to its pull request', () => {
 		expect(reviewsOnGitHub(w)).toHaveLength(1);
 	});
 
+	it('records a review GitHub took while the Delve was updated or closed, as it was sent', async () => {
+		const w = await world();
+		await comment(w, 'src/discount.ts', 'new', 2, 2, 'Before the update.');
+		const arrived = Promise.withResolvers<undefined>();
+		const answer = Promise.withResolvers<undefined>();
+		w.github.refuseReviews({
+			kind: 'wait',
+			arrived: () => {
+				arrived.resolve(undefined);
+			},
+			until: answer.promise
+		});
+		const posting = post(w);
+		await arrived.promise;
+
+		// While GitHub makes it, someone pushes and the Delve is updated, then closed.
+		await w.upstream.git('checkout', '--quiet', 'discount');
+		await w.upstream.write('src/coupon.ts', 'export const COUPONS = {};\n');
+		await w.upstream.commit('Add coupons');
+		await w.upstream.git('checkout', '--quiet', 'main');
+		await w.github.setPull(SHOP_OWNER, SHOP_NAME, DISCOUNT_PULL);
+		expect(value(await w.service.update(w.id)).kind).toBe('updated');
+		value(w.service.closeReport(w.id));
+		answer.resolve(undefined);
+
+		const review = value(await posting);
+		expect(review.version).toBe(1);
+		expect(review.posted?.address).toBe(`${PULL}#pullrequestreview-${String(FIRST_REVIEW_ID)}`);
+		expect(review.text).toContain('> Before the update.');
+		expect(value(w.service.reviews(w.id)).map((r) => r.number)).toEqual([1]);
+		expect(value(w.service.draftComments(w.id))).toEqual([]);
+	});
+
 	it('posts or finishes a Delve’s draft once at a time', async () => {
 		const w = await world();
 		overall(w, 'Only once.');
