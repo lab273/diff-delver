@@ -68,7 +68,9 @@
 		bookmarkDestination,
 		bookmarkedRow,
 		lineInView,
-		readingLine,
+		markedLine,
+		readingLines,
+		rowInView,
 		readBookmark,
 		saveBookmark,
 		type Bookmark,
@@ -2139,20 +2141,30 @@
 	/** A place in reading order: the part, then the block and the row it is drawn in. */
 	type ReadingPlace = readonly [part: number, block: number, row: number];
 
-	function placeOf(destination: BookmarkDestination | undefined): ReadingPlace | undefined {
-		return destination === undefined
-			? undefined
-			: [destination.part.index, destination.index, destination.row];
-	}
-
 	function comparePlaces(a: ReadingPlace, b: ReadingPlace): number {
 		return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 	}
 
+	/** Where a line is drawn in a part whose lines are loaded; the earliest, of several. */
+	function earliestPlace(
+		part: PartState,
+		lines: readonly BookmarkLine[]
+	): ReadingPlace | undefined {
+		let earliest: ReadingPlace | undefined;
+		for (const line of lines) {
+			const found = bookmarkDestination(part, line);
+			if (found === undefined) continue;
+			const place: ReadingPlace = [part.index, found.index, found.row];
+			if (earliest === undefined || comparePlaces(place, earliest) < 0) earliest = place;
+		}
+		return earliest;
+	}
+
 	/**
-	 * Where the reader is, for `F`: the line the keyboard is on, or the flag,
-	 * or else the first line of the part they are on that is on the screen,
-	 * or else the start of that part.
+	 * Where the reader is, for `F`: the line whose number the keyboard is on;
+	 * the line drawn above what else in the lines has it; or else the first
+	 * line of the part they are on that is on the screen; or else the start of
+	 * that part. A row side by side draws a line of each side: the earlier counts.
 	 */
 	function readingPlace(shown: Viewer): ReadingPlace | undefined {
 		const at = currentPart();
@@ -2162,35 +2174,39 @@
 		const element = document.getElementById(`part-${String(part.index)}`);
 		if (element === null || part.lines.kind !== 'loaded') return start;
 		const active = document.activeElement;
-		let line: BookmarkLine | null = null;
 		if (active !== null && element.contains(active)) {
-			// A comment or flag is drawn under its last line: the row before it says which.
+			const own = active.closest('[data-reading-line]');
+			const line = own === null ? null : markedLine(own);
+			if (line !== null) return earliestPlace(part, [line]) ?? start;
+			// A comment is drawn under its last line: the row above it says which.
 			let row = active.closest('tr');
-			while (row !== null && line === null) {
-				line = readingLine(row);
+			while (row !== null) {
+				const lines = readingLines(row);
+				if (lines.length > 0) return earliestPlace(part, lines) ?? start;
 				row =
 					row.previousElementSibling instanceof HTMLTableRowElement
 						? row.previousElementSibling
 						: null;
 			}
 		}
-		if (line === null) {
-			const box = element.getBoundingClientRect();
-			const header = element.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
-			if (box.bottom > 0 && box.top < window.innerHeight)
-				line = lineInView(element, Math.max(0, box.top, header), window.innerHeight);
-		}
-		return line === null ? start : (placeOf(bookmarkDestination(part, line)) ?? start);
+		const box = element.getBoundingClientRect();
+		if (box.bottom <= 0 || box.top >= window.innerHeight) return start;
+		const header = element.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+		const row = rowInView(element, Math.max(0, box.top, header), window.innerHeight);
+		return row === null ? start : (earliestPlace(part, readingLines(row)) ?? start);
 	}
 
 	/** The `F` press under way, which a later one, or another viewer, replaces. */
 	let flagJump: object | undefined;
+	/** The flag `F` last went to and could not show, so the next press goes past it. */
+	let unshownFlag: { readonly id: number; readonly part: number } | undefined;
 
 	/**
 	 * `F`: to the next flag on the version shown, in reading order, after the
 	 * place the reader is on: by the part that draws its lines, then where they
 	 * are drawn in it. After the last, back to the first. A flag on an earlier
-	 * version is in the list of comments, which says so.
+	 * version is in the list of comments, which says so. Only a file split
+	 * between parts, and the parts it must compare within, have their lines loaded.
 	 */
 	async function nextFlag(): Promise<void> {
 		const shown = viewer;
@@ -2212,31 +2228,94 @@
 		const jump = {};
 		flagJump = jump;
 		const going = (): boolean => flagJump === jump && viewer === shown;
-		// Where the reader is, taken before the flags' files are loaded.
+		// Where the reader is, taken before any lines are loaded.
 		const from = readingPlace(shown);
-		const on = document.activeElement?.closest('[data-comment]')?.getAttribute('data-comment');
-		const placed: { flag: DraftCommentView; place: ReadingPlace }[] = [];
+		const focused = document.activeElement?.closest('[data-comment]')?.getAttribute('data-comment');
+		const unshown =
+			unshownFlag !== undefined && unshownFlag.part === currentPart() ? unshownFlag.id : undefined;
+		const on = focused == null ? unshown : Number(focused);
+
+		// The part of each flag: its file's one part, or the one that owns its lines.
+		const parted: { flag: DraftCommentView; part: PartState }[] = [];
 		for (const flag of here) {
 			const files = shown.parts.filter((part) => part.part.path === flag.anchor.path);
+			const first = files[0];
+			if (first === undefined) continue;
+			if (files.length === 1) {
+				parted.push({ flag, part: first });
+				continue;
+			}
 			const line = { side: flag.anchor.side, line: flag.anchor.last };
 			const home = await linesHome(shown, files, line, going);
 			if (!going()) return;
-			const first = files[0];
-			const place = placeOf(home) ?? (first === undefined ? undefined : [first.index, -1, -1]);
-			if (place !== undefined) placed.push({ flag, place });
+			parted.push({ flag, part: home?.part ?? first });
 		}
-		placed.sort((a, b) => comparePlaces(a.place, b.place) || Number(a.flag.id) - Number(b.flag.id));
-		const at = placed.findIndex((p) => String(p.flag.id) === on);
-		const next =
-			at >= 0
-				? placed[at + 1]
-				: from === undefined
-					? placed[0]
-					: placed.find((p) => comparePlaces(p.place, from) >= 0);
-		const target = next ?? placed[0];
+
+		/** The flags of one part, in the order they are drawn, with where each is. */
+		type Placed = { flag: DraftCommentView; place: ReadingPlace };
+		const placedIn = async (index: number): Promise<Placed[] | undefined> => {
+			const inPart = parted.filter((p) => p.part.index === index);
+			const part = inPart[0]?.part;
+			if (part === undefined) return [];
+			await shown.load(part.index);
+			if (!going()) return undefined;
+			return inPart
+				.map(({ flag }) => ({
+					flag,
+					// A flag whose lines are not found is at the start of its part.
+					place: earliestPlace(part, [{ side: flag.anchor.side, line: flag.anchor.last }]) ?? [
+						part.index,
+						-1,
+						-1
+					]
+				}))
+				.sort((a, b) => comparePlaces(a.place, b.place) || Number(a.flag.id) - Number(b.flag.id));
+		};
+		const parts = [...new Set(parted.map((p) => p.part.index))].sort((a, b) => a - b);
+
+		let target: DraftCommentView | undefined;
+		if (from !== undefined) {
+			const same = await placedIn(from[0]);
+			if (same === undefined) return;
+			const after = (p: Placed): boolean => {
+				const order = comparePlaces(p.place, from);
+				if (on === undefined) return order >= 0;
+				// From a flag: past it, and past the flags drawn with it that come before it.
+				const at = same.find((q) => Number(q.flag.id) === on);
+				if (at === undefined) return order >= 0;
+				return (
+					comparePlaces(p.place, at.place) > 0 ||
+					(comparePlaces(p.place, at.place) === 0 && Number(p.flag.id) > on)
+				);
+			};
+			target = same.find(after)?.flag;
+			const later = parts.find((index) => index > from[0]);
+			if (target === undefined && later !== undefined) {
+				const next = await placedIn(later);
+				if (next === undefined) return;
+				target = next[0]?.flag;
+			}
+		}
+		if (target === undefined) {
+			const first = parts[0];
+			if (first === undefined) return;
+			const wrapped = await placedIn(first);
+			if (wrapped === undefined) return;
+			target = wrapped[0]?.flag;
+			if (from !== undefined && parted.length > 1) comments.said = 'Back to the first flag.';
+		}
 		if (target === undefined) return;
-		if (next === undefined && placed.length > 1) comments.said = 'Back to the first flag.';
-		await goToComment(target.flag, target.flag);
+		const flag = target;
+		await goToComment(flag, flag);
+		if (!going()) return;
+		const shownNow = document.activeElement
+			?.closest('[data-comment]')
+			?.getAttribute('data-comment');
+		const part = parted.find((p) => p.flag.id === flag.id)?.part.index;
+		unshownFlag =
+			shownNow === String(flag.id) || part === undefined
+				? undefined
+				: { id: Number(flag.id), part };
 	}
 
 	/**

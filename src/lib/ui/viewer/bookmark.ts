@@ -48,6 +48,16 @@ export function bookmarkedRow(part: HTMLElement, line: BookmarkLine): HTMLTableR
 
 /** Find the first readable row in view, without measuring every row of a long part. */
 export function lineInView(part: HTMLElement, top: number, bottom: number): BookmarkLine | null {
+	const row = rowInView(part, top, bottom);
+	return row === null ? null : readingLine(row);
+}
+
+/** The first row in view that draws a line, without measuring every row of a long part. */
+export function rowInView(
+	part: HTMLElement,
+	top: number,
+	bottom: number
+): HTMLTableRowElement | null {
 	const rows = part.querySelector('table')?.rows;
 	if (rows === undefined) return null;
 	let first = 0;
@@ -60,19 +70,30 @@ export function lineInView(part: HTMLElement, top: number, bottom: number): Book
 	for (let i = first; i < rows.length; i += 1) {
 		const row = rows[i];
 		if (row === undefined || row.getBoundingClientRect().top >= bottom) break;
-		const line = readingLine(row);
-		if (line !== null) return line;
+		if (readingLine(row) !== null) return row;
 	}
 	return null;
 }
 
 /** The line a row draws, the new side's first. */
 export function readingLine(row: HTMLTableRowElement): BookmarkLine | null {
-	const marker =
-		row.querySelector('[data-reading-line^="new:"]') ??
-		row.querySelector('[data-reading-line^="old:"]');
-	const [side, line] = marker?.getAttribute('data-reading-line')?.split(':') ?? [];
-	return side === 'old' || side === 'new' ? { side, line: Number(line) } : null;
+	return readingLines(row).find((line) => line.side === 'new') ?? readingLines(row)[0] ?? null;
+}
+
+/** Every line a row draws: one, or a line of each side when they are drawn side by side. */
+export function readingLines(row: HTMLTableRowElement): readonly BookmarkLine[] {
+	return [...row.querySelectorAll('[data-reading-line]')].flatMap((marker) => {
+		const line = markedLine(marker);
+		return line === null ? [] : [line];
+	});
+}
+
+/** The line an element marks with `data-reading-line`, such as a line's number. */
+export function markedLine(element: Element): BookmarkLine | null {
+	const [side, line] = element.getAttribute('data-reading-line')?.split(':') ?? [];
+	return (side === 'old' || side === 'new') && line !== undefined
+		? { side, line: Number(line) }
+		: null;
 }
 
 export interface BookmarkDestination {
