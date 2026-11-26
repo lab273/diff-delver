@@ -20,3 +20,4 @@ export type {
 export { describeDatabaseError } from './database-error.ts';
 export type { Migration } from './migrations.ts';
 export { APPLICATION_ID, LATEST_VERSION, MIGRATIONS } from './migrations.ts';
+export { newestMigrationIn } from './newest-migration.ts';

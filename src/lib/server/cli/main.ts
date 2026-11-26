@@ -29,7 +29,11 @@ import {
 import { machineDataDirectory } from '../store/index.ts';
 import { randomIds, systemClock } from '../system.ts';
 import { codeVersion } from '../version.ts';
-import { describeNewerDaemon, describeReplacedDaemon } from '#lib/core/cli/replaced-daemon.ts';
+import {
+	describeDatabaseNewer,
+	describeNewerDaemon,
+	describeReplacedDaemon
+} from '#lib/core/cli/replaced-daemon.ts';
 import { runShim } from './mcp-shim.ts';
 import { openBrowser } from './open-browser.ts';
 import {
@@ -272,6 +276,9 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 					break;
 				case 'newer':
 					terminal.print(describeNewerDaemon(found.version, codeVersion(), entry));
+					break;
+				case 'database-newer':
+					terminal.print(describeDatabaseNewer(found.version, codeVersion(), entry));
 					break;
 			}
 			const describe = describerFor(found, codeVersion(), entry);

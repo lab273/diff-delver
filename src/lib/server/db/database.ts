@@ -161,6 +161,29 @@ export class Database {
 		return ok(database);
 	}
 
+	/**
+	 * Opens the database in the data directory only to read it: nothing is made,
+	 * migrated or written, so a copy of diff delver can look at a database it
+	 * could not use. A file that is not there is `DatabaseUnusable`.
+	 */
+	static openToRead(dataDirectory: AbsolutePath): Result<Database, DatabaseError> {
+		const file = absolute(join(dataDirectory, DATABASE_FILE));
+		let connection: DatabaseSync;
+		try {
+			connection = new DatabaseSync(file, { readOnly: true, timeout: 1000 });
+		} catch (error) {
+			return err(sqliteError(file, error));
+		}
+		const database = new Database(file, connection);
+		try {
+			connection.exec('PRAGMA trusted_schema = OFF');
+		} catch (error) {
+			database.close();
+			return err(sqliteError(file, error));
+		}
+		return ok(database);
+	}
+
 	/** Runs `work` in one read transaction, so everything it reads is from one moment. */
 	read<T, E = never>(work: (q: Queries) => Result<T, E>): Result<T, E | DatabaseError> {
 		return this.#transaction('BEGIN', work);

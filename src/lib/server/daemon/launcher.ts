@@ -12,7 +12,10 @@
  *   one release built from different code, `orderOfDaemon`): that daemon is
  *   asked to stop and a new one is started, so a person who updated diff
  *   delver is never left talking to the old one. Its open pages stop working,
- *   and the command says so;
+ *   and the command says so. Not when the data folder's database has a
+ *   migration this copy does not know: its own daemon would refuse the
+ *   database, leaving nothing serving the folder, so the running one is used
+ *   as it is, and the command says how to bring this copy up to date;
  * - a stale lockfile (its process is gone, or it does not answer) or none: a
  *   new daemon is started, which replaces the stale lockfile. A process a stale
  *   lockfile names is never signalled: it may be any program by now.
@@ -32,6 +35,7 @@ import { orderOfDaemon } from '#lib/core/cli/replaced-daemon.ts';
 import type { ProcessId } from '#lib/core/process-id.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import { LATEST_VERSION, newestMigrationIn } from '../db/index.ts';
 import { connectionOf, type DaemonConnection } from './daemon.ts';
 import { readLockfile, removeLockfileIf, type Lock } from './lockfile.ts';
 import { clientFor, probeLock } from './probe.ts';
@@ -60,11 +64,16 @@ export function describeLaunchError(error: LaunchError): ReviewerMessage {
 	}
 }
 
-/** Which daemon the command got, for it to say: its own version's, one that replaced another, or a newer one already running. */
+/**
+ * Which daemon the command got, for it to say: its own version's, one that
+ * replaced another, a newer one already running, or one already running that
+ * it kept because the data folder's database is newer than it knows.
+ */
 export type FoundDaemon =
 	| { readonly kind: 'own' }
 	| { readonly kind: 'replaced'; readonly version: CodeVersion }
-	| { readonly kind: 'newer'; readonly version: CodeVersion };
+	| { readonly kind: 'newer'; readonly version: CodeVersion }
+	| { readonly kind: 'database-newer'; readonly version: CodeVersion };
 
 export interface Launched {
 	readonly connection: DaemonConnection;
@@ -117,6 +126,16 @@ export async function stopDaemonOf(
 	}
 	await removeLockfileIf(dataDirectory, text);
 	return true;
+}
+
+/**
+ * Whether the data folder's database has a migration this copy does not know,
+ * so a daemon of this copy would refuse it. A database that cannot be read, or
+ * is not there, is no reason to keep a daemon: the new one says what is wrong.
+ */
+function databaseNewerThanThisCopy(dataDirectory: AbsolutePath): boolean {
+	const newest = newestMigrationIn(dataDirectory);
+	return newest.ok && newest.value !== undefined && newest.value > LATEST_VERSION;
 }
 
 /** Starts `diff-delver serve` in the background and waits for it to listen. */
@@ -204,6 +223,12 @@ export async function ensureDaemon(
 						});
 					case 'running-older':
 					case 'unordered':
+						if (databaseNewerThanThisCopy(dataDirectory)) {
+							return ok({
+								connection: connectionOf(content.lock),
+								found: { kind: 'database-newer', version: probe.version }
+							});
+						}
 						break;
 				}
 				if (!(await stopDaemonOf(dataDirectory, content.lock, content.text))) {

@@ -10,7 +10,9 @@
  *   could not read a database the newer one has changed, and says how to bring
  *   this copy up to date.
  * - The daemon is older, or the two cannot be put in order: the command
- *   replaces it and says so.
+ *   replaces it and says so, unless the data folder's database is newer than
+ *   this copy knows. Then this copy could not start a daemon of its own, so it
+ *   uses the running one as it is and says how to bring this copy up to date.
  */
 import type { CodeVersion } from '../code-version.tiny.ts';
 import { compareReleases, releaseOfCodeVersion } from '../release-version.tiny.ts';
@@ -63,6 +65,20 @@ export function describeNewerDaemon(
 ): ReviewerMessage {
 	return reviewerMessage(
 		`A newer diff delver, ${shown(running)}, is already running, so this copy, ${shown(mine)}, is using it. ${howToUpgrade(commandPath)}`
+	);
+}
+
+/**
+ * What the command says when it uses the daemon that is running because the
+ * data folder's database is newer than this copy knows.
+ */
+export function describeDatabaseNewer(
+	running: CodeVersion,
+	mine: CodeVersion,
+	commandPath: string
+): ReviewerMessage {
+	return reviewerMessage(
+		`This copy of diff delver, ${shown(mine)}, is older than its data folder, which a newer diff delver has used, so it is using the diff delver that is running, ${shown(running)}, as it is. ${howToUpgrade(commandPath)}`
 	);
 }
 

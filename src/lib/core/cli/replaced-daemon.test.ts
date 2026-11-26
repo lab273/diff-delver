@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseCodeVersion, type CodeVersion } from '../code-version.tiny.ts';
 import {
+	describeDatabaseNewer,
 	describeNewerDaemon,
 	describeReplacedDaemon,
 	describeTooOldForDaemon,
@@ -72,6 +73,16 @@ describe('using a newer daemon that is running', () => {
 			describeTooOldForDaemon(version('0.3.0+aaaaaaaaaaaa'), version('0.2.0+bbbbbbbbbbbb'), CLONE)
 		).toBe(
 			'This copy of diff delver, 0.2.0, is too old for the newer one that is running, 0.3.0: it answered in a way this copy cannot read. To run the newest release, see "Upgrading" in the README (https://github.com/lab273/diff-delver#upgrading).'
+		);
+	});
+});
+
+describe('using the daemon that is running because the database is newer than this copy', () => {
+	it('says this copy is older than its data folder, with how to bring it up to date', () => {
+		expect(
+			describeDatabaseNewer(version('0.0.1-dev+aaaaaaaaaaaa'), version('0.0.1+bbbbbbbbbbbb'), NPX)
+		).toBe(
+			'This copy of diff delver, 0.0.1, is older than its data folder, which a newer diff delver has used, so it is using the diff delver that is running, 0.0.1-dev+aaaaaaaaaaaa, as it is. npx keeps the copy it fetched first, so to run the newest release, delete that copy, the folder /home/someone/.npm/_npx/8441cbaa0729a68d, and run the same command again.'
 		);
 	});
 });

@@ -1,15 +1,18 @@
 /**
  * The launcher, in the test's own process: `diff-delver stop`'s half signals a
  * process only when a daemon answers for it, never one a lockfile merely names;
- * and finding a daemon of another release uses a newer one as it is and
- * replaces an older one.
+ * finding a daemon of another release uses a newer one as it is and
+ * replaces an older one, but never one serving a database this copy is too old
+ * for.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { tempDirectory } from '../../../../tests/support/fixture-repos.ts';
 import { join } from 'node:path';
 import { testDaemon, version } from '../../../../tests/support/daemons.ts';
+import { DATABASE_FILE, LATEST_VERSION } from '../db/index.ts';
 import { ensureDaemon, stopDaemon } from './launcher.ts';
 import { lockfilePath, readLockfile } from './lockfile.ts';
 
@@ -88,5 +91,32 @@ describe('finding a daemon of another release', () => {
 		await daemon.stopped;
 		// The test's command cannot start: what matters is that the older daemon was stopped for it.
 		expect(launched.ok ? undefined : launched.error.kind).toBe('StartFailed');
+	});
+});
+
+describe('a copy too old for the data folder', () => {
+	it('keeps the daemon that is running, and says this copy is older than its data folder', async () => {
+		const dataDirectory = await tempDirectory();
+		const daemon = await testDaemon({ dataDirectory, version: version('0.0.1-dev+aaaaaaaaaaaa') });
+		// A newer diff delver has changed the database in a way this copy does not know.
+		const database = new DatabaseSync(join(dataDirectory, DATABASE_FILE));
+		database
+			.prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+			.run(LATEST_VERSION + 1, 'from a newer diff delver', 0);
+		database.close();
+		const nowhere = join(await tempDirectory(), 'no-such-command.js');
+		const launched = await ensureDaemon(dataDirectory, version('0.0.1+bbbbbbbbbbbb'), nowhere);
+		expect(launched).toMatchObject({
+			ok: true,
+			value: {
+				connection: { port: daemon.port, token: daemon.token },
+				found: { kind: 'database-newer', version: '0.0.1-dev+aaaaaaaaaaaa' }
+			}
+		});
+		expect((await fetch(`${daemon.origin}/api/daemon`)).status).toBe(403);
+		expect(await readLockfile(dataDirectory)).toMatchObject({
+			kind: 'lock',
+			lock: { version: '0.0.1-dev+aaaaaaaaaaaa' }
+		});
 	});
 });

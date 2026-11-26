@@ -29,7 +29,11 @@ import { z } from 'zod';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { BrowserOffer } from '#lib/core/cli/browser-offer.ts';
 import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
-import { describeNewerDaemon, describeReplacedDaemon } from '#lib/core/cli/replaced-daemon.ts';
+import {
+	describeDatabaseNewer,
+	describeNewerDaemon,
+	describeReplacedDaemon
+} from '#lib/core/cli/replaced-daemon.ts';
 import { MCP_PATH } from '#lib/core/daemon/request-gate.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import type { DaemonConnection } from '../daemon/daemon.ts';
@@ -68,17 +72,21 @@ const InitializeResult = z.object({ result: z.object({ protocolVersion: z.string
 /** Runs the shim until standard input closes. */
 export async function runShim(options: ShimOptions): Promise<number> {
 	const find = async (): Promise<Result<DaemonConnection, string>> => {
-		const launched = await ensureDaemon(options.dataDirectory, options.version, options.entry);
+		const { version } = options;
+		const launched = await ensureDaemon(options.dataDirectory, version, options.entry);
 		if (!launched.ok) return err(describeLaunchError(launched.error));
 		const { found } = launched.value;
 		switch (found.kind) {
 			case 'own':
 				break;
 			case 'replaced':
-				options.printError(describeReplacedDaemon(found.version, options.version));
+				options.printError(describeReplacedDaemon(found.version, version));
 				break;
 			case 'newer':
-				options.printError(describeNewerDaemon(found.version, options.version, options.entry));
+				options.printError(describeNewerDaemon(found.version, version, options.entry));
+				break;
+			case 'database-newer':
+				options.printError(describeDatabaseNewer(found.version, version, options.entry));
 				break;
 		}
 		return ok(launched.value.connection);

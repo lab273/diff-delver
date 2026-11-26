@@ -140,6 +140,7 @@ export function describerFor(
 		case 'replaced':
 			return describeApiError;
 		case 'newer':
+		case 'database-newer':
 			return (error) =>
 				misunderstood(error)
 					? describeTooOldForDaemon(found.version, mine, commandPath)

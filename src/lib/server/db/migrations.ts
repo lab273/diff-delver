@@ -583,7 +583,7 @@ CREATE INDEX github_review_post_comments_by_revision ON github_review_post_comme
 export const LATEST_VERSION: SchemaVersion = newestOf(MIGRATIONS.map((m) => m.version));
 
 /** The newest of some versions; 1 when there are none. */
-function newestOf(versions: readonly SchemaVersion[]): SchemaVersion {
+export function newestOf(versions: readonly SchemaVersion[]): SchemaVersion {
 	return versions.reduce((newest, v) => (v > newest ? v : newest), schemaVersionOf(1));
 }
 
@@ -595,7 +595,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 ) STRICT`;
 
 /** Whether the file is ours, someone else's, or new; and what has been applied. */
-function inspect(
+export function inspect(
 	q: Queries,
 	file: Database['file']
 ): Result<readonly SchemaVersion[], DatabaseError> {
