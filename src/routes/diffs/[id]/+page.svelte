@@ -960,8 +960,7 @@
 		await goToPart(at, true, stillGoing === undefined ? {} : { stillGoing });
 	}
 
-	/** The presses of `r` waiting for the one before them to finish. */
-	let marksWaiting = 0;
+	/** The presses of `r`, each taken once the one before it has finished. */
 	let marking: Promise<void> = Promise.resolve();
 	/** How many times the presses waiting were dropped: a press made before then is not taken. */
 	let marksDropped = 0;
@@ -974,7 +973,6 @@
 	 */
 	function dropMarks(): void {
 		marksDropped += 1;
-		marksWaiting = 0;
 	}
 
 	$effect(() => {
@@ -990,17 +988,17 @@
 	 * waiting, as `n` does, so pressing it again and again reviews the diff part
 	 * by part. On a part already reviewed, or ignored, it only goes on. A tick
 	 * refused stays where its refusal is said. Presses are taken one after
-	 * another, each from where the one before it left the person; a refusal, the
-	 * diff drawn again, a dialog or leaving the page drops those still waiting.
+	 * another, each from where the one before it left the person: when they move
+	 * by their own input meanwhile, the press under way does not go on, so the
+	 * next acts where they went. A refusal, the diff drawn again, a dialog or
+	 * leaving the page drops those still waiting.
 	 */
 	function markReviewedByKey(): void {
 		const pressedOn = viewer;
 		const pressed = marksDropped;
-		marksWaiting += 1;
 		const run = async (): Promise<void> => {
 			if (viewer !== pressedOn) dropMarks();
 			if (pressed !== marksDropped) return;
-			marksWaiting -= 1;
 			await markAndMoveOn(() => pressed === marksDropped && !dialogOpen());
 		};
 		// A press that fails in the page says so where the page speaks, and the
@@ -1058,7 +1056,7 @@
 		);
 		try {
 			await tickTarget({ kind: 'part', at }, true, {
-				moveOn: () => stillGoing() && (!moved || marksWaiting > 0)
+				moveOn: () => stillGoing() && !moved
 			});
 		} finally {
 			stop();
@@ -1115,7 +1113,7 @@
 				await tick();
 				if (viewer !== beforeRefresh) return;
 				// `r` goes on to the next part waiting, unless the reader moved away
-				// meanwhile; another `r` pressed while this one ticked is no moving away.
+				// meanwhile, when the next press acts where they went.
 				if (moveOn?.() === true) {
 					// On the last part the tick's own words say everything is reviewed, so
 					// they stay, and focus goes to the notice that says so.

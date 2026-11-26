@@ -49,6 +49,32 @@ test.describe('Marking files reviewed with r', () => {
 		await journey.expectState(tickOf('src/discount.ts'), { checked: false });
 		await journey.expectText(review, '9 of 14 changes reviewed');
 
+		// Moving while r ticks wins: r does not go on from where the reader went, and
+		// the next press acts there, on a file already reviewed, which it says.
+		await journey.press('k');
+		await journey.expectFocused(
+			journey.within(cart).byRole('button', { name: 'src/cart.ts', exact: true })
+		);
+		await journey.activate(tickOf('src/cart.ts'), 'Space');
+		await journey.expectState(tickOf('src/cart.ts'), { checked: false });
+		await journey.expectText(review, '3 of 14 changes reviewed');
+		const moving = await journey.holdTick();
+		await journey.press('r');
+		await moving.requested;
+		await journey.press('j');
+		await journey.press('r');
+		moving.release();
+		await journey.expectState(tickOf('src/cart.ts'), { checked: true });
+		await journey.expectFocused(
+			journey.within(discount).byRole('button', { name: 'src/discount.ts', exact: true })
+		);
+		await journey.expectVisible(
+			journey.byText('src/checkout.ts is already reviewed.', { exact: true })
+		);
+		await journey.expectState(tickOf('src/discount.ts'), { checked: false });
+		await journey.expectText(review, '9 of 14 changes reviewed');
+		await journey.step('Moved while r ticks');
+
 		// The diff is updated while the page is left on the version before: r is
 		// refused, says so once, and the press made while it waited is dropped.
 		await journey.editFile(
@@ -60,10 +86,6 @@ test.describe('Marking files reviewed with r', () => {
 		await journey.returnToPage();
 		await journey.expectVisible(
 			journey.byRole('region', { name: 'This Delve has a newer version' })
-		);
-		await journey.press('j');
-		await journey.expectFocused(
-			journey.within(discount).byRole('button', { name: 'src/discount.ts', exact: true })
 		);
 		const held = await journey.holdTick();
 		await journey.press('r');
