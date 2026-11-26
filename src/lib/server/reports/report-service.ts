@@ -1016,7 +1016,6 @@ function carryOverInput(
 	};
 }
 
-/** A comment of the draft as a page showed it: which, and how many times its words had been changed. */
 /** A note promoted: the version's notes now, and the comment it became; none when it was promoted already. */
 export interface Promoted {
 	readonly notes: readonly AgentNote[];
@@ -1037,6 +1036,7 @@ export interface NotesAdded {
 	readonly actedOn: number;
 }
 
+/** A comment of the draft as a page showed it: which, and how many times its words had been changed. */
 export interface ShownComment {
 	readonly id: DraftCommentId;
 	readonly edits: EditCount;
@@ -1850,9 +1850,10 @@ export class ReportService {
 	restoreNotes(id: ReportId, seen: RevisionNumber): Result<readonly AgentNote[], ReportError> {
 		return this.#db.write((q) =>
 			andThen(currentAsSeen(q, id, seen), ({ revision }) => {
-				restoreDismissedNotes(q, revision.id);
-				touchReport(q, id, this.#clock.now());
-				this.#frameVersions.edited(revision.id);
+				if (restoreDismissedNotes(q, revision.id) > 0) {
+					touchReport(q, id, this.#clock.now());
+					this.#frameVersions.edited(revision.id);
+				}
 				return agentNotesOf(q, revision.id);
 			})
 		);
@@ -1889,6 +1890,8 @@ export class ReportService {
 					// The comment's lines are those of its side's tree, as a comment written on them would be.
 					const side = diff.byPath.get(held.anchor.path)?.file[held.anchor.side];
 					if (side === undefined) return err({ kind: 'InvalidCommentRange' });
+					const body = promotedNoteBody(held);
+					if (!isThreadBody('comment', body)) return err({ kind: 'InvalidCommentBody' });
 					const at = this.#clock.now();
 					return andThen(
 						insertDraftComment(
@@ -1896,7 +1899,7 @@ export class ReportService {
 							revision.id,
 							'comment',
 							{ ...held.anchor, path: side.path },
-							promotedNoteBody(held),
+							body,
 							at
 						),
 						(comment) => {

@@ -108,9 +108,9 @@ export function setNoteState(q: Queries, id: AgentNoteId, state: NoteState): voi
 	q.run('UPDATE agent_notes SET state = ? WHERE id = ?', state, id);
 }
 
-/** Brings back every dismissed note of a revision, for the reviewer who wants them again. */
-export function restoreDismissedNotes(q: Queries, revision: RevisionId): void {
-	q.run(
+/** Brings back every dismissed note of a revision, for the reviewer who wants them again; how many. */
+export function restoreDismissedNotes(q: Queries, revision: RevisionId): number {
+	return q.run(
 		"UPDATE agent_notes SET state = 'waiting' WHERE revision_id = ? AND state = 'dismissed'",
 		revision
 	);
