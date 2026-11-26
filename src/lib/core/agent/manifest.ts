@@ -33,7 +33,7 @@ import type { ReadingOrders } from '../reports/reading-order.ts';
 import { stepLines } from './reading-order-answer.ts';
 import type { Section } from '../reports/report.ts';
 import type { Role } from '../role.tiny.ts';
-import { unitSetSize } from '../diff/unit-set.ts';
+import { fileUnitSetSize, unitSetSize } from '../diff/unit-set.ts';
 import { textForAgent, type TextForAgent } from '../text-for-agent.tiny.ts';
 import {
 	changes,
@@ -159,12 +159,12 @@ function summary(input: ManifestInput): readonly string[] {
 			const totals = cover.sections.get(section.id);
 			const refs = input.references.get(section.id);
 			const steps = input.readingOrders.get(section.id) ?? [];
+			const inSteps = steps.reduce((n, step) => n + fileUnitSetSize(step.units), 0);
+			const rest = (totals?.units ?? 0) > inSteps ? ', then the rest in path order' : '';
 			const parts = [
 				`${changes(totals?.units ?? 0)} in ${counted(totals?.files ?? 0, 'file', 'files')}`,
 				...(refs === undefined ? [] : [`${changes(unitSetSize(refs))} cross-referenced`]),
-				...(steps.length === 0
-					? []
-					: [`read in ${counted(steps.length, 'step', 'steps')}, then the rest in path order`]),
+				...(steps.length === 0 ? [] : [`read in ${counted(steps.length, 'step', 'steps')}${rest}`]),
 				...(section.summary === undefined ? ['no summary yet'] : [])
 			];
 			out.push(`  ${section.id}: ${quotedAgentText(section.title, 120)}, ${parts.join(', ')}`);

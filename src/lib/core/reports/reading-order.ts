@@ -227,7 +227,13 @@ export function orderSection(
 export function effectiveOrders(
 	diff: Diff,
 	state: AssignmentState,
-	orders: ReadingOrders
+	orders: ReadingOrders,
+	/**
+	 * Keep each step in its place, with no units when it has none left, so
+	 * steps keep their numbers: for a diff of one file, whose other steps are
+	 * not in it.
+	 */
+	keepPlaces = false
 ): ReadingOrders {
 	const effective = new Map<SectionId, readonly ReadingStep[]>();
 	for (const [section, steps] of orders) {
@@ -235,9 +241,14 @@ export function effectiveOrders(
 		const kept: ReadingStep[] = [];
 		for (const step of steps) {
 			const file = diff.byPath.get(step.path);
-			if (file === undefined) continue;
-			const units = narrowed(step.units, sectionUnits(state, file, section), taken.get(step.path));
-			if (units === undefined) continue;
+			const units =
+				file === undefined
+					? undefined
+					: narrowed(step.units, sectionUnits(state, file, section), taken.get(step.path));
+			if (units === undefined) {
+				if (keepPlaces) kept.push({ path: step.path, units: NO_UNITS, note: step.note });
+				continue;
+			}
 			taken.set(step.path, joined(taken.get(step.path), units));
 			kept.push({ path: step.path, units, note: step.note });
 		}
@@ -245,6 +256,8 @@ export function effectiveOrders(
 	}
 	return effective;
 }
+
+const NO_UNITS: FileUnitSet = { old: RangeSet.empty, new: RangeSet.empty, file: false };
 
 /** Where a change unit is read in its section: in a step, or after them. */
 export class StepLookup {

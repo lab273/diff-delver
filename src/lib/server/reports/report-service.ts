@@ -1727,8 +1727,10 @@ export class ReportService {
 		if (!unmarked.ok) return unmarked;
 		const references = referencesFromRows(diff, found.value.referenceRows);
 		if (!references.ok) return references;
-		const readingOrders = ordersFromSteps(diff, found.value.readingSteps);
-		if (!readingOrders.ok) return readingOrders;
+		const stored = ordersFromSteps(diff, found.value.readingSteps);
+		if (!stored.ok) return stored;
+		// Trimmed as read, so no write that skipped the trim can make two steps share a unit.
+		const readingOrders = effectiveOrders(diff, state.value, stored.value);
 		return ok({
 			summary: summaryOf(found.value.shown.report, found.value.shown.revision),
 			report: found.value.shown.report,
@@ -1737,7 +1739,7 @@ export class ReportService {
 			diff: diff,
 			sections,
 			references: references.value,
-			readingOrders: readingOrders.value,
+			readingOrders,
 			overview: found.value.overview,
 			notes: found.value.notes,
 			earlierNotes: found.value.earlierNotes,
@@ -2146,9 +2148,10 @@ export class ReportService {
 			if (target.kind !== 'file' && sorting !== this.#sortingOf(revision.id, writesElsewhere(q))) {
 				return err({ kind: 'SortingChanged' });
 			}
+			// Trimmed as read, so no write that skipped the trim can make two steps share a unit.
 			const orders = readingOrdersOf(q, revision.id, diff);
 			if (!orders.ok) return orders;
-			const steps = new StepLookup(orders.value);
+			const steps = new StepLookup(effectiveOrders(diff, state, orders.value));
 			return andThen(markReviewed(diff, state, marks, target, reviewed, view, steps), (marked) =>
 				andThen(sectionsOf(q, revision.id), (sections) => {
 					replaceReviewedRows(
@@ -2242,7 +2245,7 @@ export class ReportService {
 		if (!fresh.ok) return fresh;
 		const orders = ordersForFile(one, path, rows.value.steps);
 		if (!orders.ok) return orders;
-		const steps = new StepLookup(orders.value);
+		const steps = new StepLookup(effectiveOrders(one, state.value, orders.value, true));
 		const place = { group, step };
 		const wanted = placeId(place);
 		if (
@@ -2401,7 +2404,7 @@ export class ReportService {
 			if (!state.ok) return state;
 			const orders = readingOrdersOf(q, revision.id, diff);
 			if (!orders.ok) return orders;
-			const steps = new StepLookup(orders.value);
+			const steps = new StepLookup(effectiveOrders(diff, state.value, orders.value));
 			const frame = frameOf(
 				diff,
 				state.value,

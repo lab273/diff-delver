@@ -69,7 +69,8 @@ describe('a section’s reading order, through the MCP server', () => {
 		expect(again.text).toBe(set.text);
 
 		const manifest = await session.call('get_manifest', { report });
-		expect(manifest.text).toContain('read in 3 steps, then the rest in path order');
+		// Every line of the section is in a step, so nothing follows them.
+		expect(manifest.text).toMatch(/^ {2}discounts: .*, read in 3 steps$/m);
 		expect(manifest.text).toContain(
 			'    2. src/cart.ts -3..-4,+3..+4 (4 change lines); note "total() takes a percentage."'
 		);

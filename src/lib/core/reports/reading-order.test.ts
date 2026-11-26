@@ -15,6 +15,8 @@ import { markReviewed } from '../review/mark-reviewed.ts';
 import { reviewProgress } from '../review/progress.ts';
 import { NO_MARKS } from '../review/reviewed-marks.ts';
 import { parseSectionId, type SectionId } from '../section-id.tiny.ts';
+import { orderStepOf } from '../order-step.tiny.ts';
+import { parseRepoPath } from '../repo-path.tiny.ts';
 import { frameOf, type PartMarks } from '../viewer/parts.ts';
 import {
 	asUnitSets,
@@ -35,6 +37,10 @@ function id(text: string): SectionId {
 }
 
 const ALPHA = id('alpha');
+const parsedPath = parseRepoPath('src/c.ts');
+if (!parsedPath.ok) throw new Error('src/c.ts');
+/** Not sorted: in no section. */
+const UNSORTED_PATH = parsedPath.value;
 const NOTHING: PartMarks = { reviewed: NO_MARKS, fresh: EMPTY_UNIT_SET, unmarked: EMPTY_UNIT_SET };
 
 const diff = syntheticDiff([
@@ -95,6 +101,28 @@ describe('a section’s reading order', () => {
 		expect(alpha?.parts[0]?.steps).toBe(3);
 		// Another step's lines are no group of their own: the file names only other groups.
 		expect(alpha?.parts[0]?.others).toEqual([]);
+	});
+
+	it('marks nothing for a step named on a group without one', () => {
+		const orders = ordered(sorted, [{ file: 'src/b.ts', lines: secondHunkOfB() }]);
+		const tick = (step: number) => {
+			const marked = markReviewed(
+				diff,
+				sorted,
+				NO_MARKS,
+				{
+					kind: 'slice',
+					group: { kind: 'uncategorised' },
+					path: UNSORTED_PATH,
+					step: orderStepOf(step)
+				},
+				true,
+				'sections',
+				new StepLookup(orders)
+			);
+			return marked.ok ? 'marked' : marked.error.kind;
+		};
+		expect(tick(1)).toBe('NothingToMark');
 	});
 
 	it('puts lines no step names after the steps, in path order', () => {

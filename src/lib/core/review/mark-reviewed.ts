@@ -106,11 +106,15 @@ function inStep(
 	step: OrderStep | undefined,
 	steps: StepLookup
 ): Covered {
-	if (group.kind !== 'section' && group.kind !== 'tests') return covered;
+	const none: Covered = { old: RangeSet.empty, new: RangeSet.empty, file: false };
+	if (group.kind !== 'section' && group.kind !== 'tests') {
+		// Only a section's parts are steps: a step named elsewhere names nothing, so it marks nothing.
+		return step === undefined ? covered : none;
+	}
 	const all = steps.unitsIn(group.section, path);
 	if (step !== undefined) {
 		const units = all.find((e) => e.step === step)?.units;
-		if (units === undefined) return { old: RangeSet.empty, new: RangeSet.empty, file: false };
+		if (units === undefined) return none;
 		return {
 			old: covered.old.intersect(units.old),
 			new: covered.new.intersect(units.new),
