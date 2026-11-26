@@ -354,6 +354,11 @@ this state is grouped into reviews.
     `info`. Notes are secondary to the human's own reading. They are visibly
     marked as agent-written, can be dismissed one by one or hidden all at once,
     and are left out of a submitted review unless the reviewer promotes them.
+    As built, notes are kept apart from the draft and belong to the version
+    they were written on; a later version says how many an earlier one has
+    waiting. Promoting one makes a draft comment of the reviewer's that quotes
+    the agent's words and says they came from a note, which the reviewer can
+    then edit. Dismissed notes come back all at once.
   - `request`: a question or instruction for the agent (section 7).
 - **Progress** counts slices and lines reviewed, per section and overall. `Ignored`
   is excluded from the total and shown beside it.
@@ -541,7 +546,7 @@ Writing:
 | `upsert_sections(report, version, sections[], order?, remove?)` | Create, retitle, summarise and reorder sections, set each section's cross-references to lines that live elsewhere, and remove sections that hold nothing. A report has at most 50 sections. All or nothing. |
 | `assign(report, version, items[])` | Put change lines in a section or in `ignored` (with a reason), and optionally set a role. An item names a file, a glob, hunk ids or line ranges. Returns what each item took, what it moved out of another place, what was rejected and how many lines remain. |
 | `get_coverage(report)` | What is still uncategorised, plus warnings: empty sections, oversized sections, split change runs, tests with no section. |
-| `add_notes(report, notes[])` | Labelled agent notes on line ranges. |
+| `add_notes(report, version, notes[], replace?)` | Labelled agent notes on changed line ranges, at most 50 a call and 100 a version. A note the version already holds is passed over, so a retry adds nothing and a dismissed note stays dismissed; `replace` removes the version's notes the reviewer has not dismissed or promoted. |
 
 Live loop and review:
 
@@ -688,7 +693,10 @@ optional, flagging the same lines again makes no second flag, and Clear takes it
 off in one press, since raising it again is one press too. A list above the diff
 counts every comment and flag and goes to each, and `F` goes to the next flag. A
 flag is stored as a comment of kind `flag`, so it carries over to a new version as
-comments do.
+comments do. The agent's notes are drawn at their lines after the reviewer's own,
+labelled "Agent note" with their kind, with **Dismiss** and **Promote to review**;
+they are counted above the diff and in the overall review's bar apart from the
+reviewer's comments, and `a` hides or shows them all.
 
 **States explained in place.** Wherever something could puzzle a newcomer, the
 page says what it is, once and briefly:
