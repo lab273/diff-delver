@@ -946,6 +946,13 @@ words are. The verdict (6.3) is not built yet.
   and export text, and an append-only event log that feeds live updates.
 - One git object store per reviewed repository in the data directory (3.2).
 - Review state is personal and never written into the repository.
+- The daemon of the machine's default data folder is always at
+  `http://127.0.0.1:12321`, so links and pages left open still reach it after a
+  restart, or after a newer diff delver replaces it; a page served by an earlier
+  version says so and offers to reload, and one let in by an agent's link, which
+  is good for one daemon only, offers to reload to be told how to get back in.
+  A daemon of any other data folder takes a free port, and when 12321 is taken
+  the daemon takes another for that run and says which.
 - The daemon binds to `127.0.0.1`, checks `Host` and `Origin`, and requires a
   bearer token or browser session cookie. No token appears on a command line or in
   an address. A browser is let in by a single-use code, which the daemon exchanges
