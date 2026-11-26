@@ -39,6 +39,13 @@ test.describe('J6 Comment and flag', () => {
 		await journey.expectFocused(menu.byRole('button', { name: 'Comment on After, line 2' }));
 		await journey.step('The menu under a line');
 
+		// Leaving the menu puts it away, so it never holds up the agent's regroup.
+		await journey.press('Shift+Tab');
+		await journey.expectFocused(line(2));
+		await journey.expectHidden(file.byRole('group', { name: 'After, line 2: comment or flag' }));
+		await journey.press('Enter');
+		await journey.expectFocused(menu.byRole('button', { name: 'Comment on After, line 2' }));
+
 		// Flag, in the menu: saved at once, and the keyboard is back on the line.
 		await journey.press('Tab');
 		await journey.press('Enter');

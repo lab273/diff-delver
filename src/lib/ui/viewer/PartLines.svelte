@@ -705,17 +705,29 @@
 						{@const lines = item.lines}
 						{@const words = describeCommentLines(lines)}
 						<!-- Escape anywhere in the menu puts it away: one listener for its buttons. -->
+						<!-- The menu is put away when the keyboard or a press leaves it, so it never
+						     holds up a regroup the reviewer is not choosing lines for. A press on its
+						     words keeps it, since the group itself then takes the focus. -->
 						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 						<div
 							class="line-menu"
 							role="group"
+							tabindex="-1"
 							aria-label="{words}: comment or flag"
 							data-line-menu
 							bind:this={menuElement}
 							onkeydown={(event) => {
 								if (event.key !== 'Escape') return;
 								event.preventDefault();
+								event.stopPropagation();
 								void closeMenu(lines);
+							}}
+							onfocusout={(event) => {
+								const next = event.relatedTarget;
+								if (next instanceof Node && event.currentTarget.contains(next)) return;
+								// The window losing the focus leaves the menu as it was.
+								if (next === null && !document.hasFocus()) return;
+								if (menu === lines) menu = undefined;
 							}}
 						>
 							<span>{words}</span>
@@ -1348,6 +1360,11 @@
 		font-family: var(--font-body);
 		font-size: 0.875rem;
 		line-height: 1.5;
+	}
+
+	/* A press on its words gives the group the focus, only to keep it open. */
+	.line-menu:focus {
+		outline: none;
 	}
 
 	.line-menu button {
