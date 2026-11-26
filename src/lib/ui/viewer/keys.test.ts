@@ -15,7 +15,7 @@ describe('the diff page’s shortcuts', () => {
 		expect(shortcutOf(press('j'))).toBe('next-part');
 		expect(shortcutOf(press(']'))).toBe('next-part');
 		expect(shortcutOf(press('k'))).toBe('previous-part');
-		expect(shortcutOf(press('r'))).toBe('toggle-reviewed');
+		expect(shortcutOf(press('r'))).toBe('mark-reviewed');
 		expect(shortcutOf(press('s'))).toBe('side-by-side');
 		expect(shortcutOf(press('w'))).toBe('white-space');
 		expect(shortcutOf(press('d'))).toBe('other-delves');
@@ -24,7 +24,7 @@ describe('the diff page’s shortcuts', () => {
 		expect(shortcutOf(press('/'))).toBe('search');
 		expect(shortcutOf(press('x'))).toBeUndefined();
 		// On a checkbox a letter types nothing, so the shortcut works there too.
-		expect(shortcutOf(press('r', { tagName: 'INPUT', type: 'checkbox' }))).toBe('toggle-reviewed');
+		expect(shortcutOf(press('r', { tagName: 'INPUT', type: 'checkbox' }))).toBe('mark-reviewed');
 		// Nor on a slider, which takes only the arrow keys and the like.
 		expect(shortcutOf(press('i', { tagName: 'INPUT', type: 'range' }))).toBe('compare-images');
 	});

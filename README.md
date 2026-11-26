@@ -52,8 +52,9 @@ On the page you can:
 - **Read** each file's changes, in one column or side by side (`s`). Hide changes
   that only change white space (`w`), show more of the unchanged lines around a
   change, or show the whole file.
-- **Tick** a file as reviewed (`r`), or a whole section at once. The bar on the left
-  shows how far you have got.
+- **Tick** a file as reviewed, or a whole section at once. `r` ticks the file you
+  are on and moves to the next you have not reviewed, so pressing it again and again
+  works through the diff. The bar on the left shows how far you have got.
 - **Move on** to the next file you have not reviewed (`n`).
 - **Comment** on a line by pressing its number, or `c` on it. Drag over the numbers,
   or hold Shift, to take several lines. Comments are private drafts on your machine,

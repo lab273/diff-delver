@@ -953,6 +953,53 @@
 		await goToPart(at, true);
 	}
 
+	/** The presses of `r` waiting for the one before them to finish. */
+	let marksWaiting = 0;
+	let marking: Promise<void> = Promise.resolve();
+
+	/**
+	 * `r`: marks the part the person is on reviewed and goes on to the next part
+	 * waiting, as `n` does, so pressing it again and again reviews the diff part
+	 * by part. On a part already reviewed, or ignored, it only goes on. A tick
+	 * refused stays where its refusal is said. Presses are taken one after
+	 * another, each from where the one before it left the person.
+	 */
+	function markReviewedByKey(): void {
+		marksWaiting += 1;
+		const run = async (): Promise<void> => {
+			marksWaiting -= 1;
+			await markAndMoveOn();
+		};
+		marking = marking.then(run, run);
+	}
+
+	async function markAndMoveOn(): Promise<void> {
+		const shown = viewer;
+		if (shown === undefined || byFile) return;
+		const at = currentPart();
+		const state = at === undefined ? undefined : shown.parts[at];
+		if (at === undefined || state === undefined) return;
+		if (state.part.group.kind === 'ignored' || done(state.part.tally)) {
+			await nextUnread();
+			return;
+		}
+		const part = document.getElementById(`part-${at}`);
+		const toggle = document.getElementById(`part-${at}-toggle`);
+		if (
+			part !== null &&
+			toggle !== null &&
+			onScreen(toggle) &&
+			part.getBoundingClientRect().top < stickyTop
+		) {
+			// The sticky header is already in view while reading deep in the file.
+			shown.current = at;
+			toggle.focus({ preventScroll: true });
+		} else {
+			await goToPart(at, false);
+		}
+		if (viewer === shown) await tickTarget({ kind: 'part', at }, true, { moveOn: true });
+	}
+
 	/** The next or previous part shown, from where the person is, even a part the filter has just hidden. */
 	async function step(forward: boolean): Promise<void> {
 		if (viewer === undefined) return;
@@ -978,7 +1025,8 @@
 	async function afterTick(
 		target: TickTarget,
 		outcome: Awaited<ReturnType<Viewer['tick']>>,
-		readerMoved: boolean
+		readerMoved: boolean,
+		moveOn: boolean
 	): Promise<void> {
 		if (viewer === undefined) return;
 		switch (outcome.kind) {
@@ -1000,6 +1048,12 @@
 				if (outcome.refresh) await refreshReview(true);
 				await tick();
 				if (viewer !== beforeRefresh) return;
+				// `r` goes on to the next part waiting, unless the reader moved away
+				// meanwhile; another `r` pressed while this one ticked is no moving away.
+				if (moveOn && (!readerMoved || marksWaiting > 0)) {
+					await nextUnread();
+					return;
+				}
 				if (readerMoved && !focusLost()) return;
 				if (outcome.allDone) {
 					document.getElementById(EVERYTHING_REVIEWED)?.focus({ preventScroll: readerMoved });
@@ -1029,7 +1083,11 @@
 
 	const closingParts = new SvelteSet<PartState>();
 
-	async function tickTarget(target: TickTarget, reviewed: boolean): Promise<void> {
+	async function tickTarget(
+		target: TickTarget,
+		reviewed: boolean,
+		{ moveOn = false }: { moveOn?: boolean } = {}
+	): Promise<void> {
 		const shown = viewer;
 		if (shown === undefined) return;
 		staleTick = undefined;
@@ -1096,7 +1154,7 @@
 					if (anchor === null) window.scrollTo(0, kept.y);
 					else window.scrollBy(0, anchor.getBoundingClientRect().top - kept.top);
 				}
-				await afterTick(target, outcome, inputAt !== undefined);
+				await afterTick(target, outcome, inputAt !== undefined, moveOn);
 			}
 		} finally {
 			stop();
@@ -1655,10 +1713,7 @@
 		});
 		if (action === undefined) return;
 		event.preventDefault();
-		const at =
-			action === 'toggle-reviewed' || action === 'toggle-open' || action === 'whole-file'
-				? currentPart()
-				: undefined;
+		const at = action === 'toggle-open' || action === 'whole-file' ? currentPart() : undefined;
 		const state = at === undefined ? undefined : viewer.parts[at];
 		switch (action) {
 			case 'next-unread':
@@ -1670,30 +1725,8 @@
 			case 'previous-part':
 				void step(false);
 				return;
-			case 'toggle-reviewed':
-				if (byFile || at === undefined || state === undefined) return;
-				if (state.part.group.kind === 'ignored') {
-					viewer.announcement = 'Ignored changes need no review, so they have no tick.';
-					return;
-				}
-				void (async () => {
-					const shown = viewer;
-					const part = document.getElementById(`part-${at}`);
-					const toggle = document.getElementById(`part-${at}-toggle`);
-					if (
-						part !== null &&
-						toggle !== null &&
-						onScreen(toggle) &&
-						part.getBoundingClientRect().top < stickyTop
-					) {
-						// The sticky header is already in view while reading deep in the file.
-						viewer.current = at;
-						toggle.focus({ preventScroll: true });
-					} else {
-						await goToPart(at, false);
-					}
-					if (viewer === shown) await tickPart(at, !done(state.part.tally));
-				})();
+			case 'mark-reviewed':
+				markReviewedByKey();
 				return;
 			case 'toggle-open':
 				if (byFile || at === undefined || state === undefined) return;

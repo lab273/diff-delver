@@ -110,10 +110,13 @@ test.describe('J13 Visual changes', () => {
 			journey.within(added).byRole('checkbox', { name: 'Reviewed: assets/new-icon.png' }),
 			{ checked: true }
 		);
+		// r went on to the next image waiting, the deleted one.
+		await journey.expectFocused(
+			journey.byRole('button', { name: 'assets/old-icon.png', exact: true })
+		);
 		await journey.step('An image marked as reviewed');
 
 		// A renamed image whose bytes did not change: no pixel changed, and the page says why.
-		await journey.press('j');
 		await journey.press('j');
 		const seal = journey.byRole('article', { name: 'assets/seal.png' });
 		await journey.expectFocused(journey.byRole('button', { name: 'assets/seal.png', exact: true }));

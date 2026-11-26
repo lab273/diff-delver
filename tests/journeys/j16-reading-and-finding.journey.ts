@@ -89,7 +89,7 @@ test.describe('J16 Reading and finding', () => {
 		);
 		await journey.step('White-space changes hidden side by side');
 
-		// They are still changes: ticking the file marks all twelve.
+		// They are still changes: ticking the file marks all twelve, and r goes on to the next.
 		await journey.press('r');
 		await journey.expectState(
 			journey.within(total).byRole('checkbox', { name: 'Reviewed: tools/total.ts' }),
@@ -102,7 +102,6 @@ test.describe('J16 Reading and finding', () => {
 
 		// Where white space is part of what a file says, as in YAML, the file says
 		// so: its hidden change moves a key out of its block.
-		await journey.press('j');
 		const workflow = journey.byRole('article', { name: 'tools/workflow.yml' });
 		await journey.expectFocused(
 			journey.byRole('button', { name: 'tools/workflow.yml', exact: true })

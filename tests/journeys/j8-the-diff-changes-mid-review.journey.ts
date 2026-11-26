@@ -113,8 +113,8 @@ test.describe('J8 The diff changes mid-review', () => {
 		await journey.expectVisible(checkout);
 		await journey.expectVisible(journey.byRole('article', { name: 'src/discount.ts' }));
 		await journey.step('Only what is left to review');
-		// Ticking a file takes it from the page: focus goes on to the file shown after
-		// it, or before it when it was the last, and moving on goes from there.
+		// Ticking a file with r takes it from the page and goes on to the next file
+		// waiting, round to the top when it was the last, and moving on goes from there.
 		const discountArticle = journey.byRole('article', { name: 'src/discount.ts' });
 		const checkoutName = journey.within(checkout).byRole('button', {
 			name: 'src/checkout.ts',
@@ -129,17 +129,14 @@ test.describe('J8 The diff changes mid-review', () => {
 		await journey.expectFocused(checkoutName);
 		await journey.press('j');
 		await journey.expectFocused(checkoutName);
-		// Everything shown again: the discount is back where it was, and its tick comes off.
+		// Everything shown again: the discount is back where it was, and its box takes its tick off.
 		await journey.press('u');
 		await journey.press('j');
 		await journey.expectFocused(
 			journey.within(discountArticle).byRole('button', { name: 'src/discount.ts', exact: true })
 		);
-		await journey.press('r');
-		await journey.expectState(
-			journey.within(discountArticle).byRole('checkbox', { name: 'Reviewed: src/discount.ts' }),
-			{ checked: false }
-		);
+		await journey.activate(discountTick, 'Space');
+		await journey.expectState(discountTick, { checked: false });
 		await journey.expectText(review, '7 of 16 changes reviewed');
 
 		// The command updates the diff while the page is left on version 2: a tick

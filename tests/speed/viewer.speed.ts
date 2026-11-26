@@ -314,13 +314,14 @@ test('a diff of 2,000 files and 200,000 changed lines opens and moves at once', 
 		record(testInfo, 'time to move to the next file, 2,000 files', slowest, 200);
 
 		// Ticking the file and seeing it ticked.
-		// A ticked file is put away, so only its tick is looked for.
+		// A ticked file is put away, so only its tick is looked for; then r goes on to the next.
 		const ticked = await timeKey(page, 'r', {
 			at: 5,
-			focused: true,
+			focused: false,
 			checked: true
 		});
 		record(testInfo, 'time to tick a file, 2,000 files', ticked, 500);
+		await expect(page.locator('#part-6-toggle')).toBeFocused();
 		await expect(page.getByRole('complementary', { name: 'Your review' })).toContainText(
 			'100 of 200,000 changes reviewed'
 		);
@@ -441,8 +442,9 @@ test('side by side, a diff of 2,000 files opens and moves at once, and a change 
 			);
 		}
 		record(testInfo, 'time to move to the next file side by side, 2,000 files', slowest, 200);
-		const ticked = await timeKey(page, 'r', { at: 5, focused: true, checked: true });
+		const ticked = await timeKey(page, 'r', { at: 5, focused: false, checked: true });
 		record(testInfo, 'time to tick a file side by side, 2,000 files', ticked, 500);
+		await expect(page.locator('#part-6-toggle')).toBeFocused();
 
 		// One change of 80,000 rows, side by side: 40,000 rows of pairs.
 		const long = await world.command([], await world.repository('long-file'));

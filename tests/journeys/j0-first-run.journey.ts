@@ -81,19 +81,19 @@ test.describe('J0 First run', () => {
 		await journey.press('Escape');
 		await journey.expectHidden(shortcuts);
 
-		// r marks the file reviewed and puts it away; n goes to the next one to read.
+		// r marks the file reviewed, puts it away and goes on to the next one to read.
 		await journey.press('r');
 		await journey.expectState(
 			journey.within(cart).byRole('checkbox', { name: 'Reviewed: src/cart.ts' }),
 			{ checked: true }
 		);
 		await journey.expectText(review, '6 of 14 changes reviewed');
-		await journey.press('n');
 		const checkout = journey.byRole('article', { name: 'src/checkout.ts' });
 		await journey.expectFocused(
 			journey.within(checkout).byRole('button', { name: 'src/checkout.ts', exact: true })
 		);
 		await journey.expectVisible(journey.within(checkout).byText('16 unchanged lines'));
+		await journey.step('Reviewed, and on to the next file');
 
 		// The lines above the change, a step at a time, then the whole file, then only the change again.
 		await journey.activate(
@@ -143,11 +143,14 @@ test.describe('J0 First run', () => {
 		await journey.expectState(checkoutTick, { checked: true });
 		await journey.expectFocused(checkoutTick);
 		await journey.expectText(review, '9 of 14 changes reviewed');
-		await journey.press('n');
+		// r on a file already reviewed leaves its tick alone and only goes on.
+		await journey.press('r');
 		const discount = journey.byRole('article', { name: 'src/discount.ts' });
 		await journey.expectFocused(
 			journey.within(discount).byRole('button', { name: 'src/discount.ts', exact: true })
 		);
+		await journey.expectState(checkoutTick, { checked: true });
+		await journey.expectText(review, '9 of 14 changes reviewed');
 		await journey.press('r');
 		// The last one: the page says everything is reviewed, and moves there.
 		await journey.expectFocused(journey.byRole('heading', { name: 'Everything is reviewed' }));
