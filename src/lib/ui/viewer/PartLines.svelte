@@ -582,11 +582,22 @@
 	/**
 	 * The keyboard or a press leaving the lines lets go of the lines taken, as
 	 * leaving the menu puts it away, so neither holds up a regroup the reviewer
-	 * is not choosing lines for. The window losing the focus keeps them.
+	 * is not choosing lines for. The window losing the focus keeps them, and so
+	 * does moving to another line's number, the menu or a comment box being
+	 * written; anything else, even in the table, such as a saved comment's Edit,
+	 * lets them go.
 	 */
 	function onFocusOut(event: FocusEvent): void {
 		const next = event.relatedTarget;
-		if (next instanceof Node && table.contains(next)) return;
+		if (
+			next instanceof Element &&
+			table.contains(next) &&
+			(next.matches('button.pick-line') ||
+				next.closest('[data-line-menu]') !== null ||
+				next.closest('form') !== null)
+		) {
+			return;
+		}
 		if (next === null && !document.hasFocus()) return;
 		if (cursor !== undefined && drag === undefined) from = cursor.line;
 	}

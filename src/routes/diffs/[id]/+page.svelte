@@ -2231,8 +2231,13 @@
 		// Where the reader is, taken before any lines are loaded.
 		const from = readingPlace(shown);
 		const focused = document.activeElement?.closest('[data-comment]')?.getAttribute('data-comment');
+		// The flag last gone to and not shown counts as where the reader is only
+		// while they have not put the keyboard on a line since.
+		const onLine = document.activeElement?.closest('[data-reading-line]') != null;
 		const unshown =
-			unshownFlag !== undefined && unshownFlag.part === currentPart() ? unshownFlag.id : undefined;
+			unshownFlag !== undefined && unshownFlag.part === currentPart() && !onLine
+				? unshownFlag.id
+				: undefined;
 		const on = focused == null ? unshown : Number(focused);
 
 		// The part of each flag: its file's one part, or the one that owns its lines.
