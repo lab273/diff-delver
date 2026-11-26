@@ -775,8 +775,9 @@ yet.
 - The tick key works through the diff: it marks the file the reader is on as
   reviewed and goes on to the next one waiting, so pressing it again and again
   reviews the diff in reading order. It never takes a mark off (the file's tick
-  box does that); on a file already reviewed, or ignored, it only moves on, and a
-  tick that is refused stays where it was said, without moving.
+  box does that); on a file already reviewed, or ignored, it says so and only
+  moves on. A tick that is refused leaves the reader on the file, where the
+  refusal is shown, and a key held down marks one file, not one for each repeat.
 
 ### 8.4 Visual diffs
 
