@@ -396,6 +396,29 @@ describe('a GitHub pull request', () => {
 		expect(!none.ok && none.error.kind).toBe('PullRequestNotFound');
 	});
 
+	it('names a version by the head commit its download got, when GitHub’s answer lags a push', async () => {
+		const w = await world();
+		const answered = (await w.upstream.snapshot('discount')).commit;
+		await push(w, 'src/coupon.ts', 'export const COUPON = 10;\n', 'Add a coupon');
+		const pushed = (await w.upstream.snapshot('discount')).commit;
+		expect(pushed).not.toBe(answered);
+		await w.github.setPull(SHOP_OWNER, SHOP_NAME, { ...DISCOUNT_PULL, answeredHead: answered });
+		const id = created(await open(w));
+		const page = value(await w.service.load(id));
+		expect(page.revision.headCommit).toBe(pushed);
+		expect(page.diff.files.map((f) => f.file.path)).toContain('src/coupon.ts');
+
+		// Once GitHub's answer names the commit fetched, nothing has changed, and
+		// nothing need be downloaded to know it: the branch is gone from the
+		// stand-in's git, so a download would fail.
+		await w.github.setPull(SHOP_OWNER, SHOP_NAME, { ...DISCOUNT_PULL, answeredHead: pushed });
+		await w.upstream.git('update-ref', '-d', 'refs/pull/7/head');
+		w.clock.advance(PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS);
+		const asked = w.github.requests.length;
+		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
+		expect(w.github.requests.length).toBe(asked + 1);
+	});
+
 	it('asks a page’s checks with the last answer’s tag, once a minute signed in', async () => {
 		const w = await world({ token: STAND_IN_TOKEN });
 		const id = created(await open(w));

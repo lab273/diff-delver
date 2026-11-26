@@ -33,6 +33,12 @@ export interface StandInPull {
 	readonly updatedAt: number;
 	/** The repository its branch comes from, when it is a fork's. */
 	readonly fork?: string;
+	/**
+	 * The commit the API names as its head instead of the one
+	 * `refs/pull/<number>/head` is at, as GitHub's answer can lag just after
+	 * a push.
+	 */
+	readonly answeredHead?: string;
 }
 
 interface StandInRepository {
@@ -110,7 +116,9 @@ async function pullJson(repository: StandInRepository, pull: StandInPull): Promi
 		user: pull.author === null ? null : { login: pull.author },
 		updated_at: new Date(pull.updatedAt * 1000).toISOString(),
 		head: {
-			sha: await commitOf(repository.repo, `refs/pull/${String(pull.number)}/head`),
+			sha:
+				pull.answeredHead ??
+				(await commitOf(repository.repo, `refs/pull/${String(pull.number)}/head`)),
 			ref: pull.head,
 			repo: { full_name: pull.fork ?? fullName }
 		},
