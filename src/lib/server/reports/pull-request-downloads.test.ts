@@ -244,10 +244,12 @@ describe('the downloads of a pull request', () => {
 		expect(await readdir(packs)).toContain('pack-fresh.keep');
 		expect(await readdir(packs)).not.toContain('pack-stray.keep');
 		expect(await storeHas(store, head)).toBe(true);
-		await rm(fresh);
 
+		// Only its own go: the one a moment ago may be for a Delve being opened.
 		value(await service.deleteReport(id));
-		expect((await readdir(packs)).filter((name) => name.endsWith('.keep'))).toEqual([]);
+		expect((await readdir(packs)).filter((name) => name.endsWith('.keep'))).toEqual([
+			'pack-fresh.keep'
+		]);
 		expect(await storeHas(store, head)).toBe(false);
 	});
 

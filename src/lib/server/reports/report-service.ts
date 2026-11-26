@@ -2497,8 +2497,14 @@ export class ReportService {
 	 */
 	async deleteReport(id: ReportId): Promise<Result<Deleted, ReportError>> {
 		let stores: readonly StoreId[] = [];
+		let pullRequest: PullRequestRef | undefined;
 		const removed = this.#db.write((q): Result<readonly StoredSnapshot[], ReportError> => {
 			if (!reportExists(q, id)) return err({ kind: 'ReportNotFound', report: id });
+			// A damaged report's source cannot be read: its downloads are left to tidying.
+			const report = reportById(q, id);
+			if (report.ok && report.value?.source.kind === 'github') {
+				pullRequest = report.value.source.pullRequest;
+			}
 			const snapshots = snapshotsOfReport(q, id);
 			stores = [...new Set(snapshots.map((s) => s.store))];
 			deleteReportRow(q, id);
@@ -2506,12 +2512,13 @@ export class ReportService {
 		});
 		if (!removed.ok) return removed;
 		await this.#forget(id);
-		// A pull request's downloads go with its Delve, collected with its snapshots.
-		for (const storeId of stores) {
+		// A pull request's downloads go with its Delve, collected with its
+		// snapshots; only its own, since another pull request's may be a moment
+		// old, for a Delve not recorded yet, and tidying sees to the rest.
+		const key = pullRequest === undefined ? undefined : fetchKey(pullRequest);
+		for (const storeId of key === undefined ? [] : stores) {
 			const store = await openStore(this.#dataDirectory, storeId);
-			if (!store.ok) continue;
-			const live = new Set(this.#pullRequestsIn(storeId).map(fetchKey));
-			await forgetPullRequestFetches(store.value, (kept) => !live.has(kept.key));
+			if (store.ok) await forgetPullRequestFetches(store.value, (kept) => kept.key === key);
 		}
 		const removedSnapshots = await this.#removeSnapshots(removed.value);
 		return ok(removedSnapshots);
