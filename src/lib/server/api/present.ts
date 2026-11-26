@@ -629,6 +629,7 @@ export function statusOf(error: ReportError): number {
 		case 'PartNotFound':
 		case 'PathNotFound':
 		case 'CommentNotFound':
+		case 'NoteNotFound':
 		case 'ReviewNotFound':
 		case 'PullRequestNotFound':
 			return 404;
@@ -655,6 +656,7 @@ export function statusOf(error: ReportError): number {
 		case 'DatabaseBusy':
 			return 409;
 		case 'SectionsRefused':
+		case 'NotesRefused':
 		case 'InvalidCommentRange':
 		case 'InvalidCommentBody':
 		case 'InvalidOverallReview':

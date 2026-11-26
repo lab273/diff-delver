@@ -140,6 +140,23 @@ import {
 } from '../db/tables/draft-comments.ts';
 import { draftSummaryOf, writeDraftSummary } from '../db/tables/draft-summaries.ts';
 import {
+	agentNoteOf,
+	agentNotesOf,
+	insertAgentNote,
+	removeWaitingNotes,
+	restoreDismissedNotes,
+	setNoteState
+} from '../db/tables/agent-notes.ts';
+import {
+	MAX_NOTES_PER_VERSION,
+	promotedNoteBody,
+	resolveNoteRequests,
+	sameNote,
+	type AgentNote,
+	type NoteRequest
+} from '#lib/core/review/agent-note.ts';
+import type { AgentNoteId } from '#lib/core/agent-note-id.tiny.ts';
+import {
 	insertReviewComments,
 	reviewHolding,
 	type ReviewCommentRow
@@ -545,6 +562,8 @@ export interface LoadedReport {
 	readonly references: SectionReferences;
 	/** What the change does, as the agent wrote it; undefined until it has. */
 	readonly overview: AgentMarkdown | undefined;
+	/** The agent's notes on this version, in the order they were added, promoted ones too. */
+	readonly notes: readonly AgentNote[];
 	readonly frame: string;
 	readonly sorting: string;
 	readonly assignments: string;
@@ -750,6 +769,7 @@ interface StoredFrame extends Stored {
 	readonly summary: UpdateSummary | undefined;
 	readonly referenceRows: ReadonlyMap<SectionId, readonly UnitRow[]>;
 	readonly overview: AgentMarkdown | undefined;
+	readonly notes: readonly AgentNote[];
 	readonly shown: Current;
 	readonly sorting: string;
 	readonly assignments: string;
@@ -997,6 +1017,26 @@ function carryOverInput(
 }
 
 /** A comment of the draft as a page showed it: which, and how many times its words had been changed. */
+/** A note promoted: the version's notes now, and the comment it became; none when it was promoted already. */
+export interface Promoted {
+	readonly notes: readonly AgentNote[];
+	readonly comment: DraftComment | undefined;
+}
+
+/** What an `add_notes` call did. */
+export interface NotesAdded {
+	/** Notes stored by this call. */
+	readonly added: number;
+	/** Notes passed over because the version holds the same note already, as when a call is sent again. */
+	readonly repeated: number;
+	/** The agent's earlier notes that `replace` removed: those the reviewer had not acted on. */
+	readonly removed: number;
+	/** Every note the version holds now, whatever the reviewer did with it. */
+	readonly total: number;
+	/** Those the reviewer has dismissed or promoted. */
+	readonly actedOn: number;
+}
+
 export interface ShownComment {
 	readonly id: DraftCommentId;
 	readonly edits: EditCount;
@@ -1516,19 +1556,22 @@ export class ReportService {
 									andThen(revisionUpdateFor(q, revision.id), (summary) =>
 										andThen(referenceRowsFor(q, revision.id), (referenceRows) =>
 											andThen(overviewOf(q, revision.id), (overview) =>
-												ok({
-													sections,
-													rows,
-													marked,
-													fresh,
-													unmarked,
-													summary,
-													referenceRows,
-													overview,
-													sorting,
-													assignments,
-													shown: shownNow
-												})
+												andThen(agentNotesOf(q, revision.id), (notes) =>
+													ok({
+														sections,
+														rows,
+														marked,
+														fresh,
+														unmarked,
+														summary,
+														referenceRows,
+														overview,
+														notes,
+														sorting,
+														assignments,
+														shown: shownNow
+													})
+												)
 											)
 										)
 									)
@@ -1560,6 +1603,7 @@ export class ReportService {
 			sections,
 			references: references.value,
 			overview: found.value.overview,
+			notes: found.value.notes,
 			frame: this.#frameVersions.frame(found.value.shown.report, revision.id, found.value.sorting),
 			sorting: found.value.sorting,
 			assignments: found.value.assignments,
@@ -1711,6 +1755,158 @@ export class ReportService {
 				touchReport(q, id, this.#clock.now());
 				this.#frameVersions.edited(revision.id);
 				return ok(markdown);
+			})
+		);
+	}
+
+	/**
+	 * The agent's `add_notes` (DESIGN 5, 7.1): labelled notes on lines of the
+	 * current revision, all or nothing, checked against its diff. A note the
+	 * version holds already, in any state, is passed over, so a call sent again
+	 * adds nothing and a note the reviewer dismissed is not brought back by
+	 * sending it again. With `replace`, the agent's earlier notes on this
+	 * version that the reviewer has not acted on are removed first, so sorting
+	 * again does not pile up notes. `seen` as for `upsertSections`.
+	 */
+	async addNotes(
+		id: ReportId,
+		seen: RevisionNumber,
+		requests: readonly NoteRequest[],
+		replace: boolean
+	): Promise<Result<NotesAdded, ReportError>> {
+		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
+		if (!found.ok) return found;
+		const content = await this.#contentOf(found.value.report, found.value.revision);
+		if (!content.ok) return content;
+		const { diff, revision } = content.value;
+		const resolved = resolveNoteRequests(diff, requests);
+		if (!resolved.ok) return err({ kind: 'NotesRefused', problems: resolved.error });
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), (now): Result<NotesAdded, ReportError> => {
+				if (now.revision.id !== revision.id) {
+					return err({ kind: 'RevisionChangedWhileSaving', report: id });
+				}
+				const removed = replace ? removeWaitingNotes(q, revision.id) : 0;
+				return andThen(agentNotesOf(q, revision.id), (held): Result<NotesAdded, ReportError> => {
+					const kept: AgentNote[] = [...held];
+					const fresh = resolved.value.filter((note, at) => {
+						const earlier = resolved.value.slice(0, at);
+						return !kept.some((k) => sameNote(k, note)) && !earlier.some((e) => sameNote(e, note));
+					});
+					const total = held.length + fresh.length;
+					if (total > MAX_NOTES_PER_VERSION) {
+						return err({
+							kind: 'NotesRefused',
+							problems: [{ kind: 'TooManyNotes', count: total }]
+						});
+					}
+					const at = this.#clock.now();
+					for (const note of fresh) insertAgentNote(q, revision.id, note, at);
+					if (fresh.length > 0 || removed > 0) {
+						touchReport(q, id, at);
+						this.#frameVersions.edited(revision.id);
+					}
+					return ok({
+						added: fresh.length,
+						repeated: resolved.value.length - fresh.length,
+						removed,
+						total,
+						actedOn: held.filter((n) => n.state !== 'waiting').length
+					});
+				});
+			})
+		);
+	}
+
+	/**
+	 * The reviewer dismisses an agent note of the version they see, the
+	 * current one, or brings it back (`waiting`). A note promoted already
+	 * stays promoted: its comment is in the draft. Gives the version's notes.
+	 */
+	setNoteState(
+		id: ReportId,
+		seen: RevisionNumber,
+		note: AgentNoteId,
+		state: 'waiting' | 'dismissed'
+	): Result<readonly AgentNote[], ReportError> {
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), ({ revision }) =>
+				andThen(agentNoteOf(q, id, note), (found): Result<readonly AgentNote[], ReportError> => {
+					if (found === undefined || found.version !== revision.number) {
+						return err({ kind: 'NoteNotFound' });
+					}
+					if (found.state !== 'promoted' && found.state !== state) {
+						setNoteState(q, note, state);
+						touchReport(q, id, this.#clock.now());
+						this.#frameVersions.edited(revision.id);
+					}
+					return agentNotesOf(q, revision.id);
+				})
+			)
+		);
+	}
+
+	/** Brings back every dismissed note of the version the reviewer sees, the current one. */
+	restoreNotes(id: ReportId, seen: RevisionNumber): Result<readonly AgentNote[], ReportError> {
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), ({ revision }) => {
+				restoreDismissedNotes(q, revision.id);
+				touchReport(q, id, this.#clock.now());
+				this.#frameVersions.edited(revision.id);
+				return agentNotesOf(q, revision.id);
+			})
+		);
+	}
+
+	/**
+	 * Promotes an agent note into the draft (DESIGN 6.3): a comment of the
+	 * reviewer's own on the note's lines, whose words quote the agent's and
+	 * say where they came from, for the reviewer to edit. The note is then
+	 * promoted and no longer drawn. One promoted already gives back nothing new.
+	 */
+	async promoteNote(
+		id: ReportId,
+		seen: RevisionNumber,
+		note: AgentNoteId
+	): Promise<Result<Promoted, ReportError>> {
+		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
+		if (!found.ok) return found;
+		const content = await this.#contentOf(found.value.report, found.value.revision);
+		if (!content.ok) return content;
+		const { diff, revision } = content.value;
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), (now) => {
+				if (now.revision.id !== revision.id) {
+					return err({ kind: 'RevisionChangedWhileSaving', report: id });
+				}
+				return andThen(agentNoteOf(q, id, note), (held): Result<Promoted, ReportError> => {
+					if (held === undefined || held.version !== revision.number) {
+						return err({ kind: 'NoteNotFound' });
+					}
+					const notes = (comment: DraftComment | undefined): Result<Promoted, ReportError> =>
+						map(agentNotesOf(q, revision.id), (all) => ({ notes: all, comment }));
+					if (held.state === 'promoted') return notes(undefined);
+					// The comment's lines are those of its side's tree, as a comment written on them would be.
+					const side = diff.byPath.get(held.anchor.path)?.file[held.anchor.side];
+					if (side === undefined) return err({ kind: 'InvalidCommentRange' });
+					const at = this.#clock.now();
+					return andThen(
+						insertDraftComment(
+							q,
+							revision.id,
+							'comment',
+							{ ...held.anchor, path: side.path },
+							promotedNoteBody(held),
+							at
+						),
+						(comment) => {
+							setNoteState(q, note, 'promoted');
+							touchReport(q, id, at);
+							this.#frameVersions.edited(revision.id);
+							return notes(comment);
+						}
+					);
+				});
 			})
 		);
 	}

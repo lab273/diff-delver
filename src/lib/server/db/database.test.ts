@@ -251,6 +251,11 @@ describe('the database', () => {
 				version: 16,
 				name: 'flags on lines, beside comments, in the draft and in finished reviews',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 17,
+				name: "agent notes on lines, apart from the reviewer's draft",
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -337,6 +342,7 @@ describe('the database', () => {
 			github_review_posts: [],
 			github_review_post_comments: [],
 			github_review_post_marks: [],
+			agent_notes: [],
 			// SQLite's own, for the one table whose ids are never used again.
 			sqlite_sequence: [{ name: 'draft_comments', seq: 0 }],
 			revision_updates: [],

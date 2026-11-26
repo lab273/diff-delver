@@ -13,6 +13,7 @@ import { shownRepoPath } from '#lib/core/shown-path.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { describeSectionProblem, type SectionProblem } from '#lib/core/reports/section-requests.ts';
+import { describeNoteProblem, type NoteProblem } from '#lib/core/review/agent-note.ts';
 import { describeMarkError, type MarkError } from '#lib/core/review/mark-reviewed.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import {
@@ -153,6 +154,12 @@ export interface SectionsRefused {
 	readonly problems: readonly SectionProblem[];
 }
 
+/** `addNotes` was refused; nothing changed. */
+export interface NotesRefused {
+	readonly kind: 'NotesRefused';
+	readonly problems: readonly NoteProblem[];
+}
+
 export type ReportError =
 	| DatabaseError
 	| GitSourceError
@@ -173,6 +180,9 @@ export type ReportError =
 	| VersionNotFound
 	| SnapshotGone
 	| SectionsRefused
+	| NotesRefused
+	/** The Delve has no agent note with that id on any version. */
+	| { readonly kind: 'NoteNotFound' }
 	| PartNotFound
 	| { readonly kind: 'InvalidCommentRange' }
 	| { readonly kind: 'InvalidCommentBody' }
@@ -264,6 +274,14 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'SectionsRefused':
 			return reviewerMessage(
 				`The sections were not changed: ${error.problems.map(describeSectionProblem).join(' ')}`
+			);
+		case 'NotesRefused':
+			return reviewerMessage(
+				`The notes were not added: ${error.problems.map(describeNoteProblem).join(' ')}`
+			);
+		case 'NoteNotFound':
+			return reviewerMessage(
+				'This agent note is no longer in this Delve: the agent replaced its notes since this page read them. Reload the page to see the notes there are now.'
 			);
 		case 'DuplicateFilePath':
 			return reviewerMessage(

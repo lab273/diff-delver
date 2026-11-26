@@ -335,7 +335,7 @@ describe('the agent interface, through the stdio shim', () => {
 			[
 				'no_such_tool',
 				{},
-				/diff delver has no tool "no_such_tool"\. Its tools are create_report, list_reports, get_manifest, get_diff, get_file, upsert_sections, assign, get_coverage, set_overview, get_review\./
+				/diff delver has no tool "no_such_tool"\. Its tools are create_report, list_reports, get_manifest, get_diff, get_file, upsert_sections, assign, get_coverage, set_overview, add_notes, get_review\./
 			]
 		];
 		for (const [tool, args, said] of refusals) {

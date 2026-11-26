@@ -32,7 +32,8 @@ export type TableName =
 	| 'review_deliveries'
 	| 'github_review_posts'
 	| 'github_review_post_comments'
-	| 'github_review_post_marks';
+	| 'github_review_post_marks'
+	| 'agent_notes';
 
 /**
  * The file could not be opened or made (a missing folder, no permission, a full
@@ -211,6 +212,8 @@ function tableInWords(table: TableName): string {
 		case 'github_review_post_comments':
 		case 'github_review_post_marks':
 			return 'a review being posted to GitHub';
+		case 'agent_notes':
+			return 'the agent’s notes on a Delve';
 	}
 }
 
@@ -227,6 +230,7 @@ function storedRowAdvice(table: TableName): string {
 		case 'unmarked_units':
 		case 'revisions_to_check':
 		case 'overviews':
+		case 'agent_notes':
 		case 'section_references':
 		case 'commit_runs':
 		case 'pull_requests':

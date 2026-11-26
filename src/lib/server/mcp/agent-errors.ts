@@ -4,6 +4,7 @@
  * a damaged database, are the reviewer's message, which says what to do.
  */
 import { describeSectionProblem } from '#lib/core/reports/section-requests.ts';
+import { describeNoteProblem } from '#lib/core/review/agent-note.ts';
 import { textForAgent, type TextForAgent } from '#lib/core/text-for-agent.tiny.ts';
 import { describeReportError, type ReportError } from '../reports/index.ts';
 
@@ -42,6 +43,16 @@ export function describeForAgent(error: ReportError): TextForAgent {
 						'\n'
 					)}${error.problems.length > 20 ? `\n- and ${String(error.problems.length - 20)} more problems.` : ''}`
 			);
+		case 'NotesRefused':
+			return textForAgent(
+				`No notes were added; nothing in this call was applied:\n${error.problems
+					.slice(0, 20)
+					.map((p) => `- ${describeNoteProblem(p)}`)
+					.join(
+						'\n'
+					)}${error.problems.length > 20 ? `\n- and ${String(error.problems.length - 20)} more problems.` : ''}`
+			);
+		case 'NoteNotFound':
 		case 'AnotherReportOpen':
 		case 'ReportHasNoRevision':
 		case 'RepositoryReplaced':

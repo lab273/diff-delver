@@ -28,6 +28,7 @@ export type {
 	ListedReport,
 	LoadedReport,
 	MarkOutcome,
+	NotesAdded,
 	OpenOutcome,
 	PartColours,
 	PartMatches,

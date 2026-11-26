@@ -660,6 +660,30 @@ DROP TABLE github_review_post_comments;
 ALTER TABLE github_review_post_comments_rebuilt RENAME TO github_review_post_comments;
 CREATE INDEX github_review_post_comments_by_revision ON github_review_post_comments (revision_id);
 `
+	},
+	{
+		version: schemaVersionOf(17),
+		name: "agent notes on lines, apart from the reviewer's draft",
+		sql: `
+-- An agent note (DESIGN 5) is the agent's, never the reviewer's: it is kept
+-- apart from the draft, so nothing that reads the draft or a finished review
+-- can read one. It belongs to the version it was written on. The reviewer
+-- only dismisses one, or promotes it, which copies it into the draft as a
+-- comment of their own.
+CREATE TABLE agent_notes (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	label TEXT NOT NULL CHECK (label IN ('possible bug', 'risk', 'question', 'info')),
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new')),
+	first_line INTEGER NOT NULL CHECK (first_line >= 1),
+	last_line INTEGER NOT NULL CHECK (last_line >= first_line),
+	body TEXT NOT NULL CHECK (body <> ''),
+	written_at INTEGER NOT NULL CHECK (written_at >= 0),
+	state TEXT NOT NULL CHECK (state IN ('waiting', 'dismissed', 'promoted'))
+) STRICT;
+CREATE INDEX agent_notes_by_revision ON agent_notes (revision_id);
+`
 	}
 ];
 
