@@ -391,5 +391,20 @@ test.describe('J16 Reading and finding', () => {
 		slow.release();
 		await journey.expectState(tickOf('src/lexer.ts'), { checked: true });
 		await journey.expectFocused(nameOf('src/lexer.ts'));
+
+		// Pressed twice quickly, r puts each file away as it marks it, though the
+		// second press came before the first file was marked, and marks the next.
+		await journey.press('n');
+		await journey.expectFocused(nameOf('styles/site.css'));
+		await journey.expectCollapse(nameOf('styles/site.css'), 'no-preference', async () => {
+			const twice = await journey.holdTick();
+			await journey.press('r');
+			await twice.requested;
+			await journey.press('r');
+			twice.release();
+		});
+		await journey.expectState(tickOf('styles/site.css'), { checked: true });
+		await journey.expectState(tickOf('tools/workflow.yml'), { checked: true });
+		await journey.expectFocused(nameOf('app/models.py'));
 	});
 });

@@ -1173,9 +1173,14 @@
 		const animations: { part: PartState; animation: Animation }[] = [];
 		let inputAt: number | undefined;
 		let scrolled = false;
-		const stop = whenReaderMoves(window, () => {
-			inputAt = window.scrollY;
-		});
+		// Pressing r again while it marks is no moving away, as for `r` itself.
+		const stop = whenReaderMoves(
+			window,
+			() => {
+				inputAt = window.scrollY;
+			},
+			(input) => !marksByKey(input)
+		);
 		const recordScroll = (): void => {
 			if (inputAt !== undefined && window.scrollY !== inputAt) scrolled = true;
 		};
