@@ -160,6 +160,10 @@ opens from any clone with a remote on its repository, and a clone of a fork list
 the pull requests of its `upstream` first. Opening it again, from any clone,
 resumes the same Delve, whose versions all live in one store, and a push to it,
 or a change of its base, is the Delve's next version, offered as any update is.
+What it downloaded is kept in the store while its Delve exists, so an update asks
+GitHub only for what is new, even from a clone that is out of date, partial or
+shallow; a first open from a partial or shallow clone still downloads the history
+it needs, once.
 The page asks GitHub about that at most once a minute, or every five minutes
 without a sign-in, and when GitHub says to wait, everything waits until it says.
 A merged or closed pull request has nothing left to review, and the command says
