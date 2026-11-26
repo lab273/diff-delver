@@ -699,6 +699,18 @@ sentences on what the change does, a progress bar, the list of sections and a
 unread file is always one press away. Finishing a section moves on to the next.
 When everything is ticked, the page offers **Finish review**.
 
+The agent's writing is part of what there is to read. The overview and each
+section's summary count as unread until the reader has been to them, and the
+next thing unread may be one: ticking a file whose next unread file is in a new
+section goes to that section's summary first, and every other way of going to
+the next unread thing (`n`, `r`, finishing a section) does the same. Moving on
+from a summary marks it read. What is left to read is counted with the
+summaries among it, apart from the changes, so the bar of changes reviewed
+stays a count of changes. A summary the agent rewrites is unread again.
+
+Moving around the page eases into place, a short and quiet scroll instead of a
+jump, so the reader sees where they went; with reduced motion it jumps.
+
 **Three things you can do to code.** Select lines and the same small menu always
 appears: **Comment**, **Flag**, **Ask**. Selecting is a click on the `+` beside a
 line, with shift-click or a drag to extend. By keyboard it is the same thing:
