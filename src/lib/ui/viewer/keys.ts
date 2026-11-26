@@ -155,9 +155,10 @@ const REPEATED: ReadonlySet<KeyAction> = new Set(['next-part', 'previous-part', 
 
 /**
  * Whether a shortcut acts again on the presses a key held down repeats. Only
- * moving does: every other acts once however long its key is held, so holding
- * `r` marks one file, not a file for each repeat, and holding `o` does not
- * open and close a file over and over.
+ * moving does: no other shortcut acts on a repeat, so holding `r` marks one
+ * file, not a file for each repeat, and holding `o` does not open and close a
+ * file over and over. A key that puts the focus in a field, as `/`, `v` and
+ * `t` do, may still type its repeats there.
  */
 export function actsOnRepeat(action: KeyAction): boolean {
 	return REPEATED.has(action);
