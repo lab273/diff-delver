@@ -7,17 +7,26 @@
  *
  * The local clone the person pointed at is borrowed read-only while the
  * fetch runs, as git's alternates, so git asks GitHub only for what the clone
- * does not have: usually just the pull request's own new commits. The pack
- * GitHub sends is kept as a pack (`fetch.unpackLimit=1`), so git never writes
- * a loose object, which is when it would touch a copy the clone already has.
- * The fetched branches are pinned under refs of the snapshot's own while it is
- * taken, and those refs are deleted once the snapshot pins its trees.
+ * does not have: usually just the pull request's own new commits. What the
+ * store's earlier downloads of pull requests fetched counts too
+ * (`kept-fetches.ts`): refs of the fetch's own point at those commits while it
+ * runs, so a clone that was not fetched again costs its gap once, not on
+ * every update. The fetch writes into a folder of its own (`incoming`), with
+ * the store and the clone as alternates, and the pack GitHub sends is kept as
+ * a pack (`fetch.unpackLimit=1`), so git never writes a loose object, which is
+ * when it would touch a copy the clone already has; the pack is then moved
+ * into the store, kept for the pull request. The fetched branches are pinned
+ * under refs of the snapshot's own while it is taken, and those refs are
+ * deleted once the snapshot pins its trees. If the earlier downloads cannot
+ * be used, such as when the clone whose history they were fetched on top of
+ * is gone, they are forgotten and the fetch is made again without them.
  *
  * Everything is fetched, not only what a blobless fetch would bring: with
  * the clone borrowed that is little more, and it leaves the snapshot whole in
  * the store, so reading it later never needs the network or a token. A
- * partial or shallow clone is not borrowed (`borrowable`), so everything the
- * pull request's two sides need is downloaded.
+ * partial or shallow clone is not borrowed (`borrowable`), so the first
+ * download is everything the pull request's two sides need, and later ones
+ * only what is new since.
  *
  * The person's token, when there is one, is given to git as a header for
  * GitHub's address, in git's environment (`GIT_CONFIG_*`), never on its
@@ -25,9 +34,11 @@
  * an askpass that refuses.
  */
 import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { delimiter, join } from 'node:path';
 import type { SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
 import type { StoreId } from '#lib/core/store-id.tiny.ts';
-import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseCommitId, type CommitId } from '#lib/core/commit-id.tiny.ts';
 import { objectCountOf } from '#lib/core/object-count.tiny.ts';
 import { repositoryNameOf } from '#lib/core/repository-name.tiny.ts';
@@ -36,13 +47,20 @@ import { parseSourceIdentity, type SourceIdentity } from '#lib/core/source-ident
 import { parseTreeId, type TreeId } from '#lib/core/tree-id.tiny.ts';
 import type { GitHubHost } from '#lib/core/github/github-host.tiny.ts';
 import type { GitHubToken } from '#lib/core/github/github-token.tiny.ts';
-import { borrowObjects } from '../../git/alternates.ts';
+import { borrowObjects, quotedAlternate } from '../../git/alternates.ts';
 import { runGit, runGitText } from '../../git/run-git.ts';
-import { ensureStore, takeSnapshot, type Store } from '../../store/index.ts';
+import {
+	ensureStore,
+	removeStaleFolders,
+	takeSnapshot,
+	type Store,
+	type StoreWriter
+} from '../../store/index.ts';
 import type { GitSnapshot, LocalRepository } from '../git/index.ts';
 import type { GitHubAccess } from './github-access.ts';
 import type { PullRequestDetails } from './github-api.ts';
 import type { FetchedInto, GitHubSourceError } from './github-error.ts';
+import { fetchKey, forgetPullRequestFetches, keepFetched, keptFetches } from './kept-fetches.ts';
 
 /**
  * The pull request's fingerprint (DESIGN 3.2): its branch's commit, `head`,
@@ -94,13 +112,11 @@ function borrowed(repo: LocalRepository): Readonly<Record<string, string>> {
  * other, and nothing asked of the person.
  */
 export function fetchEnvironment(
-	repo: LocalRepository,
 	address: string,
 	host: GitHubHost,
 	token: GitHubToken | undefined
 ): Readonly<Record<string, string>> {
 	const quiet = {
-		...borrowed(repo),
 		GIT_TERMINAL_PROMPT: '0',
 		GIT_ASKPASS: 'false',
 		SSH_ASKPASS: 'false',
@@ -121,6 +137,67 @@ interface Fetched {
 	readonly base: CommitId;
 	readonly head: CommitId;
 	readonly trees: { readonly base: TreeId; readonly head: TreeId };
+}
+
+/** The prefix of the folder a fetch writes its objects into, in the store's folder. */
+const INCOMING = 'diff-delver-incoming-';
+
+function absolute(path: string): AbsolutePath {
+	const parsed = parseAbsolutePath(path);
+	if (!parsed.ok) throw new Error(`Not an absolute path: ${path}`);
+	return parsed.value;
+}
+
+/**
+ * git's environment for writing into `incoming` while reading the store's
+ * objects, and the clone's when it is borrowed, as its own.
+ */
+function writingInto(
+	incoming: AbsolutePath,
+	writer: StoreWriter,
+	repo: LocalRepository
+): Readonly<Record<string, string>> {
+	const read = [writer.objects, ...(borrowable(repo) ? [repo.objects] : [])];
+	return {
+		GIT_OBJECT_DIRECTORY: incoming,
+		GIT_ALTERNATE_OBJECT_DIRECTORIES: read.map(quotedAlternate).join(delimiter),
+		GIT_NO_LAZY_FETCH: '1'
+	};
+}
+
+/**
+ * Points refs under `refs` at the commits the store's earlier downloads
+ * fetched that git can read, from the store or the borrowed clone, so the
+ * fetch tells GitHub it has them. Returns how many.
+ */
+async function pointAtKept(
+	writer: StoreWriter,
+	repo: LocalRepository,
+	refs: string
+): Promise<number> {
+	const commits = [...new Set((await keptFetches(writer.objects)).flatMap((k) => k.commits))];
+	if (commits.length === 0) return 0;
+	const read = borrowed(repo);
+	const checked = await runGit({
+		cwd: writer.store.dir,
+		args: ['cat-file', '--batch-check=%(objectname) %(objecttype)'],
+		input: `${commits.join('\n')}\n`,
+		env: read
+	});
+	if (!checked.ok) return 0;
+	const present = checked.value.stdout
+		.toString('utf8')
+		.split('\n')
+		.filter((line) => line.endsWith(' commit'))
+		.map((line) => line.slice(0, line.indexOf(' ')));
+	if (present.length === 0) return 0;
+	const made = await runGit({
+		cwd: writer.store.dir,
+		args: ['update-ref', '--stdin'],
+		input: present.map((c, i) => `create ${refs}known/${String(i)} ${c}\n`).join(''),
+		env: read
+	});
+	return made.ok ? present.length : 0;
 }
 
 async function commitAt(
@@ -182,36 +259,58 @@ export function fetchArguments(
 	];
 }
 
-/** Fetches the pull request's branch and base into the store under `refs`, and finds the two trees. */
+/**
+ * Fetches the pull request's branch and base into the store under `refs`,
+ * keeping the download for the pull request, and finds the two trees. With
+ * `earlier`, the store's earlier downloads are offered to GitHub as what the
+ * store has; `offered` is told how many commits that was.
+ */
 async function fetchSides(
-	store: Store,
+	writer: StoreWriter,
 	repo: LocalRepository,
 	details: PullRequestDetails,
 	access: GitHubAccess,
-	refs: string
+	refs: string,
+	earlier: boolean,
+	offered: (count: number) => void
 ): Promise<Result<Fetched, GitHubSourceError>> {
+	const store = writer.store;
 	const host = details.ref.repository.host;
 	const address = access.gitAddress(details.ref.repository);
-	const env = fetchEnvironment(repo, address, host, await access.token(host));
-	const limit = new AbortController();
-	const timer = setTimeout(() => {
-		limit.abort();
-	}, access.fetchSeconds * 1000);
-	const fetched = await runGit({
-		cwd: store.dir,
-		args: fetchArguments(details, address, refs),
-		env,
-		stopWhen: limit.signal
-	}).finally(() => {
-		clearTimeout(timer);
-	});
-	if (!fetched.ok) {
-		return err({
-			kind: 'PullRequestFetchFailed',
-			pullRequest: details.ref,
-			clone: cloneKind(repo),
-			stoppedAfter: limit.signal.aborted ? access.fetchSeconds : undefined
+	offered(earlier ? await pointAtKept(writer, repo, refs) : 0);
+	await removeStaleFolders(store.dir, INCOMING);
+	const incoming = absolute(await mkdtemp(join(store.dir, INCOMING)));
+	try {
+		await mkdir(join(incoming, 'pack'));
+		const into = writingInto(incoming, writer, repo);
+		const env = { ...fetchEnvironment(address, host, await access.token(host)), ...into };
+		const limit = new AbortController();
+		const timer = setTimeout(() => {
+			limit.abort();
+		}, access.fetchSeconds * 1000);
+		const fetched = await runGit({
+			cwd: store.dir,
+			args: fetchArguments(details, address, refs),
+			env,
+			stopWhen: limit.signal
+		}).finally(() => {
+			clearTimeout(timer);
 		});
+		if (!fetched.ok) {
+			return err({
+				kind: 'PullRequestFetchFailed',
+				pullRequest: details.ref,
+				clone: cloneKind(repo),
+				stoppedAfter: limit.signal.aborted ? access.fetchSeconds : undefined
+			});
+		}
+		const head = await commitAt(store, `${refs}head`, into);
+		const tip = await commitAt(store, `${refs}base`, into);
+		if (head !== undefined && tip !== undefined) {
+			await keepFetched(incoming, writer.objects, fetchKey(details.ref), [head, tip]);
+		}
+	} finally {
+		await rm(incoming, { recursive: true, force: true });
 	}
 	// What the clone had already was not sent, so it is read from the clone.
 	const read = borrowed(repo);
@@ -278,28 +377,58 @@ export async function snapshotPullRequest(
 		repositoryNameOf(repo.commonDir)
 	);
 	if (!store.ok) return store;
-	const refs = `refs/diff-delver/fetching/${id}/`;
-	let sides: Fetched | undefined;
-	try {
-		const taken = await takeSnapshot(store.value, id, async (writer) => {
-			const fetched = await fetchSides(writer.store, repo, details, access, refs);
-			if (!fetched.ok) return fetched;
-			sides = fetched.value;
-			return ok({
-				...fetched.value.trees,
-				copyFrom: borrowable(repo) ? repo.objects : undefined
+	const attempt = async (
+		earlier: boolean
+	): Promise<{
+		readonly offered: number;
+		readonly result: Result<GitSnapshot, GitHubSourceError>;
+	}> => {
+		const refs = `refs/diff-delver/fetching/${id}/`;
+		let offered = 0;
+		let sides: Fetched | undefined;
+		try {
+			const taken = await takeSnapshot(store.value, id, async (writer) => {
+				const fetched = await fetchSides(writer, repo, details, access, refs, earlier, (n) => {
+					offered = n;
+				});
+				if (!fetched.ok) return fetched;
+				sides = fetched.value;
+				return ok({
+					...fetched.value.trees,
+					copyFrom: borrowable(repo) ? repo.objects : undefined
+				});
 			});
-		});
-		if (!taken.ok) return taken;
-		return ok({
-			snapshot: taken.value.snapshot,
-			identity: pullRequestFingerprint(details, sides?.head),
-			baseCommit: sides?.base,
-			headCommit: sides?.head,
-			copied: objectCountOf(taken.value.copied),
-			leftOut: []
-		});
-	} finally {
-		await dropRefs(store.value, refs);
+			if (!taken.ok) return { offered, result: taken };
+			return {
+				offered,
+				result: ok({
+					snapshot: taken.value.snapshot,
+					identity: pullRequestFingerprint(details, sides?.head),
+					baseCommit: sides?.base,
+					headCommit: sides?.head,
+					copied: objectCountOf(taken.value.copied),
+					leftOut: []
+				})
+			};
+		} finally {
+			await dropRefs(store.value, refs);
+		}
+	};
+	const first = await attempt(true);
+	if (first.result.ok || first.offered === 0 || !mayBeTheEarlierDownloads(first.result.error)) {
+		return first.result;
 	}
+	// What they were fetched on top of may be gone, such as the clone they borrowed.
+	await forgetPullRequestFetches(store.value, undefined);
+	return (await attempt(false)).result;
+}
+
+/**
+ * Whether a failure could come of offering GitHub the store's earlier
+ * downloads: the fetch, finding the merge base or copying the trees failed,
+ * but not by its time limit, which a second try would only wait out again.
+ */
+function mayBeTheEarlierDownloads(error: GitHubSourceError): boolean {
+	if (error.kind === 'PullRequestFetchFailed') return error.stoppedAfter === undefined;
+	return error.kind === 'PullRequestNoMergeBase' || error.kind === 'MissingObject';
 }

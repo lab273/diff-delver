@@ -182,6 +182,7 @@ import { pullRequestTitleOf } from '#lib/core/github/pull-request-title.tiny.ts'
 import type { GitHubEtag } from '#lib/core/github/github-etag.tiny.ts';
 import type { GitHubHost } from '#lib/core/github/github-host.tiny.ts';
 import {
+	forgetPullRequestFetches,
 	gitHubRemoteOf,
 	gitHubRemotesOf,
 	listOpenPullRequests,
@@ -2492,14 +2493,21 @@ export class ReportService {
 	 * can be deleted too; it needs only its id to be readable.
 	 */
 	async deleteReport(id: ReportId): Promise<Result<Deleted, ReportError>> {
+		let stores: readonly StoreId[] = [];
 		const removed = this.#db.write((q): Result<readonly StoredSnapshot[], ReportError> => {
 			if (!reportExists(q, id)) return err({ kind: 'ReportNotFound', report: id });
 			const snapshots = snapshotsOfReport(q, id);
+			stores = [...new Set(snapshots.map((s) => s.store))];
 			deleteReportRow(q, id);
 			return ok(snapshots.filter((s) => !snapshotInUse(q, s)));
 		});
 		if (!removed.ok) return removed;
 		await this.#forget(id);
+		// A pull request's downloads go with its Delve, collected with its snapshots.
+		for (const storeId of stores) {
+			const store = await openStore(this.#dataDirectory, storeId);
+			if (store.ok) await forgetPullRequestFetches(store.value, this.#pullRequestsIn(storeId));
+		}
 		const removedSnapshots = await this.#removeSnapshots(removed.value);
 		return ok(removedSnapshots);
 	}
@@ -2625,6 +2633,15 @@ export class ReportService {
 		const removed = await this.removeUnusedSnapshots();
 		if (!removed.ok) return removed;
 		const collected = new Set(removed.value.map((r) => r.store));
+		// Downloads kept for a pull request that has no Delve, such as one whose
+		// opening failed after its fetch, once a fetch under way cannot be adding one.
+		const stores = await listStores(this.#dataDirectory);
+		if (!stores.ok) return stores;
+		const before = Date.now() - GRACE_PERIOD;
+		for (const store of stores.value) {
+			const live = this.#pullRequestsIn(store.id);
+			if ((await forgetPullRequestFetches(store, live, before)) > 0) this.#discarded.add(store.id);
+		}
 		// Taken now: a snapshot discarded while this runs is collected next time.
 		const due = [...this.#discarded].filter((id) => !collected.has(id));
 		this.#discarded.clear();
@@ -2645,6 +2662,24 @@ export class ReportService {
 	}
 
 	// --- Inside -------------------------------------------------------------------
+
+	/**
+	 * The pull requests of the Delves whose snapshots are in `store`, whose
+	 * downloads it keeps. One that cannot be read is left out, so its
+	 * downloads may be forgotten, which costs only a longer download.
+	 */
+	#pullRequestsIn(store: StoreId): readonly PullRequestRef[] {
+		const found = this.#db.read((q) =>
+			ok(
+				everyReport(q).flatMap((row) =>
+					row.ok && row.value.store === store && row.value.source.kind === 'github'
+						? [row.value.source.pullRequest]
+						: []
+				)
+			)
+		);
+		return found.ok ? found.value : [];
+	}
 
 	/** Deletes a snapshot no revision will use, noting its store for the next tidy. */
 	async #discard(store: Snapshot['store'], id: SnapshotId): Promise<void> {

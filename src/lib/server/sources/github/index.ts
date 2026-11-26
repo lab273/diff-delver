@@ -15,4 +15,5 @@ export { listOpenPullRequests, PULL_REQUESTS_LISTED, readPullRequest } from './g
 export type { GitHubApiError, GitHubRateLimited, GitHubSourceError } from './github-error.ts';
 export { describeGitHubSourceError } from './github-error.ts';
 export { gitHubRemoteOf, gitHubRemotesOf } from './github-remote.ts';
+export { forgetPullRequestFetches } from './kept-fetches.ts';
 export { pullRequestFingerprint, snapshotPullRequest } from './snapshot-pull-request.ts';

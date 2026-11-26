@@ -19,7 +19,7 @@ import { millisecondsOf, type Milliseconds } from '#lib/core/milliseconds.tiny.t
 export const GRACE_PERIOD: Milliseconds = millisecondsOf(60 * 60 * 1000);
 
 /** The names diff delver gives its short-lived folders. */
-export type ShortLivedFolder = '.new-' | 'diff-delver-index-';
+export type ShortLivedFolder = '.new-' | 'diff-delver-index-' | 'diff-delver-incoming-';
 
 /**
  * Removes the folders in `directory` whose names start with `prefix` and that

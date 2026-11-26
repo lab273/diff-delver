@@ -10,9 +10,7 @@ import { GITHUB_COM } from '#lib/core/github/github-host.tiny.ts';
 import { parseGitHubToken } from '#lib/core/github/github-token.tiny.ts';
 import { parsePullRequestUrl } from '#lib/core/github/pull-request.ts';
 import { pullRequestTitleOf } from '#lib/core/github/pull-request-title.tiny.ts';
-import { emptyRepo } from '../../../../../tests/support/fixture-repos.ts';
 import { value } from '../../../../../tests/support/git-source-helpers.ts';
-import { locateRepository, type LocalRepository } from '../git/index.ts';
 import type { PullRequestDetails } from './github-api.ts';
 import { fetchArguments, fetchEnvironment } from './snapshot-pull-request.ts';
 
@@ -31,16 +29,10 @@ const details: PullRequestDetails = {
 	base: { commit: COMMIT, branch: value(parseGitHubBranchName('main')) }
 };
 
-async function repository(): Promise<LocalRepository> {
-	const repo = await emptyRepo();
-	return value(await locateRepository(repo.dir));
-}
-
 describe('the fetch of a pull request', () => {
-	it('gives git the token as a header for GitHub’s address, in its environment only', async () => {
-		const repo = await repository();
+	it('gives git the token as a header for GitHub’s address, in its environment only', () => {
 		const address = 'https://github.com/acme/shop.git';
-		const env = fetchEnvironment(repo, address, GITHUB_COM, TOKEN);
+		const env = fetchEnvironment(address, GITHUB_COM, TOKEN);
 		expect(env).toMatchObject({
 			GIT_CONFIG_COUNT: '1',
 			GIT_CONFIG_KEY_0: 'http.https://github.com/.extraHeader',
@@ -56,24 +48,18 @@ describe('the fetch of a pull request', () => {
 		}
 	});
 
-	it('gives no header for any other address, nor without a token', async () => {
-		const repo = await repository();
+	it('gives no header for any other address, nor without a token', () => {
 		for (const address of [
 			'/srv/git/shop.git',
 			'http://github.com/acme/shop.git',
 			'https://github.com.example/acme/shop.git',
 			'https://example.com/https://github.com/acme/shop.git'
 		]) {
-			const env = fetchEnvironment(repo, address, GITHUB_COM, TOKEN);
+			const env = fetchEnvironment(address, GITHUB_COM, TOKEN);
 			expect(env.GIT_CONFIG_COUNT).toBeUndefined();
 			expect(JSON.stringify(env)).not.toContain(BASIC);
 		}
-		const signedOut = fetchEnvironment(
-			repo,
-			'https://github.com/acme/shop.git',
-			GITHUB_COM,
-			undefined
-		);
+		const signedOut = fetchEnvironment('https://github.com/acme/shop.git', GITHUB_COM, undefined);
 		expect(signedOut.GIT_CONFIG_COUNT).toBeUndefined();
 		expect(signedOut.GIT_TERMINAL_PROMPT).toBe('0');
 	});
