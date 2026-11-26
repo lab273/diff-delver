@@ -83,12 +83,14 @@ export async function runShim(options: ShimOptions): Promise<number> {
 			: options.version;
 		const launched = await ensureDaemon(options.dataDirectory, version, options.entry);
 		if (!launched.ok) return err(describeLaunchError(launched.error));
-		const { found } = launched.value;
+		const { found, notice, connection } = launched.value;
 		switch (found.kind) {
 			case 'own':
 				break;
 			case 'replaced':
-				options.printError(describeReplacedDaemon(found.version, version));
+				options.printError(
+					describeReplacedDaemon(found.version, version, found.port === connection.port)
+				);
 				break;
 			case 'newer':
 				options.printError(describeNewerDaemon(found.version, version, options.entry));
@@ -97,7 +99,8 @@ export async function runShim(options: ShimOptions): Promise<number> {
 				options.printError(describeDatabaseNewer(found.version, version, options.entry));
 				break;
 		}
-		return ok(launched.value.connection);
+		if (notice !== undefined) options.printError(notice);
+		return ok(connection);
 	};
 	let daemon: Promise<Result<DaemonConnection, string>> = find(false);
 	/**

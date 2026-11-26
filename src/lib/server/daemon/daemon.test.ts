@@ -1,5 +1,6 @@
 import { readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { createServer } from 'node:net';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { describeApiError } from '#lib/api/client.ts';
 import { lineNumberOf } from '#lib/core/line-number.tiny.ts';
@@ -8,6 +9,8 @@ import { parseRepoPath } from '#lib/core/repo-path.tiny.ts';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import { mcpOverHttp } from '../../../../tests/support/mcp-client.ts';
 import { parseAbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { describeStablePortTaken } from '#lib/core/daemon/stable-port.ts';
+import { parsePortNumber, type PortNumber } from '#lib/core/port-number.tiny.ts';
 import {
 	defineFixture,
 	emptyRepo,
@@ -37,6 +40,21 @@ import { at } from '../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../tests/support/reviewer-git.ts';
 import { BROWSER_ACCESS_FILE } from './browser-access.ts';
 import { lockfilePath, readLockfile } from './lockfile.ts';
+
+/** A port nothing listens on now, for a daemon to prefer: never the command's own. */
+async function freePort(): Promise<PortNumber> {
+	const server = createServer();
+	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+	const address = server.address();
+	await new Promise<void>((resolve) =>
+		server.close(() => {
+			resolve();
+		})
+	);
+	const port = parsePortNumber(typeof address === 'object' && address !== null ? address.port : 0);
+	if (!port.ok) throw new Error('no free port');
+	return port.value;
+}
 
 /** A committed file, edited, and a new one: uncommitted changes to open. */
 const edited = defineFixture('daemon-edited', async (repo) => {
@@ -526,6 +544,41 @@ describe('the daemon’s lock', () => {
 		const text = await readFile(lockfilePath(other), 'utf8');
 		await writeFile(lockfilePath(other), text.replace(/"port":\d+/, '"port":9'));
 		expect(await checked(replaced)).toBe(true);
+	});
+
+	it('listens at its preferred port every time, so a page left open reaches the next daemon there', async () => {
+		const dataDirectory = await tempDirectory();
+		const preferredPort = await freePort();
+		const first = await testDaemon({ dataDirectory, preferredPort });
+		expect(first.port).toBe(preferredPort);
+		expect(first.portNotice).toBeUndefined();
+		const cookie = await browserCookie(first);
+		await first.stop();
+		// Another version, at once, as the command replaces one: the old one let its port go first.
+		const second = await testDaemon({ dataDirectory, preferredPort, version: version('newer') });
+		expect(second.port).toBe(preferredPort);
+		const page = await rawRequest(second.port, { path: '/api/daemon', headers: { cookie } });
+		expect(page.status).toBe(200);
+		expect(JSON.parse(page.body)).toMatchObject({ version: 'newer' });
+	});
+
+	it('takes a free port when its preferred one is in use, and says which and why', async () => {
+		const preferredPort = await freePort();
+		const other = createServer();
+		await new Promise<void>((resolve) => other.listen(preferredPort, '127.0.0.1', resolve));
+		onTestFinished(
+			() =>
+				new Promise<void>((resolve) =>
+					other.close(() => {
+						resolve();
+					})
+				)
+		);
+		const daemon = await testDaemon({ preferredPort });
+		expect(daemon.port).not.toBe(preferredPort);
+		expect(daemon.portNotice).toBe(
+			describeStablePortTaken(preferredPort, daemon.port, 'another program is using that port')
+		);
 	});
 
 	it('refuses to start a second daemon for a data folder that has one', async () => {

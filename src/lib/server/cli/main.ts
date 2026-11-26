@@ -17,6 +17,7 @@ import {
 	type Invocation
 } from '#lib/core/cli/command-line.ts';
 import { describeNoDataDirectory } from '#lib/core/data-directory.ts';
+import { preferredPortFor } from '#lib/core/daemon/stable-port.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { loadAppHandler } from '../daemon/app-handler.ts';
 import { describeDaemonStartError, entryAddress, startDaemon } from '../daemon/daemon.ts';
@@ -108,6 +109,7 @@ async function serve(
 		version: codeVersion(),
 		app,
 		openBrowser,
+		preferredPort: preferredPortFor(dataDirectory, machine.ok ? machine.value : undefined),
 		// `entry` is the file this daemon was run by, so `node <entry> mcp` is this same copy.
 		machine: {
 			entry: absolute(entry),
@@ -136,7 +138,11 @@ async function serve(
 	}
 	if (background) {
 		console.log(`diff delver started at ${daemon.origin}, serving ${dataDirectory}.`);
-		signalParent({ kind: 'ready' });
+		signalParent(
+			daemon.portNotice === undefined
+				? { kind: 'ready' }
+				: { kind: 'ready', notice: daemon.portNotice }
+		);
 	} else {
 		terminal.print(
 			`diff delver is running. Open this in your browser: ${entryAddress(daemon.origin, '/', daemon.entryCode())}`
@@ -267,12 +273,14 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 				terminal.printError(describeLaunchError(launched.error));
 				return 1;
 			}
-			const { connection, found } = launched.value;
+			const { connection, found, notice } = launched.value;
 			switch (found.kind) {
 				case 'own':
 					break;
 				case 'replaced':
-					terminal.print(describeReplacedDaemon(found.version, codeVersion()));
+					terminal.print(
+						describeReplacedDaemon(found.version, codeVersion(), found.port === connection.port)
+					);
 					break;
 				case 'newer':
 					terminal.print(describeNewerDaemon(found.version, codeVersion(), entry));
@@ -281,6 +289,7 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 					terminal.print(describeDatabaseNewer(found.version, codeVersion(), entry));
 					break;
 			}
+			if (notice !== undefined) terminal.print(notice);
 			const describe = describerFor(found, codeVersion(), entry);
 			const client = new ApiClient({ fetch, base: connection.origin, token: connection.token });
 			const outcome =

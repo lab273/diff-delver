@@ -13,6 +13,7 @@ import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { settableClock, type SettableClock } from '#lib/core/clock.ts';
 import { parseCodeVersion, type CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
+import type { PortNumber } from '#lib/core/port-number.tiny.ts';
 import { parseTimestamp } from '#lib/core/timestamp.tiny.ts';
 import { loadAppHandler, type AppHandler } from '#lib/server/daemon/app-handler.ts';
 import {
@@ -47,6 +48,8 @@ export interface TestDaemonOptions {
 	readonly machine?: MachineFacts;
 	/** How the daemon reaches GitHub: a stand-in's (`github-stand-in.ts`), so no test reaches GitHub. */
 	readonly github?: GitHubAccess;
+	/** The port the daemon tries first: one the test chose free, never the command's `STABLE_PORT`. */
+	readonly preferredPort?: PortNumber;
 }
 
 /** Starts a daemon, or says why it could not; one that starts is stopped when the test finishes. */
@@ -68,7 +71,8 @@ export async function tryStartDaemon(
 		...(options.repeat === undefined ? {} : { repeat: options.repeat }),
 		...(options.openBrowser === undefined ? {} : { openBrowser: options.openBrowser }),
 		...(options.machine === undefined ? {} : { machine: options.machine }),
-		...(options.github === undefined ? {} : { github: options.github })
+		...(options.github === undefined ? {} : { github: options.github }),
+		...(options.preferredPort === undefined ? {} : { preferredPort: options.preferredPort })
 	});
 	if (started.ok) {
 		const daemon = started.value;

@@ -28,6 +28,12 @@ export function hasUnsavedWords(id: ReportId): boolean {
 	return unsaved(kept.get(id));
 }
 
+/** Whether something typed on any Delve in this tab is not saved yet, which loading the page again would lose. */
+export function hasAnyUnsavedWords(): boolean {
+	for (const comments of kept.values()) if (unsaved(comments)) return true;
+	return false;
+}
+
 /**
  * The comments of a Delve as this tab holds them, made the first time they are
  * asked for. Where a page is drawn for one request and thrown away, as on the
@@ -43,12 +49,7 @@ export function keptComments(id: ReportId, client: () => ApiClient): Comments {
 		asksBeforeLeaving = true;
 		// On whichever page of diff delver the tab is, while any Delve has words not saved.
 		window.addEventListener('beforeunload', (event) => {
-			for (const comments of kept.values()) {
-				if (unsaved(comments)) {
-					event.preventDefault();
-					return;
-				}
-			}
+			if (hasAnyUnsavedWords()) event.preventDefault();
 		});
 	}
 	return made;

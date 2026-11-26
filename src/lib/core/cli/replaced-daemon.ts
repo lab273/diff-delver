@@ -98,19 +98,46 @@ export function describeTooOldForDaemon(
 	);
 }
 
-/** What the command says when it has replaced an older daemon, or one it cannot put in order. */
-export function describeReplacedDaemon(running: CodeVersion, mine: CodeVersion): ReviewerMessage {
+/**
+ * What the command says when it has replaced an older daemon, or one it cannot
+ * put in order; `samePort` when the new one listens where the old one did, so
+ * the old one's open pages reach it and offer to reload.
+ */
+export function describeReplacedDaemon(
+	running: CodeVersion,
+	mine: CodeVersion,
+	samePort: boolean
+): ReviewerMessage {
+	const pages = samePort
+		? 'Pages the old one had open will offer to reload.'
+		: 'Pages the old one had open need opening again.';
 	const theirs = releaseOfCodeVersion(running);
 	const ours = releaseOfCodeVersion(mine);
 	if (theirs !== undefined && ours !== undefined) {
 		const order = compareReleases(theirs, ours);
 		if (order < 0) {
 			return reviewerMessage(
-				`diff delver ${ours} has replaced ${theirs}, the older version that was running. Pages the old one had open need opening again.`
+				`diff delver ${ours} has replaced ${theirs}, the older version that was running. ${pages}`
 			);
 		}
 	}
 	return reviewerMessage(
-		'A different version of diff delver was running; this version has replaced it. Pages the old one had open need opening again.'
+		`A different version of diff delver was running; this version has replaced it. ${pages}`
+	);
+}
+
+/**
+ * What a page says when the daemon answering it now runs another version than
+ * the one that served it: its scripts are the old one's, so it offers to
+ * reload, and says first when that would lose words typed and not saved.
+ */
+export function describeReplacedForPage(now: CodeVersion, unsaved: boolean): ReviewerMessage {
+	const release = releaseOfCodeVersion(now);
+	const which = release === undefined ? 'another version of diff delver' : `diff delver ${release}`;
+	const reload = `This page was opened by an earlier version; ${which} is running now. Reload the page to use it.`;
+	return reviewerMessage(
+		unsaved
+			? `${reload} Save what you have typed first: reloading would lose it, and your browser asks before it does.`
+			: reload
 	);
 }

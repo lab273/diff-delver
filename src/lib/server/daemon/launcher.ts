@@ -11,8 +11,10 @@
  *   be put in order with the command's (a development build on either side, or
  *   one release built from different code, `orderOfDaemon`): that daemon is
  *   asked to stop and a new one is started, so a person who updated diff
- *   delver is never left talking to the old one. Its open pages stop working,
- *   and the command says so. Not when the data folder's database has a
+ *   delver is never left talking to the old one. The new one listens where the
+ *   old one did when it can (`stable-port.ts`), the old one having let its port
+ *   go before its lockfile, so its open pages reach the new one and offer to
+ *   reload; the command says which. Not when the data folder's database has a
  *   migration this copy does not know: its own daemon would refuse the
  *   database, leaving nothing serving the folder, so the running one is used
  *   as it is, and the command says how to bring this copy up to date;
@@ -26,7 +28,8 @@
  * A new daemon is `diff-delver serve` run in the background, detached from the
  * terminal, writing to `daemon.log` in the data folder. It says over an IPC
  * channel when it is listening, or why it could not start, so the command waits
- * for exactly that and no longer.
+ * for exactly that and no longer, and for what it says when it could not
+ * listen on its preferred port, which the command says too.
  */
 import { execFile, spawn } from 'node:child_process';
 import { mkdir, open, type FileHandle } from 'node:fs/promises';
@@ -35,6 +38,7 @@ import { z } from 'zod';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseCodeVersion, type CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { orderOfDaemon } from '#lib/core/cli/replaced-daemon.ts';
+import type { PortNumber } from '#lib/core/port-number.tiny.ts';
 import type { ProcessId } from '#lib/core/process-id.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
@@ -47,7 +51,8 @@ export const LOG_NAME = 'daemon.log';
 
 /** What a background daemon says over its IPC channel once it is up, or has given up. */
 export const ReadySignalSchema = z.discriminatedUnion('kind', [
-	z.object({ kind: z.literal('ready') }),
+	/** With what the daemon said when it could not listen on its preferred port. */
+	z.object({ kind: z.literal('ready'), notice: z.string().optional() }),
 	z.object({ kind: z.literal('failed'), message: z.string() })
 ]);
 export type ReadySignal = z.output<typeof ReadySignalSchema>;
@@ -74,13 +79,15 @@ export function describeLaunchError(error: LaunchError): ReviewerMessage {
  */
 export type FoundDaemon =
 	| { readonly kind: 'own' }
-	| { readonly kind: 'replaced'; readonly version: CodeVersion }
+	| { readonly kind: 'replaced'; readonly version: CodeVersion; readonly port: PortNumber }
 	| { readonly kind: 'newer'; readonly version: CodeVersion }
 	| { readonly kind: 'database-newer'; readonly version: CodeVersion };
 
 export interface Launched {
 	readonly connection: DaemonConnection;
 	readonly found: FoundDaemon;
+	/** What a daemon this command started said when it could not listen on its preferred port. */
+	readonly notice?: ReviewerMessage | undefined;
 }
 
 /** How long a new daemon has to say it is listening. */
@@ -141,11 +148,17 @@ function databaseNewerThanThisCopy(dataDirectory: AbsolutePath): boolean {
 	return newest.ok && newest.value !== undefined && newest.value > LATEST_VERSION;
 }
 
-/** Starts `diff-delver serve` in the background, waits for it to listen, and gives its process id. */
+/** A daemon this call started: its process id, and what it said of its port, if anything. */
+interface Spawned {
+	readonly pid: number | undefined;
+	readonly notice: ReviewerMessage | undefined;
+}
+
+/** Starts `diff-delver serve` in the background, waits for it to listen, and gives what it started. */
 async function spawnDaemon(
 	dataDirectory: AbsolutePath,
 	entry: string
-): Promise<Result<number | undefined, LaunchError>> {
+): Promise<Result<Spawned, LaunchError>> {
 	const failed = (message: string): Result<never, LaunchError> =>
 		err({ kind: 'StartFailed', message: reviewerMessage(message) });
 	let log: FileHandle;
@@ -195,7 +208,10 @@ async function spawnDaemon(
 		}
 		switch (signal.kind) {
 			case 'ready':
-				return ok(child.pid);
+				return ok({
+					pid: child.pid,
+					notice: signal.notice === undefined ? undefined : reviewerMessage(signal.notice)
+				});
 			case 'failed':
 				return failed(signal.message);
 		}
@@ -213,17 +229,18 @@ export async function ensureDaemon(
 	let found: FoundDaemon = { kind: 'own' };
 	/** The daemon this call started, if it started one. */
 	let spawned: number | undefined;
+	let notice: ReviewerMessage | undefined;
 	for (let attempt = 0; attempt < 3; attempt += 1) {
 		const content = await readLockfile(dataDirectory);
 		if (content.kind === 'lock') {
 			const probe = await probeLock(content.lock);
 			if (probe.kind === 'answering') {
 				if (spawned !== undefined && content.lock.pid === spawned) {
-					return ok({ connection: connectionOf(content.lock), found });
+					return ok({ connection: connectionOf(content.lock), found, notice });
 				}
 				switch (orderOfDaemon(probe.version, version)) {
 					case 'same':
-						return ok({ connection: connectionOf(content.lock), found });
+						return ok({ connection: connectionOf(content.lock), found, notice });
 					case 'running-newer':
 						return ok({
 							connection: connectionOf(content.lock),
@@ -242,7 +259,7 @@ export async function ensureDaemon(
 				if (!(await stopDaemonOf(dataDirectory, content.lock, content.text))) {
 					return err({ kind: 'OldDaemonWouldNotStop', lock: content.lock });
 				}
-				found = { kind: 'replaced', version: probe.version };
+				found = { kind: 'replaced', version: probe.version, port: content.lock.port };
 				continue;
 			}
 		}
@@ -250,10 +267,11 @@ export async function ensureDaemon(
 		// started one meanwhile, the new one finds it and stops; it is used instead.
 		const started = await spawnDaemon(dataDirectory, entry);
 		if (!started.ok) return started;
-		spawned = started.value;
+		spawned = started.value.pid;
+		notice = started.value.notice;
 	}
 	const content = await readLockfile(dataDirectory);
-	if (content.kind === 'lock') return ok({ connection: connectionOf(content.lock), found });
+	if (content.kind === 'lock') return ok({ connection: connectionOf(content.lock), found, notice });
 	return err({
 		kind: 'StartFailed',
 		message: reviewerMessage(

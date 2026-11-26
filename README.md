@@ -187,7 +187,10 @@ Other commands and options:
 | `--help`, `--version` | Show the help, or which version this is. |
 
 diff delver keeps your Delves and ticks in one folder of its own,
-`~/.local/share/diff-delver` on Linux. It is reached only from your own machine.
+`~/.local/share/diff-delver` on Linux. It is reached only from your own machine,
+at `http://127.0.0.1:12321` every time, so a page left open still works after diff
+delver restarts. If another program is using that port, diff delver takes another
+and says which.
 To take comment access away from every browser, run `diff-delver stop`, delete
 `browser-access.json` in that folder, and start diff delver again.
 
@@ -250,8 +253,8 @@ npm install --global https://github.com/lab273/diff-delver/releases/latest/downl
 
 Run the same install again to move to the newest release.
 
-A newer diff delver replaces an older one that is still running, and says so; open
-its pages again afterwards. An older copy never replaces a newer one: it uses the
+A newer diff delver replaces an older one that is still running, and says so; pages
+left open offer to reload. An older copy never replaces a newer one: it uses the
 newer one, says so, and says how to upgrade.
 
 diff delver is not published to npm, and never will be under this name. Releases are

@@ -1,9 +1,12 @@
 /**
  * The daemon (DESIGN 3, 9): one per data folder, serving the app and its API on
- * 127.0.0.1 at a free port, behind the request gate. Starting it:
+ * 127.0.0.1, behind the request gate. Starting it:
  *
  * 1. opens the report service for the data folder;
- * 2. listens on a free port of 127.0.0.1;
+ * 2. listens on 127.0.0.1, at the port it is given when it can have it (the
+ *    command gives `STABLE_PORT` for the machine's default data folder,
+ *    `#lib/core/daemon/stable-port.ts`), else at a free port, saying why once
+ *    it holds the lock;
  * 3. takes the lock (`lockfile.ts`), replacing a stale one: a lockfile whose
  *    daemon is gone or does not answer with its token. If another daemon holds
  *    it and answers, this one closes again and says so;
@@ -50,6 +53,7 @@ import {
 	reviewCookieName,
 	type GateSettings
 } from '#lib/core/daemon/request-gate.ts';
+import { describeStablePortTaken } from '#lib/core/daemon/stable-port.ts';
 import type { EntryCode } from '#lib/core/entry-code.tiny.ts';
 import type { IdSource } from '#lib/core/ids.ts';
 import { parsePortNumber, type PortNumber } from '#lib/core/port-number.tiny.ts';
@@ -104,6 +108,12 @@ export interface DaemonOptions {
 	 * one that must be named and itself for a copy the release's command runs.
 	 */
 	readonly machine?: MachineFacts;
+	/**
+	 * The port to listen on when it can be had (`preferredPortFor`): the command
+	 * gives `STABLE_PORT` for the machine's default data folder. Left out, or
+	 * when it is in use, the daemon takes a free port.
+	 */
+	readonly preferredPort?: PortNumber | undefined;
 	/** Called once the daemon has stopped, however it was asked to. */
 	readonly onStopped?: () => void;
 	/**
@@ -172,6 +182,11 @@ export interface RunningDaemon extends DaemonConnection {
 	readonly lock: Lock;
 	/** The name of the cookie a browser that may write drafts holds. */
 	readonly reviewCookie: string;
+	/**
+	 * What the daemon said, once, when it could not listen on its preferred port
+	 * and took another: for the command to say too.
+	 */
+	readonly portNotice: ReviewerMessage | undefined;
 	/** A new single-use code that lets a browser in, for an address to open (`entryAddress`). */
 	entryCode(): EntryCode;
 	/** The removal of snapshots a crash left behind, which starting begins. */
@@ -245,21 +260,68 @@ function newToken(): DaemonToken {
 	return token.value;
 }
 
-function listen(server: Server): Promise<Result<PortNumber, DaemonStartError>> {
+function listenOn(
+	server: Server,
+	port: number
+): Promise<Result<PortNumber, NodeJS.ErrnoException>> {
 	return new Promise((resolve) => {
-		const failed = (error: Error): void => {
-			resolve(err({ kind: 'PortUnavailable', reason: error.message }));
+		// Both let go whichever happens, since a port in use is tried again on the same server.
+		const failed = (error: NodeJS.ErrnoException): void => {
+			server.off('listening', listening);
+			resolve(err(error));
 		};
-		server.once('error', failed);
-		server.listen({ host: '127.0.0.1', port: 0 }, () => {
+		const listening = (): void => {
 			server.off('error', failed);
 			const address = server.address();
-			const port = parsePortNumber(
+			const given = parsePortNumber(
 				typeof address === 'object' && address !== null ? address.port : 0
 			);
-			resolve(port.ok ? ok(port.value) : err({ kind: 'PortUnavailable', reason: 'no port given' }));
-		});
+			resolve(given.ok ? ok(given.value) : err(new Error('no port given')));
+		};
+		server.once('error', failed);
+		server.once('listening', listening);
+		server.listen({ host: '127.0.0.1', port });
 	});
+}
+
+/** How long a daemon keeps trying its preferred port while it is in use, before it takes another. */
+export const PREFERRED_PORT_TRIES_FOR_MS = 500;
+
+/** Where the daemon listens, and, when it could not listen on its preferred port, why. */
+interface Listening {
+	readonly port: PortNumber;
+	readonly notPreferred: string | undefined;
+}
+
+/**
+ * Listens on `preferred`, or a free port when there is none or it cannot be
+ * had. A daemon that replaces another of its data folder starts once the old
+ * one has let its port go (it closes its server before it removes its
+ * lockfile), so a port in use is tried again only briefly, in case.
+ */
+async function listen(
+	server: Server,
+	preferred: PortNumber | undefined
+): Promise<Result<Listening, DaemonStartError>> {
+	let notPreferred: string | undefined;
+	if (preferred !== undefined) {
+		const until = Date.now() + PREFERRED_PORT_TRIES_FOR_MS;
+		for (;;) {
+			const listened = await listenOn(server, preferred);
+			if (listened.ok) return ok({ port: listened.value, notPreferred: undefined });
+			const inUse = listened.error.code === 'EADDRINUSE';
+			if (inUse && Date.now() < until) {
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				continue;
+			}
+			notPreferred = inUse ? 'another program is using that port' : listened.error.message;
+			break;
+		}
+	}
+	const listened = await listenOn(server, 0);
+	return listened.ok
+		? ok({ port: listened.value, notPreferred })
+		: err({ kind: 'PortUnavailable', reason: listened.error.message });
 }
 
 function close(server: Server): Promise<void> {
@@ -355,17 +417,18 @@ export async function startDaemon(
 			open: async (page) => (await openForReview(page)) === 'opened'
 		})
 	);
-	const port = await listen(server);
-	if (!port.ok) {
+	const listening = await listen(server, options.preferredPort);
+	if (!listening.ok) {
 		service.close();
-		return port;
+		return listening;
 	}
-	origin.value = `http://127.0.0.1:${String(port.value)}`;
+	const port = listening.value.port;
+	origin.value = `http://127.0.0.1:${String(port)}`;
 	const pid = parseProcessId(process.pid);
 	if (!pid.ok) throw new Error('This process has no id.');
 	const mcpToken = newToken();
 	const lock: Lock = {
-		port: port.value,
+		port,
 		pid: pid.value,
 		token: newToken(),
 		mcpToken,
@@ -483,9 +546,16 @@ export async function startDaemon(
 		viewToken,
 		redeemEntryCode: (given) => codes.redeem(given)
 	};
+	// Said once the lock is taken: a daemon that finds another serving its folder says nothing of ports.
+	const portNotice =
+		options.preferredPort === undefined || listening.value.notPreferred === undefined
+			? undefined
+			: describeStablePortTaken(options.preferredPort, port, listening.value.notPreferred);
+	if (portNotice !== undefined) console.log(portNotice);
 	return ok({
 		...connectionOf(lock),
 		mcpToken,
+		portNotice,
 		lock,
 		reviewCookie,
 		entryCode,

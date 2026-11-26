@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { describeApiError, type ApiError } from '#lib/api/client.ts';
+import { parsePortNumber, type PortNumber } from '#lib/core/port-number.tiny.ts';
 import { reviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import { version } from '../../../../tests/support/daemons.ts';
 import { describerFor } from './outcome.ts';
@@ -12,6 +13,12 @@ import { describerFor } from './outcome.ts';
 const CLONE = '/home/someone/src/diff-delver/bin/diff-delver.js';
 const MINE = version('0.2.0+bbbbbbbbbbbb');
 const NEWER = version('0.3.0+aaaaaaaaaaaa');
+
+function port(value: number): PortNumber {
+	const parsed = parsePortNumber(value);
+	if (!parsed.ok) throw new Error('not a port');
+	return parsed.value;
+}
 
 const unreadable: ApiError = { kind: 'unreadable', status: 200, detail: 'kind: not as expected' };
 const badRequest: ApiError = {
@@ -46,7 +53,7 @@ describe('how the command words errors from the daemon it found', () => {
 	it("says every error as it is from the command's own daemon, or one that replaced another", () => {
 		for (const found of [
 			{ kind: 'own' },
-			{ kind: 'replaced', version: version('0.1.0+cccccccccccc') }
+			{ kind: 'replaced', version: version('0.1.0+cccccccccccc'), port: port(40000) }
 		] as const) {
 			const describe = describerFor(found, MINE, CLONE);
 			for (const error of [unreadable, badRequest, notFound, unreachable]) {

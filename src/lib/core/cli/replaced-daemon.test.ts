@@ -4,6 +4,7 @@ import {
 	describeDatabaseNewer,
 	describeNewerDaemon,
 	describeReplacedDaemon,
+	describeReplacedForPage,
 	describeTooOldForDaemon,
 	howToUpgrade,
 	npxCopyOf,
@@ -98,9 +99,17 @@ describe('using the daemon that is running because the database is newer than th
 describe('replacing a daemon of another version', () => {
 	it('says an older one was replaced', () => {
 		expect(
-			describeReplacedDaemon(version('0.1.0+aaaaaaaaaaaa'), version('0.2.0+bbbbbbbbbbbb'))
+			describeReplacedDaemon(version('0.1.0+aaaaaaaaaaaa'), version('0.2.0+bbbbbbbbbbbb'), false)
 		).toBe(
 			'diff delver 0.2.0 has replaced 0.1.0, the older version that was running. Pages the old one had open need opening again.'
+		);
+	});
+
+	it('says that open pages will offer to reload when the new one listens where the old one did', () => {
+		expect(
+			describeReplacedDaemon(version('0.1.0+aaaaaaaaaaaa'), version('0.2.0+bbbbbbbbbbbb'), true)
+		).toBe(
+			'diff delver 0.2.0 has replaced 0.1.0, the older version that was running. Pages the old one had open will offer to reload.'
 		);
 	});
 
@@ -108,13 +117,21 @@ describe('replacing a daemon of another version', () => {
 		const different =
 			'A different version of diff delver was running; this version has replaced it. Pages the old one had open need opening again.';
 		expect(
-			describeReplacedDaemon(version('0.0.1-dev+aaaaaaaaaaaa'), version('0.2.0+bbbbbbbbbbbb'))
+			describeReplacedDaemon(
+				version('0.0.1-dev+aaaaaaaaaaaa'),
+				version('0.2.0+bbbbbbbbbbbb'),
+				false
+			)
 		).toBe(different);
 		expect(
-			describeReplacedDaemon(version('0.3.0+aaaaaaaaaaaa'), version('0.0.1-dev+bbbbbbbbbbbb'))
+			describeReplacedDaemon(
+				version('0.3.0+aaaaaaaaaaaa'),
+				version('0.0.1-dev+bbbbbbbbbbbb'),
+				false
+			)
 		).toBe(different);
 		expect(
-			describeReplacedDaemon(version('0.2.0+aaaaaaaaaaaa'), version('0.2.0+bbbbbbbbbbbb'))
+			describeReplacedDaemon(version('0.2.0+aaaaaaaaaaaa'), version('0.2.0+bbbbbbbbbbbb'), false)
 		).toBe(different);
 	});
 });
@@ -133,6 +150,20 @@ describe('how to upgrade', () => {
 	it('points elsewhere to the README', () => {
 		expect(howToUpgrade(CLONE)).toBe(
 			'To run the newest release, see "Upgrading" in the README (https://github.com/lab273/diff-delver#upgrading).'
+		);
+	});
+});
+
+describe('a page served by a daemon that has since been replaced', () => {
+	it('offers to reload, naming the release now running', () => {
+		expect(describeReplacedForPage(version('0.2.0+bbbbbbbbbbbb'), false)).toBe(
+			'This page was opened by an earlier version; diff delver 0.2.0 is running now. Reload the page to use it.'
+		);
+	});
+
+	it('says to save first when something typed is not saved, and of a build that is no release', () => {
+		expect(describeReplacedForPage(version('0.0.1-dev+bbbbbbbbbbbb'), true)).toBe(
+			'This page was opened by an earlier version; another version of diff delver is running now. Reload the page to use it. Save what you have typed first: reloading would lose it, and your browser asks before it does.'
 		);
 	});
 });

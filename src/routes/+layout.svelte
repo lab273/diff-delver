@@ -17,13 +17,14 @@
 	import { onNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import { parseReportId } from '#lib/core/report-id.tiny.ts';
+	import DaemonReplaced from '#lib/ui/DaemonReplaced.svelte';
 	import DelveSwitcherPanel from '#lib/ui/DelveSwitcherPanel.svelte';
 	import { provideDelveSwitcher } from '#lib/ui/delve-switcher.svelte.ts';
 	import { pageReady } from '#lib/ui/early-input.ts';
 	import { onMount } from 'svelte';
 	import type { LayoutProps } from './$types';
 
-	let { children }: LayoutProps = $props();
+	let { children, data }: LayoutProps = $props();
 
 	const switcher = provideDelveSwitcher();
 
@@ -57,6 +58,7 @@
 </header>
 
 <main>
+	<DaemonReplaced servedBy={data.daemonVersion} />
 	<!-- Another Delve gets a page of its own, as when it is opened from the list. -->
 	{#key delve}
 		{@render children()}
