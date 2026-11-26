@@ -77,9 +77,14 @@ export function describeDatabaseNewer(
 	mine: CodeVersion,
 	commandPath: string
 ): ReviewerMessage {
-	return reviewerMessage(
-		`This copy of diff delver, ${shown(mine)}, is older than its data folder, which a newer diff delver has used, so it is using the diff delver that is running, ${shown(running)}, as it is. ${howToUpgrade(commandPath)}`
-	);
+	const said = `This copy of diff delver, ${shown(mine)}, is older than its data folder, which a newer diff delver has used, so it is using the diff delver that is running, ${shown(running)}, as it is.`;
+	// A development build can be ahead of every release, so a newer release may not help.
+	if (releaseOfCodeVersion(running) === undefined) {
+		return reviewerMessage(
+			`${said} That one is a development build, which may be newer than any release: to stop seeing this, run that build's own command, or give this copy another data folder with --data-directory.`
+		);
+	}
+	return reviewerMessage(`${said} ${howToUpgrade(commandPath)}`);
 }
 
 /** What the command says when a newer daemon it is using answered in a way it cannot read. */

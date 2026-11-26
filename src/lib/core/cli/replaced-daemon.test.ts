@@ -80,9 +80,17 @@ describe('using a newer daemon that is running', () => {
 describe('using the daemon that is running because the database is newer than this copy', () => {
 	it('says this copy is older than its data folder, with how to bring it up to date', () => {
 		expect(
+			describeDatabaseNewer(version('0.2.0+aaaaaaaaaaaa'), version('0.0.1+bbbbbbbbbbbb'), NPX)
+		).toBe(
+			'This copy of diff delver, 0.0.1, is older than its data folder, which a newer diff delver has used, so it is using the diff delver that is running, 0.2.0, as it is. npx keeps the copy it fetched first, so to run the newest release, delete that copy, the folder /home/someone/.npm/_npx/8441cbaa0729a68d, and run the same command again.'
+		);
+	});
+
+	it('says when the one running is a development build, which no release may catch up with', () => {
+		expect(
 			describeDatabaseNewer(version('0.0.1-dev+aaaaaaaaaaaa'), version('0.0.1+bbbbbbbbbbbb'), NPX)
 		).toBe(
-			'This copy of diff delver, 0.0.1, is older than its data folder, which a newer diff delver has used, so it is using the diff delver that is running, 0.0.1-dev+aaaaaaaaaaaa, as it is. npx keeps the copy it fetched first, so to run the newest release, delete that copy, the folder /home/someone/.npm/_npx/8441cbaa0729a68d, and run the same command again.'
+			"This copy of diff delver, 0.0.1, is older than its data folder, which a newer diff delver has used, so it is using the diff delver that is running, 0.0.1-dev+aaaaaaaaaaaa, as it is. That one is a development build, which may be newer than any release: to stop seeing this, run that build's own command, or give this copy another data folder with --data-directory."
 		);
 	});
 });
