@@ -27,7 +27,7 @@ describe('the port a daemon tries first', () => {
 		const taken = parsePortNumber(40123);
 		if (!taken.ok) throw new Error('not a port');
 		expect(describeStablePortTaken(STABLE_PORT, taken.value, { kind: 'in-use' })).toBe(
-			'diff delver usually listens at http://127.0.0.1:12321, but something else was using that port, perhaps an earlier diff delver still stopping, so it is at http://127.0.0.1:40123. Pages opened before it started cannot find it there; run diff-delver to open them again. To have the usual address back, stop whatever uses port 12321, then run diff-delver stop and diff-delver.'
+			'diff delver usually listens at http://127.0.0.1:12321, but something else was using that port, perhaps an earlier diff delver still stopping, so it is at http://127.0.0.1:40123. Pages opened before it started cannot find it there; run diff-delver to open them again. To have the usual address back, run diff-delver stop and diff-delver again; if something else still holds port 12321, stop it first.'
 		);
 	});
 

@@ -170,7 +170,7 @@ describe('a page served by a daemon that has since been replaced', () => {
 
 	it('says a page the new daemon will not let in can reload to be told how to get back in', () => {
 		expect(describeRestartedForPage(true)).toBe(
-			'diff delver has restarted, and this page was let in by the one before. Reload the page: it says how to open it again. Copy what you have typed first: reloading would lose it.'
+			'diff delver has restarted, and this page was opened with access to the one before. Reload the page: it says how to open it again. Copy what you have typed first: reloading would lose it.'
 		);
 	});
 });

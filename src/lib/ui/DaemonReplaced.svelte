@@ -38,7 +38,12 @@
 			const info = await client.daemonInfo();
 			asking = false;
 			if (info.ok && info.value.version !== mine) running = info.value.version;
-			else if (!info.ok && info.error.kind === 'refused' && info.error.status === 403)
+			else if (
+				!info.ok &&
+				info.error.kind === 'refused' &&
+				info.error.status === 403 &&
+				info.error.reason === 'Refused'
+			)
 				refused = true;
 		};
 		const cameBack = (): void => {

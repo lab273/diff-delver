@@ -51,7 +51,7 @@ export function describeStablePortTaken(
 	switch (why.kind) {
 		case 'in-use':
 			return reviewerMessage(
-				`${usual}, but something else was using that port, perhaps an earlier diff delver still stopping, ${now} To have the usual address back, stop whatever uses port ${String(preferred)}, then run diff-delver stop and diff-delver.`
+				`${usual}, but something else was using that port, perhaps an earlier diff delver still stopping, ${now} To have the usual address back, run diff-delver stop and diff-delver again; if something else still holds port ${String(preferred)}, stop it first.`
 			);
 		case 'refused':
 			return reviewerMessage(

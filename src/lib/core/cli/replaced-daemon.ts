@@ -149,7 +149,7 @@ export function describeReplacedForPage(now: CodeVersion, unsaved: boolean): Rev
  */
 export function describeRestartedForPage(unsaved: boolean): ReviewerMessage {
 	const said =
-		'diff delver has restarted, and this page was let in by the one before. Reload the page: it says how to open it again.';
+		'diff delver has restarted, and this page was opened with access to the one before. Reload the page: it says how to open it again.';
 	return reviewerMessage(
 		unsaved ? `${said} Copy what you have typed first: reloading would lose it.` : said
 	);
