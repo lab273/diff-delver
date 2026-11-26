@@ -31,7 +31,7 @@
 	<h2 id="shortcuts-heading">Keyboard shortcuts</h2>
 	<p>
 		Each does what a button on the page does. They work anywhere on the page except while you type
-		in a field.
+		in a field, and act on the file and line you are on: click a line to be on it.
 	</p>
 	<dl>
 		{#each SHORTCUTS as shortcut (shortcut.action)}

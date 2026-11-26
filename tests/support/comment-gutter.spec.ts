@@ -375,3 +375,84 @@ test('horizontal navigation draws the far side of a long replacement without dra
 		await world.close();
 	}
 });
+
+test('a click on a line puts the keyboard there, and leaves text being selected alone', async ({
+	page
+}) => {
+	const world = await makeJourneyWorld();
+	try {
+		const repo = await world.repository('reading');
+		await page.goto((await world.command([], repo)).address);
+		await expect(page.locator('html[data-ready]')).toHaveCount(1);
+		const lexer = page.getByRole('article', { name: 'src/lexer.ts' });
+		const number = (file: typeof lexer, line: number, side: 'before' | 'after') =>
+			file.getByRole('button', {
+				name: `Comment on or flag line ${String(line)}, ${side}`,
+				exact: true
+			});
+		const code = (file: typeof lexer, line: number, side: 'before' | 'after') =>
+			file
+				.locator('tr', {
+					has: page.getByRole('button', {
+						name: `Comment on or flag line ${String(line)}, ${side}`,
+						exact: true
+					})
+				})
+				.locator('td.code');
+
+		// The code of an unchanged line: the keyboard is on its number, and `c` comments there.
+		await code(lexer, 10, 'after').click();
+		await expect(number(lexer, 10, 'after')).toBeFocused();
+		await expect(page.getByRole('form', { name: /^New comment/ })).toHaveCount(0);
+		await page.keyboard.press('c');
+		const box = page.getByRole('form', { name: 'New comment on After, line 10', exact: true });
+		await expect(box.getByRole('textbox', { name: 'Comment' })).toBeFocused();
+		await box.getByRole('button', { name: 'Discard', exact: true }).click();
+		// A removed line's number is on its own side.
+		await code(lexer, 12, 'before').click();
+		await expect(number(lexer, 12, 'before')).toBeFocused();
+
+		// A drag that selects text keeps its selection, and the keyboard stays where it was.
+		const start = await code(lexer, 9, 'after').boundingBox();
+		const end = await code(lexer, 11, 'after').boundingBox();
+		if (start === null || end === null) throw new Error('The lines must be drawn');
+		await page.mouse.move(start.x + 40, start.y + start.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(end.x + 120, end.y + end.height / 2, { steps: 5 });
+		await page.mouse.up();
+		const selected = () => page.evaluate(() => window.getSelection()?.toString() ?? '');
+		expect(await selected()).toContain('Words are split on white space.');
+		await expect(number(lexer, 11, 'after')).not.toBeFocused();
+		// A click that only puts the selection away moves nothing either.
+		await code(lexer, 10, 'after').click();
+		await expect(number(lexer, 10, 'after')).not.toBeFocused();
+		// A double click selects a word, as it always has.
+		await code(lexer, 10, 'after').dblclick({ position: { x: 60, y: 8 } });
+		expect(await selected()).not.toBe('');
+
+		// A click in another file's header, on no control of it, makes that file the one `r` marks.
+		const models = page.getByRole('article', { name: 'app/models.py' });
+		// The first click puts the word selected away, the second says where the reader is.
+		await models.locator('header > .size').click();
+		await models.locator('header > .size').click();
+		await page.keyboard.press('r');
+		await expect(models.getByRole('checkbox', { name: /^Reviewed: / })).toBeChecked();
+		await expect(lexer.getByRole('checkbox', { name: /^Reviewed: / })).not.toBeChecked();
+
+		// Side by side, the side clicked is the side the keyboard is on.
+		const pairs = page.getByRole('article', { name: 'src/pairs.ts' });
+		await pairs
+			.getByRole('button', { name: 'Comment on or flag line 4, after', exact: true })
+			.focus();
+		await page.keyboard.press('s');
+		const row = pairs.locator('tr', {
+			has: page.getByRole('button', { name: 'Comment on or flag line 5, before', exact: true })
+		});
+		await row.locator('td.code').first().click();
+		await expect(number(pairs, 5, 'before')).toBeFocused();
+		await row.locator('td.code').last().click();
+		await expect(number(pairs, 5, 'after')).toBeFocused();
+	} finally {
+		await world.close();
+	}
+});

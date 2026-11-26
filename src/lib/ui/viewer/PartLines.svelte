@@ -31,6 +31,7 @@
 	import type { Mark } from '#lib/core/search/marks.ts';
 	import { ROWS_PER_CHUNK } from '#lib/core/viewer/chunks.ts';
 	import { GutterLines, type GutterLine, type GutterRow } from './gutter-lines.ts';
+	import { isPlainClick, ownControlAt, textSelected } from './reader-input.ts';
 	import type { AgentNoteView, DraftCommentView } from '#lib/api/schemas.ts';
 	import {
 		byLastLine,
@@ -276,8 +277,9 @@
 	// once, through a `diffdelver:raise` event on the number. Dragging over numbers, or Shift
 	// with a press or the arrow keys, takes a run of lines on one side. The
 	// numbers are one stop for Tab in each file, and the arrow keys move among
-	// them (`gutter-lines.ts`). One set of listeners on the table serves every
-	// line, so a line costs no more to draw than its number did.
+	// them (`gutter-lines.ts`); a plain click on a line's code puts the keyboard
+	// on its number. One set of listeners on the table serves every line, so a
+	// line costs no more to draw than its number did.
 
 	/** The line the keyboard is on. */
 	let cursor = $state.raw<GutterLine>();
@@ -632,6 +634,7 @@
 
 	/** A press with the mouse or a pen starts a drag; a touch scrolls the page, and its tap is a click. */
 	function beginDrag(event: PointerEvent): void {
+		selectedAtPress = textSelected();
 		const line = lineAt(event.target);
 		if (line === undefined || event.button !== 0 || !event.isPrimary) return;
 		if (event.pointerType === 'touch') return;
@@ -663,9 +666,53 @@
 		if (cursor !== undefined) void compose(cursor);
 	}
 
+	/** Whether text was selected when the pointer was pressed: the click then only puts it away. */
+	let selectedAtPress = false;
+
+	/**
+	 * A line's number pressed in a side-by-side row, or a one-column row's own:
+	 * the side clicked, else the other. The number of the new side is a
+	 * one-column row's, as the arrow keys take it, unless the line was removed.
+	 */
+	function numberInRow(cell: HTMLTableCellElement): HTMLButtonElement | undefined {
+		const row = cell.parentElement;
+		if (!(row instanceof HTMLTableRowElement) || row.closest('table') !== table) return undefined;
+		const numbers = [...row.querySelectorAll<HTMLButtonElement>('button.pick-line')];
+		if (!split) return numbers.find((number) => number.classList.contains('main')) ?? numbers[0];
+		const start = row.querySelector('td.side-start');
+		const onNew =
+			start !== null &&
+			(start === cell ||
+				(start.compareDocumentPosition(cell) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
+		const side = onNew ? 'new:' : 'old:';
+		return (
+			numbers.find((number) => number.dataset['readingLine']?.startsWith(side) === true) ??
+			numbers[0]
+		);
+	}
+
+	/**
+	 * A plain click on a line, its code or anywhere in its row, puts the
+	 * keyboard on that line's number, as the arrow keys would, without moving
+	 * the page: the keys then act where the reader is looking. Text being
+	 * selected, and the controls among the lines, are left as they are.
+	 */
+	function placeKeyboard(event: MouseEvent): void {
+		const atPress = selectedAtPress;
+		selectedAtPress = false;
+		if (!isPlainClick(event, atPress, textSelected())) return;
+		if (ownControlAt(event.target, table) !== undefined) return;
+		const cell = event.target instanceof Element ? event.target.closest('td') : null;
+		if (cell === null || !table.contains(cell)) return;
+		numberInRow(cell)?.focus({ preventScroll: true });
+	}
+
 	function onClick(event: MouseEvent): void {
 		const line = lineAt(event.target);
-		if (line === undefined) return;
+		if (line === undefined) {
+			placeKeyboard(event);
+			return;
+		}
 		const answered = dragged && event.detail > 0;
 		dragged = false;
 		if (answered) return;
@@ -1115,7 +1162,7 @@
 	{@render underneath(line.old, line.new)}
 {/snippet}
 
-<!-- The listeners are for the line numbers, which are buttons: one set serves them all. -->
+<!-- The listeners are for the line numbers, which are buttons, and clicks on the lines: one set serves them all. -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <table
 	bind:this={table}

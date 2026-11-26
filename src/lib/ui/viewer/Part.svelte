@@ -31,6 +31,7 @@
 	} from './viewer.svelte.ts';
 
 	import type { BookmarkLine } from './bookmark.ts';
+	import { isPlainClick, ownControlAt, textSelected } from './reader-input.ts';
 
 	let {
 		bookmarkLine,
@@ -155,8 +156,27 @@
 			}
 		};
 	}
+
+	/** Whether text was selected when the pointer was pressed: the click then only puts it away. */
+	let selectedAtPress = false;
+
+	/**
+	 * A plain click anywhere in the part that is not on one of its controls, on
+	 * its header or between its lines, makes it the part the keys act on; one
+	 * on a line also puts the keyboard there (`PartLines.svelte`).
+	 */
+	function placeReader(event: MouseEvent): void {
+		const atPress = selectedAtPress;
+		selectedAtPress = false;
+		if (!isPlainClick(event, atPress, textSelected())) return;
+		if (!(event.currentTarget instanceof Element)) return;
+		if (ownControlAt(event.target, event.currentTarget) !== undefined) return;
+		viewer.current = at;
+	}
 </script>
 
+<!-- A click in the part says where the reader is; its controls answer for themselves. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_click_events_have_key_events -->
 <article
 	class="part"
 	class:reviewed
@@ -168,6 +188,10 @@
 		? Math.min(part.rows, 2000) * 20 + 60
 		: 48}px"
 	use:nearScreen
+	onpointerdown={() => {
+		selectedAtPress = textSelected();
+	}}
+	onclick={placeReader}
 >
 	<header>
 		<h3>

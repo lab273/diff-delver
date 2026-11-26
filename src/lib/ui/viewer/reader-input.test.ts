@@ -4,7 +4,7 @@
  * for the other.
  */
 import { describe, expect, it } from 'vitest';
-import { READER_INPUT, whenReaderMoves } from './reader-input.ts';
+import { isPlainClick, READER_INPUT, whenReaderMoves } from './reader-input.ts';
 
 describe('telling the reader’s moving of the page from the page’s', () => {
 	it('hears each kind of the reader’s input once, and never the page’s own scrolling', () => {
@@ -47,5 +47,32 @@ describe('telling the reader’s moving of the page from the page’s', () => {
 		stop();
 		target.dispatchEvent(new Event('wheel'));
 		expect(heard).toBe(0);
+	});
+});
+
+describe('telling a click that says where the reader is from one that selects text', () => {
+	const plain = {
+		button: 0,
+		detail: 1,
+		shiftKey: false,
+		altKey: false,
+		ctrlKey: false,
+		metaKey: false
+	};
+
+	it('takes one plain click with nothing selected', () => {
+		expect(isPlainClick(plain, false, false)).toBe(true);
+	});
+
+	it('leaves a drag, a double click, a selection put away and a modifier to the browser', () => {
+		expect(isPlainClick(plain, false, true), 'a drag that selected text').toBe(false);
+		expect(isPlainClick(plain, true, false), 'a click that put a selection away').toBe(false);
+		expect(isPlainClick({ ...plain, detail: 2 }, false, false), 'a double click').toBe(false);
+		expect(isPlainClick({ ...plain, detail: 3 }, false, false), 'a triple click').toBe(false);
+		expect(isPlainClick({ ...plain, detail: 0 }, false, false), 'a key’s click').toBe(false);
+		expect(isPlainClick({ ...plain, button: 2 }, false, false), 'another button').toBe(false);
+		for (const key of ['shiftKey', 'altKey', 'ctrlKey', 'metaKey'] as const) {
+			expect(isPlainClick({ ...plain, [key]: true }, false, false), key).toBe(false);
+		}
 	});
 });
