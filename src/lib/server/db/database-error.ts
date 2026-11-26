@@ -22,6 +22,8 @@ export type TableName =
 	| 'settings'
 	| 'overviews'
 	| 'section_references'
+	| 'reading_steps'
+	| 'reading_step_units'
 	| 'commit_runs'
 	| 'pull_requests'
 	| 'draft_comments'
@@ -192,6 +194,9 @@ function tableInWords(table: TableName): string {
 			return 'the agent’s overview of a Delve';
 		case 'section_references':
 			return 'which lines a Delve’s sections point to in other sections';
+		case 'reading_steps':
+		case 'reading_step_units':
+			return 'the order the agent gave the files of a Delve’s sections';
 		case 'draft_comments':
 			return 'a Delve’s draft comments';
 		case 'draft_summaries':
@@ -232,6 +237,8 @@ function storedRowAdvice(table: TableName): string {
 		case 'overviews':
 		case 'agent_notes':
 		case 'section_references':
+		case 'reading_steps':
+		case 'reading_step_units':
 		case 'commit_runs':
 		case 'pull_requests':
 			return 'Delete that Delve from the list of Delves, where it shows as damaged, or restore the database from a backup.';

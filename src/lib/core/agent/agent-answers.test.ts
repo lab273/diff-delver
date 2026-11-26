@@ -85,6 +85,7 @@ describe('answers for an agent', () => {
 			state: initialState(large),
 			sections: [],
 			references: new Map(),
+			readingOrders: new Map(),
 			overview: undefined,
 			leftOut: []
 		};
@@ -129,6 +130,7 @@ describe('answers for an agent', () => {
 			state: initialState(large),
 			sections,
 			references: new Map(),
+			readingOrders: new Map(),
 			overview: undefined,
 			leftOut: [],
 			pullRequest: {
@@ -161,6 +163,7 @@ describe('answers for an agent', () => {
 			state: initialState(large),
 			sections,
 			references: new Map(),
+			readingOrders: new Map(),
 			overview: undefined,
 			leftOut: Array.from({ length: 500 }, (_, i) => `file-${String(i)} could not be read.`)
 		});

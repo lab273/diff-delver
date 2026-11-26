@@ -13,6 +13,8 @@ import { shownRepoPath } from '#lib/core/shown-path.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import { describeSectionProblem, type SectionProblem } from '#lib/core/reports/section-requests.ts';
+import { describeStepProblem, type StepProblem } from '#lib/core/reports/reading-order.ts';
+import type { SectionId } from '#lib/core/section-id.tiny.ts';
 import { describeNoteProblem, type NoteProblem } from '#lib/core/review/agent-note.ts';
 import { describeMarkError, type MarkError } from '#lib/core/review/mark-reviewed.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
@@ -154,6 +156,19 @@ export interface SectionsRefused {
 	readonly problems: readonly SectionProblem[];
 }
 
+/** `setReadingOrder` was refused; nothing changed. */
+export interface ReadingOrderRefused {
+	readonly kind: 'ReadingOrderRefused';
+	readonly problems: readonly StepProblem[];
+}
+
+/** `setReadingOrder` named a section the version does not have. */
+export interface ReadingOrderSectionUnknown {
+	readonly kind: 'ReadingOrderSectionUnknown';
+	readonly section: string;
+	readonly known: readonly SectionId[];
+}
+
 /** `addNotes` was refused; nothing changed. */
 export interface NotesRefused {
 	readonly kind: 'NotesRefused';
@@ -180,6 +195,8 @@ export type ReportError =
 	| VersionNotFound
 	| SnapshotGone
 	| SectionsRefused
+	| ReadingOrderRefused
+	| ReadingOrderSectionUnknown
 	| NotesRefused
 	/** The Delve has no agent note with that id on any version. */
 	| { readonly kind: 'NoteNotFound' }
@@ -274,6 +291,14 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'SectionsRefused':
 			return reviewerMessage(
 				`The sections were not changed: ${error.problems.map(describeSectionProblem).join(' ')}`
+			);
+		case 'ReadingOrderRefused':
+			return reviewerMessage(
+				`The reading order was not changed: ${error.problems.map(describeStepProblem).join(' ')}`
+			);
+		case 'ReadingOrderSectionUnknown':
+			return reviewerMessage(
+				`There is no section ${JSON.stringify(error.section)} in this version, so its reading order was not changed.`
 			);
 		case 'NotesRefused':
 			return reviewerMessage(

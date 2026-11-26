@@ -29,6 +29,8 @@ import { describeFileChange } from '../diff/file-unit.ts';
 import { ignoreRuleName } from '../diff/path-rules.ts';
 import { assignedUnits, unitsIn, type AssignmentState } from '../diff/state.ts';
 import type { SectionReferences } from '../reports/section-requests.ts';
+import type { ReadingOrders } from '../reports/reading-order.ts';
+import { stepLines } from './reading-order-answer.ts';
 import type { Section } from '../reports/report.ts';
 import type { Role } from '../role.tiny.ts';
 import { unitSetSize } from '../diff/unit-set.ts';
@@ -51,6 +53,8 @@ export interface ManifestInput {
 	readonly state: AssignmentState;
 	readonly sections: readonly Section[];
 	readonly references: SectionReferences;
+	/** Each section's reading order; a section in path order has none. */
+	readonly readingOrders: ReadingOrders;
 	readonly overview: AgentMarkdown | undefined;
 	/** Files the snapshot could not include, one sentence each. */
 	readonly leftOut: readonly string[];
@@ -150,20 +154,38 @@ function summary(input: ManifestInput): readonly string[] {
 		);
 	} else {
 		out.push('Sections, in reading order (id, title, what is in it):');
+		let stepsBudget = STEPS_LISTED_LENGTH;
 		for (const section of sections) {
 			const totals = cover.sections.get(section.id);
 			const refs = input.references.get(section.id);
+			const steps = input.readingOrders.get(section.id) ?? [];
 			const parts = [
 				`${changes(totals?.units ?? 0)} in ${counted(totals?.files ?? 0, 'file', 'files')}`,
 				...(refs === undefined ? [] : [`${changes(unitSetSize(refs))} cross-referenced`]),
+				...(steps.length === 0
+					? []
+					: [`read in ${counted(steps.length, 'step', 'steps')}, then the rest in path order`]),
 				...(section.summary === undefined ? ['no summary yet'] : [])
 			];
 			out.push(`  ${section.id}: ${quotedAgentText(section.title, 120)}, ${parts.join(', ')}`);
+			if (steps.length === 0) continue;
+			if (stepsBudget <= 0) {
+				out.push(
+					'    Its steps are not listed, to keep this answer short: set_reading_order lists them when it sets them.'
+				);
+				continue;
+			}
+			const listed = stepLines(steps, '    ', stepsBudget);
+			out.push(...listed);
+			stepsBudget -= listed.reduce((n, line) => n + line.length + 1, 0);
 		}
 	}
 	out.push(...sentencesListed('Left out of the diff: ', input.leftOut));
 	return out;
 }
+
+/** The steps of every section's reading order take at most about this much of the summary. */
+const STEPS_LISTED_LENGTH = 8_000;
 
 const ROLE_ORDER: readonly Role[] = ['code', 'test', 'snapshot'];
 

@@ -58,10 +58,10 @@ const LABEL_MAKERS = [
  */
 const SORTING_WRITES = [
 	{
-		regex: 'db/tables/(?:sections|assignments)(?:\\.ts)?$',
-		importNames: ['replaceSections', 'replaceAssignmentRows'],
+		regex: 'db/tables/(?:sections|assignments|reading-steps)(?:\\.ts)?$',
+		importNames: ['replaceSections', 'replaceAssignmentRows', 'replaceReadingSteps'],
 		message:
-			'Write sections and assignment rows through SortingWrites (src/lib/server/reports/sorting-writes.ts), which counts each write for the search index.'
+			'Write sections, assignment rows and reading steps through SortingWrites (src/lib/server/reports/sorting-writes.ts), which counts each write for the search index.'
 	}
 ];
 

@@ -60,7 +60,18 @@ nothing can be skipped unseen.
 5. **Check what is left.** Call `get_coverage`. Sort everything it lists, and act
    on its warnings (a split run of deleted and added lines usually reads badly).
    Repeat until it says nothing is left.
-6. **Write the overview and summaries.** `set_overview`: what the change does and
+6. **Order a section's lines where path order would read badly.** A section is
+   read file by file in path order unless you give it a reading order with
+   `set_reading_order`: steps, each a file or some of its lines
+   (`{ "file", "lines" }`, with `get_diff`'s labels), already in that section.
+   Use it so definitions come before their uses (a new type or class before the
+   code that takes it), and a change before its test. A file may be split over
+   two steps: its definition first, the rest later, with `{ "file" }` taking
+   what earlier steps left. Lines no step names follow the steps. A step may
+   carry a short `note`, a sentence on what to look at and why it comes here;
+   most steps need none, and a note never judges the code. Most sections need
+   no order at all.
+7. **Write the overview and summaries.** `set_overview`: what the change does and
    why, in a few sentences, in the order of the sections. Each section's summary
    says what that part changes and anything a reviewer should look at closely.
    Write only what you read in the diff; refer to code by path and line
@@ -73,7 +84,7 @@ nothing can be skipped unseen.
    reading: most diffs need none, and a note never summarises or praises code.
    If you sort the same version again, send `"replace": true` so your earlier
    notes do not pile up.
-7. **Tell the person where to look**, and stop (see the end).
+8. **Tell the person where to look**, and stop (see the end).
 
 ## Do not
 
@@ -93,7 +104,9 @@ nothing can be skipped unseen.
 Read the refusal: it says what was wrong and what to do. If the version is out of
 date, the files changed: read the manifest again and continue. An `assign` item
 that took nothing names the nearest change lines. `upsert_sections` changes
-nothing if any part is wrong, so fix that part and send the whole call again.
+nothing if any part is wrong, so fix that part and send the whole call again;
+so does `set_reading_order`, which also names a step whose lines are not in the
+section, or are all in an earlier step.
 
 ## At the end
 

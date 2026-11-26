@@ -256,6 +256,11 @@ describe('the database', () => {
 				version: 17,
 				name: "agent notes on lines, apart from the reviewer's draft",
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 18,
+				name: "each section's reading order, its steps with the agent's notes",
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -331,6 +336,8 @@ describe('the database', () => {
 			settings: [],
 			overviews: [],
 			section_references: [],
+			reading_steps: [],
+			reading_step_units: [],
 			commit_runs: [],
 			pull_requests: [],
 			draft_comments: [],

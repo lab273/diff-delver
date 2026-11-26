@@ -3,6 +3,7 @@
  * call, and what to call instead. Errors only the person can act on, such as
  * a damaged database, are the reviewer's message, which says what to do.
  */
+import { describeStepProblem } from '#lib/core/reports/reading-order.ts';
 import { describeSectionProblem } from '#lib/core/reports/section-requests.ts';
 import { describeNoteProblem } from '#lib/core/review/agent-note.ts';
 import { textForAgent, type TextForAgent } from '#lib/core/text-for-agent.tiny.ts';
@@ -42,6 +43,21 @@ export function describeForAgent(error: ReportError): TextForAgent {
 					.join(
 						'\n'
 					)}${error.problems.length > 20 ? `\n- and ${String(error.problems.length - 20)} more problems.` : ''}`
+			);
+		case 'ReadingOrderRefused':
+			return textForAgent(
+				`The reading order was not changed; nothing in this call was applied:\n${error.problems
+					.slice(0, 20)
+					.map((p) => `- ${describeStepProblem(p)}`)
+					.join(
+						'\n'
+					)}${error.problems.length > 20 ? `\n- and ${String(error.problems.length - 20)} more problems.` : ''}`
+			);
+		case 'ReadingOrderSectionUnknown':
+			return textForAgent(
+				error.known.length === 0
+					? `There is no section ${JSON.stringify(error.section)}: this version has no sections yet. Make them with upsert_sections and put lines in them with assign, then order a section's lines.`
+					: `There is no section ${JSON.stringify(error.section)}. The sections are: ${error.known.join(', ')}. Nothing was changed.`
 			);
 		case 'NotesRefused':
 			return textForAgent(

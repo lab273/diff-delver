@@ -684,6 +684,40 @@ CREATE TABLE agent_notes (
 ) STRICT;
 CREATE INDEX agent_notes_by_revision ON agent_notes (revision_id);
 `
+	},
+	{
+		version: schemaVersionOf(18),
+		name: "each section's reading order, its steps with the agent's notes",
+		sql: `
+-- A section's reading order (DESIGN 4.3.1): its steps in order, each some of
+-- one file's change units in the section, with the agent's note on it, stored
+-- as given and sanitised when a page shows it. A section with no rows reads
+-- in path order. The steps never share a unit.
+CREATE TABLE reading_steps (
+	revision_id TEXT NOT NULL,
+	section_id TEXT NOT NULL,
+	position INTEGER NOT NULL CHECK (position >= 0),
+	path BLOB NOT NULL,
+	note TEXT CHECK (note IS NULL OR note <> ''),
+	PRIMARY KEY (revision_id, section_id, position),
+	FOREIGN KEY (revision_id, section_id) REFERENCES sections (revision_id, id) ON DELETE CASCADE
+) STRICT, WITHOUT ROWID;
+
+-- The change units of each step's file, as runs of units like new_units.
+CREATE TABLE reading_step_units (
+	revision_id TEXT NOT NULL,
+	section_id TEXT NOT NULL,
+	position INTEGER NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new', 'file')),
+	first_line INTEGER NOT NULL,
+	last_line INTEGER NOT NULL,
+	PRIMARY KEY (revision_id, section_id, position, side, first_line),
+	FOREIGN KEY (revision_id, section_id, position)
+		REFERENCES reading_steps (revision_id, section_id, position) ON DELETE CASCADE,
+	CHECK ((side = 'file') = (first_line = 0 AND last_line = 0)),
+	CHECK (side = 'file' OR (first_line >= 1 AND last_line >= first_line))
+) STRICT, WITHOUT ROWID;
+`
 	}
 ];
 

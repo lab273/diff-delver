@@ -114,6 +114,16 @@ import {
 import type { AgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { overviewOf, setOverview as storeOverview } from '../db/tables/overviews.ts';
 import { referenceRowsFor, replaceReferenceRows } from '../db/tables/section-references.ts';
+import { readingStepsFor, type StoredStep } from '../db/tables/reading-steps.ts';
+import {
+	asUnitSets,
+	effectiveOrders,
+	fromUnitSets,
+	orderSection,
+	type ReadingOrders,
+	type ReadingStep,
+	type StepRequest
+} from '#lib/core/reports/reading-order.ts';
 import type { DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 import { NO_EDITS, type EditCount } from '#lib/core/edit-count.tiny.ts';
 import {
@@ -562,6 +572,8 @@ export interface LoadedReport {
 	readonly sections: readonly Section[];
 	/** Each section's cross-references (DESIGN 4.3); a section with none has no entry. */
 	readonly references: SectionReferences;
+	/** Each section's reading order (DESIGN 4.3.1); a section read in path order has no entry. */
+	readonly readingOrders: ReadingOrders;
 	/** What the change does, as the agent wrote it; undefined until it has. */
 	readonly overview: AgentMarkdown | undefined;
 	/** The agent's notes on this version, in the order they were added, promoted ones too. */
@@ -772,6 +784,7 @@ interface StoredFrame extends Stored {
 	readonly unmarked: readonly UnitRow[];
 	readonly summary: UpdateSummary | undefined;
 	readonly referenceRows: ReadonlyMap<SectionId, readonly UnitRow[]>;
+	readonly readingSteps: ReadonlyMap<SectionId, readonly StoredStep[]>;
 	readonly overview: AgentMarkdown | undefined;
 	readonly notes: readonly AgentNote[];
 	readonly earlierNotes: EarlierNotes | undefined;
@@ -994,6 +1007,75 @@ function referencesOf(
 	diff: Diff
 ): Result<SectionReferences, ReportError> {
 	return andThen(referenceRowsFor(q, revision), (rows) => referencesFromRows(diff, rows));
+}
+
+/**
+ * The reading orders the stored steps describe, checked against the diff.
+ * Stored steps are kept as the version reads them (`effectiveOrders`) by every
+ * write of the sorting, so their places are the steps' numbers.
+ */
+function ordersFromSteps(
+	diff: Diff,
+	stored: ReadonlyMap<SectionId, readonly StoredStep[]>
+): Result<ReadingOrders, ReportError> {
+	const orders = new Map<SectionId, readonly ReadingStep[]>();
+	for (const [section, steps] of stored) {
+		const read: ReadingStep[] = [];
+		for (const step of steps) {
+			const set = unitSetFromRows(diff, step.rows, 'reading order');
+			if (!set.ok) return set;
+			const units = set.value.files.get(step.path);
+			if (units === undefined) continue;
+			read.push({ path: step.path, units, note: step.note });
+		}
+		if (read.length > 0) orders.set(section, read);
+	}
+	return ok(orders);
+}
+
+/** Reading orders as the steps to store. */
+function stepsToStore(orders: ReadingOrders): ReadonlyMap<SectionId, readonly StoredStep[]> {
+	return new Map(
+		[...orders].map(([section, steps]) => [
+			section,
+			steps.map((step) => ({
+				path: step.path,
+				note: step.note,
+				rows: unitRowsOf({ files: new Map([[step.path, step.units]]) })
+			}))
+		])
+	);
+}
+
+/** A revision's reading orders, read and checked against its diff. */
+function readingOrdersOf(
+	q: Queries,
+	revision: RevisionId,
+	diff: Diff
+): Result<ReadingOrders, ReportError> {
+	return andThen(readingStepsFor(q, revision), (stored) => ordersFromSteps(diff, stored));
+}
+
+/** Whether two sets of reading orders are the same steps with the same notes. */
+function sameOrders(a: ReadingOrders, b: ReadingOrders): boolean {
+	if (a.size !== b.size) return false;
+	for (const [section, steps] of a) {
+		const other = b.get(section);
+		if (other === undefined || other.length !== steps.length) return false;
+		for (const [at, step] of steps.entries()) {
+			const that = other[at];
+			if (
+				that === undefined ||
+				that.path !== step.path ||
+				that.note !== step.note ||
+				that.units.file !== step.units.file ||
+				!that.units.old.equals(step.units.old) ||
+				!that.units.new.equals(step.units.new)
+			)
+				return false;
+		}
+	}
+	return true;
 }
 
 /** What writing an update did: made the next revision, or found the current one had changed. */
@@ -1560,28 +1642,31 @@ export class ReportService {
 								andThen(unmarkedUnitRowsFor(q, revision.id), (unmarked) =>
 									andThen(revisionUpdateFor(q, revision.id), (summary) =>
 										andThen(referenceRowsFor(q, revision.id), (referenceRows) =>
-											andThen(overviewOf(q, revision.id), (overview) =>
-												andThen(agentNotesOf(q, revision.id), (notes) =>
-													andThen(
-														notes.length > 0
-															? ok(undefined)
-															: earlierWaitingNotes(q, id, revision.number),
-														(earlierNotes) =>
-															ok({
-																sections,
-																rows,
-																marked,
-																fresh,
-																unmarked,
-																summary,
-																referenceRows,
-																overview,
-																notes,
-																earlierNotes,
-																sorting,
-																assignments,
-																shown: shownNow
-															})
+											andThen(readingStepsFor(q, revision.id), (readingSteps) =>
+												andThen(overviewOf(q, revision.id), (overview) =>
+													andThen(agentNotesOf(q, revision.id), (notes) =>
+														andThen(
+															notes.length > 0
+																? ok(undefined)
+																: earlierWaitingNotes(q, id, revision.number),
+															(earlierNotes) =>
+																ok({
+																	sections,
+																	rows,
+																	marked,
+																	fresh,
+																	unmarked,
+																	summary,
+																	referenceRows,
+																	readingSteps,
+																	overview,
+																	notes,
+																	earlierNotes,
+																	sorting,
+																	assignments,
+																	shown: shownNow
+																})
+														)
 													)
 												)
 											)
@@ -1606,6 +1691,8 @@ export class ReportService {
 		if (!unmarked.ok) return unmarked;
 		const references = referencesFromRows(diff, found.value.referenceRows);
 		if (!references.ok) return references;
+		const readingOrders = ordersFromSteps(diff, found.value.readingSteps);
+		if (!readingOrders.ok) return readingOrders;
 		return ok({
 			summary: summaryOf(found.value.shown.report, found.value.shown.revision),
 			report: found.value.shown.report,
@@ -1614,6 +1701,7 @@ export class ReportService {
 			diff: diff,
 			sections,
 			references: references.value,
+			readingOrders: readingOrders.value,
 			overview: found.value.overview,
 			notes: found.value.notes,
 			earlierNotes: found.value.earlierNotes,
@@ -1748,6 +1836,44 @@ export class ReportService {
 						})
 					)
 				);
+			})
+		);
+	}
+
+	/**
+	 * The agent's `set_reading_order` (DESIGN 4.3.1): replaces one section's
+	 * reading order on the current revision with these steps, each narrowed to
+	 * the section's change units no earlier step took, all or nothing
+	 * (`orderSection`); no steps go back to path order. Returns the section's
+	 * steps. `seen` as for `upsertSections`.
+	 */
+	async setReadingOrder(
+		id: ReportId,
+		seen: RevisionNumber,
+		section: string,
+		requests: readonly StepRequest[]
+	): Promise<Result<readonly ReadingStep[], ReportError>> {
+		return this.#changeState(id, seen, (q, revision, diff, state, marks) =>
+			andThen(sectionsOf(q, revision.id), (sections) => {
+				const known = sections.find((s) => s.id === section);
+				if (known === undefined) {
+					return err({
+						kind: 'ReadingOrderSectionUnknown',
+						section,
+						known: sections.map((s) => s.id)
+					});
+				}
+				const steps = orderSection(diff, state, known.id, requests);
+				if (!steps.ok) return err({ kind: 'ReadingOrderRefused', problems: steps.error });
+				return andThen(readingOrdersOf(q, revision.id, diff), (orders) => {
+					const next = new Map(orders);
+					if (steps.value.length === 0) next.delete(known.id);
+					else next.set(known.id, steps.value);
+					if (!sameOrders(orders, next)) {
+						this.#sorting.replaceReadingSteps(q, revision.id, stepsToStore(next));
+					}
+					return ok({ result: steps.value, state, marks });
+				});
 			})
 		);
 	}
@@ -1950,7 +2076,14 @@ export class ReportService {
 					changed,
 					assignmentRowsOf(diff, outcome.state, changed)
 				);
-				return ok({ result: outcome, state: outcome.state, marks });
+				// Lines that left a section leave its steps too, so the steps stay as the version reads them.
+				return andThen(readingOrdersOf(q, revision.id, diff), (orders) => {
+					const kept = effectiveOrders(diff, outcome.state, orders);
+					if (!sameOrders(orders, kept)) {
+						this.#sorting.replaceReadingSteps(q, revision.id, stepsToStore(kept));
+					}
+					return ok({ result: outcome, state: outcome.state, marks });
+				});
 			})
 		);
 	}
@@ -4128,6 +4261,8 @@ export class ReportService {
 					andThen(stateOf(q, now.revision, before), ({ state, marks }) => {
 						const references = referencesOf(q, now.revision.id, before);
 						if (!references.ok) return references;
+						const orders = readingOrdersOf(q, now.revision.id, before);
+						if (!orders.ok) return orders;
 						const overview = overviewOf(q, now.revision.id);
 						if (!overview.ok) return overview;
 						const input = carryOverInput(before, state, marks, prepared);
@@ -4159,6 +4294,14 @@ export class ReportService {
 							revision.id,
 							referenceRowsOf(carryUnitSets(input, references.value))
 						);
+						if (orders.value.size > 0) {
+							const carriedOrders = effectiveOrders(
+								diff,
+								carried.state,
+								fromUnitSets(orders.value, carryUnitSets(input, asUnitSets(orders.value)))
+							);
+							this.#sorting.replaceReadingSteps(q, revision.id, stepsToStore(carriedOrders));
+						}
 						if (overview.value !== undefined) storeOverview(q, revision.id, overview.value);
 						this.#sorting.replaceAssignmentRows(
 							q,

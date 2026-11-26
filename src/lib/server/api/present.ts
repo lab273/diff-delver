@@ -661,6 +661,8 @@ export function statusOf(error: ReportError): number {
 		case 'DatabaseBusy':
 			return 409;
 		case 'SectionsRefused':
+		case 'ReadingOrderRefused':
+		case 'ReadingOrderSectionUnknown':
 		case 'NotesRefused':
 		case 'InvalidCommentRange':
 		case 'InvalidCommentBody':
