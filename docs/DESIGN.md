@@ -148,19 +148,25 @@ store that diff delver owns. Each source adapter reduces its input to that.
 | git range or commit | Resolve the merge base and head commit. |
 | git working tree or staged | Write a tree from a temporary index, so untracked files are included and `.gitignore` is respected. The new objects are written to diff delver's store, not the repo. |
 | jj revision or revset | Resolve to commit ids in the backing git store. The jj working copy is already a commit. |
-| GitHub PR | Fetch the PR head and its merge base into diff delver's store, as a blobless fetch that pulls file contents on demand. A local clone of the same repo, if there is one, is used to avoid downloading what is already on disk. Base is the merge base, as GitHub shows it. Auth comes from `gh` or `GITHUB_TOKEN`. |
+| GitHub PR | Fetch the PR head and the base branch into diff delver's store, borrowing a local clone of the same repo, when it is a whole clone, so only what it lacks is downloaded. Base is the merge base, as GitHub shows it. Auth comes from `gh` or `GITHUB_TOKEN`. |
 
 **Pull requests, as built.** A repository whose remote is on GitHub offers its
 open pull requests on the choose page, asked of GitHub only when the person
 presses the button, and `diff-delver open <pull request address>` opens one. The
 pull request is fetched into diff delver's own store, borrowing the local clone's
 objects so only what it lacks is downloaded, and nothing is written to the clone.
-The sign-in is `gh`'s, or `GITHUB_TOKEN`, and is kept nowhere. Opening it again
-resumes the same Delve, and a push to it is the Delve's next version, offered as
-any update is; the page asks GitHub about that at most once a minute. A merged or
-closed pull request has nothing left to review. For now a pull request opens only
-from a local clone of its repository; with no clone, and on GitHub Enterprise, it
-does not yet. The agent reads its title and description as quoted text.
+The sign-in is `gh`'s, or `GITHUB_TOKEN`, and is kept nowhere. A pull request
+opens from any clone with a remote on its repository, and a clone of a fork lists
+the pull requests of its `upstream` first. Opening it again, from any clone,
+resumes the same Delve, whose versions all live in one store, and a push to it,
+or a change of its base, is the Delve's next version, offered as any update is.
+The page asks GitHub about that at most once a minute, or every five minutes
+without a sign-in, and when GitHub says to wait, everything waits until it says.
+A merged or closed pull request has nothing left to review, and the command says
+so, or why one could not be opened, without opening a page. For now a pull
+request opens only from a local clone of its repository; with no clone, and on
+GitHub Enterprise, it does not yet. The agent reads its title and description as
+quoted text.
 
 **Choosing commits.** The choose page lists a repository's branches and, for the
 one chosen, its commits, newest first, each with when it was made and how many
@@ -825,8 +831,10 @@ be sent to any of them again from the history.
 - **Clipboard**: Markdown written for an LLM.
 - **MCP**: `get_review`.
 - **File**: Markdown or JSON at a chosen path.
-- **GitHub**: a pull request review under the reviewer's own identity, created as
-  pending by default. Comments on lines GitHub cannot anchor (non-diff lines) go
+- **GitHub**: a pull request review under the reviewer's own identity, published
+  when the review is finished, as a comment, an approval or a request for changes;
+  a tick box posts it as a draft instead, a pending review only the reviewer sees
+  until they submit it on GitHub. Comments on lines GitHub cannot anchor (non-diff lines) go
   in the review body.
 
 Clipboard format:
@@ -1008,7 +1016,7 @@ guidance says [how journeys are tested](DEVELOPING.md#testing).
 | J8 | The diff changes mid-review | apply an update, keep ticks and comments on unchanged lines, and see new lines waiting to be sorted |
 | J9 | A second round | see earlier threads as open, changed or resolved, reply and resolve, and submit review 2 |
 | J10 | Look back | open a past review, read exactly what was handed over, and see the report as of that review |
-| J11 | Review a GitHub PR | open a PR by URL with no local clone and post the review as a pending GitHub review |
+| J11 | Review a GitHub PR | open a repository's open PRs, open one, see a push as its next version, and post the finished review to it, published or as a draft |
 | J12 | Review a jj change | open a change, amend it, and continue in the same report |
 | J13 | Visual changes | compare a changed image in each mode and see a snapshot image beside its test |
 | J14 | Agent notes | hide all notes, dismiss one, promote one into the review |
