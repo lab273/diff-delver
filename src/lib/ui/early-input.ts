@@ -21,6 +21,9 @@
  * - Enter or Space on a button, Enter on a link, and Space on a tick box or a
  *   radio button are kept, and then do what they would have done: the element
  *   they were pressed on is clicked, once (Enter does not tick a tick box);
+ * - a key held down is kept with its repeats, which are handed to the page's
+ *   shortcuts as repeats, so the page's rule for a key held down applies, and
+ *   click nothing;
  * - nothing kept is done on another page than the one it was pressed on, done
  *   twice, or sent into a field the focus has since moved to.
  *
@@ -106,6 +109,8 @@ export function earlyKeyOf(
 export interface KeptPress {
 	readonly key: string;
 	readonly shiftKey: boolean;
+	/** Whether it was a repeat of a key held down. */
+	readonly repeat: boolean;
 	readonly does: 'shortcut' | 'activate';
 	/** The address of the page it was pressed on. */
 	readonly page: string;
@@ -121,12 +126,17 @@ export interface ReplayContext {
 	readonly focusInField: boolean;
 }
 
-/** What a kept press does once the page is ready: click where it was pressed, press the key where focus is, or nothing. */
+/**
+ * What a kept press does once the page is ready: click where it was pressed,
+ * press the key where focus is, or nothing. A key held down clicks once, and
+ * its repeats are handed to the page as repeats, so a shortcut that does not
+ * act on a repeat acts once.
+ */
 export function replayOf(press: KeptPress, now: ReplayContext): 'click' | 'key' | 'drop' {
 	if (press.page !== now.page || now.focusInField) return 'drop';
 	switch (press.does) {
 		case 'activate':
-			return now.targetThere ? 'click' : 'drop';
+			return now.targetThere && !press.repeat ? 'click' : 'drop';
 		case 'shortcut':
 			return 'key';
 	}
@@ -170,7 +180,13 @@ export function keepEarlyKeys(
 		event.preventDefault();
 		event.stopImmediatePropagation();
 		kept.push({
-			press: { key: event.key, shiftKey: event.shiftKey, does, page: location.href },
+			press: {
+				key: event.key,
+				shiftKey: event.shiftKey,
+				repeat: event.repeat,
+				does,
+				page: location.href
+			},
 			target: at
 		});
 	};
@@ -196,6 +212,17 @@ export function keepEarlyKeys(
 	};
 }
 
+/** The key press a kept shortcut is handed to the page as: the same key, a repeat if it was one. */
+export function replayedKey(press: KeptPress): KeyboardEventInit {
+	return {
+		key: press.key,
+		shiftKey: press.shiftKey,
+		repeat: press.repeat,
+		bubbles: true,
+		cancelable: true
+	};
+}
+
 /** Marks the page ready and does what the keys pressed before it was asked for. */
 export function pageReady(): void {
 	const kept = window.diffDelverEarlyInput?.take() ?? [];
@@ -214,14 +241,7 @@ export function pageReady(): void {
 				if (target instanceof HTMLElement) target.click();
 				break;
 			case 'key':
-				at.dispatchEvent(
-					new KeyboardEvent('keydown', {
-						key: press.key,
-						shiftKey: press.shiftKey,
-						bubbles: true,
-						cancelable: true
-					})
-				);
+				at.dispatchEvent(new KeyboardEvent('keydown', replayedKey(press)));
 				break;
 		}
 	}

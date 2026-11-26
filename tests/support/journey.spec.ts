@@ -789,6 +789,33 @@ test.describe('no key is lost on a page that is slow to start', () => {
 		}
 	});
 
+	test('a key held down before the page is ready acts as held, once', async ({ page }) => {
+		const world = await makeJourneyWorld();
+		try {
+			await slowDown(page, 1_500);
+			const run = await world.command([], await world.repository('shop'));
+			await page.goto(run.address);
+			await expect(page.getByRole('button', { name: /^Start reviewing/ })).toBeVisible();
+			expect(await page.locator('html[data-ready]').count()).toBe(0);
+			// Every press after the first is a repeat, as when r is held down.
+			for (let n = 0; n < 8; n += 1) await page.keyboard.down('r');
+			await page.keyboard.up('r');
+			expect(await page.locator('html[data-ready]').count()).toBe(0);
+			await expect(page.getByRole('checkbox', { name: 'Reviewed: src/cart.ts' })).toBeChecked();
+			await expect(page.locator('#part-1-toggle')).toBeFocused();
+			// One more press marks the next file: had the repeats each marked one, the
+			// whole diff would be reviewed by now.
+			await page.keyboard.press('r');
+			await expect(page.getByRole('checkbox', { name: 'Reviewed: src/checkout.ts' })).toBeChecked();
+			await expect(page.locator('#part-2-toggle')).toBeFocused();
+			await expect(page.getByRole('complementary', { name: 'Your review' })).toContainText(
+				'9 of 14 changes reviewed'
+			);
+		} finally {
+			await world.close();
+		}
+	});
+
 	test('keys the page does not act on are left to the browser, and Enter does not tick', async ({
 		page
 	}) => {

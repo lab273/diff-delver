@@ -10,6 +10,7 @@ import {
 	earlyKeyOf,
 	keepEarlyKeys,
 	replayOf,
+	replayedKey,
 	type EarlyPress,
 	type EarlyTarget,
 	type KeptPress
@@ -101,8 +102,20 @@ describe('which keys pressed before the page is ready are kept', () => {
 });
 
 describe('what a kept key does once the page is ready', () => {
-	const shortcut: KeptPress = { key: 'n', shiftKey: false, does: 'shortcut', page: '/diffs/1' };
-	const activate: KeptPress = { key: 'Enter', shiftKey: false, does: 'activate', page: '/diffs/1' };
+	const shortcut: KeptPress = {
+		key: 'n',
+		shiftKey: false,
+		repeat: false,
+		does: 'shortcut',
+		page: '/diffs/1'
+	};
+	const activate: KeptPress = {
+		key: 'Enter',
+		shiftKey: false,
+		repeat: false,
+		does: 'activate',
+		page: '/diffs/1'
+	};
 	const here = { page: '/diffs/1', targetThere: true, focusInField: false };
 
 	it('hands a shortcut to the page, and clicks what Enter or Space was pressed on', () => {
@@ -116,5 +129,15 @@ describe('what a kept key does once the page is ready', () => {
 		expect(replayOf(activate, { ...here, targetThere: false })).toBe('drop');
 		expect(replayOf(shortcut, { ...here, focusInField: true })).toBe('drop');
 		expect(replayOf(activate, { ...here, focusInField: true })).toBe('drop');
+	});
+
+	it('hands the repeats of a key held down to the page as repeats, and clicks only once', () => {
+		// Held down before the page is ready, r repeats; the page marks one file for
+		// it only if it can tell the repeats from presses of their own.
+		const held = { ...shortcut, key: 'r', repeat: true };
+		expect(replayOf(held, here)).toBe('key');
+		expect(replayedKey(held)).toMatchObject({ key: 'r', repeat: true });
+		expect(replayedKey(shortcut)).toMatchObject({ key: 'n', repeat: false });
+		expect(replayOf({ ...activate, repeat: true }, here)).toBe('drop');
 	});
 });
