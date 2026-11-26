@@ -16,6 +16,7 @@ import type { Side } from '../side.tiny.ts';
 import {
 	gitHubReview,
 	hasReviewMarker,
+	FLAGS_HEADING,
 	IN_TEXT_HEADING,
 	placeComment,
 	reviewMarker,
@@ -220,6 +221,22 @@ describe('gitHubReview', () => {
 		expect(hasReviewMarker(review.body, REPORT, value(parseReviewNumber(3)), MARK)).toBe(false);
 		// Another post of the same review has a mark of its own.
 		expect(hasReviewMarker(review.body, REPORT, REVIEW, OTHER_MARK)).toBe(false);
+	});
+
+	it('puts a flag under its own heading, never on its line, even one GitHub could place', () => {
+		const flag: SubmittedComment = { ...comment('modified.txt', 'new', 3), kind: 'flag', body: '' };
+		// A comment on the same line would go on it.
+		expect(placeComment(diff, V2, comment('modified.txt', 'new', 3)).kind).toBe('line');
+		const review = gitHubReview({ ...base, overall: '', comments: [flag] });
+		expect(review.comments).toEqual([]);
+		expect(review.inText).toBe(0);
+		expect(review.body).toBe(
+			[
+				FLAGS_HEADING,
+				'`modified.txt`, line 3 (after the change)',
+				reviewMarker(REPORT, REVIEW, MARK)
+			].join('\n\n')
+		);
 	});
 
 	it('leaves the mark out when it is not made yet, as when what will be posted is shown', () => {
