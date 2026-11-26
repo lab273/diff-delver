@@ -360,7 +360,7 @@ export function describeReviewNotPosted(error: ReviewNotPosted): ReviewerMessage
 			case 'earlier-post-recent':
 				return `Your post of review ${String(problem.number)} to GitHub went unanswered a moment ago, and GitHub may still be making it, so diff delver will not post it again yet. ${NOTHING_FINISHED} ${describeWait(problem.waitSeconds)} diff delver then looks on GitHub for that review first, records it as posted if it is there, and never posts it twice.`;
 			case 'earlier-post-unchecked':
-				return `Your earlier post of review ${String(problem.number)} to GitHub may have reached it, and diff delver could not ask GitHub whether it did: ${whyUnasked(problem.cause)}. ${NOTHING_FINISHED} Once GitHub can be asked, finish again: diff delver looks for that review first, records it as posted if it is there, and never posts it twice.`;
+				return `Your earlier post of review ${String(problem.number)} to GitHub may have reached it, and diff delver could not ask GitHub whether it did: ${whyUnasked(problem.cause)}. ${NOTHING_FINISHED} Once GitHub can be asked, finish again: diff delver looks for that review first, records it as posted if it is there, and never posts it twice. If GitHub may never be asked, as when the repository is gone or your access to it was taken away, choose “Finish and copy anyway”: review ${String(problem.number)} is then finished and copied without posting, though it may be on GitHub already.`;
 		}
 	})();
 	return reviewerMessage(said);

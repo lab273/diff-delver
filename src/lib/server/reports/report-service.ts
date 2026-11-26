@@ -1005,6 +1005,16 @@ export interface ShownDraft {
 	readonly overall: EditCount;
 }
 
+/** How the draft is finished and copied only. */
+export interface FinishOptions {
+	/**
+	 * Finishes it without looking on GitHub for an earlier post of it that went
+	 * unanswered, forgetting that post: the reviewer's choice when GitHub
+	 * cannot be asked, knowing the review may be on GitHub too.
+	 */
+	readonly forgetEarlierPost?: boolean;
+}
+
 /** What finishing the draft now would hand over. */
 export interface ReviewPreview {
 	/** The number the review would take. */
@@ -2322,16 +2332,23 @@ export class ReportService {
 	 * and a copy of the reviewed marks, all in one transaction, and empties the
 	 * draft: the next comment, or overall review, starts the next review. A
 	 * review is never changed once it is finished.
+	 *
+	 * On a pull request's Delve, an earlier post of the same review that went
+	 * unanswered is looked for on GitHub first (`#earlierPost`), unless the
+	 * reviewer chose `forgetEarlierPost`, as when GitHub can never be asked: the
+	 * note is then forgotten and the review finished as copied only, though it
+	 * may be on GitHub too.
 	 */
 	async finishReview(
 		id: ReportId,
 		seen: RevisionNumber,
-		shown: ShownDraft
+		shown: ShownDraft,
+		options: FinishOptions = {}
 	): Promise<Result<JustFinished, ReportError>> {
 		if (this.#finishing.has(id)) return beingFinished();
 		this.#finishing.add(id);
 		try {
-			return await this.#finish(id, seen, shown);
+			return await this.#finish(id, seen, shown, options.forgetEarlierPost === true);
 		} finally {
 			this.#finishing.delete(id);
 		}
@@ -2340,14 +2357,17 @@ export class ReportService {
 	async #finish(
 		id: ReportId,
 		seen: RevisionNumber,
-		shown: ShownDraft
+		shown: ShownDraft,
+		forgetEarlierPost: boolean
 	): Promise<Result<JustFinished, ReportError>> {
 		const prepared = await this.#prepareReview(id, seen, shown);
 		if (!prepared.ok) return prepared;
 		const { found, diff, draft, quoted } = prepared.value;
-		const earlier = await this.#earlierPost(id, seen, found.report);
-		if (!earlier.ok) return earlier;
-		if (earlier.value !== undefined) return ok(earlier.value);
+		if (!forgetEarlierPost) {
+			const earlier = await this.#earlierPost(id, seen, found.report);
+			if (!earlier.ok) return earlier;
+			if (earlier.value !== undefined) return ok(earlier.value);
+		}
 		return this.#db.write((q) =>
 			andThen(currentAsSeen(q, id, seen), (now): Result<JustFinished, ReportError> => {
 				if (now.revision.id !== found.revision.id) {
@@ -2372,6 +2392,8 @@ export class ReportService {
 							);
 							insertReviewComments(q, id, number, comments);
 							copyReviewMarks(q, id, number, found.revision.id);
+							// Asked for: an earlier post of it is never looked for on GitHub again.
+							if (forgetEarlierPost) forgetPosting(q, id);
 							for (const comment of draft.comments) deleteDraftComment(q, comment.id);
 							if (draft.overall.body !== '') writeDraftSummary(q, id, '', at);
 							touchReport(q, id, at);

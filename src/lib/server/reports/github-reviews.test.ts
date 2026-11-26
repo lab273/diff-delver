@@ -44,6 +44,8 @@ import {
 } from '../../../../tests/support/pull-request-fixture.ts';
 import { at } from '../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../tests/support/reviewer-git.ts';
+import { ApiErrorBodySchema } from '#lib/api/schemas.ts';
+import { serviceFailure } from '../api/present.ts';
 import { describeReportError, ReportService, type ReportError, type ShownDraft } from './index.ts';
 
 const FIRST = value(parseRevisionNumber(1));
@@ -695,7 +697,7 @@ describe('posting a review to its pull request', () => {
 		w.signIn.token = undefined;
 		const unchecked = failure(await w.service.finishReview(w.id, FIRST, shown(w)));
 		expect(describeReportError(unchecked)).toBe(
-			'Your earlier post of review 1 to GitHub may have reached it, and diff delver could not ask GitHub whether it did: you are not signed in to GitHub ("gh auth login" signs you in). Nothing was finished, and your draft is as it was. Once GitHub can be asked, finish again: diff delver looks for that review first, records it as posted if it is there, and never posts it twice.'
+			'Your earlier post of review 1 to GitHub may have reached it, and diff delver could not ask GitHub whether it did: you are not signed in to GitHub ("gh auth login" signs you in). Nothing was finished, and your draft is as it was. Once GitHub can be asked, finish again: diff delver looks for that review first, records it as posted if it is there, and never posts it twice. If GitHub may never be asked, as when the repository is gone or your access to it was taken away, choose “Finish and copy anyway”: review 1 is then finished and copied without posting, though it may be on GitHub already.'
 		);
 		nothingFinished(w, 1);
 		w.signIn.token = STAND_IN_TOKEN;
@@ -709,6 +711,39 @@ describe('posting a review to its pull request', () => {
 		});
 		expect(posts(w)).toHaveLength(1);
 		expect(value(w.service.draftComments(w.id))).toEqual([]);
+	});
+
+	it('finishes and copies anyway, when asked, after an unanswered post GitHub cannot be asked about', async () => {
+		const w = await world();
+		overall(w, 'Stuck.');
+		w.github.refuseReviews({ kind: 'drop-answer' });
+		failure(await post(w));
+		// The reviewer can no longer sign in, so the earlier post cannot be looked for.
+		w.signIn.token = undefined;
+		const unchecked = failure(await w.service.finishReview(w.id, FIRST, shown(w)));
+		expect(unchecked).toMatchObject({ problem: { kind: 'earlier-post-unchecked' } });
+		// The page is told which refusal it is, to offer the choice.
+		const answer = ApiErrorBodySchema.parse(await serviceFailure(unchecked).json());
+		expect(answer.error.kind).toBe('EarlierPostUnchecked');
+
+		const asked = w.github.requests.length;
+		const review = value(
+			await w.service.finishReview(w.id, FIRST, shown(w), { forgetEarlierPost: true })
+		);
+		// Finished as copied only, without asking GitHub, and the earlier post forgotten.
+		expect(review.number).toBe(1);
+		expect(review.posted).toBeUndefined();
+		expect(review.earlier).toBeUndefined();
+		expect(review.text).toContain('Stuck.');
+		expect(w.github.requests).toHaveLength(asked);
+		expect(value(w.service.overallReview(w.id)).body).toBe('');
+
+		w.signIn.token = STAND_IN_TOKEN;
+		overall(w, 'Next.');
+		expect(value(await post(w)).number).toBe(2);
+		// Review 1 is not looked for again.
+		const reviewsAsked = w.github.requests.filter((r) => r.path.includes('/reviews'));
+		expect(reviewsAsked.map((r) => r.method)).toEqual(['POST', 'POST']);
 	});
 
 	it('finishes and copies only once GitHub says an earlier unanswered post is not there', async () => {

@@ -1,6 +1,6 @@
 import { FinishReviewSchema, type FinishedReviewsView } from '#lib/api/schemas.ts';
 import { PRIVATE } from '#lib/server/api/comments.ts';
-import { serviceFailure } from '#lib/server/api/present.ts';
+import { badRequest, serviceFailure } from '#lib/server/api/present.ts';
 import { diffId, readBody } from '#lib/server/api/request.ts';
 import { justFinishedView, reviewsRefused, reviewView } from '#lib/server/api/reviews.ts';
 import type { RequestHandler } from './$types';
@@ -32,10 +32,15 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const parsed = await readBody(request, FinishReviewSchema);
 	if (!parsed.ok) return parsed.error;
 	const shown = { comments: parsed.value.comments, overall: parsed.value.overall };
-	const { github } = parsed.value;
+	const { github, forgetEarlierPost } = parsed.value;
+	if (github !== undefined && forgetEarlierPost === true) {
+		return badRequest('a review posted to GitHub cannot forget an earlier post of it');
+	}
 	const finished =
 		github === undefined
-			? await locals.daemon.service.finishReview(id.value, parsed.value.version, shown)
+			? await locals.daemon.service.finishReview(id.value, parsed.value.version, shown, {
+					forgetEarlierPost: forgetEarlierPost === true
+				})
 			: await locals.daemon.service.postReview(id.value, parsed.value.version, shown, github);
 	return finished.ok
 		? Response.json(justFinishedView(finished.value), { status: 201, headers: PRIVATE })

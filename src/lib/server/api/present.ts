@@ -716,7 +716,18 @@ export function failure(status: number, kind: string, message: ReviewerMessage):
 }
 
 export function serviceFailure(error: ReportError): Response {
-	return failure(statusOf(error), error.kind, describeReportError(error));
+	return failure(statusOf(error), reasonOf(error), describeReportError(error));
+}
+
+/**
+ * The kind of error a page is told: the service's, but for a review not
+ * posted because an earlier post of it could not be looked for on GitHub,
+ * `EarlierPostUnchecked`, so the page can offer to finish and copy it anyway.
+ */
+function reasonOf(error: ReportError): string {
+	return error.kind === 'ReviewNotPosted' && error.problem.kind === 'earlier-post-unchecked'
+		? 'EarlierPostUnchecked'
+		: error.kind;
 }
 
 /** A request whose body or query did not hold what the API expects. */

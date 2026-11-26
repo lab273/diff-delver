@@ -1117,7 +1117,13 @@ export const FinishReviewSchema = z.strictObject({
 	 * For a pull request's Delve, to post it to GitHub as one review too:
 	 * published as `kind`, or, with `draft`, left a draft there, `kind` set aside.
 	 */
-	github: z.strictObject({ kind: z.enum(GITHUB_REVIEW_KINDS), draft: z.boolean() }).optional()
+	github: z.strictObject({ kind: z.enum(GITHUB_REVIEW_KINDS), draft: z.boolean() }).optional(),
+	/**
+	 * To finish and copy only without looking on GitHub for an earlier post of
+	 * the review that went unanswered, which may then be on GitHub too: the
+	 * reviewer's choice once GitHub could not be asked (`EarlierPostUnchecked`).
+	 */
+	forgetEarlierPost: z.literal(true).optional()
 });
 export type FinishReview = z.infer<typeof FinishReviewSchema>;
 

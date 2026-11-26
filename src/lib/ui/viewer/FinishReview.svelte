@@ -71,8 +71,14 @@
 	let previewOpen = $state(false);
 	let preview = $state.raw<ReviewPreviewView>();
 	let previewProblem = $state('');
-	/** Which finish is under way: posting to GitHub, or copying only. */
-	let pressed = $state<'post' | 'copy'>();
+	/** Which finish is under way: posting to GitHub, copying only, or copying only anyway. */
+	let pressed = $state<'post' | 'copy' | 'anyway'>();
+	/**
+	 * The review whose earlier post GitHub could not be asked about, when
+	 * finishing and copying it only was refused so: it may then be finished
+	 * and copied anyway.
+	 */
+	let unchecked = $state<number>();
 	const finishing = $derived(pressed !== undefined);
 	/** Whether what will be posted to GitHub is shown. */
 	let postedOpen = $state(false);
@@ -186,18 +192,24 @@
 		return came === undefined ? false : copy(came);
 	}
 
-	/** Finishes the draft and copies it, and, with `post`, posts it to the pull request first. */
-	async function finish(post: boolean): Promise<void> {
+	/**
+	 * Finishes the draft and copies it, and, with `post`, posts it to the pull
+	 * request first; with `anyway`, without looking on GitHub for an earlier
+	 * post of it.
+	 */
+	async function finish(post: boolean, anyway = false): Promise<void> {
 		if (finishing) return;
-		pressed = post ? 'post' : 'copy';
+		pressed = post ? 'post' : anyway ? 'anyway' : 'copy';
 		problem = '';
 		said = '';
+		unchecked = undefined;
 		const overallShown = comments.overall?.edits ?? NO_EDITS;
 		const request = pageClient().finishReview(id, {
 			version,
 			comments: saved.map((c) => ({ id: c.id, edits: c.edits })),
 			overall: overallShown,
-			...(post && pullRequest !== undefined ? { github: { kind, draft: asDraft } } : {})
+			...(post && pullRequest !== undefined ? { github: { kind, draft: asDraft } } : {}),
+			...(anyway ? { forgetEarlierPost: true as const } : {})
 		});
 		const copying = copyWhenReady(request.then((r) => (r.ok ? r.value.text : undefined)));
 		const finished = await request;
@@ -206,6 +218,8 @@
 			// Whatever went wrong, show the draft and the reviews as they are now.
 			await Promise.all([comments.load(), loadReviews()]);
 			problem = describeApiError(finished.error);
+			const { error } = finished;
+			if (error.kind === 'refused' && error.reason === 'EarlierPostUnchecked') unchecked = next;
 			return;
 		}
 		const review = finished.value;
@@ -464,6 +478,15 @@
 		{/if}
 		{#if problem !== ''}
 			<p class="problem" role="alert">{problem}</p>
+		{/if}
+		{#if unchecked !== undefined && unchecked === next && drafted && open}
+			<div class="actions">
+				<button type="button" disabled={finishing} onclick={() => finish(false, true)}>
+					{pressed === 'anyway'
+						? 'Finishing…'
+						: `Finish and copy anyway — review ${String(next)} may already be on GitHub`}
+				</button>
+			</div>
 		{/if}
 		{#if reviews !== undefined && reviews.length > 0}
 			<h3>Finished reviews</h3>

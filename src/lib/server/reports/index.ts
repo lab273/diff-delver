@@ -45,6 +45,7 @@ export type {
 	UpdateOutcome,
 	ShownComment,
 	ShownDraft,
+	FinishOptions,
 	JustFinished,
 	ReviewPreview
 } from './report-service.ts';
