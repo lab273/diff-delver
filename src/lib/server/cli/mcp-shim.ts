@@ -37,7 +37,7 @@ import {
 import { MCP_PATH } from '#lib/core/daemon/request-gate.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import type { DaemonConnection } from '../daemon/daemon.ts';
-import { describeLaunchError, ensureDaemon } from '../daemon/launcher.ts';
+import { describeLaunchError, ensureDaemon, versionOnDisk } from '../daemon/launcher.ts';
 import {
 	browserHeader,
 	DIRECTORY_HEADER,
@@ -71,8 +71,16 @@ const InitializeResult = z.object({ result: z.object({ protocolVersion: z.string
 
 /** Runs the shim until standard input closes. */
 export async function runShim(options: ShimOptions): Promise<number> {
-	const find = async (): Promise<Result<DaemonConnection, string>> => {
-		const { version } = options;
+	/**
+	 * Finds or starts the daemon. Found again, it compares the daemon with the
+	 * command on disk, which may have been rebuilt or upgraded since the shim
+	 * started: that is the copy a daemon it starts would run, so a daemon of it,
+	 * started by this shim or another, is its own and is not replaced.
+	 */
+	const find = async (again: boolean): Promise<Result<DaemonConnection, string>> => {
+		const version = again
+			? ((await versionOnDisk(options.entry)) ?? options.version)
+			: options.version;
 		const launched = await ensureDaemon(options.dataDirectory, version, options.entry);
 		if (!launched.ok) return err(describeLaunchError(launched.error));
 		const { found } = launched.value;
@@ -91,7 +99,7 @@ export async function runShim(options: ShimOptions): Promise<number> {
 		}
 		return ok(launched.value.connection);
 	};
-	let daemon: Promise<Result<DaemonConnection, string>> = find();
+	let daemon: Promise<Result<DaemonConnection, string>> = find(false);
 	/**
 	 * The daemon to send to: the one found, or, when it could not be found or a
 	 * message failed on it, found again, once for every message that failed on
@@ -101,7 +109,9 @@ export async function runShim(options: ShimOptions): Promise<number> {
 		failedOn: DaemonConnection | undefined
 	): Promise<Result<DaemonConnection, string>> => {
 		daemon = daemon.then((known) =>
-			known.ok && (failedOn === undefined || known.value.token !== failedOn.token) ? known : find()
+			known.ok && (failedOn === undefined || known.value.token !== failedOn.token)
+				? known
+				: find(true)
 		);
 		return daemon;
 	};

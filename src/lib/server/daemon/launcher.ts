@@ -16,6 +16,9 @@
  *   migration this copy does not know: its own daemon would refuse the
  *   database, leaving nothing serving the folder, so the running one is used
  *   as it is, and the command says how to bring this copy up to date;
+ * - a daemon this same call started: used, whatever version it reports. It
+ *   was started from `entry`, which may have been rebuilt since the version
+ *   the caller gives was read, as it is under a long-running MCP shim;
  * - a stale lockfile (its process is gone, or it does not answer) or none: a
  *   new daemon is started, which replaces the stale lockfile. A process a stale
  *   lockfile names is never signalled: it may be any program by now.
@@ -25,12 +28,12 @@
  * channel when it is listening, or why it could not start, so the command waits
  * for exactly that and no longer.
  */
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, open, type FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
-import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
+import { parseCodeVersion, type CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { orderOfDaemon } from '#lib/core/cli/replaced-daemon.ts';
 import type { ProcessId } from '#lib/core/process-id.tiny.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
@@ -138,11 +141,11 @@ function databaseNewerThanThisCopy(dataDirectory: AbsolutePath): boolean {
 	return newest.ok && newest.value !== undefined && newest.value > LATEST_VERSION;
 }
 
-/** Starts `diff-delver serve` in the background and waits for it to listen. */
+/** Starts `diff-delver serve` in the background, waits for it to listen, and gives its process id. */
 async function spawnDaemon(
 	dataDirectory: AbsolutePath,
 	entry: string
-): Promise<Result<void, LaunchError>> {
+): Promise<Result<number | undefined, LaunchError>> {
 	const failed = (message: string): Result<never, LaunchError> =>
 		err({ kind: 'StartFailed', message: reviewerMessage(message) });
 	let log: FileHandle;
@@ -192,7 +195,7 @@ async function spawnDaemon(
 		}
 		switch (signal.kind) {
 			case 'ready':
-				return ok(undefined);
+				return ok(child.pid);
 			case 'failed':
 				return failed(signal.message);
 		}
@@ -208,11 +211,16 @@ export async function ensureDaemon(
 	entry: string
 ): Promise<Result<Launched, LaunchError>> {
 	let found: FoundDaemon = { kind: 'own' };
+	/** The daemon this call started, if it started one. */
+	let spawned: number | undefined;
 	for (let attempt = 0; attempt < 3; attempt += 1) {
 		const content = await readLockfile(dataDirectory);
 		if (content.kind === 'lock') {
 			const probe = await probeLock(content.lock);
 			if (probe.kind === 'answering') {
+				if (spawned !== undefined && content.lock.pid === spawned) {
+					return ok({ connection: connectionOf(content.lock), found });
+				}
 				switch (orderOfDaemon(probe.version, version)) {
 					case 'same':
 						return ok({ connection: connectionOf(content.lock), found });
@@ -242,6 +250,7 @@ export async function ensureDaemon(
 		// started one meanwhile, the new one finds it and stops; it is used instead.
 		const started = await spawnDaemon(dataDirectory, entry);
 		if (!started.ok) return started;
+		spawned = started.value;
 	}
 	const content = await readLockfile(dataDirectory);
 	if (content.kind === 'lock') return ok({ connection: connectionOf(content.lock), found });
@@ -251,6 +260,29 @@ export async function ensureDaemon(
 			`diff delver started, but then could not be found in its data folder ${dataDirectory}. Try again; if it keeps happening, look in ${join(dataDirectory, LOG_NAME)} for why.`
 		)
 	});
+}
+
+/**
+ * The version of the command at `entry` as it is on disk now, by asking it
+ * (`diff-delver --version`); undefined when it does not say. A long-running
+ * MCP shim asks this before it finds its daemon again, since the build may have
+ * changed since it started, and a daemon it starts is the one on disk.
+ */
+export async function versionOnDisk(entry: string): Promise<CodeVersion | undefined> {
+	const printed = await new Promise<string | undefined>((resolve) => {
+		execFile(
+			process.execPath,
+			[entry, '--version'],
+			{ timeout: START_WITHIN_MS, windowsHide: true },
+			(error, stdout) => {
+				resolve(error === null ? stdout : undefined);
+			}
+		);
+	});
+	const found = /^diff-delver (\S+)\s*$/.exec(printed ?? '');
+	if (found?.[1] === undefined) return undefined;
+	const parsed = parseCodeVersion(found[1]);
+	return parsed.ok ? parsed.value : undefined;
 }
 
 /**
