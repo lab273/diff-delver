@@ -2121,7 +2121,14 @@ export class ReportService {
 		}
 		return ok({
 			file,
-			blocks: partBlocks(file, group, state.value, view, fresh.value, headLines),
+			blocks: partBlocks(
+				file,
+				{ group, step: undefined },
+				state.value,
+				view,
+				fresh.value,
+				headLines
+			),
 			sizes,
 			image
 		});
@@ -2223,7 +2230,14 @@ export class ReportService {
 					parts.map((p) => ({
 						path: shownRepoPath(p.file.file.path),
 						lines: searchedLines(
-							partBlocks(p.file, p.group, state.value, view, NO_PART_MARKS.fresh, undefined)
+							partBlocks(
+								p.file,
+								{ group: p.group, step: undefined },
+								state.value,
+								view,
+								NO_PART_MARKS.fresh,
+								undefined
+							)
 						)
 					}))
 				)

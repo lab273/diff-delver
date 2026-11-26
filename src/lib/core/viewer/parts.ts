@@ -5,7 +5,10 @@
  * order with their parts, and every file once, in path order, with the groups
  * its parts are in.
  *
- * A part is a slice (`slices.ts`); the screen never calls it one. Its tally
+ * A part is a slice (`slices.ts`); the screen never calls it one. In a section
+ * with a reading order (DESIGN 4.3.1), each step is a part, with the step's
+ * note, and the parts in no step follow them in path order; elsewhere a
+ * group's parts are in path order. Its tally
  * counts its own units: each added line, each removed line, and the change to
  * the file itself when it is in this part are one change each (DESIGN 8.5), so
  * the frame, the list of diffs, the command and the stored progress count the
@@ -27,8 +30,11 @@ import {
 	groupKeyId,
 	inReadingOrder,
 	type GroupKey,
+	type PlacedSlice,
 	type Slice
 } from '../diff/slices.ts';
+import type { OrderStep } from '../order-step.tiny.ts';
+import { NO_STEPS, type StepLookup } from '../reports/reading-order.ts';
 import type { Assignment, AssignmentState } from '../diff/state.ts';
 import { fileUnitInSet, linesInSet, type UnitSet } from '../diff/unit-set.ts';
 import type { ViewKind } from '../diff/slices.ts';
@@ -93,6 +99,12 @@ export function addTallies(...tallies: readonly PartTally[]): PartTally {
 export interface PartSummary {
 	readonly group: GroupKey;
 	readonly file: DiffFile;
+	/** In a section with a reading order, the step it is; undefined when it follows the steps, or the section has none. */
+	readonly step: OrderStep | undefined;
+	/** How many steps the reading order of its section has; 0 when it has none. */
+	readonly steps: number;
+	/** The agent's note on its step. */
+	readonly note: AgentMarkdown | undefined;
 	/**
 	 * How the file changed, in plain words, saying only what is in this part:
 	 * "changed", "added", "renamed from src/old.ts", "changed, made executable".
@@ -121,8 +133,18 @@ export interface PartSummary {
 	/** Its place among the file's parts, in reading order: part 2 of 3. */
 	readonly position: PartPosition;
 	readonly of: SliceCount;
-	/** The groups the file's other parts are in, in reading order. */
+	/** The other groups the file's parts are in, each once, in reading order. */
 	readonly others: readonly GroupKey[];
+}
+
+/** A part's place among its group's: its step, then those in no step. */
+function stepRank(step: OrderStep | undefined): number {
+	return step ?? Number.MAX_SAFE_INTEGER;
+}
+
+/** The section a group's reading order is of: its own, or, for its tests, theirs. */
+function sectionOf(group: GroupKey): SectionId | undefined {
+	return group.kind === 'section' || group.kind === 'tests' ? group.section : undefined;
 }
 
 /** No changes marked, new or unmarked. */
@@ -274,17 +296,31 @@ export function fileParts(
 	state: AssignmentState,
 	marks: PartMarks,
 	view: ViewKind,
-	sections: readonly SectionId[]
+	sections: readonly SectionId[],
+	steps: StepLookup = NO_STEPS
 ): readonly PartSummary[] {
-	const slices = inReadingOrder(fileSlices(file, state, view), (s) => s.group, sections);
+	const placed: readonly PlacedSlice[] = [...fileSlices(file, state, view, steps)].sort(
+		(a, b) => stepRank(a.step) - stepRank(b.step)
+	);
+	const slices = inReadingOrder(placed, (s) => s.group, sections);
 	const of = sliceCountOf(slices.length);
-	return slices.map(({ group, slice }, index): PartSummary => {
+	return slices.map(({ group, step, slice }, index): PartSummary => {
 		const counted = countSlice(slice, marks);
 		const hasLines = counted.added + counted.removed > 0;
 		const id = groupKeyId(group);
+		const section = sectionOf(group);
+		const order = section === undefined ? [] : steps.stepsOf(section);
+		const others = new Map<string, GroupKey>();
+		for (const s of slices) {
+			const other = groupKeyId(s.group);
+			if (other !== id) others.set(other, s.group);
+		}
 		return {
 			group,
 			file,
+			step,
+			steps: order.length,
+			note: step === undefined ? undefined : order[step - 1]?.note,
 			change: changeOf(slice, file, hasLines),
 			added: lineCountOf(counted.added),
 			removed: lineCountOf(counted.removed),
@@ -295,7 +331,7 @@ export function fileParts(
 			rows: lineCountOf(counted.rows),
 			position: partPositionOf(index + 1),
 			of,
-			others: slices.map((s) => s.group).filter((g) => groupKeyId(g) !== id)
+			others: [...others.values()]
 		};
 	});
 }
@@ -346,13 +382,17 @@ export function fileTally(parts: readonly PartSummary[]): {
 	return { tally: addTallies(...counted), ignored: addTallies(...ignored).units };
 }
 
-/** The frame of a diff in `view`. `sections` is the sections' reading order. */
+/**
+ * The frame of a diff in `view`. `sections` is the sections' reading order,
+ * and `steps` the reading orders within them, as `effectiveOrders` gives them.
+ */
 export function frameOf(
 	diff: Diff,
 	state: AssignmentState,
 	marks: PartMarks,
 	view: ViewKind,
-	sections: readonly SectionId[]
+	sections: readonly SectionId[],
+	steps: StepLookup = NO_STEPS
 ): Frame {
 	const groups = new Map<GroupKeyId, { key: GroupKey; parts: PartSummary[] }>();
 	const ensure = (key: GroupKey): { key: GroupKey; parts: PartSummary[] } => {
@@ -367,7 +407,7 @@ export function frameOf(
 	for (const section of sections) ensure({ kind: 'section', section });
 	const files: FrameFile[] = [];
 	for (const file of diff.files) {
-		const parts = fileParts(file, state, marks, view, sections);
+		const parts = fileParts(file, state, marks, view, sections, steps);
 		for (const part of parts) ensure(part.group).parts.push(part);
 		const { tally, ignored } = fileTally(parts);
 		files.push({
@@ -384,7 +424,8 @@ export function frameOf(
 		.filter((g) => g.parts.length > 0 || g.key.kind === 'section')
 		.map((g): FrameGroup => ({
 			key: g.key,
-			parts: g.parts,
+			// Steps first, in their order, then the rest in path order (the sort keeps it).
+			parts: [...g.parts].sort((a, b) => stepRank(a.step) - stepRank(b.step)),
 			tally: addTallies(...g.parts.map((p) => p.tally))
 		}));
 	const counted = ordered.filter((g) => g.key.kind !== 'ignored').map((g) => g.tally);
@@ -404,12 +445,13 @@ export function partsOfFiles(
 	marks: PartMarks,
 	view: ViewKind,
 	sections: readonly SectionId[],
-	paths: Iterable<RepoPath>
+	paths: Iterable<RepoPath>,
+	steps: StepLookup = NO_STEPS
 ): readonly PartSummary[] {
 	const parts: PartSummary[] = [];
 	for (const path of paths) {
 		const file = diff.byPath.get(path);
-		if (file !== undefined) parts.push(...fileParts(file, state, marks, view, sections));
+		if (file !== undefined) parts.push(...fileParts(file, state, marks, view, sections, steps));
 	}
 	return parts;
 }

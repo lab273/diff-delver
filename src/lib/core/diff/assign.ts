@@ -458,14 +458,15 @@ export function pathsNamedBy(text: string): readonly RepoPath[] {
  * for what else an agent points at with them, such as a section's
  * cross-references (DESIGN 4.3): only changed lines and the file-level unit,
  * never the unchanged lines a range spans. Refused as an `assign` item with
- * the same target would be, with the same rejections.
+ * the same target would be, with the same rejections. Without `lines`, every
+ * changed unit of the file.
  */
 export function resolveUnits(
 	diff: Diff,
 	file: string,
-	lines: string
+	lines: string | undefined
 ): Result<{ readonly path: RepoPath; readonly units: FileUnitSet }, AssignRejection> {
-	const target = parseTarget({ file, lines });
+	const target = parseTarget(lines === undefined ? { file } : { file, lines });
 	if (!target.ok) return err(withDiffContext(diff, target.error));
 	const resolved = resolveTarget(diff, target.value);
 	if (!resolved.ok) return resolved;

@@ -60,7 +60,7 @@ describe('a part’s lines', () => {
 		const file = only(from, to);
 		const blocks = partBlocks(
 			file,
-			UNSORTED,
+			{ group: UNSORTED, step: undefined },
 			initialState({
 				files: [file],
 				byPath: new Map([[file.file.path, file]]),
@@ -107,7 +107,14 @@ describe('a part’s lines', () => {
 				]
 			])
 		};
-		const ours = partBlocks(file, alpha(), state, 'sections', fresh, lineCountOf(30));
+		const ours = partBlocks(
+			file,
+			{ group: alpha(), step: undefined },
+			state,
+			'sections',
+			fresh,
+			lineCountOf(30)
+		);
 		expect(brief(ours)).toEqual([
 			'hidden -1..1 +1..1',
 			'hunk    -+new   ',
@@ -115,12 +122,19 @@ describe('a part’s lines', () => {
 			'elsewhere    -(uncategorised)+(uncategorised)   ',
 			'hidden -29..30 +29..30'
 		]);
-		const theirs = partBlocks(file, UNSORTED, state, 'sections', fresh, lineCountOf(30));
+		const theirs = partBlocks(
+			file,
+			{ group: UNSORTED, step: undefined },
+			state,
+			'sections',
+			fresh,
+			lineCountOf(30)
+		);
 		expect(brief(theirs)[1]).toBe('elsewhere    -(section:alpha)+(section:alpha)   ');
 		const elsewhere = ours[3];
-		expect(elsewhere?.kind === 'elsewhere' ? elsewhere.groups.map(groupKeyId) : []).toEqual([
-			'uncategorised'
-		]);
+		expect(
+			elsewhere?.kind === 'elsewhere' ? elsewhere.places.map((p) => groupKeyId(p.group)) : []
+		).toEqual(['uncategorised']);
 	});
 
 	it('hides nothing of a file added or deleted whole, and all of a file only renamed', () => {
@@ -140,11 +154,27 @@ describe('a part’s lines', () => {
 				unitCount: file.unitCount
 			});
 		expect(
-			brief(partBlocks(added, UNSORTED, state(added), 'sections', EMPTY_UNIT_SET, lineCountOf(2)))
+			brief(
+				partBlocks(
+					added,
+					{ group: UNSORTED, step: undefined },
+					state(added),
+					'sections',
+					EMPTY_UNIT_SET,
+					lineCountOf(2)
+				)
+			)
 		).toEqual(['hunk ++']);
 		expect(
 			brief(
-				partBlocks(renamed, UNSORTED, state(renamed), 'sections', EMPTY_UNIT_SET, lineCountOf(3))
+				partBlocks(
+					renamed,
+					{ group: UNSORTED, step: undefined },
+					state(renamed),
+					'sections',
+					EMPTY_UNIT_SET,
+					lineCountOf(3)
+				)
 			)
 		).toEqual(['hidden -1..3 +1..3']);
 	});
@@ -165,7 +195,7 @@ describe('a part’s lines', () => {
 					};
 					const blocks = partBlocks(
 						file,
-						UNSORTED,
+						{ group: UNSORTED, step: undefined },
 						initialState(diff),
 						'sections',
 						EMPTY_UNIT_SET,

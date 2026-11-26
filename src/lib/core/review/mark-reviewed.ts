@@ -2,7 +2,9 @@
  * Marking units reviewed, or not (DESIGN 5). The reviewer ticks a slice, a whole
  * file, or a whole group (a section, the tests of a section, Ignored or Not
  * sorted yet); the mark goes on each change unit the target covers, so a file
- * split across sections is ticked exactly where it was ticked.
+ * split across sections is ticked exactly where it was ticked. In a section
+ * with a reading order (DESIGN 4.3.1) a slice is one step's units, or those in
+ * no step, so a file in two steps is ticked one step at a time.
  */
 import { shownRepoPath } from '../shown-path.tiny.ts';
 import { RangeSet, type Interval } from '../range-set.ts';
@@ -13,6 +15,8 @@ import { addUnits, NO_UNITS, ONE_UNIT, unitCountOf, type UnitCount } from '../un
 import { groupKeyId } from '../group-key-id.tiny.ts';
 import type { Diff, DiffFile } from '../diff/diff.ts';
 import { groupOf, type GroupKey, type ViewKind } from '../diff/slices.ts';
+import type { OrderStep } from '../order-step.tiny.ts';
+import { NO_STEPS, type StepLookup } from '../reports/reading-order.ts';
 import { assignedUnits, type AssignmentState } from '../diff/state.ts';
 import {
 	fileReviewedOf,
@@ -24,8 +28,16 @@ import {
 
 /** What the reviewer ticks. */
 export type ReviewTarget =
-	/** One file's part within one group of the view. */
-	| { readonly kind: 'slice'; readonly group: GroupKey; readonly path: RepoPath }
+	/**
+	 * One file's part within one group of the view: in a section with a
+	 * reading order, in one step, or in none when `step` is undefined.
+	 */
+	| {
+			readonly kind: 'slice';
+			readonly group: GroupKey;
+			readonly path: RepoPath;
+			readonly step?: OrderStep | undefined;
+	  }
 	/** Every unit of one file, in whatever groups. */
 	| { readonly kind: 'file'; readonly path: RepoPath }
 	/** Every slice of one group of the view. */
@@ -86,6 +98,36 @@ function coveredIn(
 	return { old: RangeSet.fromIntervals(old), new: RangeSet.fromIntervals(now), file: whole };
 }
 
+/** What of `covered` is in step `step` of the group's section, or, with no step, in none of its steps. */
+function inStep(
+	covered: Covered,
+	group: GroupKey,
+	path: RepoPath,
+	step: OrderStep | undefined,
+	steps: StepLookup
+): Covered {
+	if (group.kind !== 'section' && group.kind !== 'tests') return covered;
+	const all = steps.unitsIn(group.section, path);
+	if (step !== undefined) {
+		const units = all.find((e) => e.step === step)?.units;
+		if (units === undefined) return { old: RangeSet.empty, new: RangeSet.empty, file: false };
+		return {
+			old: covered.old.intersect(units.old),
+			new: covered.new.intersect(units.new),
+			file: covered.file && units.file
+		};
+	}
+	let old = covered.old;
+	let now = covered.new;
+	let file = covered.file;
+	for (const e of all) {
+		old = old.subtract(e.units.old);
+		now = now.subtract(e.units.new);
+		file = file && !e.units.file;
+	}
+	return { old, new: now, file };
+}
+
 function sizeOf(covered: Covered): UnitCount {
 	const lines = unitCountOf(covered.old.size + covered.new.size);
 	return covered.file ? addUnits(lines, ONE_UNIT) : lines;
@@ -115,7 +157,8 @@ export function markReviewed(
 	marks: ReviewedMarks,
 	target: ReviewTarget,
 	reviewed: boolean,
-	view: ViewKind
+	view: ViewKind,
+	steps: StepLookup = NO_STEPS
 ): Result<Marked, MarkError> {
 	const coverage: { file: DiffFile; covered: Covered }[] = [];
 	switch (target.kind) {
@@ -125,7 +168,16 @@ export function markReviewed(
 			if (file === undefined) return err({ kind: 'FileNotInDiff', path: target.path });
 			coverage.push({
 				file,
-				covered: coveredIn(file, state, view, target.kind === 'slice' ? target.group : undefined)
+				covered:
+					target.kind === 'slice'
+						? inStep(
+								coveredIn(file, state, view, target.group),
+								target.group,
+								target.path,
+								target.step,
+								steps
+							)
+						: coveredIn(file, state, view, undefined)
 			});
 			break;
 		}

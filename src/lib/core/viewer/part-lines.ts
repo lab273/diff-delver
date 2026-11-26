@@ -20,8 +20,17 @@
  */
 import type { DiffFile } from '../diff/diff.ts';
 import type { AddedLine, ContextLine, DeletedLine, Hunk, HunkSpan } from '../diff/file-diff.ts';
-import { fileSlices, groupKeyId, type GroupKey, type SliceHunk } from '../diff/slices.ts';
+import {
+	fileSlices,
+	PATH_ORDER,
+	placeId,
+	type GroupKey,
+	type Place,
+	type SliceHunk,
+	type StepsOf
+} from '../diff/slices.ts';
 import type { ViewKind } from '../diff/slices.ts';
+import type { OrderStep } from '../order-step.tiny.ts';
 import type { AssignmentState } from '../diff/state.ts';
 import { linesInSet, type UnitSet } from '../diff/unit-set.ts';
 import type { HunkId } from '../hunk-id.tiny.ts';
@@ -39,8 +48,8 @@ export interface LineSpan {
 export type LineHome =
 	/** One of this part's own changes. */
 	| { readonly kind: 'here'; readonly fresh: boolean }
-	/** A change that belongs to another group, shown muted. */
-	| { readonly kind: 'elsewhere'; readonly group: GroupKey };
+	/** A change read in another place, another group or another step of this one, shown muted. */
+	| { readonly kind: 'elsewhere'; readonly group: GroupKey; readonly step: OrderStep | undefined };
 
 export type ShownLine =
 	| { readonly kind: 'context'; readonly line: ContextLine }
@@ -62,7 +71,7 @@ export type PartBlock =
 	| {
 			readonly kind: 'elsewhere';
 			readonly id: HunkId;
-			readonly groups: readonly GroupKey[];
+			readonly places: readonly Place[];
 			readonly lines: readonly ShownLine[];
 	  };
 
@@ -80,66 +89,66 @@ function hidden(oldFirst: number, newFirst: number, count: number): PartBlock | 
 	};
 }
 
-/** A hunk's lines as one slice classifies them, with each change's home seen from `group`. */
+/** A hunk's lines as one slice classifies them, with each change's home seen from `partPlace`. */
 function shown(
 	sliceHunk: SliceHunk,
-	sliceGroup: GroupKey,
-	partGroup: GroupKey,
+	slicePlace: Place,
+	partPlace: Place,
 	file: DiffFile,
 	fresh: UnitSet
 ): readonly ShownLine[] {
-	const part = groupKeyId(partGroup);
+	const part = placeId(partPlace);
 	const freshOld = linesInSet(fresh, file.file.path, 'old');
 	const freshNew = linesInSet(fresh, file.file.path, 'new');
 	return sliceHunk.lines.map((l): ShownLine => {
 		if (l.kind === 'context') return { kind: 'context', line: l.line };
-		const group = l.kind === 'own' ? sliceGroup : l.group;
-		const here = groupKeyId(group) === part;
+		const place: Place = l.kind === 'own' ? slicePlace : { group: l.group, step: l.step };
+		const here = placeId(place) === part;
+		const elsewhere: LineHome = { kind: 'elsewhere', group: place.group, step: place.step };
 		const line = l.line;
 		switch (line.kind) {
 			case 'added':
 				return {
 					kind: 'added',
 					line,
-					home: here
-						? { kind: 'here', fresh: freshNew.has(line.new) }
-						: { kind: 'elsewhere', group }
+					home: here ? { kind: 'here', fresh: freshNew.has(line.new) } : elsewhere
 				};
 			case 'deleted':
 				return {
 					kind: 'deleted',
 					line,
-					home: here
-						? { kind: 'here', fresh: freshOld.has(line.old) }
-						: { kind: 'elsewhere', group }
+					home: here ? { kind: 'here', fresh: freshOld.has(line.old) } : elsewhere
 				};
 		}
 	});
 }
 
 /**
- * The blocks of one part: `group`'s part of `file` in `view`. `headLineCount` is
- * how many lines the file has in the head tree, for the unchanged lines below
- * its last hunk; undefined when it has no text there.
+ * The blocks of one part: the part of `file` in `place` in `view`, with
+ * `steps` the reading orders. `headLineCount` is how many lines the file has
+ * in the head tree, for the unchanged lines below its last hunk; undefined
+ * when it has no text there.
  */
 export function partBlocks(
 	file: DiffFile,
-	group: GroupKey,
+	place: Place,
 	state: AssignmentState,
 	view: ViewKind,
 	fresh: UnitSet,
-	headLineCount: LineCount | undefined
+	headLineCount: LineCount | undefined,
+	steps: StepsOf = PATH_ORDER
 ): readonly PartBlock[] {
-	const wanted = groupKeyId(group);
+	const wanted = placeId(place);
 	// Each hunk once, as the first slice holding it classifies it, and whether this part holds it.
-	const hunks = new Map<HunkId, { readonly hunk: SliceHunk; readonly group: GroupKey }>();
+	const hunks = new Map<HunkId, { readonly hunk: SliceHunk; readonly place: Place }>();
 	const ours = new Set<HunkId>();
-	for (const { group: g, slice } of fileSlices(file, state, view)) {
+	for (const { group, step, slice } of fileSlices(file, state, view, steps)) {
+		const at: Place = { group, step };
 		for (const h of slice.hunks) {
-			if (!hunks.has(h.hunk.id)) hunks.set(h.hunk.id, { hunk: h, group: g });
-			if (groupKeyId(g) === wanted) {
+			if (!hunks.has(h.hunk.id)) hunks.set(h.hunk.id, { hunk: h, place: at });
+			if (placeId(at) === wanted) {
 				ours.add(h.hunk.id);
-				hunks.set(h.hunk.id, { hunk: h, group: g });
+				hunks.set(h.hunk.id, { hunk: h, place: at });
 			}
 		}
 	}
@@ -157,17 +166,18 @@ export function partBlocks(
 		newDone = before(hunk.new) + hunk.new.length;
 		const found = hunks.get(hunk.id);
 		if (found === undefined) continue;
-		const lines = shown(found.hunk, found.group, group, file, fresh);
+		const lines = shown(found.hunk, found.place, place, file, fresh);
 		if (ours.has(hunk.id)) {
 			blocks.push({ kind: 'hunk', id: hunk.id, heading: hunk.heading, lines });
 		} else {
-			const groups = new Map<string, GroupKey>();
+			const places = new Map<string, Place>();
 			for (const line of lines) {
 				if (line.kind !== 'context' && line.home.kind === 'elsewhere') {
-					groups.set(groupKeyId(line.home.group), line.home.group);
+					const at = { group: line.home.group, step: line.home.step };
+					places.set(placeId(at), at);
 				}
 			}
-			blocks.push({ kind: 'elsewhere', id: hunk.id, groups: [...groups.values()], lines });
+			blocks.push({ kind: 'elsewhere', id: hunk.id, places: [...places.values()], lines });
 		}
 	}
 	if (bothSides && headLineCount !== undefined) {

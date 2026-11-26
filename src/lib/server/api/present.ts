@@ -532,7 +532,7 @@ export function partLinesView(content: PartContent): PartLines {
 				case 'elsewhere':
 					return {
 						kind: 'elsewhere',
-						groups: [...block.groups],
+						groups: [...block.places.map((p) => p.group)],
 						lines: block.lines.map(lineView)
 					};
 			}
