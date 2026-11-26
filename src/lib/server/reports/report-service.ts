@@ -180,6 +180,7 @@ import {
 } from '#lib/core/github/pull-request.ts';
 import { pullRequestTitleOf } from '#lib/core/github/pull-request-title.tiny.ts';
 import type { GitHubEtag } from '#lib/core/github/github-etag.tiny.ts';
+import type { GitHubHost } from '#lib/core/github/github-host.tiny.ts';
 import {
 	gitHubRemoteOf,
 	gitHubRemotesOf,
@@ -190,6 +191,7 @@ import {
 	snapshotPullRequest,
 	type GitHubAccess,
 	type GitHubApiError,
+	type GitHubRateLimited,
 	type OpenPullRequests,
 	type PullRequestDetails
 } from '../sources/github/index.ts';
@@ -355,6 +357,11 @@ export const PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS = 300_000;
 
 /** How long to leave GitHub alone after it refused for too many requests without saying. */
 const RATE_LIMIT_WAIT_SECONDS = 60;
+
+/** Where a refusal for too many requests is kept: GitHub counts a host's requests by who asks. */
+function rateLimitKey(host: GitHubHost, signedIn: boolean): string {
+	return `${host}/${signedIn ? 'signed-in' : 'signed-out'}`;
+}
 
 /**
  * Who asks what GitHub says of a pull request: a page's check, which takes
@@ -1127,10 +1134,24 @@ export class ReportService {
 	readonly #github: GitHubAccess;
 	/** What GitHub last said of each pull request, by its identity, and when. */
 	readonly #pullRequests = new Map<string, KeptPullRequest>();
-	/** GitHub's last refusal to say, by the pull request's identity, when, and for how many milliseconds it stands. */
+	/**
+	 * GitHub's last refusal to say of a pull request, other than for too many
+	 * requests, by the pull request's identity: when, and for how many
+	 * milliseconds it stands.
+	 */
 	readonly #pullRequestRefusals = new Map<
 		string,
 		{ readonly error: GitHubApiError; readonly at: Timestamp; readonly wait: number }
+	>();
+	/**
+	 * GitHub's last refusal for too many requests, by host and whether it was
+	 * asked signed in (`rateLimitKey`), since GitHub counts requests by account,
+	 * or by computer for a person signed out, not by pull request: when, and for
+	 * how many milliseconds it stands.
+	 */
+	readonly #rateLimits = new Map<
+		string,
+		{ readonly error: GitHubRateLimited; readonly at: Timestamp; readonly wait: number }
 	>();
 
 	private constructor(db: Database, options: ReportServiceOptions) {
@@ -1274,8 +1295,15 @@ export class ReportService {
 		if (gitHub.value === undefined)
 			return err({ kind: 'NotOnGitHub', directory: worktreeOf(repo.value) });
 		const { remote, repository } = gitHub.value;
-		const pulls = await listOpenPullRequests(this.#github, repository, this.#clock.now());
-		return pulls.ok ? ok({ remote, repository, pulls: pulls.value }) : pulls;
+		const limited = await this.#rateLimited(repository.host);
+		if (limited !== undefined) return err(limited);
+		const now = this.#clock.now();
+		const pulls = await listOpenPullRequests(this.#github, repository, now);
+		if (!pulls.ok) {
+			this.#noteRateLimit(pulls.error, now);
+			return pulls;
+		}
+		return ok({ remote, repository, pulls: pulls.value });
 	}
 
 	/**
@@ -2659,8 +2687,10 @@ export class ReportService {
 	 * What GitHub says of a pull request, asked as `asking` says (see
 	 * `GitHubAsking`), with the tag of its last answer so that an unchanged
 	 * pull request costs a signed-in person nothing. A refusal is kept too: one
-	 * for too many requests until GitHub said to try again, for every caller;
-	 * any other for `PULL_REQUEST_CHECK_EVERY_MS`, for a page's checks only.
+	 * for too many requests until GitHub said to try again, for every caller
+	 * and every pull request of its host, while the person is signed in or out
+	 * as they were when it was refused (`#rateLimited`); any other for
+	 * `PULL_REQUEST_CHECK_EVERY_MS`, for a page's checks of this pull request only.
 	 */
 	async #pullRequestDetails(
 		ref: PullRequestRef,
@@ -2670,25 +2700,25 @@ export class ReportService {
 		const now = this.#clock.now();
 		const kept = this.#pullRequests.get(key);
 		if (asking === 'just-asked' && kept !== undefined) return ok(kept.details);
-		const refused = this.#pullRequestRefusals.get(key);
-		const left = refused === undefined ? 0 : refused.wait - timeBetween(refused.at, now);
-		if (refused !== undefined && left > 0) {
-			if (refused.error.kind === 'GitHubRateLimited') {
-				return err({ ...refused.error, waitSeconds: Math.ceil(left / 1000) });
-			}
-			if (asking === 'check') return err(refused.error);
-		}
 		if (asking === 'check' && kept !== undefined && now - kept.at < checkEvery(kept.signedIn)) {
 			return ok(kept.details);
+		}
+		const limited = await this.#rateLimited(ref.repository.host);
+		if (limited !== undefined) return err(limited);
+		const refused = this.#pullRequestRefusals.get(key);
+		if (
+			asking === 'check' &&
+			refused !== undefined &&
+			timeBetween(refused.at, now) < refused.wait
+		) {
+			return err(refused.error);
 		}
 		const { signedIn, read } = await readPullRequest(this.#github, ref, now, kept?.etag);
 		if (!read.ok) {
 			const { error } = read;
-			const wait =
-				error.kind === 'GitHubRateLimited'
-					? (error.waitSeconds ?? RATE_LIMIT_WAIT_SECONDS) * 1000
-					: PULL_REQUEST_CHECK_EVERY_MS;
-			this.#pullRequestRefusals.set(key, { error, at: now, wait });
+			if (error.kind === 'GitHubRateLimited') this.#noteRateLimit(error, now);
+			else
+				this.#pullRequestRefusals.set(key, { error, at: now, wait: PULL_REQUEST_CHECK_EVERY_MS });
 			return read;
 		}
 		this.#pullRequestRefusals.delete(key);
@@ -2702,6 +2732,41 @@ export class ReportService {
 		const { details, etag } = read.value;
 		this.#pullRequests.set(key, { at: now, details, etag, signedIn });
 		return ok(details);
+	}
+
+	/**
+	 * GitHub's refusal for too many requests to `host` that still stands for
+	 * the person as they are now, signed in or out, with how long is left; or
+	 * undefined, when GitHub may be asked. Whether they are signed in is asked
+	 * only while a refusal stands, so that signing in, or out, asks GitHub
+	 * again at once.
+	 */
+	async #rateLimited(host: GitHubHost): Promise<GitHubRateLimited | undefined> {
+		const now = this.#clock.now();
+		let standing = false;
+		for (const signedIn of [false, true]) {
+			const key = rateLimitKey(host, signedIn);
+			const limit = this.#rateLimits.get(key);
+			if (limit === undefined) continue;
+			if (timeBetween(limit.at, now) < limit.wait) standing = true;
+			else this.#rateLimits.delete(key);
+		}
+		if (!standing) return undefined;
+		const signedIn = (await this.#github.token(host)) !== undefined;
+		const limit = this.#rateLimits.get(rateLimitKey(host, signedIn));
+		if (limit === undefined) return undefined;
+		const left = limit.wait - timeBetween(limit.at, now);
+		return { ...limit.error, waitSeconds: Math.ceil(left / 1000) };
+	}
+
+	/** Keeps a refusal for too many requests until GitHub said to try again, or a minute. */
+	#noteRateLimit(error: GitHubApiError, now: Timestamp): void {
+		if (error.kind !== 'GitHubRateLimited') return;
+		this.#rateLimits.set(rateLimitKey(error.host, error.signedIn), {
+			error,
+			at: now,
+			wait: (error.waitSeconds ?? RATE_LIMIT_WAIT_SECONDS) * 1000
+		});
 	}
 
 	/** The source of a new report of `spec`, with what it is named by. */

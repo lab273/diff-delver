@@ -102,14 +102,6 @@ describe('pull requests through the daemon', () => {
 
 	it('says why one cannot be opened, and opens no page that would not say it', async () => {
 		const { clone, github, client } = await setUp();
-		github.refuseWith(429);
-		const spec = value(parseSourceSpec('https://github.com/acme/shop/pull/7'));
-		const outcome = await openOutcome(client, clone.dir, spec);
-		expect(outcome.exitCode).toBe(1);
-		expect(outcome.lines[0]).toContain('too many requests');
-		expect(outcome.page).toBeUndefined();
-
-		github.refuseWith(undefined);
 		await github.setPull('acme', 'shop', { ...DISCOUNT_PULL, number: 9, state: 'merged' });
 		const merged = await openOutcome(
 			client,
@@ -118,6 +110,14 @@ describe('pull requests through the daemon', () => {
 		);
 		expect(merged).toMatchObject({ exitCode: 0, page: undefined });
 		expect(merged.lines.join(' ')).toContain('merged');
+
+		github.refuseWith(429);
+		const spec = value(parseSourceSpec('https://github.com/acme/shop/pull/7'));
+		const outcome = await openOutcome(client, clone.dir, spec);
+		expect(outcome.exitCode).toBe(1);
+		expect(outcome.lines[0]).toContain('too many requests');
+		expect(outcome.page).toBeUndefined();
+		github.refuseWith(undefined);
 
 		const bad = await client.open({
 			directory: clone.dir,

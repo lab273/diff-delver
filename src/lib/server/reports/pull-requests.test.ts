@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { settableClock, type SettableClock } from '#lib/core/clock.ts';
+import { parseGitHubToken } from '#lib/core/github/github-token.tiny.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
@@ -62,6 +63,8 @@ interface World {
 	readonly github: GitHubStandIn;
 	readonly clock: SettableClock;
 	readonly service: ReportService;
+	/** The token the service finds now: set it to sign in or out. */
+	readonly signIn: { token: string | undefined };
 }
 
 const standIns: GitHubStandIn[] = [];
@@ -82,19 +85,27 @@ async function world(
 	const data = absolutePath(join(root, 'data'));
 	const clock = settableClock(at(1_700_000_100_000));
 	const who = await reviewer();
+	const signIn = { token: options.token };
+	const access = github.access(
+		undefined,
+		options.fetchSeconds === undefined ? {} : { fetchSeconds: options.fetchSeconds }
+	);
 	const service = value(
 		await ReportService.open({
 			dataDirectory: data,
 			clock,
 			ids: sequentialIds(),
 			repository: { gitEnv: who.gitEnv },
-			github: github.access(
-				options.token,
-				options.fetchSeconds === undefined ? {} : { fetchSeconds: options.fetchSeconds }
-			)
+			github: {
+				...access,
+				token: () =>
+					Promise.resolve(
+						signIn.token === undefined ? undefined : value(parseGitHubToken(signIn.token))
+					)
+			}
 		})
 	);
-	return { upstream, clone, data, github, clock, service };
+	return { upstream, clone, data, github, clock, service, signIn };
 }
 
 async function open(w: World, spec: SourceSpec = DISCOUNT): Promise<OpenOutcome> {
@@ -418,6 +429,63 @@ describe('a GitHub pull request', () => {
 		w.clock.advance(60_000);
 		expect(value(await w.service.update(id))).toMatchObject({ kind: 'unchanged' });
 		expect(count()).toBe(limitedAt + 1);
+	});
+
+	it('asks GitHub again at once when the person signs in while told to wait signed out', async () => {
+		const w = await world();
+		const id = created(await open(w));
+		const resetAt = Math.floor(w.clock.now() / 1000) + 3600;
+		w.github.refuseWith(429, { resetAt });
+		const limited = await w.service.update(id);
+		expect(!limited.ok && limited.error).toMatchObject({
+			kind: 'GitHubRateLimited',
+			signedIn: false
+		});
+		if (!limited.ok) expect(describeReportError(limited.error)).toContain('gh auth login');
+		w.github.refuseWith(undefined);
+		const asked = w.github.requests.length;
+		const still = await w.service.update(id);
+		expect(!still.ok && still.error.kind).toBe('GitHubRateLimited');
+		expect(w.github.requests.length).toBe(asked);
+
+		w.signIn.token = STAND_IN_TOKEN;
+		expect(value(await w.service.update(id))).toMatchObject({ kind: 'unchanged' });
+		expect(w.github.requests.length).toBe(asked + 1);
+		value(await w.service.pullRequests(w.clone.dir));
+		expect(w.github.requests.length).toBe(asked + 2);
+
+		// Signed out again, the wait GitHub gave this computer still stands.
+		w.signIn.token = undefined;
+		const out = await w.service.pullRequests(w.clone.dir);
+		expect(!out.ok && out.error).toMatchObject({ kind: 'GitHubRateLimited', signedIn: false });
+		expect(w.github.requests.length).toBe(asked + 2);
+	});
+
+	it('holds back every pull request’s checks, and the list, while GitHub asks to wait', async () => {
+		const w = await world();
+		const discount = created(await open(w));
+		const receipt = created(await open(w, RECEIPT));
+		const resetAt = Math.floor(w.clock.now() / 1000) + 600;
+		w.github.refuseWith(429, { resetAt });
+		const limited = await w.service.update(discount);
+		expect(!limited.ok && limited.error.kind).toBe('GitHubRateLimited');
+		w.github.refuseWith(undefined);
+		const asked = w.github.requests.length;
+
+		w.clock.advance(PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS);
+		const checked = await w.service.checkForChanges(receipt);
+		expect(!checked.ok && checked.error).toMatchObject({
+			kind: 'GitHubRateLimited',
+			waitSeconds: 300
+		});
+		const listed = await w.service.pullRequests(w.clone.dir);
+		expect(!listed.ok && listed.error.kind).toBe('GitHubRateLimited');
+		expect(w.github.requests.length).toBe(asked);
+
+		w.clock.advance(300_000);
+		expect(value(await w.service.checkForChanges(receipt))).toEqual({ kind: 'unchanged' });
+		value(await w.service.pullRequests(w.clone.dir));
+		expect(w.github.requests.length).toBe(asked + 2);
 	});
 
 	it('downloads everything it needs into a blobless or a shallow clone’s store', async () => {

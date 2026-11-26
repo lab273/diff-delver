@@ -12,7 +12,7 @@ export type {
 	ReadPullRequest
 } from './github-api.ts';
 export { listOpenPullRequests, PULL_REQUESTS_LISTED, readPullRequest } from './github-api.ts';
-export type { GitHubApiError, GitHubSourceError } from './github-error.ts';
+export type { GitHubApiError, GitHubRateLimited, GitHubSourceError } from './github-error.ts';
 export { describeGitHubSourceError } from './github-error.ts';
 export { gitHubRemoteOf, gitHubRemotesOf } from './github-remote.ts';
 export { pullRequestFingerprint, snapshotPullRequest } from './snapshot-pull-request.ts';
