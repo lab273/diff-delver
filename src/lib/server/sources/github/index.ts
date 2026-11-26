@@ -16,5 +16,5 @@ export type { GitHubApiError, GitHubRateLimited, GitHubSourceError } from './git
 export { describeGitHubSourceError } from './github-error.ts';
 export { gitHubRemoteOf, gitHubRemotesOf } from './github-remote.ts';
 export type { KeptFetch } from './kept-fetches.ts';
-export { fetchKey, forgetPullRequestFetches } from './kept-fetches.ts';
+export { fetchKey, forgetPullRequestFetches, removeHalfKeptFetches } from './kept-fetches.ts';
 export { pullRequestFingerprint, snapshotPullRequest } from './snapshot-pull-request.ts';

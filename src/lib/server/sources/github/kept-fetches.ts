@@ -22,7 +22,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseCommitId, type CommitId } from '#lib/core/commit-id.tiny.ts';
 import type { PullRequestRef } from '#lib/core/github/pull-request.ts';
@@ -107,7 +107,10 @@ export async function keepFetched(
 		const keep = join(to, `${pack}.keep`);
 		await writeFile(keep, `${HEADER}${key}\n${commits.join('\n')}\n`);
 		written.push(keep);
-		const parts = names.filter((name) => name.startsWith(`${pack}.`) && name !== idx);
+		// Never a `.keep` of git's own over ours.
+		const parts = names.filter(
+			(name) => name.startsWith(`${pack}.`) && name !== idx && !name.endsWith('.keep')
+		);
 		for (const part of [...parts, idx]) await rename(join(from, part), join(to, part));
 	}
 	return written;
@@ -125,4 +128,27 @@ export async function forgetPullRequestFetches(
 	const forgotten = (await keptFetches(storeObjects(store))).filter(which);
 	await Promise.all(forgotten.map((kept) => rm(kept.file, { force: true })));
 	return forgotten.length;
+}
+
+/**
+ * Removes the downloads a move into the store left half done, as when the
+ * daemon stopped midway: a `.keep` file of ours whose pack has no index, which
+ * git never reads, and the parts of the pack moved before it stopped. Only
+ * those kept before `writtenBefore` (milliseconds since 1970), so that a move
+ * under way is left alone. Returns how many it removed.
+ */
+export async function removeHalfKeptFetches(store: Store, writtenBefore: number): Promise<number> {
+	const folder = packFolder(storeObjects(store));
+	const names = await readdir(folder).catch((): string[] => []);
+	const half = (await keptFetches(storeObjects(store))).filter(
+		(kept) =>
+			kept.writtenAt < writtenBefore && !names.includes(`${basename(kept.file, '.keep')}.idx`)
+	);
+	for (const kept of half) {
+		const pack = basename(kept.file, '.keep');
+		const parts = names.filter((name) => name.startsWith(`${pack}.`) && !name.endsWith('.keep'));
+		await Promise.all(parts.map((name) => rm(join(folder, name), { force: true })));
+		await rm(kept.file, { force: true });
+	}
+	return half.length;
 }

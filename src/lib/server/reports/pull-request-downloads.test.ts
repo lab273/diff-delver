@@ -319,4 +319,37 @@ describe('the downloads of a pull request', () => {
 		expect(after.filter((file) => kept.includes(file)).sort()).toEqual(kept);
 		expect(after).toHaveLength(3);
 	});
+
+	it('left half moved into the store, with no index, are removed by tidying once they are old', async () => {
+		const { upstream, github } = await shop();
+		const clone = await cloneShop(upstream, join(await tempDirectory(), 'shop'));
+		await commitFiles(upstream, 'discount', 'gap', 2);
+		await upstream.git('checkout', '--quiet', 'main');
+		await github.setPull(SHOP_OWNER, SHOP_NAME, DISCOUNT_PULL);
+		const { service, data } = await serviceFor(github);
+		created(value(await service.open(clone.dir, DISCOUNT)));
+		const kept = [...(await downloads(data)).keys()];
+		expect(kept).toHaveLength(1);
+		const packs = join(await onlyStore(data), 'objects', 'pack');
+
+		// A move stopped long ago after its pack, and one under way now.
+		const long = (Date.now() - 2 * GRACE_PERIOD) / 1000;
+		for (const name of ['pack-stopped.keep', 'pack-stopped.pack', 'pack-stopped.rev']) {
+			await writeFile(
+				join(packs, name),
+				name.endsWith('.keep') ? 'diff-delver pull request 0123\n' : ''
+			);
+			await utimes(join(packs, name), long, long);
+		}
+		await writeFile(join(packs, 'pack-moving.keep'), 'diff-delver pull request 4567\n');
+		await writeFile(join(packs, 'pack-moving.pack'), '');
+		value(await service.tidyStores());
+		const after = await readdir(packs);
+		expect(after.filter((name) => name.startsWith('pack-stopped.'))).toEqual([]);
+		expect(after.filter((name) => name.startsWith('pack-moving.')).toSorted()).toEqual([
+			'pack-moving.keep',
+			'pack-moving.pack'
+		]);
+		expect([...(await downloads(data)).keys()]).toEqual(kept);
+	});
 });

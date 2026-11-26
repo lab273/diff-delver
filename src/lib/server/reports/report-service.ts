@@ -190,6 +190,7 @@ import {
 	machineGitHubAccess,
 	pullRequestFingerprint,
 	readPullRequest,
+	removeHalfKeptFetches,
 	snapshotPullRequest,
 	type GitHubAccess,
 	type GitHubApiError,
@@ -2638,13 +2639,16 @@ export class ReportService {
 		if (!removed.ok) return removed;
 		const collected = new Set(removed.value.map((r) => r.store));
 		// Downloads kept for a pull request that has no Delve, such as one whose
-		// opening failed after its fetch, once a fetch under way cannot be adding one.
+		// opening failed after its fetch, and those a stopped move left half kept,
+		// once a fetch under way cannot be adding one.
 		const stores = await listStores(this.#dataDirectory);
 		if (!stores.ok) return stores;
 		const before = Date.now() - GRACE_PERIOD;
 		for (const store of stores.value) {
 			const live = new Set(this.#pullRequestsIn(store.id).map(fetchKey));
 			const stray = (kept: KeptFetch): boolean => !live.has(kept.key) && kept.writtenAt < before;
+			// The half kept first, while their `.keep` files still name their packs.
+			await removeHalfKeptFetches(store, before);
 			if ((await forgetPullRequestFetches(store, stray)) > 0) this.#discarded.add(store.id);
 		}
 		// Taken now: a snapshot discarded while this runs is collected next time.
