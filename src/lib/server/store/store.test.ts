@@ -30,6 +30,7 @@ import {
 	describeSnapshotDiffError,
 	describeStoreError,
 	ensureStore,
+	FETCHING_REFS,
 	generatedPaths,
 	listSnapshotPaths,
 	listSnapshots,
@@ -374,6 +375,41 @@ describe('the snapshot store', () => {
 		value(await collectGarbage(target));
 		expect(await hasObject(target, fresh)).toBe(true);
 		expect(await hasObject(target, old)).toBe(false);
+	});
+
+	it('deletes the refs a fetch stopped midway left behind before it collects, which git could not walk', async () => {
+		const target = await store();
+		// A commit whose parent was only borrowed, from a clone the store never had.
+		const tree = value(await runGitText({ cwd: target.dir, args: ['mktree'], input: '' }));
+		const missing = '1'.repeat(40);
+		const orphan = value(
+			await runGitText({
+				cwd: target.dir,
+				args: ['hash-object', '-t', 'commit', '-w', '--literally', '--stdin'],
+				input: `tree ${tree}\nparent ${missing}\nauthor A <a@example.com> 1 +0000\ncommitter A <a@example.com> 1 +0000\n\nfetched\n`
+			})
+		);
+		value(
+			await runGit({
+				cwd: target.dir,
+				args: ['update-ref', `${FETCHING_REFS}stopped/known/0`, orphan]
+			})
+		);
+		// And one at an object a fetch wrote into its own folder, which went with it.
+		const head = join(target.dir, FETCHING_REFS, 'stopped', 'head');
+		await writeFile(head, `${'2'.repeat(40)}\n`);
+		const plain = await runGit({ cwd: target.dir, args: ['gc', '--quiet'] });
+		expect(plain.ok).toBe(false);
+
+		value(await collectGarbage(target));
+		expect(
+			value(
+				await runGitText({
+					cwd: target.dir,
+					args: ['for-each-ref', '--format=%(refname)', FETCHING_REFS]
+				})
+			)
+		).toBe('');
 	});
 
 	it('removes folders a crash left behind once they are an hour old, and nothing else', async () => {

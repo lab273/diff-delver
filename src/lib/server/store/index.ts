@@ -19,6 +19,8 @@ export type { Store } from './store.ts';
 export {
 	checkStoreUsable,
 	collectGarbage,
+	deleteRefsUnder,
+	FETCHING_REFS,
 	ensureStore,
 	listStores,
 	openStore,

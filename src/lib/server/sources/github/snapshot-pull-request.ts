@@ -16,8 +16,9 @@
  * a pack (`fetch.unpackLimit=1`), so git never writes a loose object, which is
  * when it would touch a copy the clone already has; the pack is then moved
  * into the store, kept for the pull request. The fetched branches are pinned
- * under refs of the snapshot's own while it is taken, and those refs are
- * deleted once the snapshot pins its trees. If a fetch that offered the
+ * under refs of the snapshot's own (`FETCHING_REFS`) while it is taken, and
+ * those refs are deleted once its trees are found, before the store is let go,
+ * since a collection could not walk a commit whose history is in the clone. If a fetch that offered the
  * earlier downloads fails, as it does when the clone whose history they were
  * fetched on top of is gone, it is made again without them, and they are
  * forgotten only if that works.
@@ -51,7 +52,9 @@ import type { GitHubToken } from '#lib/core/github/github-token.tiny.ts';
 import { borrowObjects, quotedAlternate } from '../../git/alternates.ts';
 import { runGit, runGitText } from '../../git/run-git.ts';
 import {
+	deleteRefsUnder,
 	ensureStore,
+	FETCHING_REFS,
 	removeStaleFolders,
 	takeSnapshot,
 	type Store,
@@ -347,16 +350,6 @@ async function fetchSides(
 	return ok({ base: base.value, head, trees: { base: baseTree, head: headTree } });
 }
 
-/** Deletes every ref under `refs` in the store. */
-async function dropRefs(store: Store, refs: string): Promise<void> {
-	const listed = await runGitText({
-		cwd: store.dir,
-		args: ['for-each-ref', '--format=delete %(refname)', refs]
-	});
-	if (!listed.ok || listed.value === '') return;
-	await runGit({ cwd: store.dir, args: ['update-ref', '--stdin'], input: `${listed.value}\n` });
-}
-
 /**
  * Takes a snapshot of the pull request as `details` describe it, in the store
  * `storeId`, borrowing the local clone `repo`, making the store if this is its
@@ -387,43 +380,41 @@ export async function snapshotPullRequest(
 		readonly result: Result<GitSnapshot, GitHubSourceError>;
 	}
 	const attempt = async (earlier: boolean): Promise<Attempt> => {
-		const refs = `refs/diff-delver/fetching/${id}/`;
+		const refs = `${FETCHING_REFS}${id}/`;
 		let offered = 0;
 		let kept: readonly string[] = [];
 		let sides: Fetched | undefined;
-		try {
-			const taken = await takeSnapshot(store.value, id, async (writer) => {
-				const fetched = await fetchSides(writer, repo, details, access, refs, earlier, {
-					offered: (n) => {
-						offered = n;
-					},
-					kept: (files) => {
-						kept = files;
-					}
-				});
-				if (!fetched.ok) return fetched;
-				sides = fetched.value;
-				return ok({
-					...fetched.value.trees,
-					copyFrom: borrowable(repo) ? repo.objects : undefined
-				});
+		const taken = await takeSnapshot(store.value, id, async (writer) => {
+			// The refs go once the trees are found, while the store is still held,
+			// so no collection ever finds one: the trees are copied and pinned by id.
+			const fetched = await fetchSides(writer, repo, details, access, refs, earlier, {
+				offered: (n) => {
+					offered = n;
+				},
+				kept: (files) => {
+					kept = files;
+				}
+			}).finally(() => deleteRefsUnder(writer.store, refs));
+			if (!fetched.ok) return fetched;
+			sides = fetched.value;
+			return ok({
+				...fetched.value.trees,
+				copyFrom: borrowable(repo) ? repo.objects : undefined
 			});
-			if (!taken.ok) return { offered, kept, result: taken };
-			return {
-				offered,
-				kept,
-				result: ok({
-					snapshot: taken.value.snapshot,
-					identity: pullRequestFingerprint(details, sides?.head),
-					baseCommit: sides?.base,
-					headCommit: sides?.head,
-					copied: objectCountOf(taken.value.copied),
-					leftOut: []
-				})
-			};
-		} finally {
-			await dropRefs(store.value, refs);
-		}
+		});
+		if (!taken.ok) return { offered, kept, result: taken };
+		return {
+			offered,
+			kept,
+			result: ok({
+				snapshot: taken.value.snapshot,
+				identity: pullRequestFingerprint(details, sides?.head),
+				baseCommit: sides?.base,
+				headCommit: sides?.head,
+				copied: objectCountOf(taken.value.copied),
+				leftOut: []
+			})
+		};
 	};
 	const started = Date.now();
 	const first = await attempt(true);

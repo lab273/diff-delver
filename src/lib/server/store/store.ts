@@ -220,13 +220,44 @@ export async function listStores(
 }
 
 /**
+ * Where a source points refs at commits for as long as it holds the store,
+ * such as a pull request's fetch, under a folder of its own per snapshot.
+ * They are deleted before it lets the store go, so none is left when the
+ * store is collected but one a process stopped midway left behind.
+ */
+export const FETCHING_REFS = 'refs/diff-delver/fetching/';
+
+/** Deletes every ref under `prefix` in the store, even one at an object it lacks. */
+export async function deleteRefsUnder(
+	store: Store,
+	prefix: string
+): Promise<Result<void, StoreError>> {
+	const listed = await runGitText({
+		cwd: store.dir,
+		args: ['for-each-ref', '--format=delete %(refname)', prefix]
+	});
+	if (!listed.ok) return listed;
+	if (listed.value === '') return ok(undefined);
+	const deleted = await runGit({
+		cwd: store.dir,
+		args: ['update-ref', '--stdin'],
+		input: `${listed.value}\n`
+	});
+	return deleted.ok ? ok(undefined) : deleted;
+}
+
+/**
  * Removes every object no snapshot has referred to for `GRACE_PERIOD` and
  * repacks the rest, so deleted snapshots give their space back (DESIGN 9.1).
  * Waits for everything else in this process using the store to finish, and
- * holds it until done.
+ * holds it until done. First it deletes the refs a fetch left behind
+ * (`FETCHING_REFS`): nothing holds the store, so none is in use, and one may
+ * point at a commit whose history was only borrowed, which git cannot walk.
  */
 export async function collectGarbage(store: Store): Promise<Result<void, StoreError>> {
 	return withStoreLock(store.dir, 'exclusive', async () => {
+		const dropped = await deleteRefsUnder(store, FETCHING_REFS);
+		if (!dropped.ok) return dropped;
 		const seconds = String(Math.round(GRACE_PERIOD / 1000));
 		const gc = await runGitText({
 			cwd: store.dir,
