@@ -168,6 +168,27 @@ export function pullRequestNothingLeft(ref: PullRequestRef, state: PullRequestSt
 	}
 }
 
+/**
+ * How a pull request changed on GitHub since the version a Delve shows: new
+ * commits on its branch (pushed, or force-pushed), or only its base, which it
+ * was retargeted to or which took in some of its commits.
+ */
+export type PullRequestChange = 'pushed' | 'base';
+
+/** What a page says of a pull request that changed, before offering to update. */
+export function describePullRequestChange(change: PullRequestChange): ReviewerMessage {
+	switch (change) {
+		case 'pushed':
+			return reviewerMessage(
+				'New commits were pushed to it on GitHub. What you see here is how it was before.'
+			);
+		case 'base':
+			return reviewerMessage(
+				'Its base changed on GitHub: it merges into another branch now, or its base branch took in some of its commits. What you see here is how it was before.'
+			);
+	}
+}
+
 /** Why a pull request had nothing to review when it was opened, and what to do instead. */
 export function describePullRequestNothingToReview(state: PullRequestState): ReviewerMessage {
 	switch (state) {

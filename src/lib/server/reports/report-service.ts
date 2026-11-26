@@ -175,6 +175,7 @@ import {
 	describePullRequestNothingToReview,
 	pullRequestIdentityParts,
 	pullRequestNothingLeft,
+	type PullRequestChange,
 	type PullRequestRef
 } from '#lib/core/github/pull-request.ts';
 import { pullRequestTitleOf } from '#lib/core/github/pull-request-title.tiny.ts';
@@ -636,8 +637,15 @@ interface SearchIndex {
 type SourceCheck =
 	/** Nothing changed, or the fingerprint raised a false alarm. */
 	| { readonly kind: 'unchanged' }
-	/** The trees differ: an update is waiting, which would change `files` files. */
-	| { readonly kind: 'changed'; readonly files: FileCount }
+	/**
+	 * The trees differ: an update is waiting, which would change `files` files;
+	 * for a pull request, with what changed on GitHub.
+	 */
+	| {
+			readonly kind: 'changed';
+			readonly files: FileCount;
+			readonly pullRequest?: PullRequestChange;
+	  }
 	/**
 	 * The source has nothing left to review (DESIGN 6.1). The report stays open
 	 * and readable: the page says so, keeps showing what was being read, and
@@ -3046,7 +3054,20 @@ export class ReportService {
 					await this.#discard(prepared.taken.snapshot.store, prepared.taken.snapshot.id);
 					return files;
 				}
-				return remember({ kind: 'changed', files: files.value }, prepared);
+				const pullRequest: PullRequestChange | undefined =
+					report.source.kind === 'git'
+						? undefined
+						: prepared.taken.headCommit === revision.headCommit
+							? 'base'
+							: 'pushed';
+				return remember(
+					{
+						kind: 'changed',
+						files: files.value,
+						...(pullRequest === undefined ? {} : { pullRequest })
+					},
+					prepared
+				);
 			}
 		}
 	}

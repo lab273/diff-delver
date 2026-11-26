@@ -1,6 +1,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+	describePullRequestChange,
 	describeInvalidPullRequestUrl,
 	describePullRequest,
 	parsePullRequestUrl,
@@ -99,6 +100,13 @@ describe('the words for a pull request', () => {
 		);
 		expect(pullRequestNothingLeft(ref, 'closed').reason).toContain('closed without being merged');
 		expect(pullRequestNothingLeft(ref, 'open').reason).toContain('no changes');
+	});
+
+	it('says whether commits were pushed or only its base changed', () => {
+		expect(describePullRequestChange('pushed')).toContain(
+			'New commits were pushed to it on GitHub.'
+		);
+		expect(describePullRequestChange('base')).toContain('Its base changed on GitHub');
 	});
 
 	it('says what to give instead of an address that is not a pull request', () => {

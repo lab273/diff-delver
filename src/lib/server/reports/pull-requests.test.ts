@@ -209,7 +209,11 @@ describe('a GitHub pull request', () => {
 		w.clock.advance(PULL_REQUEST_CHECK_EVERY_MS);
 		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
 		w.clock.advance(PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS - PULL_REQUEST_CHECK_EVERY_MS);
-		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'changed', files: 1 });
+		expect(value(await w.service.checkForChanges(id))).toEqual({
+			kind: 'changed',
+			files: 1,
+			pullRequest: 'pushed'
+		});
 		const updated = value(await w.service.update(id));
 		if (updated.kind !== 'updated') throw new Error(updated.kind);
 		expect(updated.report.revision).toBe(2);
@@ -265,6 +269,21 @@ describe('a GitHub pull request', () => {
 		expect(value(await w.service.load(id)).summary.repositoryPath).toBe(second.dir);
 		w.clock.advance(PULL_REQUEST_CHECK_EVERY_MS);
 		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'unchanged' });
+	});
+
+	it('says when only its base changed: it was retargeted', async () => {
+		const w = await world();
+		await push(w, 'src/coupon.ts', 'export const COUPON = 10;\n', 'Add a coupon');
+		const id = created(await open(w));
+		// Its base becomes a branch that has its first commit, so only the coupon is left.
+		await w.upstream.git('branch', 'partway', 'discount~1');
+		await w.github.setPull(SHOP_OWNER, SHOP_NAME, { ...DISCOUNT_PULL, base: 'partway' });
+		w.clock.advance(PULL_REQUEST_CHECK_SIGNED_OUT_EVERY_MS);
+		expect(value(await w.service.checkForChanges(id))).toEqual({
+			kind: 'changed',
+			files: 2,
+			pullRequest: 'base'
+		});
 	});
 
 	it('follows a force-push, and running it again counts as asking', async () => {
@@ -352,7 +371,11 @@ describe('a GitHub pull request', () => {
 
 		await push(w, 'src/coupon.ts', 'export const COUPON = 10;\n', 'Add a coupon');
 		w.clock.advance(PULL_REQUEST_CHECK_EVERY_MS);
-		expect(value(await w.service.checkForChanges(id))).toEqual({ kind: 'changed', files: 1 });
+		expect(value(await w.service.checkForChanges(id))).toEqual({
+			kind: 'changed',
+			files: 1,
+			pullRequest: 'pushed'
+		});
 		expect(w.github.requests.at(-1)?.status).toBe(200);
 	});
 

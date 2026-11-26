@@ -68,6 +68,7 @@ import {
 } from '#lib/core/viewer/parts.ts';
 import type { NextSource } from '#lib/core/reports/nothing-left.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import { describePullRequestChange } from '#lib/core/github/pull-request.ts';
 import { formatGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import { formatSourceSpec } from '#lib/core/sources/source-spec.ts';
 import { sourceSpecOf } from '#lib/core/reports/report.ts';
@@ -551,7 +552,14 @@ export function changeView(check: ChangeCheck): ChangeCheckResponse {
 		case 'unchanged':
 			return { kind: 'unchanged' };
 		case 'changed':
-			return { kind: 'changed', files: check.files };
+			return {
+				kind: 'changed',
+				files: check.files,
+				reason:
+					check.pullRequest === undefined
+						? reviewerMessage('What you see here is how they were before.')
+						: describePullRequestChange(check.pullRequest)
+			};
 		case 'updated':
 			return { kind: 'updated', version: check.revision };
 		case 'nothing-left':

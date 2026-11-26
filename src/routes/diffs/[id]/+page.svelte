@@ -1985,9 +1985,7 @@
 					headingId="changed-heading"
 				>
 					<p>
-						{pull
-							? 'New commits were pushed to it on GitHub. What you see here is how it was before.'
-							: 'What you see here is how they were before.'}
+						{check.reason}
 						{check.files === 0
 							? 'None of the changes this diff shows are different, so updating brings nothing new to review.'
 							: `Update to see the ${fileCount(check.files)} that changed as they are now. Lines you marked as reviewed stay marked, unless they or the lines close to them changed.`}

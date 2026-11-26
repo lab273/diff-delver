@@ -706,8 +706,8 @@ export type ColoursView = z.output<typeof ColoursSchema>;
  */
 export const ChangeCheckSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('unchanged') }),
-	/** An update is waiting; it would change this many files. */
-	z.object({ kind: z.literal('changed'), files: fileCount }),
+	/** An update is waiting; it would change this many files. `reason` says what changed. */
+	z.object({ kind: z.literal('changed'), files: fileCount, reason: message }),
 	/** The diff has a newer version than the page shows, made elsewhere, such as by the command. */
 	z.object({ kind: z.literal('updated'), version }),
 	z.object({ kind: z.literal('nothing-left'), reason: message, next: NextSourceSchema.nullable() }),
