@@ -17,9 +17,10 @@
  * when it would touch a copy the clone already has; the pack is then moved
  * into the store, kept for the pull request. The fetched branches are pinned
  * under refs of the snapshot's own while it is taken, and those refs are
- * deleted once the snapshot pins its trees. If the earlier downloads cannot
- * be used, such as when the clone whose history they were fetched on top of
- * is gone, they are forgotten and the fetch is made again without them.
+ * deleted once the snapshot pins its trees. If a fetch that offered the
+ * earlier downloads fails, as it does when the clone whose history they were
+ * fetched on top of is gone, it is made again without them, and they are
+ * forgotten only if that works.
  *
  * Everything is fetched, not only what a blobless fetch would bring: with
  * the clone borrowed that is little more, and it leaves the snapshot whole in
@@ -263,7 +264,8 @@ export function fetchArguments(
  * Fetches the pull request's branch and base into the store under `refs`,
  * keeping the download for the pull request, and finds the two trees. With
  * `earlier`, the store's earlier downloads are offered to GitHub as what the
- * store has; `offered` is told how many commits that was.
+ * store has; `told` is told how many commits that was, and which `.keep`
+ * files this download wrote.
  */
 async function fetchSides(
 	writer: StoreWriter,
@@ -272,12 +274,12 @@ async function fetchSides(
 	access: GitHubAccess,
 	refs: string,
 	earlier: boolean,
-	offered: (count: number) => void
+	told: { offered: (count: number) => void; kept: (files: readonly string[]) => void }
 ): Promise<Result<Fetched, GitHubSourceError>> {
 	const store = writer.store;
 	const host = details.ref.repository.host;
 	const address = access.gitAddress(details.ref.repository);
-	offered(earlier ? await pointAtKept(writer, repo, refs) : 0);
+	told.offered(earlier ? await pointAtKept(writer, repo, refs) : 0);
 	await removeStaleFolders(store.dir, INCOMING);
 	const incoming = absolute(await mkdtemp(join(store.dir, INCOMING)));
 	try {
@@ -307,7 +309,7 @@ async function fetchSides(
 		const head = await commitAt(store, `${refs}head`, into);
 		const tip = await commitAt(store, `${refs}base`, into);
 		if (head !== undefined && tip !== undefined) {
-			await keepFetched(incoming, writer.objects, fetchKey(details.ref), [head, tip]);
+			told.kept(await keepFetched(incoming, writer.objects, fetchKey(details.ref), [head, tip]));
 		}
 	} finally {
 		await rm(incoming, { recursive: true, force: true });
@@ -377,19 +379,27 @@ export async function snapshotPullRequest(
 		repositoryNameOf(repo.commonDir)
 	);
 	if (!store.ok) return store;
-	const attempt = async (
-		earlier: boolean
-	): Promise<{
+	interface Attempt {
+		/** How many commits of earlier downloads were offered to GitHub. */
 		readonly offered: number;
+		/** The `.keep` files its download wrote. */
+		readonly kept: readonly string[];
 		readonly result: Result<GitSnapshot, GitHubSourceError>;
-	}> => {
+	}
+	const attempt = async (earlier: boolean): Promise<Attempt> => {
 		const refs = `refs/diff-delver/fetching/${id}/`;
 		let offered = 0;
+		let kept: readonly string[] = [];
 		let sides: Fetched | undefined;
 		try {
 			const taken = await takeSnapshot(store.value, id, async (writer) => {
-				const fetched = await fetchSides(writer, repo, details, access, refs, earlier, (n) => {
-					offered = n;
+				const fetched = await fetchSides(writer, repo, details, access, refs, earlier, {
+					offered: (n) => {
+						offered = n;
+					},
+					kept: (files) => {
+						kept = files;
+					}
 				});
 				if (!fetched.ok) return fetched;
 				sides = fetched.value;
@@ -398,9 +408,10 @@ export async function snapshotPullRequest(
 					copyFrom: borrowable(repo) ? repo.objects : undefined
 				});
 			});
-			if (!taken.ok) return { offered, result: taken };
+			if (!taken.ok) return { offered, kept, result: taken };
 			return {
 				offered,
+				kept,
 				result: ok({
 					snapshot: taken.value.snapshot,
 					identity: pullRequestFingerprint(details, sides?.head),
@@ -414,13 +425,26 @@ export async function snapshotPullRequest(
 			await dropRefs(store.value, refs);
 		}
 	};
+	const started = Date.now();
 	const first = await attempt(true);
 	if (first.result.ok || first.offered === 0 || !mayBeTheEarlierDownloads(first.result.error)) {
 		return first.result;
 	}
-	// What they were fetched on top of may be gone, such as the clone they borrowed.
-	await forgetPullRequestFetches(store.value, undefined);
-	return (await attempt(false)).result;
+	// What they were fetched on top of may be gone, such as the clone they
+	// borrowed. Tried again without them, they are forgotten only if that works,
+	// since a failure of both says nothing against them.
+	const second = await attempt(false);
+	if (!second.result.ok) return second.result;
+	// Which of them could not be used is not known without walking each one's
+	// whole history, so every one kept before the first try is forgotten, and
+	// whatever the first try kept on top of them; this try's, and any another
+	// fetch kept meanwhile, stay.
+	const suspect = new Set(first.kept);
+	await forgetPullRequestFetches(
+		store.value,
+		(kept) => suspect.has(kept.file) || kept.writtenAt < started
+	);
+	return second.result;
 }
 
 /**

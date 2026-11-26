@@ -21,11 +21,10 @@
  * then keeps what a snapshot still uses and frees the rest.
  */
 import { createHash } from 'node:crypto';
-import { open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseCommitId, type CommitId } from '#lib/core/commit-id.tiny.ts';
-import { objectCountOf, type ObjectCount } from '#lib/core/object-count.tiny.ts';
 import type { PullRequestRef } from '#lib/core/github/pull-request.ts';
 import { pullRequestReportIdentity } from '#lib/core/reports/report-identity.ts';
 import type { Store } from '../../store/index.ts';
@@ -86,23 +85,10 @@ export async function keptFetches(objects: AbsolutePath): Promise<readonly KeptF
 	return kept.filter((k) => k !== undefined);
 }
 
-/** How many objects a pack holds, from its index's fan-out table (version 2). */
-async function objectsInIndex(idx: string): Promise<number> {
-	const file = await open(idx, 'r');
-	try {
-		const last = Buffer.alloc(4);
-		// An 8-byte header, then 256 counts; the last is every object.
-		await file.read(last, 0, 4, 8 + 255 * 4);
-		return last.readUInt32BE(0);
-	} finally {
-		await file.close();
-	}
-}
-
 /**
  * Moves the packs a fetch wrote into the object folder `incoming` into
  * `objects`, each kept for the pull request `key` with the `commits` it
- * fetched, and returns how many objects they hold. Each `.keep` file is
+ * fetched, and returns the `.keep` files it wrote. Each `.keep` file is
  * written before its pack, and the index, by which git finds a pack, is
  * moved last, so no collection ever sees the pack unkept.
  */
@@ -111,39 +97,32 @@ export async function keepFetched(
 	objects: AbsolutePath,
 	key: string,
 	commits: readonly CommitId[]
-): Promise<ObjectCount> {
+): Promise<readonly string[]> {
 	const from = packFolder(incoming);
 	const to = packFolder(objects);
 	const names = await readdir(from);
-	let count = 0;
+	const written: string[] = [];
 	for (const idx of names.filter((name) => name.endsWith('.idx'))) {
 		const pack = idx.slice(0, -'.idx'.length);
-		count += await objectsInIndex(join(from, idx));
-		await writeFile(join(to, `${pack}.keep`), `${HEADER}${key}\n${commits.join('\n')}\n`);
+		const keep = join(to, `${pack}.keep`);
+		await writeFile(keep, `${HEADER}${key}\n${commits.join('\n')}\n`);
+		written.push(keep);
 		const parts = names.filter((name) => name.startsWith(`${pack}.`) && name !== idx);
 		for (const part of [...parts, idx]) await rename(join(from, part), join(to, part));
 	}
-	return objectCountOf(count);
+	return written;
 }
 
 /**
- * Forgets the downloads kept in the store for any pull request not among
- * `live`, or, with `live` undefined, every one; with `writtenBefore`, only
- * those kept before then (milliseconds since 1970), so that one a fetch has
- * just kept for a Delve not yet recorded is left alone. The next collection
- * frees what no snapshot uses. Returns how many it forgot.
+ * Forgets the downloads kept in the store that `which` picks, such as those
+ * of a pull request with no Delve. The next collection frees what no
+ * snapshot uses. Returns how many it forgot.
  */
 export async function forgetPullRequestFetches(
 	store: Store,
-	live: readonly PullRequestRef[] | undefined,
-	writtenBefore?: number
+	which: (kept: KeptFetch) => boolean
 ): Promise<number> {
-	const keys = live === undefined ? undefined : new Set(live.map(fetchKey));
-	const forgotten = (await keptFetches(storeObjects(store))).filter(
-		(kept) =>
-			(keys === undefined || !keys.has(kept.key)) &&
-			(writtenBefore === undefined || kept.writtenAt < writtenBefore)
-	);
+	const forgotten = (await keptFetches(storeObjects(store))).filter(which);
 	await Promise.all(forgotten.map((kept) => rm(kept.file, { force: true })));
 	return forgotten.length;
 }

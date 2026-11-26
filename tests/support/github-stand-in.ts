@@ -10,6 +10,7 @@
  * and with which sign-in.
  */
 import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { GitHubAccess } from '#lib/server/sources/github/index.ts';
 import { GITHUB_COM } from '#lib/core/github/github-host.tiny.ts';
@@ -77,6 +78,11 @@ export interface GitHubStandIn {
 	 * with `resetAt` (seconds since 1970), when they are reset, as GitHub does.
 	 */
 	refuseWith(status: number | undefined, options?: { readonly resetAt?: number }): void;
+	/**
+	 * Refuses every fetch of a repository's commits for now, as a dropped
+	 * connection would, or with false serves them again. The API still answers.
+	 */
+	refuseFetches(refuse: boolean): void;
 	/** The requests answered so far, oldest first. */
 	readonly requests: readonly StandInRequest[];
 	close(): Promise<void>;
@@ -138,6 +144,7 @@ function etagOf(body: unknown): string {
 export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 	const repositories = new Map<string, StandInRepository>();
 	const requests: StandInRequest[] = [];
+	let refusingFetches = false;
 	let refusing: { readonly status: number; readonly resetAt: number | undefined } | undefined;
 	const key = (owner: string, name: string): string => `${owner}/${name}`.toLowerCase();
 
@@ -240,7 +247,8 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 					if (served === undefined) {
 						throw new Error(`The stand-in has no ${repository.owner}/${repository.name}`);
 					}
-					return served.repo.dir;
+					// A folder that is no repository, so git's transport fails.
+					return refusingFetches ? join(served.repo.dir, 'refused') : served.repo.dir;
 				},
 				token: () => Promise.resolve(parsed?.value),
 				seconds: 10,
@@ -268,6 +276,9 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 		},
 		refuseWith(status, options = {}) {
 			refusing = status === undefined ? undefined : { status, resetAt: options.resetAt };
+		},
+		refuseFetches(refuse) {
+			refusingFetches = refuse;
 		},
 		requests,
 		async close() {

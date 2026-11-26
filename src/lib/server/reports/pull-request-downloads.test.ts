@@ -27,6 +27,7 @@ import {
 	buildShopUpstream,
 	cloneShop,
 	DISCOUNT_PULL,
+	RECEIPT_PULL,
 	serveShop,
 	SHOP_NAME,
 	SHOP_OWNER,
@@ -37,6 +38,7 @@ import { reviewer } from '../../../../tests/support/reviewer-git.ts';
 import { ReportService, type OpenOutcome } from './index.ts';
 
 const DISCOUNT = value(parseSourceSpec('https://github.com/acme/shop/pull/7'));
+const RECEIPT = value(parseSourceSpec('https://github.com/acme/shop/pull/8'));
 
 const standIns: GitHubStandIn[] = [];
 afterEach(async () => {
@@ -285,5 +287,36 @@ describe('the downloads of a pull request', () => {
 		]);
 		const after = await downloads(data);
 		expect([...after.keys()].filter((file) => before.has(file))).toEqual([]);
+	});
+
+	it('are all still kept after a fetch that failed with them and without them', async () => {
+		const { upstream, github } = await shop();
+		const clone = await cloneShop(upstream, join(await tempDirectory(), 'shop'));
+		// What the clone never fetched, on each pull request, so each download is kept.
+		await commitFiles(upstream, 'discount', 'gap', 2);
+		await commitFiles(upstream, 'receipt', 'gap', 2);
+		await upstream.git('checkout', '--quiet', 'main');
+		await github.setPull(SHOP_OWNER, SHOP_NAME, DISCOUNT_PULL);
+		await github.setPull(SHOP_OWNER, SHOP_NAME, RECEIPT_PULL);
+		const { service, data } = await serviceFor(github);
+		const discount = created(value(await service.open(clone.dir, DISCOUNT)));
+		created(value(await service.open(clone.dir, RECEIPT)));
+		const kept = [...(await downloads(data)).keys()].sort();
+		expect(kept).toHaveLength(2);
+
+		// A push, then a connection that drops on both tries.
+		await commitFiles(upstream, 'discount', 'more', 1);
+		await upstream.git('checkout', '--quiet', 'main');
+		await github.setPull(SHOP_OWNER, SHOP_NAME, DISCOUNT_PULL);
+		github.refuseFetches(true);
+		const failed = await service.update(discount);
+		expect(failed.ok).toBe(false);
+		expect([...(await downloads(data)).keys()].sort()).toEqual(kept);
+
+		github.refuseFetches(false);
+		expect(value(await service.update(discount))).toMatchObject({ kind: 'updated' });
+		const after = [...(await downloads(data)).keys()];
+		expect(after.filter((file) => kept.includes(file)).sort()).toEqual(kept);
+		expect(after).toHaveLength(3);
 	});
 });

@@ -182,6 +182,7 @@ import { pullRequestTitleOf } from '#lib/core/github/pull-request-title.tiny.ts'
 import type { GitHubEtag } from '#lib/core/github/github-etag.tiny.ts';
 import type { GitHubHost } from '#lib/core/github/github-host.tiny.ts';
 import {
+	fetchKey,
 	forgetPullRequestFetches,
 	gitHubRemoteOf,
 	gitHubRemotesOf,
@@ -193,6 +194,7 @@ import {
 	type GitHubAccess,
 	type GitHubApiError,
 	type GitHubRateLimited,
+	type KeptFetch,
 	type OpenPullRequests,
 	type PullRequestDetails
 } from '../sources/github/index.ts';
@@ -2506,7 +2508,9 @@ export class ReportService {
 		// A pull request's downloads go with its Delve, collected with its snapshots.
 		for (const storeId of stores) {
 			const store = await openStore(this.#dataDirectory, storeId);
-			if (store.ok) await forgetPullRequestFetches(store.value, this.#pullRequestsIn(storeId));
+			if (!store.ok) continue;
+			const live = new Set(this.#pullRequestsIn(storeId).map(fetchKey));
+			await forgetPullRequestFetches(store.value, (kept) => !live.has(kept.key));
 		}
 		const removedSnapshots = await this.#removeSnapshots(removed.value);
 		return ok(removedSnapshots);
@@ -2639,8 +2643,9 @@ export class ReportService {
 		if (!stores.ok) return stores;
 		const before = Date.now() - GRACE_PERIOD;
 		for (const store of stores.value) {
-			const live = this.#pullRequestsIn(store.id);
-			if ((await forgetPullRequestFetches(store, live, before)) > 0) this.#discarded.add(store.id);
+			const live = new Set(this.#pullRequestsIn(store.id).map(fetchKey));
+			const stray = (kept: KeptFetch): boolean => !live.has(kept.key) && kept.writtenAt < before;
+			if ((await forgetPullRequestFetches(store, stray)) > 0) this.#discarded.add(store.id);
 		}
 		// Taken now: a snapshot discarded while this runs is collected next time.
 		const due = [...this.#discarded].filter((id) => !collected.has(id));
