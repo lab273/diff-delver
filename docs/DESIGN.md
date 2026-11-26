@@ -772,6 +772,11 @@ yet.
   and selecting a range of lines (arrow keys to move, Shift with them to extend,
   Enter for the menu). Every line of a diff, on either side, can be reached and
   selected without a pointer.
+- The tick key works through the diff: it marks the file the reader is on as
+  reviewed and goes on to the next one waiting, so pressing it again and again
+  reviews the diff in reading order. It never takes a mark off (the file's tick
+  box does that); on a file already reviewed, or ignored, it only moves on, and a
+  tick that is refused stays where it was said, without moving.
 
 ### 8.4 Visual diffs
 
