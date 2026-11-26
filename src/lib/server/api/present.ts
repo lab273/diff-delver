@@ -597,6 +597,8 @@ function postStatusOf(problem: ReviewPostProblem): number {
 			return 504;
 		case 'being-posted':
 			return 409;
+		case 'earlier-post-unchecked':
+			return postStatusOf(problem.cause);
 		case 'signed-out':
 		case 'sign-in-refused':
 		case 'not-allowed':

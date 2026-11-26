@@ -23,6 +23,7 @@ import type { GitHubToken } from '#lib/core/github/github-token.tiny.ts';
 import { pullRequestShortName, type PullRequestRef } from '#lib/core/github/pull-request.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
+import type { ReviewNumber } from '#lib/core/review-number.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 import type { GitHubAccess } from './github-access.ts';
 import { ask, refusal, repositoryPath, type Answer } from './github-api.ts';
@@ -85,7 +86,17 @@ export type ReviewPostProblem =
 	/** Another press is finishing or posting this Delve's draft now. */
 	| { readonly kind: 'being-posted' }
 	/** The version reviewed has no commit to post on, which a pull request's always has. */
-	| { readonly kind: 'no-commit' };
+	| { readonly kind: 'no-commit' }
+	/**
+	 * An earlier post of review `number` may have reached GitHub unanswered,
+	 * and GitHub could not be asked whether it did, so it is not finished
+	 * without posting, which could leave it on GitHub unrecorded.
+	 */
+	| {
+			readonly kind: 'earlier-post-unchecked';
+			readonly number: ReviewNumber;
+			readonly cause: ReviewPostProblem;
+	  };
 
 /** A review could not be posted to its pull request. Nothing was finished. */
 export interface ReviewNotPosted {
@@ -246,6 +257,34 @@ function describeWait(seconds: number | undefined): string {
 	return `Finish again in ${String(Math.ceil(minutes / 60))} hours.`;
 }
 
+/** Why GitHub could not be asked, as words that follow "could not ask GitHub whether it did:". */
+function whyUnasked(cause: ReviewPostProblem): string {
+	switch (cause.kind) {
+		case 'signed-out':
+			return 'you are not signed in to GitHub ("gh auth login" signs you in)';
+		case 'sign-in-refused':
+			return 'GitHub refused your sign-in, which has most likely expired ("gh auth login" signs you in again)';
+		case 'not-allowed':
+			return 'GitHub did not let your sign-in see the pull request’s reviews';
+		case 'rate-limited':
+			return 'GitHub has had too many requests from your account for now';
+		case 'unreachable':
+			return 'GitHub could not be reached';
+		case 'unanswered':
+			return `GitHub did not answer within ${String(cause.seconds)} seconds`;
+		case 'unreadable':
+		case 'pending-review-exists':
+		case 'own-pull-request':
+		case 'refused':
+		case 'lines-refused':
+		case 'closed':
+		case 'being-posted':
+		case 'no-commit':
+		case 'earlier-post-unchecked':
+			return 'GitHub did not answer in a way diff delver could read';
+	}
+}
+
 /** What happened and what to do next, for the reviewer. */
 export function describeReviewNotPosted(error: ReviewNotPosted): ReviewerMessage {
 	const pull =
@@ -280,6 +319,8 @@ export function describeReviewNotPosted(error: ReviewNotPosted): ReviewerMessage
 				return `This review is being finished or posted to GitHub already, perhaps from another tab. ${NOTHING_FINISHED} Wait for it, then look under Finished reviews.`;
 			case 'no-commit':
 				return `This version of the Delve has no commit to post the review on. ${NOTHING_FINISHED} Finish and copy only to hand the review over.`;
+			case 'earlier-post-unchecked':
+				return `Your earlier post of review ${String(problem.number)} to GitHub may have reached it, and diff delver could not ask GitHub whether it did: ${whyUnasked(problem.cause)}. ${NOTHING_FINISHED} Once GitHub can be asked, finish again: diff delver looks for that review first, records it as posted if it is there, and never posts it twice.`;
 		}
 	})();
 	return reviewerMessage(said);

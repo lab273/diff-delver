@@ -526,6 +526,49 @@ describe('posting a review to its pull request', () => {
 		expect(w.github.requests.filter((r) => r.path.includes('/reviews'))).toEqual([]);
 	});
 
+	it('looks on GitHub before finishing and copying only, after a post whose answer never came', async () => {
+		const w = await world();
+		await comment(w, 'src/discount.ts', 'new', 2, 2, 'One.');
+		w.github.refuseReviews({ kind: 'drop-answer' });
+		failure(await post(w));
+
+		// GitHub cannot be asked: nothing is finished, since review 1 may be on GitHub.
+		w.signIn.token = undefined;
+		const unchecked = failure(await w.service.finishReview(w.id, FIRST, shown(w)));
+		expect(describeReportError(unchecked)).toBe(
+			'Your earlier post of review 1 to GitHub may have reached it, and diff delver could not ask GitHub whether it did: you are not signed in to GitHub ("gh auth login" signs you in). Nothing was finished, and your draft is as it was. Once GitHub can be asked, finish again: diff delver looks for that review first, records it as posted if it is there, and never posts it twice.'
+		);
+		nothingFinished(w, 1);
+		w.signIn.token = STAND_IN_TOKEN;
+
+		// Asked, it is there: recorded as posted, not as copied only.
+		const review = value(await w.service.finishReview(w.id, FIRST, shown(w)));
+		expect(review.earlier).toEqual({ draftKept: false });
+		expect(review.posted).toMatchObject({
+			postedAs: 'comment',
+			address: `${PULL}#pullrequestreview-${String(FIRST_REVIEW_ID)}`
+		});
+		expect(posts(w)).toHaveLength(1);
+		expect(value(w.service.draftComments(w.id))).toEqual([]);
+	});
+
+	it('finishes and copies only once GitHub says an earlier unanswered post is not there', async () => {
+		const w = await world();
+		overall(w, 'Never reached GitHub.');
+		w.github.refuseReviews({ kind: 'status', status: 502, message: 'Bad Gateway' });
+		failure(await post(w));
+
+		const review = value(await w.service.finishReview(w.id, FIRST, shown(w)));
+		expect(review.posted).toBeUndefined();
+		expect(review.earlier).toBeUndefined();
+		expect(reviewsOnGitHub(w)).toEqual([]);
+		// The note is forgotten: the next post does not look for review 1 again.
+		overall(w, 'Second.');
+		value(await post(w));
+		const asked = w.github.requests.filter((r) => r.path.includes('/reviews'));
+		expect(asked.map((r) => r.method)).toEqual(['POST', 'GET', 'POST']);
+	});
+
 	it('refuses to post a Delve that is not of a pull request', async () => {
 		const w = await world();
 		await w.clone.write('src/price.ts', 'changed\n');

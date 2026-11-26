@@ -149,7 +149,8 @@ import {
 	forgetPosting,
 	noteAllInText,
 	notePosting,
-	reviewBeingPosted
+	reviewBeingPosted,
+	type ReviewPostNote
 } from '../db/tables/github-review-posts.ts';
 import {
 	gitHubReview,
@@ -1156,6 +1157,7 @@ function surelyNotPosted(problem: ReviewPostProblem): boolean {
 		case 'closed':
 		case 'being-posted':
 		case 'no-commit':
+		case 'earlier-post-unchecked':
 			return true;
 	}
 }
@@ -2307,6 +2309,9 @@ export class ReportService {
 		const prepared = await this.#prepareReview(id, seen, shown);
 		if (!prepared.ok) return prepared;
 		const { found, diff, draft, quoted } = prepared.value;
+		const earlier = await this.#earlierPost(id, seen, found.report);
+		if (!earlier.ok) return earlier;
+		if (earlier.value !== undefined) return ok(earlier.value);
 		return this.#db.write((q) =>
 			andThen(currentAsSeen(q, id, seen), (now): Result<JustFinished, ReportError> => {
 				if (now.revision.id !== found.revision.id) {
@@ -2344,6 +2349,56 @@ export class ReportService {
 				});
 			})
 		);
+	}
+
+	/**
+	 * Before the draft is finished and copied only: when an earlier post of
+	 * the next review may have reached GitHub unanswered, looks there for it.
+	 * One found is recorded as posted, as it was sent; when there is none, the
+	 * note is forgotten and undefined lets the finish go on. When GitHub cannot
+	 * be asked, nothing is finished, since the review may be on GitHub.
+	 */
+	async #earlierPost(
+		id: ReportId,
+		seen: RevisionNumber,
+		report: Report
+	): Promise<Result<JustFinished | undefined, ReportError>> {
+		const noted = this.#db.read((q): Result<ReviewPostNote | undefined, ReportError> =>
+			andThen(reviewBeingPosted(q, id), (note) =>
+				andThen(latestReviewNumber(q, id), (latest) =>
+					ok(note !== undefined && note.number === nextReviewNumber(latest) ? note : undefined)
+				)
+			)
+		);
+		if (!noted.ok) return noted;
+		const note = noted.value;
+		if (note === undefined || report.source.kind !== 'github') return ok(undefined);
+		const pullRequest = report.source.pullRequest;
+		const unchecked = (cause: ReviewPostProblem): Result<never, ReportError> => {
+			if (cause.kind === 'rate-limited') this.#noteRateLimit(cause.limit, this.#clock.now());
+			return err({
+				kind: 'ReviewNotPosted',
+				pullRequest,
+				problem: { kind: 'earlier-post-unchecked', number: note.number, cause }
+			});
+		};
+		const limited = await this.#rateLimited(pullRequest.repository.host);
+		if (limited !== undefined) return unchecked({ kind: 'rate-limited', limit: limited });
+		const found = await findReview(
+			this.#github,
+			pullRequest,
+			reviewMarker(id, note.number, note.mark),
+			this.#clock.now()
+		);
+		if (!found.ok) return unchecked(found.error);
+		if (found.value !== undefined) {
+			return this.#recordPosted(id, seen, pullRequest, found.value, true);
+		}
+		this.#db.write((q): Result<undefined, ReportError> => {
+			forgetPosting(q, id);
+			return ok(undefined);
+		});
+		return ok(undefined);
 	}
 
 	/**
