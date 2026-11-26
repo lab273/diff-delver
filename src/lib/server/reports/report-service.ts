@@ -1171,6 +1171,7 @@ function surelyNotPosted(problem: ReviewPostProblem): boolean {
 		case 'closed':
 		case 'being-posted':
 		case 'no-commit':
+		case 'earlier-post-recent':
 		case 'earlier-post-unchecked':
 			return true;
 	}
@@ -2429,6 +2430,15 @@ export class ReportService {
 		if (found.value !== undefined) {
 			return this.#recordPosted(id, seen, pullRequest, found.value, true);
 		}
+		// Not there yet, but GitHub may still be making it.
+		const wait = this.#stillAnswering(note);
+		if (wait !== undefined) {
+			return err({
+				kind: 'ReviewNotPosted',
+				pullRequest,
+				problem: { kind: 'earlier-post-recent', number: note.number, waitSeconds: wait }
+			});
+		}
 		this.#db.write((q): Result<undefined, ReportError> => {
 			forgetPosting(q, id);
 			return ok(undefined);
@@ -2500,20 +2510,27 @@ export class ReportService {
 		const { number } = text.value;
 		const noted = this.#db.read((q) => reviewBeingPosted(q, id));
 		if (!noted.ok) return noted;
-		if (noted.value?.number === number) {
+		const earlier = noted.value?.number === number ? noted.value : undefined;
+		if (earlier !== undefined) {
 			const before = await findReview(
 				this.#github,
 				pullRequest,
-				reviewMarker(id, number, noted.value.mark),
+				reviewMarker(id, number, earlier.mark),
 				this.#clock.now()
 			);
 			if (!before.ok) return refused(before.error);
 			if (before.value !== undefined) {
 				return this.#recordPosted(id, seen, pullRequest, before.value, true);
 			}
+			// Not there yet, but GitHub may still be making it: posting now could make two.
+			const wait = this.#stillAnswering(earlier);
+			if (wait !== undefined) {
+				return refused({ kind: 'earlier-post-recent', number, waitSeconds: wait });
+			}
 		}
-		// A mark of its own for each post, so it is not known before it is posted.
-		const mark = this.#ids.reviewMark();
+		// A mark of its own for each review, so it is not known before it is posted; posted
+		// again, the same mark, so whichever of the two GitHub made is found by it.
+		const mark = earlier?.mark ?? this.#ids.reviewMark();
 		const review = (allInText: boolean): GitHubReviewDraft =>
 			gitHubReview({
 				report: id,
@@ -2579,6 +2596,17 @@ export class ReportService {
 			return refused(sent.error);
 		}
 		return this.#recordPosted(id, seen, pullRequest, sent.value, false);
+	}
+
+	/**
+	 * How many more seconds GitHub may still be making the review noted as
+	 * being posted, by the service's clock: twice the time a request is given,
+	 * from when it was sent, since GitHub can go on to make a review after the
+	 * request for it timed out. Undefined once that has passed.
+	 */
+	#stillAnswering(note: ReviewPostNote): number | undefined {
+		const left = 2 * this.#github.seconds * 1000 - timeBetween(note.startedAt, this.#clock.now());
+		return left > 0 ? Math.ceil(left / 1000) : undefined;
 	}
 
 	/**

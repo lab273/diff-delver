@@ -83,7 +83,12 @@ export type ReviewRefusal =
 	/** GitHub refuses it with this status and message. */
 	| { readonly kind: 'status'; readonly status: number; readonly message: string }
 	/** GitHub makes the review, and the connection drops before its answer is sent. */
-	| { readonly kind: 'drop-answer' };
+	| { readonly kind: 'drop-answer' }
+	/**
+	 * The connection drops before any answer, and GitHub makes the review
+	 * only later, when `makeLateReviews` is called, as after a time-out.
+	 */
+	| { readonly kind: 'make-late' };
 
 /** A request the stand-in answered: its path and query, its sign-in and tag, if any, and its status. */
 export interface StandInRequest {
@@ -123,6 +128,8 @@ export interface GitHubStandIn {
 	 * of checking them as GitHub would.
 	 */
 	refuseReviews(...refusals: readonly ReviewRefusal[]): void;
+	/** Makes the reviews held back by `make-late` refusals, as GitHub at last does. */
+	makeLateReviews(): void;
 	/** The reviews of a pull request, oldest first, as posted. */
 	reviews(owner: string, name: string, number: number): readonly StandInReview[];
 	/** Adds a review to a pull request as someone posted it on GitHub, by any account. */
@@ -276,6 +283,8 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 	let refusing: { readonly status: number; readonly resetAt: number | undefined } | undefined;
 	const reviewRefusals: ReviewRefusal[] = [];
 	let nextReviewId = FIRST_REVIEW_ID;
+	/** Reviews GitHub makes later, with the list each goes in. */
+	const late: { readonly review: StandInReview; readonly into: StandInReview[] }[] = [];
 	const userIds = new Map<string, number>([[STAND_IN_USER, STAND_IN_USER_ID]]);
 	const userId = (login: string): number => {
 		const known = userIds.get(login);
@@ -504,6 +513,11 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 			comments
 		};
 		nextReviewId += 1;
+		if (refusal?.kind === 'make-late') {
+			late.push({ review, into: all });
+			response.socket?.destroy();
+			return;
+		}
 		all.push(review);
 		if (refusal?.kind === 'drop-answer') {
 			response.socket?.destroy();
@@ -574,6 +588,9 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 		},
 		refuseReviews(...refusals) {
 			reviewRefusals.push(...refusals);
+		},
+		makeLateReviews() {
+			for (const { review, into } of late.splice(0)) into.push(review);
 		},
 		reviews(owner, name, number) {
 			return repositories.get(key(owner, name))?.reviews.get(number) ?? [];

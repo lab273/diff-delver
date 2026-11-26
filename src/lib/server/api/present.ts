@@ -596,6 +596,7 @@ function postStatusOf(problem: ReviewPostProblem): number {
 		case 'unanswered':
 			return 504;
 		case 'being-posted':
+		case 'earlier-post-recent':
 			return 409;
 		case 'earlier-post-unchecked':
 			return postStatusOf(problem.cause);

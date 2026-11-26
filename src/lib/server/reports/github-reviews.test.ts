@@ -151,6 +151,11 @@ function failure<T>(result: Result<T, ReportError>): ReportError {
 /** The secret part of the mark of the `n`th post, as the counted ids make it. */
 const markOf = (n: number) => value(parseReviewMark(n.toString(16).padStart(32, '0')));
 
+/** Moves the clock past the time GitHub may still be making a review whose post went unanswered. */
+const afterAnswering = (w: World) => {
+	w.clock.advance(2 * w.github.access().seconds * 1000 + 1);
+};
+
 const reviewsOnGitHub = (w: World) => w.github.reviews(SHOP_OWNER, SHOP_NAME, 7);
 const posts = (w: World) => w.github.requests.filter((r) => r.method === 'POST');
 
@@ -523,13 +528,15 @@ describe('posting a review to its pull request', () => {
 			state: 'COMMENTED',
 			body: `Guessed.\n\n<!-- diff delver: review 1 of ${w.id} -->`
 		});
+		afterAnswering(w);
 
 		const review = value(await post(w));
 
 		expect(review.earlier).toBeUndefined();
 		expect(posts(w)).toHaveLength(2);
 		const mine = reviewsOnGitHub(w).at(-1);
-		expect(mine?.body).toBe(`Mine.\n\n${reviewMarker(w.id, one, markOf(2))}`);
+		// Posted again with the mark it was first posted with.
+		expect(mine?.body).toBe(`Mine.\n\n${reviewMarker(w.id, one, markOf(1))}`);
 		expect(review.posted?.address).toBe(`${PULL}#pullrequestreview-${String(mine?.id)}`);
 		expect(w.github.requests.some((r) => r.path === '/user')).toBe(true);
 	});
@@ -539,10 +546,60 @@ describe('posting a review to its pull request', () => {
 		overall(w, 'Once.');
 		w.github.refuseReviews({ kind: 'status', status: 502, message: 'Bad Gateway' });
 		expect(failure(await post(w))).toMatchObject({ problem: { kind: 'unreadable' } });
+		afterAnswering(w);
 
 		value(await post(w));
 		const asked = w.github.requests.filter((r) => r.path.includes('/reviews'));
 		expect(asked.map((r) => r.method)).toEqual(['POST', 'GET', 'POST']);
+		expect(reviewsOnGitHub(w)).toHaveLength(1);
+	});
+
+	it('waits for GitHub to make a review whose post timed out, rather than post it again', async () => {
+		const w = await world();
+		overall(w, 'Made late.');
+		const one = value(parseReviewNumber(1));
+		w.github.refuseReviews({ kind: 'make-late' });
+		failure(await post(w));
+		// GitHub makes it, but only later: the review is not there to be found yet.
+		expect(reviewsOnGitHub(w)).toEqual([]);
+
+		// Pressed again at once, either button: refused, saying to wait, and nothing posted or forgotten.
+		const soon = failure(await post(w));
+		expect(soon).toMatchObject({ problem: { kind: 'earlier-post-recent', number: one } });
+		expect(describeReportError(soon)).toBe(
+			'Your post of review 1 to GitHub went unanswered a moment ago, and GitHub may still be making it, so diff delver will not post it again yet. Nothing was finished, and your draft is as it was. Finish again in a minute. diff delver then looks on GitHub for that review first, records it as posted if it is there, and never posts it twice.'
+		);
+		expect(failure(await w.service.finishReview(w.id, FIRST, shown(w)))).toMatchObject({
+			problem: { kind: 'earlier-post-recent' }
+		});
+		expect(posts(w)).toHaveLength(1);
+		nothingFinished(w, 0);
+
+		// Still not there once the wait is over: posted again, with the same mark.
+		afterAnswering(w);
+		value(await post(w));
+		expect(posts(w)).toHaveLength(2);
+		// Had GitHub made the first after all, both carry the one mark, so either is found by it.
+		w.github.makeLateReviews();
+		expect(reviewsOnGitHub(w).map((r) => r.body)).toEqual([
+			`Made late.\n\n${reviewMarker(w.id, one, markOf(1))}`,
+			`Made late.\n\n${reviewMarker(w.id, one, markOf(1))}`
+		]);
+	});
+
+	it('records a review GitHub made late, found once the wait is over, without posting it again', async () => {
+		const w = await world();
+		overall(w, 'Made late.');
+		w.github.refuseReviews({ kind: 'make-late' });
+		failure(await post(w));
+		failure(await post(w));
+
+		// GitHub has it now.
+		w.github.makeLateReviews();
+		afterAnswering(w);
+		const review = value(await post(w));
+		expect(review.earlier).toEqual({ draftKept: false });
+		expect(posts(w)).toHaveLength(1);
 		expect(reviewsOnGitHub(w)).toHaveLength(1);
 	});
 
@@ -659,6 +716,7 @@ describe('posting a review to its pull request', () => {
 		overall(w, 'Never reached GitHub.');
 		w.github.refuseReviews({ kind: 'status', status: 502, message: 'Bad Gateway' });
 		failure(await post(w));
+		afterAnswering(w);
 
 		const review = value(await w.service.finishReview(w.id, FIRST, shown(w)));
 		expect(review.posted).toBeUndefined();

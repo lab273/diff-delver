@@ -23,7 +23,7 @@ import { parseRevisionId, type RevisionId } from '#lib/core/revision-id.tiny.ts'
 import { textForAgent, type TextForAgent } from '#lib/core/text-for-agent.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 import { parseUnitCount } from '#lib/core/unit-count.tiny.ts';
-import { parseRow, parseRows, text, whole } from '../columns.ts';
+import { parseRow, parseRows, text, timestamp, whole } from '../columns.ts';
 import type { Queries } from '../database.ts';
 import type { StoredRowInvalid } from '../database-error.ts';
 import type { ReviewCommentRow } from './review-comments.ts';
@@ -39,6 +39,8 @@ export interface ReviewPostNote {
 	readonly number: ReviewNumber;
 	/** The secret part of the mark its text ends with, made for this post. */
 	readonly mark: ReviewMark;
+	/** When it was first sent. */
+	readonly startedAt: Timestamp;
 	readonly revision: RevisionId;
 	readonly text: TextForAgent;
 	readonly progress: UnitProgress;
@@ -56,7 +58,7 @@ export interface ReviewPostNote {
 }
 
 /** What is noted of a review about to be sent: the note, with its comments as the review will keep them. */
-export interface ReviewToNote extends Omit<ReviewPostNote, 'comments'> {
+export interface ReviewToNote extends Omit<ReviewPostNote, 'comments' | 'startedAt'> {
 	readonly comments: readonly (ReviewCommentRow & { readonly edits: EditCount })[];
 }
 
@@ -64,6 +66,7 @@ const row = z
 	.object({
 		number: whole(parseReviewNumber),
 		mark: text(parseReviewMark),
+		startedAt: timestamp,
 		revision: text(parseRevisionId),
 		text: text((t) => (t === '' ? err(t) : ok(textForAgent(t)))),
 		counted: whole(parseUnitCount),
@@ -99,7 +102,7 @@ export function reviewBeingPosted(
 	report: ReportId
 ): Result<ReviewPostNote | undefined, StoredRowInvalid> {
 	const found = q.get(
-		`SELECT review_number AS number, mark, revision_id AS revision, export_text AS text, counted,
+		`SELECT review_number AS number, mark, started_at AS startedAt, revision_id AS revision, export_text AS text, counted,
 			reviewed, ignored, uncategorised, summary AS overall, summary_edits AS overallEdits,
 			posted_as AS postedAs, all_in_text AS allInText, in_text AS inText
 		 FROM github_review_posts WHERE report_id = ?`,

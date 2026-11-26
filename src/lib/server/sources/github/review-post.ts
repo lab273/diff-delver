@@ -101,6 +101,16 @@ export type ReviewPostProblem =
 	 * and GitHub could not be asked whether it did, so it is not finished
 	 * without posting, which could leave it on GitHub unrecorded.
 	 */
+	/**
+	 * An earlier post of review `number` went unanswered so recently that
+	 * GitHub may still be making it, where it cannot be found yet: nothing is
+	 * posted or finished for another `waitSeconds`.
+	 */
+	| {
+			readonly kind: 'earlier-post-recent';
+			readonly number: ReviewNumber;
+			readonly waitSeconds: number;
+	  }
 	| {
 			readonly kind: 'earlier-post-unchecked';
 			readonly number: ReviewNumber;
@@ -300,6 +310,7 @@ function whyUnasked(cause: ReviewPostProblem): string {
 		case 'closed':
 		case 'being-posted':
 		case 'no-commit':
+		case 'earlier-post-recent':
 		case 'earlier-post-unchecked':
 			return 'GitHub did not answer in a way diff delver could read';
 	}
@@ -323,9 +334,9 @@ export function describeReviewNotPosted(error: ReviewNotPosted): ReviewerMessage
 			case 'unreachable':
 				return `GitHub could not be reached, so the review was not posted. ${NOTHING_FINISHED} Check that this computer is online, then finish again.`;
 			case 'unanswered':
-				return `GitHub did not answer within ${String(problem.seconds)} seconds, so diff delver cannot tell whether your review was posted. ${NOTHING_FINISHED} Finish again: diff delver first looks on GitHub for this review, so it is never posted twice.`;
+				return `GitHub did not answer within ${String(problem.seconds)} seconds, so diff delver cannot tell whether your review was posted. ${NOTHING_FINISHED} Wait a minute, then finish again: diff delver first looks on GitHub for this review, so it is never posted twice.`;
 			case 'unreadable':
-				return `GitHub answered in a way diff delver could not read (status ${String(problem.status)}), so diff delver cannot tell whether your review was posted. ${NOTHING_FINISHED} Finish again: diff delver first looks on GitHub for this review, so it is never posted twice.`;
+				return `GitHub answered in a way diff delver could not read (status ${String(problem.status)}), so diff delver cannot tell whether your review was posted. ${NOTHING_FINISHED} Wait a minute, then finish again: diff delver first looks on GitHub for this review, so it is never posted twice.`;
 			case 'pending-review-exists':
 				return `You already have a draft review of ${pull} on GitHub, and while it is a draft GitHub takes no other review from you. ${NOTHING_FINISHED} Submit or delete that draft on GitHub, then finish again.`;
 			case 'own-pull-request':
@@ -346,6 +357,8 @@ export function describeReviewNotPosted(error: ReviewNotPosted): ReviewerMessage
 				return `This review is being finished or posted to GitHub already, perhaps from another tab. ${NOTHING_FINISHED} Wait for it, then look under Finished reviews.`;
 			case 'no-commit':
 				return `This version of the Delve has no commit to post the review on. ${NOTHING_FINISHED} Finish and copy only to hand the review over.`;
+			case 'earlier-post-recent':
+				return `Your post of review ${String(problem.number)} to GitHub went unanswered a moment ago, and GitHub may still be making it, so diff delver will not post it again yet. ${NOTHING_FINISHED} ${describeWait(problem.waitSeconds)} diff delver then looks on GitHub for that review first, records it as posted if it is there, and never posts it twice.`;
 			case 'earlier-post-unchecked':
 				return `Your earlier post of review ${String(problem.number)} to GitHub may have reached it, and diff delver could not ask GitHub whether it did: ${whyUnasked(problem.cause)}. ${NOTHING_FINISHED} Once GitHub can be asked, finish again: diff delver looks for that review first, records it as posted if it is there, and never posts it twice.`;
 		}
