@@ -151,6 +151,10 @@ test.describe('J0 First run', () => {
 		);
 		await journey.expectState(checkoutTick, { checked: true });
 		await journey.expectText(review, '9 of 14 changes reviewed');
+		// It says so, so that nobody takes the move for a tick of the next file.
+		await journey.expectVisible(
+			journey.byText('src/checkout.ts is already reviewed.', { exact: true })
+		);
 		await journey.press('r');
 		// The last one: the page says everything is reviewed, and moves there.
 		await journey.expectFocused(journey.byRole('heading', { name: 'Everything is reviewed' }));

@@ -941,15 +941,18 @@
 		}
 	}
 
-	async function nextUnread(): Promise<void> {
+	/** Goes to the next part waiting, saying first what `said` says, if anything. */
+	async function nextUnread(said?: string): Promise<void> {
 		if (viewer === undefined) return;
 		const at = viewer.nextUnread();
 		if (at === undefined) {
-			viewer.announcement = 'Everything is reviewed: there is nothing left to read.';
+			const nothingLeft = 'Everything is reviewed: there is nothing left to read.';
+			viewer.announcement = said === undefined ? nothingLeft : `${said} ${nothingLeft}`;
 			await tick();
 			document.getElementById(EVERYTHING_REVIEWED)?.focus();
 			return;
 		}
+		if (said !== undefined) viewer.announcement = said;
 		await goToPart(at, true);
 	}
 
@@ -979,8 +982,14 @@
 		const at = currentPart();
 		const state = at === undefined ? undefined : shown.parts[at];
 		if (at === undefined || state === undefined) return;
-		if (state.part.group.kind === 'ignored' || done(state.part.tally)) {
-			await nextUnread();
+		// Said, so that nobody takes the move for a tick of the part moved to.
+		const name = shownPath(state.part.path);
+		if (state.part.group.kind === 'ignored') {
+			await nextUnread(`${name} is ignored, so it needs no review.`);
+			return;
+		}
+		if (done(state.part.tally)) {
+			await nextUnread(`${name} is already reviewed.`);
 			return;
 		}
 		const part = document.getElementById(`part-${at}`);
@@ -2213,7 +2222,7 @@
 				Each added line, removed line and change to a file itself, such as a rename, is one change.
 			</p>
 			{#if !allDone && overall.units > 0}
-				<button type="button" class="primary" onclick={nextUnread}>
+				<button type="button" class="primary" onclick={() => nextUnread()}>
 					{overall.reviewed === 0 ? 'Start reviewing' : 'Next unread'}
 					<kbd aria-hidden="true">n</kbd>
 				</button>
