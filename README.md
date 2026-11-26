@@ -159,7 +159,8 @@ offers them as its next version, with your ticks kept, as it does for your own f
 Private repositories need a sign-in: diff delver uses the GitHub command's (`gh auth
 login`), or else a token in `GITHUB_TOKEN`. It asks GitHub only when you open the
 list, open a pull request or bring one up to date, and when a pull request's page
-checks for new commits, at most once a minute.
+checks for new commits, at most once a minute, or once every five minutes when you
+are not signed in, since GitHub then allows a computer few requests.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="tests/journeys/screenshots/j11-review-a-github-pr.02.the-open-pull-requests.dark.png">
