@@ -1051,7 +1051,10 @@
 				// `r` goes on to the next part waiting, unless the reader moved away
 				// meanwhile; another `r` pressed while this one ticked is no moving away.
 				if (moveOn && (!readerMoved || marksWaiting > 0)) {
-					await nextUnread();
+					// On the last part the tick's own words say everything is reviewed, so
+					// they stay, and focus goes to the notice that says so.
+					if (outcome.allDone) document.getElementById(EVERYTHING_REVIEWED)?.focus();
+					else await nextUnread();
 					return;
 				}
 				if (readerMoved && !focusLost()) return;

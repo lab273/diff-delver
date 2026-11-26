@@ -154,6 +154,12 @@ test.describe('J0 First run', () => {
 		await journey.press('r');
 		// The last one: the page says everything is reviewed, and moves there.
 		await journey.expectFocused(journey.byRole('heading', { name: 'Everything is reviewed' }));
+		await journey.expectVisible(
+			journey.byText(
+				'src/discount.ts marked as reviewed. 14 of 14 changes reviewed. Everything is reviewed.',
+				{ exact: true }
+			)
+		);
 		await journey.expectText(review, 'Everything reviewed: 14 changes');
 		await journey.step('Everything is reviewed');
 
