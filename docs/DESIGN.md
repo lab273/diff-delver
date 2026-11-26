@@ -887,8 +887,23 @@ purpose:
 A finish is refused, saying why, when the Delve's version or the draft changed
 since the page showed it, including when another tab finished the same comments,
 and a comment finished in another tab and then edited says which review it is
-in. A closed Delve must be reopened to finish. The delivery log (6.3) is not
-kept yet.
+in. A closed Delve must be reopened to finish.
+
+**Posting to a pull request, as built.** On a pull request's Delve, finishing
+posts the review to the pull request as one GitHub review, as a comment, an
+approval or a request for changes, comment chosen to start with, or, with the
+tick box, as a draft only the reviewer sees until they submit it on GitHub. The
+overall review is its text and each comment goes on its lines; a comment GitHub
+cannot place there, on lines outside its diff, on an earlier version or on a
+binary file, goes into the text with its file, lines and code, and if GitHub
+still refuses the lines the review is posted once more with every comment in the
+text, and the page says so. Nothing is finished unless the post was taken: a
+refusal keeps the draft and says why and what to do. A post is never made twice:
+one that may have reached GitHub without its answer is found there before
+another is tried. Each finished review shows where it was posted, with a link to
+it; that, and only that, is kept of the delivery log (6.3) so far. A finished
+review cannot be posted again from the list yet. "Finish and copy only" leaves
+GitHub alone.
 
 **The overall review.** The reviewer writes the review's summary (6.3) in a bar
 pinned to the foot of a Delve's page, so it is at hand wherever they are in the
