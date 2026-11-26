@@ -92,7 +92,10 @@ export type ReviewPostProblem =
 	/** GitHub refused to place the comments on their lines; posting again with them in the text may work. */
 	| { readonly kind: 'lines-refused' }
 	| { readonly kind: 'closed'; readonly merged: boolean }
-	/** Another press is finishing or posting this Delve's draft now. */
+	/**
+	 * Another press is finishing or posting this Delve's draft now; said of
+	 * posting only when the Delve is of a pull request.
+	 */
 	| { readonly kind: 'being-posted' }
 	/** The version reviewed has no commit to post on, which a pull request's always has. */
 	| { readonly kind: 'no-commit' }
@@ -354,7 +357,7 @@ export function describeReviewNotPosted(error: ReviewNotPosted): ReviewerMessage
 			case 'closed':
 				return `${pull} was ${problem.merged ? 'merged' : 'closed'} on GitHub, so diff delver will not post a review to it. ${NOTHING_FINISHED} Finish and copy only to hand the review over.`;
 			case 'being-posted':
-				return `This review is being finished or posted to GitHub already, perhaps from another tab. ${NOTHING_FINISHED} Wait for it, then look under Finished reviews.`;
+				return `${error.pullRequest === undefined ? 'This review is being finished already' : 'This review is being finished or posted to GitHub already'}, perhaps from another tab. ${NOTHING_FINISHED} Wait for it, then look under Finished reviews.`;
 			case 'no-commit':
 				return `This version of the Delve has no commit to post the review on. ${NOTHING_FINISHED} Finish and copy only to hand the review over.`;
 			case 'earlier-post-recent':

@@ -1187,11 +1187,16 @@ function surelyNotPosted(problem: ReviewPostProblem): boolean {
 	}
 }
 
-/** The refusal of a finish or a post while another of the same Delve's is under way. */
-function beingFinished(): Result<never, ReportError> {
+/**
+ * The refusal of a finish or a post while another of the same Delve's is
+ * under way, with the pull request it may be being posted to, if any.
+ */
+function beingFinished(q: Queries, id: ReportId): Result<never, ReportError> {
+	const found = reportById(q, id);
+	const source = found.ok ? found.value?.source : undefined;
 	return err({
 		kind: 'ReviewNotPosted',
-		pullRequest: undefined,
+		pullRequest: source?.kind === 'github' ? source.pullRequest : undefined,
 		problem: { kind: 'being-posted' }
 	});
 }
@@ -2345,7 +2350,7 @@ export class ReportService {
 		shown: ShownDraft,
 		options: FinishOptions = {}
 	): Promise<Result<JustFinished, ReportError>> {
-		if (this.#finishing.has(id)) return beingFinished();
+		if (this.#finishing.has(id)) return this.#db.read((q) => beingFinished(q, id));
 		this.#finishing.add(id);
 		try {
 			return await this.#finish(id, seen, shown, options.forgetEarlierPost === true);
@@ -2493,7 +2498,7 @@ export class ReportService {
 		shown: ShownDraft,
 		posting: GitHubPosting
 	): Promise<Result<JustFinished, ReportError>> {
-		if (this.#finishing.has(id)) return beingFinished();
+		if (this.#finishing.has(id)) return this.#db.read((q) => beingFinished(q, id));
 		this.#finishing.add(id);
 		try {
 			return await this.#post(id, seen, shown, posting);

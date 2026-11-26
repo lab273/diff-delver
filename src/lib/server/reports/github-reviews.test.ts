@@ -797,6 +797,24 @@ describe('posting a review to its pull request', () => {
 		expect(asked.map((r) => r.method)).toEqual(['POST', 'GET', 'POST']);
 	});
 
+	it('says a local Delve’s review is being finished already, without speaking of GitHub', async () => {
+		const w = await world();
+		await w.clone.write('src/price.ts', 'changed\n');
+		const local = value(await w.service.open(w.clone.dir, value(parseSourceSpec('working-tree'))));
+		if (local.kind !== 'created') throw new Error(local.kind);
+		const id = local.report.id;
+		value(w.service.saveOverallReview(id, value(w.service.overallReview(id)).edits, 'Once.'));
+		const draft = { comments: [], overall: value(w.service.overallReview(id)).edits };
+		const [one, two] = await Promise.all([
+			w.service.finishReview(id, FIRST, draft),
+			w.service.finishReview(id, FIRST, draft)
+		]);
+		expect(one.ok).toBe(true);
+		expect(describeReportError(failure(two))).toBe(
+			'This review is being finished already, perhaps from another tab. Nothing was finished, and your draft is as it was. Wait for it, then look under Finished reviews.'
+		);
+	});
+
 	it('refuses to post a Delve that is not of a pull request', async () => {
 		const w = await world();
 		await w.clone.write('src/price.ts', 'changed\n');
