@@ -30,7 +30,7 @@ import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { parseAbsolutePath, type AbsolutePath } from '../src/lib/core/absolute-path.tiny.ts';
 import { parseByteSize, type ByteSize } from '../src/lib/core/byte-size.tiny.ts';
-import { parseCodeVersion, type CodeVersion } from '../src/lib/core/code-version.tiny.ts';
+import type { CodeVersion } from '../src/lib/core/code-version.tiny.ts';
 import {
 	parseReleaseVersion,
 	releaseOfCodeVersion,
@@ -38,6 +38,7 @@ import {
 	type ReleaseVersion
 } from '../src/lib/core/release-version.tiny.ts';
 import { err, ok, type Result } from '../src/lib/core/result.ts';
+import { versionOfLine } from '../src/lib/core/cli/version-line.ts';
 
 const run = promisify(execFile);
 
@@ -188,10 +189,10 @@ export async function builtVersion(root: AbsolutePath): Promise<Result<CodeVersi
 			join(root, 'bin', 'diff-delver.js'),
 			'--version'
 		]);
-		const parsed = parseCodeVersion(stdout.trim().replace(/^diff-delver /, ''));
-		if (!parsed.ok)
+		const version = versionOfLine(stdout);
+		if (version === undefined)
 			return err({ kind: 'BuildDoesNotRun', detail: `it printed "${stdout.trim()}"` });
-		return ok(parsed.value);
+		return ok(version);
 	} catch (error) {
 		return err({ kind: 'BuildDoesNotRun', detail: detailOf(error) });
 	}

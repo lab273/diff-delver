@@ -257,6 +257,9 @@ npm install --global https://github.com/lab273/diff-delver/releases/latest/downl
 
 Run the same install again to move to the newest release.
 
+The top right of every page says which diff delver is running: its release, and the
+commit it was built from and how long ago that commit was made.
+
 A newer diff delver replaces an older one that is still running, and says so; pages
 left open offer to reload. An older copy never replaces a newer one: it uses the
 newer one, says so, and says how to upgrade.

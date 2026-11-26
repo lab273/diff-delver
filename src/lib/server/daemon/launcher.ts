@@ -37,7 +37,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { StopRequest } from '#lib/api/schemas.ts';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
-import { parseCodeVersion, type CodeVersion } from '#lib/core/code-version.tiny.ts';
+import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { orderOfDaemon } from '#lib/core/cli/replaced-daemon.ts';
 import type { PortNumber } from '#lib/core/port-number.tiny.ts';
 import type { ProcessId } from '#lib/core/process-id.tiny.ts';
@@ -47,6 +47,7 @@ import { LATEST_VERSION, newestMigrationIn } from '../db/index.ts';
 import { connectionOf, type DaemonConnection } from './daemon.ts';
 import { readLockfile, removeLockfileIf, type Lock } from './lockfile.ts';
 import { clientFor, probeLock } from './probe.ts';
+import { versionOfLine } from '#lib/core/cli/version-line.ts';
 
 export const LOG_NAME = 'daemon.log';
 
@@ -300,10 +301,7 @@ export async function versionOnDisk(entry: string): Promise<CodeVersion | undefi
 			}
 		);
 	});
-	const found = /^diff-delver (\S+)\s*$/.exec(printed ?? '');
-	if (found?.[1] === undefined) return undefined;
-	const parsed = parseCodeVersion(found[1]);
-	return parsed.ok ? parsed.value : undefined;
+	return versionOfLine(printed ?? '');
 }
 
 /**

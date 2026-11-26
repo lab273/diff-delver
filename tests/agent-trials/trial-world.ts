@@ -17,7 +17,7 @@ import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { Bucket } from '#lib/core/diff/bucket.ts';
 import { assignmentRowsOf, unitRowsOf, type StoredUnits } from '#lib/core/storage/stored-units.ts';
 import { settableClock } from '#lib/core/clock.ts';
-import { parseCodeVersion, type CodeVersion } from '#lib/core/code-version.tiny.ts';
+import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import { EMPTY_UNIT_SET } from '#lib/core/diff/unit-set.ts';
 import { formatLineRange } from '#lib/core/line-range.ts';
@@ -35,6 +35,7 @@ import { BUILT_COMMAND } from '../support/build.ts';
 import type { GitRepo } from '../support/git-repo.ts';
 import { buildLedger } from '../support/ledger.ts';
 import { buildShop } from '../support/scripted-categorisation.ts';
+import { versionOfLine } from '../../src/lib/core/cli/version-line.ts';
 
 /** The repositories a trial can sort, each built by real git into a folder of its name. */
 export const TRIAL_FIXTURES = {
@@ -67,9 +68,9 @@ export async function builtVersion(): Promise<CodeVersion> {
 			else reject(new Error(`The build would not say its version: ${error.message}`));
 		});
 	});
-	const version = parseCodeVersion(printed.trim().replace(/^diff-delver /, ''));
-	if (!version.ok) throw new Error(`The build printed no version: ${printed}`);
-	return version.value;
+	const version = versionOfLine(printed);
+	if (version === undefined) throw new Error(`The build printed no version: ${printed}`);
+	return version;
 }
 
 let app: Promise<AppHandler> | undefined;

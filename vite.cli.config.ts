@@ -12,9 +12,15 @@
  * release in `DIFF_DELVER_RELEASE_VERSION` (docs/DEVELOPING.md, "Releasing"), which is how
  * it is stamped in without anything being committed; any other build, such as a
  * clone's, reports the package version marked `-dev`, which is no release.
+ *
+ * It also records the commit it was built from, when it was made and whether
+ * the working tree had changes not committed to what the hash is made of, for the header of every page
+ * (`core/build-identity.ts`); nothing, when git or the repository is not there,
+ * as for a build of a downloaded copy.
  */
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { defineConfig } from 'vite';
 import { parseReleaseVersion } from './src/lib/core/release-version.tiny.ts';
@@ -28,14 +34,18 @@ function filesUnder(dir: string): string[] {
 	});
 }
 
+/** What the version's hash is made of, besides `src` without its tests; and what "+ changes" looks at. */
+const CODE_FILES = ['package.json', 'pnpm-lock.yaml', 'vite.config.ts', 'vite.cli.config.ts'];
+
+function isCodeInput(path: string): boolean {
+	return !path.endsWith('.test.ts');
+}
+
 function codeHash(): string {
 	const hash = createHash('sha256');
 	const inputs = [
-		...filesUnder(join(root, 'src')).filter((path) => !path.endsWith('.test.ts')),
-		join(root, 'package.json'),
-		join(root, 'pnpm-lock.yaml'),
-		join(root, 'vite.config.ts'),
-		join(root, 'vite.cli.config.ts')
+		...filesUnder(join(root, 'src')).filter(isCodeInput),
+		...CODE_FILES.map((name) => join(root, name))
 	].toSorted();
 	for (const path of inputs) {
 		hash.update(relative(root, path)).update('\0').update(readFileSync(path)).update('\0');
@@ -64,9 +74,43 @@ function releaseVersion(): string {
 	return parsed.value;
 }
 
+/** What git says in this folder, or undefined when it says nothing or is not there. */
+function git(...args: string[]): string | undefined {
+	try {
+		// Never taking git's index lock, so a build beside a person's own git changes nothing.
+		return execFileSync('git', ['--no-optional-locks', '-C', root, ...args], {
+			encoding: 'utf8',
+			stdio: ['ignore', 'pipe', 'ignore']
+		});
+	} catch {
+		return undefined;
+	}
+}
+
+/** The commit this is built from, when this folder is the top of a git repository. */
+function buildCommit(): { commit: string; committedAt: number | null; changes: boolean } | null {
+	const top = git('rev-parse', '--show-toplevel')?.trim();
+	if (top === undefined || realpathSync(top) !== realpathSync(root)) return null;
+	const commit = git('rev-parse', '--verify', 'HEAD')?.trim();
+	if (commit === undefined || commit === '') return null;
+	const committedAt = Date.parse(git('log', '-1', '--format=%cI', 'HEAD')?.trim() ?? '');
+	// Changes only to what the version's hash is made of: an edited README or a stray file is not one.
+	const status = git('status', '--porcelain', '--untracked-files=all', '--', 'src', ...CODE_FILES);
+	const changed = (status ?? '')
+		.split('\n')
+		.map((line) => line.slice(3))
+		.filter((path) => path !== '' && isCodeInput(path));
+	return {
+		commit,
+		committedAt: Number.isNaN(committedAt) ? null : committedAt,
+		changes: changed.length > 0
+	};
+}
+
 export default defineConfig({
 	define: {
-		__DIFF_DELVER_VERSION__: JSON.stringify(`${releaseVersion()}+${codeHash()}`)
+		__DIFF_DELVER_VERSION__: JSON.stringify(`${releaseVersion()}+${codeHash()}`),
+		__DIFF_DELVER_COMMIT__: JSON.stringify(buildCommit())
 	},
 	build: {
 		ssr: 'src/lib/server/cli/run.ts',

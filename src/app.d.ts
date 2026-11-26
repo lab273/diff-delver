@@ -19,6 +19,8 @@ declare global {
 
 	/** Which build this is, written in by the command's build (src/lib/server/version.ts). */
 	const __DIFF_DELVER_VERSION__: string | undefined;
+	/** The commit the command was built from, as `vite.cli.config.ts` writes it in, or null. */
+	const __DIFF_DELVER_COMMIT__: unknown;
 
 	/**
 	 * The daemons running in this process, by the port each listens on, for the

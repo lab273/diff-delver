@@ -16,6 +16,7 @@
 	import favicon from '#lib/assets/favicon.svg';
 	import { onNavigate } from '$app/navigation';
 	import { page } from '$app/state';
+	import { describeBuild } from '#lib/core/build-identity.ts';
 	import { parseReportId } from '#lib/core/report-id.tiny.ts';
 	import DaemonReplaced from '#lib/ui/DaemonReplaced.svelte';
 	import DelveSwitcherPanel from '#lib/ui/DelveSwitcherPanel.svelte';
@@ -27,6 +28,9 @@
 	let { children, data }: LayoutProps = $props();
 
 	const switcher = provideDelveSwitcher();
+
+	/** Which build is running, by the daemon's clock, so it reads the same on every run of a journey. */
+	const build = $derived(describeBuild(data.build, data.now));
 
 	/** The Delve the page is of, when it is a Delve's page: there the panel that opens another is drawn. */
 	const delve = $derived.by(() => {
@@ -55,6 +59,13 @@
 			Your Delves
 		</a>
 	</nav>
+	{#if build !== undefined}
+		<!-- Read out as shown, the short commit; the full one and the exact date are its title. -->
+		<p class="build" title={build.full}>
+			<span class="visually-hidden">Build:</span>
+			{build.named}{#if build.ago !== undefined}<span class="ago">{` · ${build.ago}`}</span>{/if}
+		</p>
+	{/if}
 </header>
 
 <main>
@@ -101,6 +112,30 @@
 
 	.product:hover {
 		text-decoration: underline;
+	}
+
+	/*
+	 * Quiet, at the right end, and never on a line of its own: how long ago goes
+	 * first as the window narrows, then the whole of it.
+	 */
+	.build {
+		margin: 0 0 0 auto;
+		color: var(--color-muted);
+		font-size: 0.8125rem;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+	}
+
+	@media (max-width: 44rem) {
+		.ago {
+			display: none;
+		}
+	}
+
+	@media (max-width: 30rem) {
+		.build {
+			display: none;
+		}
 	}
 
 	main {

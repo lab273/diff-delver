@@ -73,6 +73,8 @@ import { registerDaemon, unregisterDaemon } from './context.ts';
 import { browserAccess } from './browser-access.ts';
 import { daemonLog, type DaemonLog } from './daemon-log.ts';
 import { describeStop, type StopReason } from '#lib/core/daemon/stop-reason.ts';
+import type { BuildIdentity } from '#lib/core/build-identity.ts';
+import { releaseOfCodeVersion } from '#lib/core/release-version.tiny.ts';
 import { daemonServer } from './http-server.ts';
 import { mcpHandler } from '../mcp/mcp-server.ts';
 import { probeLock } from './probe.ts';
@@ -122,6 +124,12 @@ export interface DaemonOptions {
 	 * the command started it in the background.
 	 */
 	readonly log?: DaemonLog;
+	/**
+	 * Which build this is, for the header of every page: the command gives what
+	 * its build recorded (`buildIdentity`), journeys a fixed one. Left out, the
+	 * release its version names, if any, and no commit.
+	 */
+	readonly build?: BuildIdentity;
 	/** Called once the daemon has stopped, however it was asked to. */
 	readonly onStopped?: () => void;
 	/**
@@ -528,6 +536,7 @@ export async function startDaemon(
 		clock: options.clock,
 		log,
 		version: options.version,
+		build: options.build ?? { release: releaseOfCodeVersion(options.version), commit: undefined },
 		agentSetup: agentSetupOf(options),
 		agents,
 		entryCode,

@@ -30,6 +30,7 @@ import { ApiClient } from '../../src/lib/api/client.ts';
 import { parseCommandLine, describeCommandLineError } from '../../src/lib/core/cli/command-line.ts';
 import { settableClock } from '../../src/lib/core/clock.ts';
 import { parseCodeVersion } from '../../src/lib/core/code-version.tiny.ts';
+import { parseCommitId } from '../../src/lib/core/commit-id.tiny.ts';
 import { sequentialIds } from '../../src/lib/core/ids.ts';
 import { parseTimestamp } from '../../src/lib/core/timestamp.tiny.ts';
 import { chooseOutcome, openOutcome, startOutcome } from '../../src/lib/server/cli/outcome.ts';
@@ -768,7 +769,11 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 	await mkdir(elsewhere, { recursive: true });
 	const time = parseTimestamp(JOURNEY_TIME.getTime());
 	const version = parseCodeVersion('journey');
-	if (!time.ok || !version.ok) throw new Error('The journey time or version does not parse.');
+	// The build the header names: fixed, so no screenshot changes with each commit.
+	const builtFrom = parseCommitId('a3f9c21d5e8b4f6071c2e9d3b8a7f5e4c1d0b9a8');
+	const builtAt = parseTimestamp(JOURNEY_TIME.getTime() - 2 * 86_400_000);
+	if (!time.ok || !version.ok || !builtFrom.ok || !builtAt.ok)
+		throw new Error('The journey time, version or build does not parse.');
 	// GitHub is a stand-in on this machine, so no journey reaches it.
 	const github = await startGitHubStandIn();
 	const started = await startDaemon({
@@ -776,6 +781,10 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 		clock: settableClock(time.value),
 		ids: sequentialIds(),
 		version: version.value,
+		build: {
+			release: undefined,
+			commit: { commit: builtFrom.value, committedAt: builtAt.value, changes: false }
+		},
 		app: await app,
 		repository: { gitEnv: await reviewerGitEnv() },
 		// The journey's person is signed in to it, so a review can be posted.

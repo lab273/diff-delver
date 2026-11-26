@@ -30,7 +30,7 @@ import {
 } from '../daemon/launcher.ts';
 import { machineDataDirectory } from '../store/index.ts';
 import { randomIds, systemClock } from '../system.ts';
-import { codeVersion } from '../version.ts';
+import { buildIdentity, codeVersion } from '../version.ts';
 import {
 	describeDatabaseNewer,
 	describeNewerDaemon,
@@ -46,6 +46,8 @@ import {
 	type CommandOutcome,
 	type DescribeApiError
 } from './outcome.ts';
+import { versionLine } from '#lib/core/cli/version-line.ts';
+import { versionWithCommit } from '#lib/core/build-identity.ts';
 
 export interface Terminal {
 	readonly print: (line: string) => void;
@@ -107,6 +109,7 @@ async function serve(
 	const log = daemonLog(systemClock);
 	const started = await startDaemon({
 		log,
+		build: buildIdentity(),
 		dataDirectory,
 		clock: systemClock,
 		ids: randomIds,
@@ -144,7 +147,9 @@ async function serve(
 		});
 	}
 	if (background) {
-		log(`diff delver ${codeVersion()} started at ${daemon.origin}, serving ${dataDirectory}.`);
+		log(
+			`diff delver ${versionWithCommit(codeVersion(), buildIdentity().commit)} started at ${daemon.origin}, serving ${dataDirectory}.`
+		);
 		signalParent(
 			daemon.portNotice === undefined
 				? { kind: 'ready' }
@@ -208,7 +213,7 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 			terminal.print(HELP_TEXT);
 			return 0;
 		case 'version':
-			terminal.print(`diff-delver ${codeVersion()}`);
+			terminal.print(versionLine(codeVersion(), buildIdentity().commit));
 			return 0;
 		case 'serve':
 		case 'stop':

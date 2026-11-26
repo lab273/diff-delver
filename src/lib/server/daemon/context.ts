@@ -6,6 +6,7 @@
  * it up for each request by the port the request came in on.
  */
 import type { AgentServerSetup } from '#lib/core/agent-setup/agent-server.ts';
+import type { BuildIdentity } from '#lib/core/build-identity.ts';
 import type { Clock } from '#lib/core/clock.ts';
 import type { AgentActivity } from '#lib/core/daemon/agent-activity.ts';
 import type { StopReason } from '#lib/core/daemon/stop-reason.ts';
@@ -22,6 +23,8 @@ export interface DaemonContext {
 	/** Where the daemon writes what it has to say, each line with its time (`daemon-log.ts`). */
 	readonly log: DaemonLog;
 	readonly version: CodeVersion;
+	/** Which build this is, for the header of every page (`core/build-identity.ts`). */
+	readonly build: BuildIdentity;
 	/** How an agent is given this daemon as its MCP server: this copy, on this data folder. */
 	readonly agentSetup: AgentServerSetup;
 	/** The agents this daemon has heard from, which it remembers only while it runs. */

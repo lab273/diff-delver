@@ -33,7 +33,7 @@ import { z } from 'zod';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { parseAbsolutePath, type AbsolutePath } from '../src/lib/core/absolute-path.tiny.ts';
 import { parseByteSize, type ByteSize } from '../src/lib/core/byte-size.tiny.ts';
-import { parseCodeVersion, type CodeVersion } from '../src/lib/core/code-version.tiny.ts';
+import type { CodeVersion } from '../src/lib/core/code-version.tiny.ts';
 import { millisecondsOf, type Milliseconds } from '../src/lib/core/milliseconds.tiny.ts';
 import {
 	parseReleaseVersion,
@@ -42,6 +42,7 @@ import {
 } from '../src/lib/core/release-version.tiny.ts';
 import { err, ok, type Result } from '../src/lib/core/result.ts';
 import { TARBALL_NAME } from './release-package.ts';
+import { versionOfLine } from '../src/lib/core/cli/version-line.ts';
 
 /** Paths in the tarball, under npm's `package/`, that a released package may hold. */
 const ALLOWED = [
@@ -390,15 +391,15 @@ export async function checkPackage(options: {
 			});
 		}
 		const printed = shown.value.stdout.trim();
-		const version = parseCodeVersion(printed.replace(/^diff-delver /, ''));
-		if (!printed.startsWith('diff-delver ') || !version.ok) {
+		const version = versionOfLine(printed);
+		if (version === undefined) {
 			return err({
 				kind: 'StepFailed',
 				step: 'it was asked its version',
 				detail: `it printed "${printed}"`
 			});
 		}
-		if (options.version !== undefined && releaseOfCodeVersion(version.value) !== options.version) {
+		if (options.version !== undefined && releaseOfCodeVersion(version) !== options.version) {
 			return err({ kind: 'WrongVersion', wanted: options.version, printed });
 		}
 
@@ -480,7 +481,7 @@ export async function checkPackage(options: {
 		}
 		if (served.others.length > 0) return err({ kind: 'RegistryAsked', paths: [...served.others] });
 		return ok({
-			version: version.value,
+			version,
 			firstRun,
 			laterRun,
 			downloaded: downloaded.value,

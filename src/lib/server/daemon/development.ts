@@ -10,7 +10,7 @@ import { agentActivity } from '#lib/core/daemon/agent-activity.ts';
 import { ReportService, describeReportError, randomIds, systemClock } from '../reports/index.ts';
 import { machineDataDirectory } from '../store/index.ts';
 import { randomEntryCode } from '../system.ts';
-import { codeVersion } from '../version.ts';
+import { buildIdentity, codeVersion } from '../version.ts';
 import type { DaemonContext } from './context.ts';
 import { daemonLog } from './daemon-log.ts';
 import { agentSetupOf } from './daemon.ts';
@@ -32,6 +32,7 @@ async function make(): Promise<DaemonContext> {
 		clock: systemClock,
 		log: daemonLog(systemClock),
 		version: codeVersion(),
+		build: buildIdentity(),
 		// `vite dev` serves no /mcp, so no agent is ever heard from here.
 		agentSetup: agentSetupOf({
 			dataDirectory,
