@@ -476,6 +476,17 @@ describe('a GitHub pull request', () => {
 		expect(await everything(w.data)).not.toContain(STAND_IN_TOKEN);
 	});
 
+	it('writes out what cannot be seen in a folder it names', async () => {
+		const w = await world();
+		const hidden = await cloneShop(w.upstream, join(await tempDirectory(), 'shop\u200b'));
+		await hidden.git('remote', 'set-url', 'origin', 'https://gitlab.com/acme/shop.git');
+		const listed = await w.service.pullRequests(hidden.dir);
+		if (listed.ok) throw new Error('listed');
+		const message = describeReportError(listed.error);
+		expect(message).toContain('shop\\u200B has no remote on GitHub');
+		expect(message).not.toContain('\u200b');
+	});
+
 	it('is opened only from a clone of its repository', async () => {
 		const w = await world();
 		const other = value(parseSourceSpec('https://github.com/someone/else/pull/1'));

@@ -6,6 +6,7 @@
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { CommitId } from '#lib/core/commit-id.tiny.ts';
 import type { GitHubHost } from '#lib/core/github/github-host.tiny.ts';
+import { visibleText } from '#lib/core/hidden-characters.ts';
 import { gitHubRepositoryText, type GitHubRepository } from '#lib/core/github/github-repository.ts';
 import { pullRequestShortName, type PullRequestRef } from '#lib/core/github/pull-request.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
@@ -185,12 +186,12 @@ export function describeGitHubSourceError(error: GitHubSourceError): ReviewerMes
 		case 'NotACloneOf':
 			return reviewerMessage(
 				error.found === undefined
-					? `${error.directory} is not a clone of ${gitHubRepositoryText(error.wanted)}: none of its remotes is on GitHub. Run diff delver in a clone of ${gitHubRepositoryText(error.wanted)} to open its pull requests.`
-					: `${error.directory} is a clone of ${gitHubRepositoryText(error.found)}, not of ${gitHubRepositoryText(error.wanted)}. Run diff delver in a clone of ${gitHubRepositoryText(error.wanted)} to open its pull requests.`
+					? `${visibleText(error.directory)} is not a clone of ${gitHubRepositoryText(error.wanted)}: none of its remotes is on GitHub. Run diff delver in a clone of ${gitHubRepositoryText(error.wanted)} to open its pull requests.`
+					: `${visibleText(error.directory)} is a clone of ${gitHubRepositoryText(error.found)}, not of ${gitHubRepositoryText(error.wanted)}. Run diff delver in a clone of ${gitHubRepositoryText(error.wanted)} to open its pull requests.`
 			);
 		case 'NotOnGitHub':
 			return reviewerMessage(
-				`${error.directory} has no remote on GitHub, so it has no pull requests to show. Add one with "git remote add", or open its commits or branches instead.`
+				`${visibleText(error.directory)} has no remote on GitHub, so it has no pull requests to show. Add one with "git remote add", or open its commits or branches instead.`
 			);
 		case 'UnresolvedConflict':
 		case 'NoWorkingTree':
