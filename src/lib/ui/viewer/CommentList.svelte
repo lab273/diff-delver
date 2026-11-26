@@ -10,6 +10,7 @@
 	import SavedComment from './SavedComment.svelte';
 	import type { DraftCommentView } from '#lib/api/schemas.ts';
 	import { describeCommentLines } from '#lib/core/review/draft-comment.ts';
+	import { describeDraftComments } from '#lib/core/review/overall-review.ts';
 	import { shownPath } from '#lib/core/shown-path.tiny.ts';
 	import PathText from '#lib/ui/PathText.svelte';
 	import type { CommentPlace, Comments, Writing } from './comments.svelte.ts';
@@ -59,7 +60,7 @@
 			? ''
 			: comments.flagCount === 0
 				? ` (${String(comments.commentCount)})`
-				: ` (${String(comments.commentCount)}) and flags (${String(comments.flagCount)})`}
+				: `: ${describeDraftComments(comments.commentCount, comments.flagCount)}`}
 	</button>
 	{#if underLines.length > 0}
 		<ul class="unsaved" aria-label="Comments not saved yet">

@@ -287,6 +287,14 @@
 			: `${String(count)} of your ${String(total)} comments are on lines GitHub does not show, so they go in the review’s text.`;
 	}
 
+	/** Before posting: that the flags go in the review's text, under their own heading, never on lines. */
+	function flagsInTextWords(count: number): string {
+		if (count === 0) return '';
+		return count === 1
+			? 'Your flag goes in the review’s text, under “Flagged for another look”, not on its lines.'
+			: `Your ${String(count)} flags go in the review’s text, under “Flagged for another look”, not on their lines.`;
+	}
+
 	async function copyAgain(review: FinishedReviewView): Promise<void> {
 		said = (await copy(review.text))
 			? `Review ${String(review.number)} copied.`
@@ -317,7 +325,12 @@
 				class="note in-text"
 				aria-busy={preview === undefined && previewProblem === '' ? 'true' : undefined}
 			>
-				{inTextWords(inText.length, previewed.length - flagsInText.length)}
+				{[
+					inTextWords(inText.length, previewed.length - flagsInText.length),
+					flagsInTextWords(flagsInText.length)
+				]
+					.filter((words) => words !== '')
+					.join(' ')}
 			</p>
 			{#if unsaved}
 				<p class="note">

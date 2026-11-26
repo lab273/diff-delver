@@ -98,7 +98,7 @@ test('pressing a line number opens the menu under it, Comment or Flag, and dragg
 		// A comment being written among the lines is listed above the diff, with the way back to it.
 		const list = page.getByRole('region', { name: 'Draft comments' });
 		await page.getByRole('heading', { level: 1 }).scrollIntoViewIfNeeded();
-		await list.getByRole('button', { name: 'Draft comments (1)' }).focus();
+		await list.getByRole('button', { name: 'Draft comments: 1 comment and 1 flag' }).focus();
 		const waiting = list.getByRole('list', { name: 'Comments not saved yet' });
 		await expect(waiting).toContainText('Not saved yet: src/lexer.ts After, lines 6–8');
 		await waiting

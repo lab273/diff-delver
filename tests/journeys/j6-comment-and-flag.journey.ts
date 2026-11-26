@@ -56,14 +56,14 @@ test.describe('J6 Comment and flag', () => {
 		await journey.expectVisible(flagged(2).byText('Flagged to look at again'));
 		await journey.expectFocused(line(2));
 		await journey.expectVisible(
-			journey.byRole('button', { name: 'Draft comments (0) and flags (1)', exact: true })
+			journey.byRole('button', { name: 'Draft comments: 1 flag', exact: true })
 		);
 		await journey.step('A line flagged');
 
 		// `f` again on the same line makes no second flag.
 		await journey.press('f');
 		await journey.expectVisible(
-			journey.byRole('button', { name: 'Draft comments (0) and flags (1)', exact: true })
+			journey.byRole('button', { name: 'Draft comments: 1 flag', exact: true })
 		);
 
 		// A comment on a run of lines, with `c`; then `f` flags the first line.

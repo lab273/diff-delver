@@ -158,9 +158,9 @@
 					{@const words = flag ? (comment.body === '' ? 'Add words' : 'Edit words') : 'Edit'}
 					<button
 						type="button"
-						aria-label="{words} {flag ? 'to' : 'your comment on'} {flag
-							? `${yours} on ${name}`
-							: name}"
+						aria-label={flag
+							? `${words} ${comment.body === '' ? 'to' : 'for'} ${yours} on ${name}`
+							: `Edit your comment on ${name}`}
 						onclick={() => {
 							notDeleted = undefined;
 							comments.edit(comment, listed ? 'list' : 'lines');
@@ -169,7 +169,11 @@
 						{words}
 					</button>
 					{#if flag}
-						<button type="button" aria-label="Clear {yours} on {name}" onclick={remove}>
+						<button
+							type="button"
+							aria-label="{deleting ? 'Clearing' : 'Clear'} {yours} on {name}"
+							onclick={remove}
+						>
 							{deleting ? 'Clearing…' : 'Clear'}
 						</button>
 					{:else}
