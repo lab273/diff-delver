@@ -696,6 +696,70 @@
 		if (part !== null && scroll) scrollToTop(part);
 	}
 
+	/** What is kept at the top of the screen while the diff settles, if anything: stopped by the next. */
+	let keptAtTop: { stopped: boolean } | undefined;
+
+	/**
+	 * Keeps what was scrolled to the top of the screen there while the diff
+	 * settles. Moved to before the page has its parts' lines and images, as soon
+	 * after it opens, it goes only as far as the page then goes, and the page
+	 * grows as they come: where it came to rest depended on how soon they came.
+	 * Scrolled to the top again whenever the diff's size changes, until a frame
+	 * passes with no change, no open part near the screen still waiting for its
+	 * lines and nothing in the diff busy, or the reader moves on: by their own
+	 * input, which the page's own scrolling never makes, or the page scrolls
+	 * something else to the top. The bound only ends the keeping if a part's
+	 * lines never come.
+	 */
+	async function keepAtTop(element: HTMLElement): Promise<void> {
+		const shown = viewer;
+		if (shown === undefined) return;
+		if (keptAtTop !== undefined) keptAtTop.stopped = true;
+		const kept = { stopped: false };
+		keptAtTop = kept;
+		const diff = element.closest('.content') ?? document.body;
+		const since = { resized: false, readerMoved: false };
+		const keeping = (): boolean =>
+			!kept.stopped && !since.readerMoved && viewer === shown && element.isConnected;
+		const again = (): boolean => {
+			const before = window.scrollY;
+			placeAtTop(element);
+			return window.scrollY !== before;
+		};
+		const observer = new ResizeObserver(() => {
+			since.resized = true;
+			if (keeping()) again();
+		});
+		const stopListening = whenReaderMoves(window, () => {
+			since.readerMoved = true;
+		});
+		observer.observe(diff);
+		try {
+			let settledFrames = 0;
+			for (let frame = 0; frame < SETTLE_FRAMES_AT_MOST; frame += 1) {
+				await nextFrame();
+				if (!keeping()) return;
+				const waiting = shown.parts.some(
+					(p) =>
+						p.open &&
+						p.near &&
+						!shown.isLarge(p) &&
+						(p.lines.kind === 'waiting' || p.lines.kind === 'loading')
+				);
+				const busy = diff.querySelector('[aria-busy="true"]') !== null;
+				const moved = again();
+				settledFrames = since.resized || waiting || busy || moved ? 0 : settledFrames + 1;
+				if (settledFrames === 2) return;
+				since.resized = false;
+			}
+		} finally {
+			kept.stopped = true;
+			if (keptAtTop === kept) keptAtTop = undefined;
+			observer.disconnect();
+			stopListening();
+		}
+	}
+
 	let bookmark = $state.raw<Bookmark>();
 	let bookmarkMessage = $state('');
 	let narrowBookmarks = $state<HTMLDivElement>();
@@ -1095,10 +1159,20 @@
 
 	/**
 	 * Scrolls an element to the top of the screen, as far as the page goes, and
+	 * below the search when it is open, and keeps it there while the diff
+	 * settles (`keepAtTop`).
+	 */
+	function scrollToTop(element: HTMLElement): void {
+		placeAtTop(element);
+		void keepAtTop(element);
+	}
+
+	/**
+	 * Scrolls an element to the top of the screen, as far as the page goes, and
 	 * below the search when it is open: the search stays at the top of the
 	 * screen, so whatever its height it would otherwise be drawn over the element.
 	 */
-	function scrollToTop(element: HTMLElement): void {
+	function placeAtTop(element: HTMLElement): void {
 		element.scrollIntoView({ block: 'start' });
 		const part = element.closest('article.part');
 		const header = part === element ? null : part?.querySelector('header');
