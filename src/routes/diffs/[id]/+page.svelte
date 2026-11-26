@@ -441,10 +441,32 @@
 		const anchor = atTop || keeping !== undefined ? undefined : viewportPart(shown);
 		const before = keeping?.part ?? partAtElement(shown, anchor);
 		const top = keeping?.top ?? anchor?.getBoundingClientRect().top;
+		// The line the reader was in, so its new part is found by what it holds: a
+		// regroup can move a file's lines into another part of it, as a reading order does.
+		const seen =
+			anchor === undefined
+				? null
+				: lineInView(
+						anchor,
+						Math.max(
+							stickyTop,
+							anchor.querySelector('header')?.getBoundingClientRect().bottom ?? 0
+						),
+						window.innerHeight
+					);
 		refreshed = { initial, frame };
 		const next = viewer;
-		const anchorAt = before === undefined ? undefined : next.nearestPart(before);
-		const focusAt = focused === undefined ? anchorAt : next.nearestPart(focused);
+		let anchorAt = before === undefined ? undefined : next.nearestPart(before);
+		if (before !== undefined && seen !== null) {
+			const files = next.parts.filter((p) => p.part.path === before.part.path);
+			if (files.length > 1) {
+				const home = await linesHome(next, files, seen, () => viewer === next);
+				if (viewer !== next) return;
+				if (home?.priority === 3) anchorAt = home.part.index;
+			}
+		}
+		const focusAt =
+			focused === undefined || focused === before ? anchorAt : next.nearestPart(focused);
 		const destination = anchorAt === undefined ? undefined : next.parts[anchorAt];
 		let waitingForHeight = false;
 		if (before !== undefined && destination?.part.path === before.part.path) {

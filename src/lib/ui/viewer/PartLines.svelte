@@ -194,9 +194,14 @@
 	function name(place: PlaceView): string {
 		const own = viewer.parts[at]?.part.group;
 		if (own !== undefined && groupKeyId(own) === groupKeyId(place.group)) {
+			// The Tests group holds only some of its section's steps: name the section.
+			const whose =
+				own.kind === 'tests'
+					? (viewer.groupWithKey({ kind: 'section', section: own.section })?.name ?? own.section)
+					: 'this section';
 			return place.step === null
-				? 'this section, after its steps'
-				: `step ${String(place.step)} of this section`;
+				? `${whose}, after its steps`
+				: `step ${String(place.step)} of ${whose}`;
 		}
 		const group = viewer.groupWithKey(place.group)?.name ?? 'another group';
 		return place.step === null ? group : `${group}, step ${String(place.step)}`;

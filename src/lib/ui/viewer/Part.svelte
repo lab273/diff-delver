@@ -83,13 +83,28 @@
 	const whiteSpaceMatters = $derived(whereWhiteSpaceMatters(part.path));
 	const large = $derived(viewer.isLarge(state));
 	const groupName = $derived(viewer.groupOfPart(at)?.name ?? '');
-	/** In a section with a reading order: "step 2 of 5", or that it follows the steps. */
+	/**
+	 * In a section with a reading order, whose steps: in a section, "2 of 5"; in the Tests group, which holds only
+	 * some of its section's steps, "2 of <the section>".
+	 */
+	const stepsOf = $derived(
+		part.group.kind === 'tests'
+			? ` of ${viewer.groupWithKey({ kind: 'section', section: part.group.section })?.name ?? part.group.section}`
+			: part.step === null
+				? ''
+				: ` of ${String(part.steps)}`
+	);
+	/** In what is read out: "step 2 of 5", "after the steps". */
 	const stepWords = $derived(
 		part.steps === 0
 			? ''
-			: part.step === null
-				? 'after the steps'
-				: `step ${String(part.step)} of ${String(part.steps)}`
+			: `${part.step === null ? 'after the steps' : `step ${String(part.step)}`}${stepsOf}`
+	);
+	/** The chip: "Step 2 of 5", "After the steps". */
+	const stepChip = $derived(
+		part.step === null
+			? `After the steps${part.group.kind === 'tests' ? stepsOf : ''}`
+			: `Step ${String(part.step)}${stepsOf}`
 	);
 	/** Its path as a person is shown it, in what is read out. */
 	const shown = $derived(shownPath(part.path));
@@ -239,10 +254,8 @@
 				</span>
 			</span>
 		{/if}
-		{#if part.step !== null}
-			<span class="chip step" aria-hidden="true">Step {part.step} of {part.steps}</span>
-		{:else if part.steps > 0}
-			<span class="chip step" aria-hidden="true">After the steps</span>
+		{#if part.steps > 0}
+			<span class="chip step" aria-hidden="true">{stepChip}</span>
 		{/if}
 		{#if part.of > 1}
 			<span class="chip" aria-hidden="true">Part {part.position} of {part.of}</span>
