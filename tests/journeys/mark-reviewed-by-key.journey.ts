@@ -27,6 +27,28 @@ test.describe('Marking files reviewed with r', () => {
 		await journey.expectState(tickOf('src/checkout.ts'), { checked: false });
 		await journey.step('Held down, r marks one file');
 
+		// A dialog opened while r ticks keeps the page where it is under it, and the
+		// press made meanwhile is dropped: nothing moves or is marked behind it.
+		const discount = journey.byRole('article', { name: 'src/discount.ts' });
+		const shortcuts = journey.byRole('dialog', { name: 'Keyboard shortcuts' });
+		const marking = await journey.holdTick();
+		await journey.press('r');
+		await marking.requested;
+		await journey.press('r');
+		await journey.press('?');
+		marking.release();
+		await journey.expectState(tickOf('src/checkout.ts'), { checked: true });
+		await journey.expectText(review, '9 of 14 changes reviewed');
+		await journey.expectFocused(journey.within(shortcuts).byRole('button', { name: 'Close' }));
+		await journey.step('A dialog opened while r ticks');
+		await journey.press('Escape');
+		await journey.expectHidden(shortcuts);
+		await journey.expectFocused(
+			journey.within(checkout).byRole('button', { name: 'src/checkout.ts', exact: true })
+		);
+		await journey.expectState(tickOf('src/discount.ts'), { checked: false });
+		await journey.expectText(review, '9 of 14 changes reviewed');
+
 		// The diff is updated while the page is left on the version before: r is
 		// refused, says so once, and the press made while it waited is dropped.
 		await journey.editFile(
@@ -39,17 +61,21 @@ test.describe('Marking files reviewed with r', () => {
 		await journey.expectVisible(
 			journey.byRole('region', { name: 'This Delve has a newer version' })
 		);
+		await journey.press('j');
+		await journey.expectFocused(
+			journey.within(discount).byRole('button', { name: 'src/discount.ts', exact: true })
+		);
 		const held = await journey.holdTick();
 		await journey.press('r');
 		await held.requested;
 		await journey.press('r');
 		held.release();
 		await journey.expectText(
-			journey.within(checkout).byRole('alert'),
+			journey.within(discount).byRole('alert'),
 			'Nothing was marked. This Delve was updated to version 2 after you last looked at it'
 		);
-		await journey.expectState(tickOf('src/checkout.ts'), { checked: false });
-		await journey.expectText(review, '6 of 14 changes reviewed');
+		await journey.expectState(tickOf('src/discount.ts'), { checked: false });
+		await journey.expectText(review, '9 of 14 changes reviewed');
 		await journey.step('r refused once', {
 			refusals: [{ route: '/api/diffs/[id]/reviewed', status: 409, times: 1 }]
 		});

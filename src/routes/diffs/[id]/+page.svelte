@@ -941,19 +941,23 @@
 		}
 	}
 
-	/** Goes to the next part waiting, saying first what `said` says, if anything. */
-	async function nextUnread(said?: string): Promise<void> {
+	/**
+	 * Goes to the next part waiting, saying first what `said` says, if anything,
+	 * unless `stillGoing` says otherwise once the page is drawn.
+	 */
+	async function nextUnread(said?: string, stillGoing?: () => boolean): Promise<void> {
 		if (viewer === undefined) return;
 		const at = viewer.nextUnread();
 		if (at === undefined) {
 			const nothingLeft = 'Everything is reviewed: there is nothing left to read.';
 			viewer.announcement = said === undefined ? nothingLeft : `${said} ${nothingLeft}`;
 			await tick();
+			if (stillGoing?.() === false) return;
 			document.getElementById(EVERYTHING_REVIEWED)?.focus();
 			return;
 		}
 		if (said !== undefined) viewer.announcement = said;
-		await goToPart(at, true);
+		await goToPart(at, true, stillGoing === undefined ? {} : { stillGoing });
 	}
 
 	/** The presses of `r` waiting for the one before them to finish. */
@@ -963,9 +967,10 @@
 	let marksDropped = 0;
 
 	/**
-	 * Drops every press of `r` still waiting, when what they were pressed on is
-	 * gone or no longer what the person expects: a tick refused, or the diff
-	 * drawn again in another sorting.
+	 * Drops every press of `r` still waiting, and stops the one under way going
+	 * any further, when what they were pressed on is gone or no longer what the
+	 * person expects: a tick refused, the diff drawn again in another sorting, a
+	 * dialog opened over it, or the page left.
 	 */
 	function dropMarks(): void {
 		marksDropped += 1;
@@ -985,8 +990,8 @@
 	 * waiting, as `n` does, so pressing it again and again reviews the diff part
 	 * by part. On a part already reviewed, or ignored, it only goes on. A tick
 	 * refused stays where its refusal is said. Presses are taken one after
-	 * another, each from where the one before it left the person; a refusal, or
-	 * the diff drawn again, drops those still waiting.
+	 * another, each from where the one before it left the person; a refusal, the
+	 * diff drawn again, a dialog or leaving the page drops those still waiting.
 	 */
 	function markReviewedByKey(): void {
 		const pressedOn = viewer;
@@ -996,7 +1001,7 @@
 			if (viewer !== pressedOn) dropMarks();
 			if (pressed !== marksDropped) return;
 			marksWaiting -= 1;
-			await markAndMoveOn();
+			await markAndMoveOn(() => pressed === marksDropped && !dialogOpen());
 		};
 		// A press that fails in the page says so where the page speaks, and the
 		// next press is taken as if it had not happened.
@@ -1009,7 +1014,8 @@
 		});
 	}
 
-	async function markAndMoveOn(): Promise<void> {
+	/** One press of `r`, going on only while `stillGoing` says it may. */
+	async function markAndMoveOn(stillGoing: () => boolean): Promise<void> {
 		const shown = viewer;
 		if (shown === undefined || byFile) return;
 		const at = currentPart();
@@ -1018,11 +1024,11 @@
 		// Said, so that nobody takes the move for a tick of the part moved to.
 		const name = shownPath(state.part.path);
 		if (state.part.group.kind === 'ignored') {
-			await nextUnread(`${name} is ignored, so it needs no review.`);
+			await nextUnread(`${name} is ignored, so it needs no review.`, stillGoing);
 			return;
 		}
 		if (done(state.part.tally)) {
-			await nextUnread(`${name} is already reviewed.`);
+			await nextUnread(`${name} is already reviewed.`, stillGoing);
 			return;
 		}
 		const part = document.getElementById(`part-${at}`);
@@ -1037,9 +1043,9 @@
 			shown.current = at;
 			toggle.focus({ preventScroll: true });
 		} else {
-			await goToPart(at, false);
+			await goToPart(at, false, { stillGoing });
 		}
-		if (viewer !== shown) return;
+		if (viewer !== shown || !stillGoing()) return;
 		// Pressing r again, or holding it down, is no moving away.
 		let moved = false;
 		const stop = whenReaderMoves(
@@ -1052,7 +1058,7 @@
 		);
 		try {
 			await tickTarget({ kind: 'part', at }, true, {
-				moveOn: () => !moved || marksWaiting > 0
+				moveOn: () => stillGoing() && (!moved || marksWaiting > 0)
 			});
 		} finally {
 			stop();
@@ -1114,7 +1120,7 @@
 					// On the last part the tick's own words say everything is reviewed, so
 					// they stay, and focus goes to the notice that says so.
 					if (outcome.allDone) document.getElementById(EVERYTHING_REVIEWED)?.focus();
-					else await nextUnread();
+					else await nextUnread(undefined, moveOn);
 					return;
 				}
 				if (readerMoved && !focusLost()) return;
@@ -1567,6 +1573,15 @@
 		parseRevisionNumber(Number(readerUrl.searchParams.get('version') ?? viewer?.version))
 	);
 	const fileReaderOpen = $derived(readerPath.ok && readerSide.ok && readerVersion.ok);
+
+	/** Whether a dialog is open over the diff: the shortcuts, the file opener or reader, or the switcher. */
+	function dialogOpen(): boolean {
+		return helpOpen || fileOpener || fileReaderOpen || switcher.open;
+	}
+
+	$effect(() => {
+		if (dialogOpen()) dropMarks();
+	});
 	interface FileJump {
 		readonly id: ReportId;
 		readonly version: RevisionNumber;
@@ -1772,7 +1787,7 @@
 	}
 
 	function onKey(event: KeyboardEvent): void {
-		if (viewer === undefined || helpOpen || fileOpener || fileReaderOpen || switcher.open) return;
+		if (viewer === undefined || dialogOpen()) return;
 		const target = event.target instanceof HTMLElement ? event.target : null;
 		if (isFindKey(event, target?.id === SEARCH_INPUT)) {
 			event.preventDefault();
