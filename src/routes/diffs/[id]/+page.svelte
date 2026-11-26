@@ -1018,17 +1018,25 @@
 			console.error(error);
 			if (viewer !== undefined)
 				viewer.announcement =
-					'Something went wrong on this page, so the file may not be marked as reviewed. Press r to try again, or reload the page.';
+					'Something went wrong on this page, so the file may or may not be marked as reviewed: its tick box shows which. Press r to try again, or reload the page.';
 		});
 	}
 
 	/** One press of `r`, going on only while `stillGoing` says it may. */
 	async function markAndMoveOn(stillGoing: () => boolean): Promise<void> {
 		const shown = viewer;
-		if (shown === undefined || byFile) return;
+		if (shown === undefined) return;
+		if (byFile) {
+			shown.announcement =
+				'In By file, mark a file reviewed with its tick box, or choose By section to use r.';
+			return;
+		}
 		const at = currentPart();
 		const state = at === undefined ? undefined : shown.parts[at];
-		if (at === undefined || state === undefined) return;
+		if (at === undefined || state === undefined) {
+			shown.announcement = 'There is no file shown here to mark as reviewed.';
+			return;
+		}
 		// Moving away by their own input, from now on, drops this press and those
 		// waiting; pressing r again, or holding it down, is no moving away.
 		const stop = whenReaderMoves(window, dropMarks, (input) => !marksByKey(input));

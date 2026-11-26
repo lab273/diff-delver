@@ -406,5 +406,15 @@ test.describe('J16 Reading and finding', () => {
 		await journey.expectState(tickOf('styles/site.css'), { checked: true });
 		await journey.expectState(tickOf('tools/workflow.yml'), { checked: true });
 		await journey.expectFocused(nameOf('app/models.py'));
+
+		// In the list by file there is no file to be on, so r says how to mark one there.
+		await journey.activate(journey.byRole('button', { name: 'By file' }));
+		await journey.press('r');
+		await journey.expectVisible(
+			journey.byText(
+				'In By file, mark a file reviewed with its tick box, or choose By section to use r.',
+				{ exact: true }
+			)
+		);
 	});
 });
