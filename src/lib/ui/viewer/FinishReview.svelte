@@ -522,7 +522,7 @@
 									: `Posted to GitHub ${describePostedAs(review.posted.as)} —`}
 								<a href={review.posted.address} target="_blank" rel="external noopener noreferrer">
 									open review {review.number} on GitHub
-								</a>
+								</a>{review.posted.as === 'draft' ? ' to submit it' : ''}
 							</p>
 						{/if}
 						{#if reading === review.number}

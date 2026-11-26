@@ -174,7 +174,10 @@ test.describe('J11 Review a GitHub PR', () => {
 				{ exact: false }
 			)
 		);
-		await journey.expectVisible(finish.byText('Posted as a draft —', { exact: false }));
+		await journey.expectText(
+			finish.byText('Posted as a draft —', { exact: false }),
+			'Posted as a draft — open review 2 on GitHub to submit it'
+		);
 		await journey.expectVisible(
 			finish.byRole('link', { name: 'open review 2 on GitHub', exact: true })
 		);
