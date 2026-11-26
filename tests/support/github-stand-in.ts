@@ -4,9 +4,9 @@
  * repositories on disk, which a fetch reads `refs/pull/<number>/head` and
  * branches from, as it would from GitHub; and a small HTTP server on a free
  * port of 127.0.0.1 answers the REST calls diff delver makes: one pull request,
- * a repository's open pull requests, and the repository itself. Its answers
- * name the repository's folder as its clone address, so a fetch never leaves
- * the machine. It records every request, so a test can check what was asked
+ * a repository's open pull requests, and the repository itself. What it
+ * gives diff delver says git fetches a repository from its folder, so a fetch
+ * never leaves the machine. It records every request, so a test can check what was asked
  * and with which sign-in.
  */
 import { createHash } from 'node:crypto';
@@ -117,7 +117,7 @@ async function pullJson(repository: StandInRepository, pull: StandInPull): Promi
 		base: {
 			sha: await commitOf(repository.repo, `refs/heads/${pull.base}`),
 			ref: pull.base,
-			repo: { full_name: fullName, clone_url: repository.repo.dir }
+			repo: { full_name: fullName, clone_url: `https://github.com/${fullName}.git` }
 		}
 	};
 }
@@ -226,6 +226,13 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 				apiBase: (host) => {
 					if (host !== GITHUB_COM) throw new Error(`The stand-in is github.com only, not ${host}`);
 					return apiBase;
+				},
+				gitAddress: (repository) => {
+					const served = repositories.get(key(repository.owner, repository.name));
+					if (served === undefined) {
+						throw new Error(`The stand-in has no ${repository.owner}/${repository.name}`);
+					}
+					return served.repo.dir;
 				},
 				token: () => Promise.resolve(parsed?.value),
 				seconds: 10,

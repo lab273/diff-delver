@@ -49,7 +49,6 @@ import {
 	renderManifest,
 	type ManifestPullRequest
 } from '#lib/core/agent/manifest.ts';
-import { pullRequestShortName, pullRequestUrl } from '#lib/core/github/pull-request.ts';
 import {
 	filterKey,
 	parsePageCursor,
@@ -223,8 +222,7 @@ function pullRequestOf(page: LoadedReport): { pullRequest?: ManifestPullRequest 
 	if (source.kind !== 'github') return {};
 	return {
 		pullRequest: {
-			name: pullRequestShortName(source.pullRequest),
-			address: pullRequestUrl(source.pullRequest),
+			ref: source.pullRequest,
 			title: source.title,
 			description: source.description
 		}

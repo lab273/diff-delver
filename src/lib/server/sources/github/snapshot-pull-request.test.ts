@@ -28,11 +28,7 @@ const details: PullRequestDetails = {
 	draft: false,
 	author: undefined,
 	head: { commit: COMMIT, branch: value(parseGitHubBranchName('discount')) },
-	base: {
-		commit: COMMIT,
-		branch: value(parseGitHubBranchName('main')),
-		cloneUrl: 'https://github.com/acme/shop.git'
-	}
+	base: { commit: COMMIT, branch: value(parseGitHubBranchName('main')) }
 };
 
 async function repository(): Promise<LocalRepository> {

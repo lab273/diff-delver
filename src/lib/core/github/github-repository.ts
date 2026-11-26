@@ -108,6 +108,11 @@ export function sameGitHubRepository(a: GitHubRepository, b: GitHubRepository): 
 	);
 }
 
+/** Where git fetches the repository from on GitHub: `https://github.com/owner/name.git`. */
+export function gitHubCloneAddress(repository: GitHubRepository): string {
+	return `https://${repository.host}/${repository.owner}/${repository.name}.git`;
+}
+
 /** The repository as GitHub names it: `owner/name`. */
 export function gitHubRepositoryText(repository: GitHubRepository): string {
 	return `${repository.owner}/${repository.name}`;

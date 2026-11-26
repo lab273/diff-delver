@@ -46,13 +46,8 @@ export interface PullRequestDetails {
 	readonly author: GitHubOwner | undefined;
 	/** The commit its branch is at, and the branch's name. */
 	readonly head: { readonly commit: CommitId; readonly branch: GitHubBranchName };
-	/** The branch it would merge into, the commit GitHub last saw it at, and where to fetch from. */
-	readonly base: {
-		readonly commit: CommitId;
-		readonly branch: GitHubBranchName;
-		/** The address its repository is cloned from; `refs/pull/<number>/head` is fetched from it too. */
-		readonly cloneUrl: string;
-	};
+	/** The branch it would merge into, and the commit GitHub last saw it at. */
+	readonly base: { readonly commit: CommitId; readonly branch: GitHubBranchName };
 }
 
 function tiny<T>(parse: (value: string) => Result<T, unknown>) {
@@ -97,7 +92,7 @@ const pullShape = z.object({
 	base: z.object({
 		sha: tiny(parseCommitId),
 		ref: tiny(parseGitHubBranchName),
-		repo: z.object({ full_name: z.string(), clone_url: z.string() })
+		repo: z.object({ full_name: z.string() })
 	})
 });
 
@@ -287,7 +282,7 @@ async function readWith(
 		draft: pull.draft ?? false,
 		author: pull.user?.login,
 		head: { commit: pull.head.sha, branch: pull.head.ref },
-		base: { commit: pull.base.sha, branch: pull.base.ref, cloneUrl: pull.base.repo.clone_url }
+		base: { commit: pull.base.sha, branch: pull.base.ref }
 	};
 	return ok({ kind: 'read', details, etag: tag.ok ? tag.value : undefined });
 }

@@ -11,11 +11,18 @@
  */
 import { spawn } from 'node:child_process';
 import { GITHUB_COM, type GitHubHost } from '#lib/core/github/github-host.tiny.ts';
+import { gitHubCloneAddress, type GitHubRepository } from '#lib/core/github/github-repository.ts';
 import { parseGitHubToken, type GitHubToken } from '#lib/core/github/github-token.tiny.ts';
 
 export interface GitHubAccess {
 	/** The API's address for a host, with no slash at the end: `https://api.github.com`. */
 	apiBase(host: GitHubHost): string;
+	/**
+	 * Where git fetches a repository from: GitHub's own address for it,
+	 * `https://github.com/owner/name.git`, made from the repository and never
+	 * taken from an answer of GitHub's. The stand-in gives its folder.
+	 */
+	gitAddress(repository: GitHubRepository): string;
 	/** The person's token for a host, or undefined when they have none: public repositories still work. */
 	token(host: GitHubHost): Promise<GitHubToken | undefined>;
 	/** How long a request to the API may take. */
@@ -78,6 +85,7 @@ function environmentToken(): GitHubToken | undefined {
 export function machineGitHubAccess(): GitHubAccess {
 	return {
 		apiBase: apiOf,
+		gitAddress: gitHubCloneAddress,
 		async token(host) {
 			return (await ghToken(host)) ?? (host === GITHUB_COM ? environmentToken() : undefined);
 		},

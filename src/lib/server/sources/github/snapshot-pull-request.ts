@@ -185,14 +185,15 @@ async function fetchSides(
 	refs: string
 ): Promise<Result<Fetched, GitHubSourceError>> {
 	const host = details.ref.repository.host;
-	const env = fetchEnvironment(repo, details.base.cloneUrl, host, await access.token(host));
+	const address = access.gitAddress(details.ref.repository);
+	const env = fetchEnvironment(repo, address, host, await access.token(host));
 	const limit = new AbortController();
 	const timer = setTimeout(() => {
 		limit.abort();
 	}, access.fetchSeconds * 1000);
 	const fetched = await runGit({
 		cwd: store.dir,
-		args: fetchArguments(details, details.base.cloneUrl, refs),
+		args: fetchArguments(details, address, refs),
 		env,
 		stopWhen: limit.signal
 	}).finally(() => {
