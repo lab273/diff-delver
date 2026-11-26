@@ -120,6 +120,35 @@ async function shallowClone(): Promise<{ server: GitRepo; clone: GitRepo }> {
 	return { server, clone: GitRepo.open(dir) };
 }
 
+/**
+ * A blobless or a shallow clone of the partial clone's server, served on a
+ * stand-in as acme/shop with pull request #7 on `feat`, and a service with
+ * the stand-in's access, `fetchSeconds` its limit for a download.
+ */
+async function notBorrowed(
+	kind: 'blobless' | 'shallow',
+	fetchSeconds?: number
+): Promise<{ service: ReportService; clone: GitRepo }> {
+	const github = await startGitHubStandIn();
+	standIns.push(github);
+	const { server, clone } =
+		kind === 'blobless' ? await partialClone('blob:none') : await shallowClone();
+	github.addRepository(SHOP_OWNER, SHOP_NAME, server);
+	await github.setPull(SHOP_OWNER, SHOP_NAME, { ...DISCOUNT_PULL, head: 'feat' });
+	await clone.git('remote', 'set-url', 'origin', SHOP_REMOTE);
+	const who = await reviewer();
+	const service = value(
+		await ReportService.open({
+			dataDirectory: absolutePath(join(await tempDirectory(), 'data')),
+			clock: settableClock(at(1_700_000_100_000)),
+			ids: sequentialIds(),
+			repository: { gitEnv: who.gitEnv },
+			github: github.access(undefined, fetchSeconds === undefined ? {} : { fetchSeconds })
+		})
+	);
+	return { service, clone };
+}
+
 /** Pushes a commit to the pull request's branch on the stand-in. */
 async function push(w: World, file: string, text: string, message: string): Promise<void> {
 	await w.upstream.git('checkout', '--quiet', 'discount');
@@ -490,23 +519,7 @@ describe('a GitHub pull request', () => {
 
 	it('downloads everything it needs into a blobless or a shallow clone’s store', async () => {
 		for (const kind of ['blobless', 'shallow'] as const) {
-			const github = await startGitHubStandIn();
-			standIns.push(github);
-			const { server, clone } =
-				kind === 'blobless' ? await partialClone('blob:none') : await shallowClone();
-			github.addRepository(SHOP_OWNER, SHOP_NAME, server);
-			await github.setPull(SHOP_OWNER, SHOP_NAME, { ...DISCOUNT_PULL, head: 'feat' });
-			await clone.git('remote', 'set-url', 'origin', SHOP_REMOTE);
-			const who = await reviewer();
-			const service = value(
-				await ReportService.open({
-					dataDirectory: absolutePath(join(await tempDirectory(), 'data')),
-					clock: settableClock(at(1_700_000_100_000)),
-					ids: sequentialIds(),
-					repository: { gitEnv: who.gitEnv },
-					github: github.access()
-				})
-			);
+			const { service, clone } = await notBorrowed(kind);
 			const { before, after, result } = await listingsAround([clone.dir], async () =>
 				value(await service.open(clone.dir, DISCOUNT))
 			);
@@ -526,12 +539,34 @@ describe('a GitHub pull request', () => {
 		const opened = await w.service.open(w.clone.dir, DISCOUNT);
 		expect(!opened.ok && opened.error).toMatchObject({
 			kind: 'PullRequestFetchFailed',
+			clone: 'borrowed',
 			stoppedAfter: 0
 		});
 		if (!opened.ok) {
 			expect(describeReportError(opened.error)).toContain(
 				'commits from GitHub was stopped after 0 seconds, unfinished. A large repository can take longer: run "git fetch" in this clone first'
 			);
+		}
+		// A partial or shallow clone is never borrowed, so fetching in it would not help.
+		const advice = {
+			blobless:
+				'This clone is partial, so its history could not be used and all of it was asked of GitHub. In a full clone, made by "git clone" without "--filter", less is left to download',
+			shallow:
+				'This clone is shallow, so its history could not be used and all of it was asked of GitHub. Run "git fetch --unshallow" in this clone first'
+		};
+		for (const kind of ['blobless', 'shallow'] as const) {
+			const { service, clone } = await notBorrowed(kind, 0);
+			const stopped = await service.open(clone.dir, DISCOUNT);
+			expect(!stopped.ok && stopped.error).toMatchObject({
+				kind: 'PullRequestFetchFailed',
+				clone: kind === 'blobless' ? 'partial' : 'shallow',
+				stoppedAfter: 0
+			});
+			if (!stopped.ok) {
+				const message = describeReportError(stopped.error);
+				expect(message).toContain(advice[kind]);
+				expect(message).not.toContain('"git fetch" in this clone');
+			}
 		}
 	});
 

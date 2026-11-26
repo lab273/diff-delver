@@ -42,7 +42,7 @@ import { ensureStore, takeSnapshot, type Store } from '../../store/index.ts';
 import type { GitSnapshot, LocalRepository } from '../git/index.ts';
 import type { GitHubAccess } from './github-access.ts';
 import type { PullRequestDetails } from './github-api.ts';
-import type { GitHubSourceError } from './github-error.ts';
+import type { FetchedInto, GitHubSourceError } from './github-error.ts';
 
 /**
  * The pull request's fingerprint (DESIGN 3.2): its branch's commit, `head`,
@@ -75,6 +75,12 @@ export function pullRequestFingerprint(
  */
 function borrowable(repo: LocalRepository): boolean {
 	return !repo.partialClone && !repo.shallow;
+}
+
+/** How the fetch used the clone: borrowed, or not, since it is partial or shallow. */
+function cloneKind(repo: LocalRepository): FetchedInto {
+	if (repo.partialClone) return 'partial';
+	return repo.shallow ? 'shallow' : 'borrowed';
 }
 
 /** The clone's objects borrowed, as git's environment, when they can be. */
@@ -203,6 +209,7 @@ async function fetchSides(
 		return err({
 			kind: 'PullRequestFetchFailed',
 			pullRequest: details.ref,
+			clone: cloneKind(repo),
 			stoppedAfter: limit.signal.aborted ? access.fetchSeconds : undefined
 		});
 	}
@@ -214,6 +221,7 @@ async function fetchSides(
 		return err({
 			kind: 'PullRequestFetchFailed',
 			pullRequest: details.ref,
+			clone: cloneKind(repo),
 			stoppedAfter: undefined
 		});
 	}
@@ -231,6 +239,7 @@ async function fetchSides(
 		return err({
 			kind: 'PullRequestFetchFailed',
 			pullRequest: details.ref,
+			clone: cloneKind(repo),
 			stoppedAfter: undefined
 		});
 	}

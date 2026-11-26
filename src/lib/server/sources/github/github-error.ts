@@ -66,10 +66,18 @@ export interface GitHubAnswerUnreadable {
 	readonly status: number;
 }
 
+/**
+ * How a fetch of a pull request used the clone it was opened from: its
+ * objects borrowed, so GitHub sent only what it lacked, or not, since it is
+ * a partial or a shallow clone, so GitHub sent the pull request's history whole.
+ */
+export type FetchedInto = 'borrowed' | 'partial' | 'shallow';
+
 /** The pull request's commits could not be downloaded from GitHub. */
 export interface PullRequestFetchFailed {
 	readonly kind: 'PullRequestFetchFailed';
 	readonly pullRequest: PullRequestRef;
+	readonly clone: FetchedInto;
 	/** How many seconds it ran before it was stopped, when it took too long. */
 	readonly stoppedAfter: number | undefined;
 }
@@ -134,6 +142,18 @@ function describeWait(seconds: number | undefined): string {
 	return `Try again in ${String(Math.ceil(minutes / 60))} hours.`;
 }
 
+/** How to leave less to download when fetching a pull request into a clone took too long. */
+function lessToDownload(clone: FetchedInto): string {
+	switch (clone) {
+		case 'borrowed':
+			return 'A large repository can take longer: run "git fetch" in this clone first, so that less is left to download, then try again.';
+		case 'partial':
+			return 'This clone is partial, so its history could not be used and all of it was asked of GitHub. In a full clone, made by "git clone" without "--filter", less is left to download: open the pull request there.';
+		case 'shallow':
+			return 'This clone is shallow, so its history could not be used and all of it was asked of GitHub. Run "git fetch --unshallow" in this clone first, so that less is left to download, then try again.';
+	}
+}
+
 /** What happened and what to do next, for the reviewer. */
 export function describeGitHubSourceError(error: GitHubSourceError): ReviewerMessage {
 	switch (error.kind) {
@@ -176,7 +196,7 @@ export function describeGitHubSourceError(error: GitHubSourceError): ReviewerMes
 		case 'PullRequestFetchFailed':
 			return reviewerMessage(
 				error.stoppedAfter !== undefined
-					? `Downloading ${pullRequestShortName(error.pullRequest)}'s commits from GitHub was stopped after ${describeDuration(error.stoppedAfter)}, unfinished. A large repository can take longer: run "git fetch" in this clone first, so that less is left to download, then try again.`
+					? `Downloading ${pullRequestShortName(error.pullRequest)}'s commits from GitHub was stopped after ${describeDuration(error.stoppedAfter)}, unfinished. ${lessToDownload(error.clone)}`
 					: `${pullRequestShortName(error.pullRequest)}'s commits could not be downloaded from GitHub. Check that this computer is online and that you can read the repository, then try again.`
 			);
 		case 'PullRequestNoMergeBase':
