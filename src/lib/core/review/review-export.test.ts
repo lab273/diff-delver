@@ -54,6 +54,7 @@ const state = assign(diff, initialState(diff), [
 
 function comment(over: Partial<SubmittedComment> = {}): SubmittedComment {
 	return {
+		kind: 'comment',
 		anchor: { path: path('src/cart.ts'), side: 'new', first: line(2), last: line(3) },
 		version: version(2),
 		body: 'Is a negative total possible here?',

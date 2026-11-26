@@ -4,7 +4,9 @@
  * agent, the same text. The reviewer's overall review, when they wrote one,
  * comes first, under its own heading. Each comment names its file, its lines and the side
  * they are on, quotes the code it is on as the snapshot held it when the
- * review was finished, then gives the reviewer's words exactly as typed, quoted. Last
+ * review was finished, then gives the reviewer's words exactly as typed, quoted. The
+ * lines the reviewer flagged to look at again follow, under "Flagged for
+ * another look", each with any words they wrote, quoted the same way. Last
  * comes what was not reviewed, group by group.
  *
  * Text from the repository (paths, section titles, code) is written as the
@@ -37,7 +39,7 @@ import type { CommentCount } from '../comment-count.tiny.ts';
 import type { GitHubReviewAddress } from '../github/github-review-address.tiny.ts';
 import type { PostedAs } from '../github/github-review.ts';
 import { countOf, formatCount } from '../viewer/words.ts';
-import type { CommentAnchor } from './draft-comment.ts';
+import type { CommentAnchor, ThreadKind } from './draft-comment.ts';
 import { isWritten } from './overall-review.ts';
 import { countWithin } from './progress.ts';
 import { fileUnitReviewed, reviewedLines, type ReviewedMarks } from './reviewed-marks.ts';
@@ -51,14 +53,18 @@ export const MAX_QUOTED_LINE_LENGTH = 500;
 /** At most this many files are named for each group under "Not reviewed"; the rest are counted. */
 export const MAX_FILES_NAMED = 30;
 
-/** One comment of a finished review, with the code it is on as it was when the review was finished. */
+/**
+ * One comment or flag of a finished review, with the code a comment is on as
+ * it was when the review was finished.
+ */
 export interface SubmittedComment {
+	readonly kind: ThreadKind;
 	readonly anchor: CommentAnchor;
 	/** The version of the report its lines are in. */
 	readonly version: RevisionNumber;
-	/** The reviewer's words, exactly as typed. */
+	/** The reviewer's words, exactly as typed; a flag's may be ''. */
 	readonly body: string;
-	/** The first `MAX_QUOTED_LINES` lines of its range, from its version's snapshot. */
+	/** The first `MAX_QUOTED_LINES` lines of its range, from its version's snapshot; none for a flag. */
 	readonly quoted: readonly LineText[];
 }
 
@@ -156,31 +162,53 @@ export interface ReviewExportInput {
 /** A finished review as Markdown written for a language model. */
 export function renderReviewExport(input: ReviewExportInput): TextForAgent {
 	const written = isWritten(input.overall);
+	const comments = input.comments.filter((c) => c.kind === 'comment');
+	const flags = input.comments.filter((c) => c.kind === 'flag');
 	const out: string[] = [
 		`# Review ${String(input.number)} of ${visibleText(input.title)} in ${visibleText(input.repository)}`,
 		'',
-		`A code review from diff delver: report ${input.report}, version ${String(input.version)}${input.headCommit === undefined ? '' : `, whose new side is commit ${input.headCommit.slice(0, 7)}`}. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished, and the reviewer’s words follow it, each line after a >.${written ? ' The reviewer’s overall review of the change comes first, quoted the same way.' : ''}`,
+		`A code review from diff delver: report ${input.report}, version ${String(input.version)}${input.headCommit === undefined ? '' : `, whose new side is commit ${input.headCommit.slice(0, 7)}`}. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished, and the reviewer’s words follow it, each line after a >.${written ? ' The reviewer’s overall review of the change comes first, quoted the same way.' : ''}${flags.length > 0 ? ' Lines the reviewer flagged to look at again are listed after the comments, named the same way, with any words they wrote quoted the same way.' : ''}`,
 		''
 	];
 	if (written) out.push('## Overall', '', ...wordsQuoted(input.overall), '');
 	out.push('## Comments');
-	if (input.comments.length === 0) out.push('', 'No comments.');
-	for (const comment of input.comments) out.push('', ...commentLines(comment, input.version));
+	if (comments.length === 0) out.push('', 'No comments.');
+	for (const comment of comments) out.push('', ...commentLines(comment, input.version));
+	if (flags.length > 0) {
+		out.push('', '## Flagged for another look', '');
+		for (const flag of flags) out.push(...flagLines(flag, input.version));
+	}
 	out.push('', '## Not reviewed', '', coverageLine(input.progress));
 	if (input.notReviewed.length > 0) out.push('');
 	for (const group of input.notReviewed) out.push(groupLine(group));
 	return textForAgent(`${out.join('\n')}\n`);
 }
 
-function commentLines(comment: SubmittedComment, version: RevisionNumber): string[] {
+/** Where a comment or a flag is, as its heading or its item names it: `src/a.ts:3-5 (new)`. */
+function placeOf(comment: SubmittedComment, version: RevisionNumber): string {
 	const { path, side, first, last } = comment.anchor;
 	const lines = first === last ? String(first) : `${String(first)}-${String(last)}`;
 	const where = comment.version === version ? side : `${side}, version ${String(comment.version)}`;
+	return `${agentPath(path)}:${lines} (${where})`;
+}
+
+/**
+ * A flag as an item of the list: where it is, and the reviewer's words, when
+ * they wrote some, quoted under it as a comment's are, inside the item.
+ */
+function flagLines(flag: SubmittedComment, version: RevisionNumber): string[] {
+	const out = [`- ${placeOf(flag, version)}`];
+	if (flag.body.trim() !== '') out.push(...wordsQuoted(flag.body).map((line) => `  ${line}`));
+	return out;
+}
+
+function commentLines(comment: SubmittedComment, version: RevisionNumber): string[] {
+	const { path, first, last } = comment.anchor;
 	const code = comment.quoted.map((text) => quotedLine(text));
 	const fence = '`'.repeat(Math.max(3, longestRun(code, '`') + 1));
 	const total = last - first + 1;
 	const out = [
-		`### ${agentPath(path)}:${lines} (${where})`,
+		`### ${placeOf(comment, version)}`,
 		`${fence}${languageOf(path) ?? ''}`,
 		...code,
 		fence
@@ -263,6 +291,8 @@ export interface FinishedReview {
 	readonly submittedAt: Timestamp;
 	readonly progress: UnitProgress;
 	readonly comments: CommentCount;
+	/** How many lines it flagged to look at again. */
+	readonly flags: CommentCount;
 	/** Whether the reviewer wrote an overall review in it. */
 	readonly overall: boolean;
 	readonly text: TextForAgent;

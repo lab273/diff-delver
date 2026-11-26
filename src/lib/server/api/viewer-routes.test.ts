@@ -737,6 +737,7 @@ describe('private draft comments', () => {
 		expect(value(await client.draftComments(id)).comments).toEqual([]);
 
 		const request: AddDraftComment = {
+			kind: 'comment',
 			version: revision(1),
 			anchor: {
 				path: path('src/long.ts'),
@@ -829,6 +830,7 @@ describe('private draft comments', () => {
 		const id = started.diff.id;
 		const add = (body: string, first: number) =>
 			client.addDraftComment(id, {
+				kind: 'comment',
 				version: revision(1),
 				anchor: {
 					path: path('src/long.ts'),
@@ -883,7 +885,8 @@ describe('private draft comments', () => {
 
 		const missing = { ...first, id: commentId(99) };
 		const refusals = [
-			[await change(edited, 1, ' \n'), 400],
+			// A comment needs words: the service says so, as for any change it cannot make.
+			[await change(edited, 1, ' \n'), 422],
 			[await change(edited, 1, 'x'.repeat(10_001)), 400],
 			// No such comment, in this Delve or at all.
 			[await change(missing, 1, 'x'), 404],
@@ -992,6 +995,7 @@ describe('private draft comments', () => {
 		const id = started.diff.id;
 		const add = (file: string, body: string) =>
 			client.addDraftComment(id, {
+				kind: 'comment',
 				version: revision(1),
 				anchor: { path: path(file), side: 'new', first: lineNumberOf(1), last: lineNumberOf(1) },
 				body
@@ -1042,6 +1046,7 @@ describe('private draft comments', () => {
 		const again = await browserClient(restarted);
 		const last = value(
 			await again.addDraftComment(id, {
+				kind: 'comment',
 				version: revision(1),
 				anchor: {
 					path: path('src/long.ts'),
@@ -1122,6 +1127,7 @@ describe('finished reviews', () => {
 
 		const comment = value(
 			await client.addDraftComment(id, {
+				kind: 'comment',
 				version: revision(1),
 				anchor: {
 					path: path('src/long.ts'),

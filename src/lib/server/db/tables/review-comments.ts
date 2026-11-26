@@ -37,16 +37,18 @@ const quoted = z
 
 const row = z
 	.object({
+		kind: z.enum(['comment', 'flag']),
 		version: whole(parseRevisionNumber),
 		path: repoPath,
 		side: z.enum(['old', 'new']),
 		first: whole(parseLineNumber),
 		last: whole(parseLineNumber),
-		body: z.string().min(1).max(MAX_COMMENT_LENGTH),
+		body: z.string().max(MAX_COMMENT_LENGTH),
 		quoted
 	})
-	.refine(({ first, last }) => last >= first)
-	.transform(({ version, path, side, first, last, body, quoted }): SubmittedComment => ({
+	.refine(({ kind, first, last, body }) => last >= first && (kind === 'flag' || body !== ''))
+	.transform(({ kind, version, path, side, first, last, body, quoted }): SubmittedComment => ({
+		kind,
 		anchor: { path, side, first, last },
 		version,
 		body,
@@ -63,7 +65,7 @@ export function reviewCommentsOf(
 		'review_comments',
 		row,
 		q.all(
-			`SELECT r.number AS version, c.path, c.side, c.first_line AS first, c.last_line AS last,
+			`SELECT c.kind, r.number AS version, c.path, c.side, c.first_line AS first, c.last_line AS last,
 				c.body, c.quoted
 			 FROM review_comments c JOIN revisions r ON r.id = c.revision_id
 			 WHERE c.report_id = ? AND c.review_number = ? ORDER BY c.position`,
@@ -118,13 +120,14 @@ export function insertReviewComments(
 	comments.forEach(({ draft, revision, comment, writtenAt }, i) => {
 		q.run(
 			`INSERT INTO review_comments (report_id, review_number, position, draft_comment_id,
-				revision_id, path, side, first_line, last_line, body, written_at, quoted)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				revision_id, kind, path, side, first_line, last_line, body, written_at, quoted)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			report,
 			number,
 			i + 1,
 			draft,
 			revision,
+			comment.kind,
 			repoPathBytes(comment.anchor.path),
 			comment.anchor.side,
 			comment.anchor.first,

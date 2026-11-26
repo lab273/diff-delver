@@ -117,9 +117,11 @@ import { referenceRowsFor, replaceReferenceRows } from '../db/tables/section-ref
 import type { DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 import { NO_EDITS, type EditCount } from '#lib/core/edit-count.tiny.ts';
 import {
-	isCommentBody,
+	isThreadBody,
+	storedThreadBody,
 	type CommentAnchor,
-	type DraftComment
+	type DraftComment,
+	type ThreadKind
 } from '#lib/core/review/draft-comment.ts';
 import {
 	isOverallReviewBody,
@@ -132,6 +134,7 @@ import {
 	renumberDraftComment,
 	draftCommentOf,
 	draftCommentsOf,
+	draftFlagOn,
 	insertDraftComment,
 	updateDraftComment
 } from '../db/tables/draft-comments.ts';
@@ -1149,7 +1152,13 @@ function frozenComments(
 		rows.push({
 			draft: c.id,
 			revision: revision.value.id,
-			comment: { anchor: c.anchor, version: c.version, body: c.body, quoted: quoted[i] ?? [] },
+			comment: {
+				kind: c.kind,
+				anchor: c.anchor,
+				version: c.version,
+				body: c.body,
+				quoted: quoted[i] ?? []
+			},
 			writtenAt: c.writtenAt
 		});
 	}
@@ -2160,14 +2169,19 @@ export class ReportService {
 		return this.#db.read((q) => andThen(current(q, id), () => draftCommentsOf(q, id)));
 	}
 
-	/** Saves on the version the reviewer saw, at the exact path in that side's tree. */
+	/**
+	 * Saves a comment, or a flag, on the version the reviewer saw, at the exact
+	 * path in that side's tree. A flag needs no words; flagging lines that are
+	 * flagged already gives back the flag they have, so there is never a second.
+	 */
 	async addDraftComment(
 		id: ReportId,
 		seen: RevisionNumber,
 		anchor: CommentAnchor,
-		body: string
+		body: string,
+		kind: ThreadKind = 'comment'
 	): Promise<Result<DraftComment, ReportError>> {
-		if (!isCommentBody(body)) return err({ kind: 'InvalidCommentBody' });
+		if (!isThreadBody(kind, body)) return err({ kind: 'InvalidCommentBody' });
 		if (anchor.last < anchor.first) return err({ kind: 'InvalidCommentRange' });
 		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
 		if (!found.ok) return found;
@@ -2189,12 +2203,18 @@ export class ReportService {
 					return err({ kind: 'RevisionChangedWhileSaving', report: id });
 				}
 				const at = this.#clock.now();
-				return andThen(
-					insertDraftComment(q, revision.id, { ...anchor, path: side.path }, body, at),
-					(saved) => {
-						touchReport(q, id, at);
-						return ok(saved);
-					}
+				const place = { ...anchor, path: side.path };
+				const insert = (): Result<DraftComment, ReportError> =>
+					andThen(
+						insertDraftComment(q, revision.id, kind, place, storedThreadBody(kind, body), at),
+						(saved) => {
+							touchReport(q, id, at);
+							return ok(saved);
+						}
+					);
+				if (kind !== 'flag') return insert();
+				return andThen(draftFlagOn(q, revision.id, place), (flagged) =>
+					flagged === undefined ? insert() : ok(flagged)
 				);
 			})
 		);
@@ -2214,15 +2234,17 @@ export class ReportService {
 		edits: EditCount,
 		body: string
 	): Result<DraftComment, ReportError> {
-		if (!isCommentBody(body)) return err({ kind: 'InvalidCommentBody' });
+		if (!isThreadBody('flag', body)) return err({ kind: 'InvalidCommentBody' });
 		return this.#db.write((q) =>
 			andThen(currentAsSeen(q, id, seen), () =>
 				andThen(draftCommentOf(q, id, comment), (found): Result<DraftComment, ReportError> => {
 					if (found === undefined) return notInDraft(q, id, comment);
 					if (found.edits !== edits) return err({ kind: 'CommentChanged' });
-					if (found.body === body) return ok(found);
+					if (!isThreadBody(found.kind, body)) return err({ kind: 'InvalidCommentBody' });
+					const words = storedThreadBody(found.kind, body);
+					if (found.body === words) return ok(found);
 					const at = this.#clock.now();
-					updateDraftComment(q, comment, body, at);
+					updateDraftComment(q, comment, words, at);
 					touchReport(q, id, at);
 					return andThen(draftCommentOf(q, id, comment), (changed) =>
 						changed === undefined ? err({ kind: 'CommentNotFound' }) : ok(changed)
@@ -2793,6 +2815,11 @@ export class ReportService {
 		if (!content.ok) return content;
 		const quoted: (readonly LineText[])[] = [];
 		for (const comment of draft.comments) {
+			// A flag quotes no code: it names its lines.
+			if (comment.kind === 'flag') {
+				quoted.push([]);
+				continue;
+			}
 			const { side, path, first, last } = comment.anchor;
 			const upTo = lineNumberOf(Math.min(last, first + MAX_QUOTED_LINES - 1));
 			const lines = await this.readLines(id, comment.version, side, path, first, upTo);

@@ -17,12 +17,20 @@ export interface CommentAnchor {
 }
 
 /**
- * One comment of the reviewer's private draft (DESIGN 6.3): their own words on
- * lines of the version they wrote it on. Its lines never change once it is
- * saved; its words can be edited until the review is handed over.
+ * What a thread of the draft is (DESIGN 5): a comment, the reviewer's words on
+ * lines, or a flag, their one-press "look at this again" on lines, whose
+ * words are optional.
+ */
+export type ThreadKind = 'comment' | 'flag';
+
+/**
+ * One comment or flag of the reviewer's private draft (DESIGN 6.3): their own
+ * mark on lines of the version they made it on. Its lines never change once
+ * it is saved; its words can be edited until the review is handed over.
  */
 export interface DraftComment {
 	readonly id: DraftCommentId;
+	readonly kind: ThreadKind;
 	readonly version: RevisionNumber;
 	readonly anchor: CommentAnchor;
 	readonly body: string;
@@ -36,6 +44,24 @@ export interface DraftComment {
 /** Whether `body` can be saved as a comment's words: something written, and not too long. */
 export function isCommentBody(body: string): boolean {
 	return body.trim() !== '' && body.length <= MAX_COMMENT_LENGTH;
+}
+
+/**
+ * Whether `body` can be saved as the words of a thread of `kind`: a comment's
+ * as `isCommentBody` says, a flag's anything not too long, none at all too.
+ */
+export function isThreadBody(kind: ThreadKind, body: string): boolean {
+	switch (kind) {
+		case 'comment':
+			return isCommentBody(body);
+		case 'flag':
+			return body.length <= MAX_COMMENT_LENGTH;
+	}
+}
+
+/** A flag's words as stored: as typed, or none when they are only white space. */
+export function storedThreadBody(kind: ThreadKind, body: string): string {
+	return kind === 'flag' && body.trim() === '' ? '' : body;
 }
 
 /**

@@ -1009,19 +1009,28 @@ const commentRange = z.strictObject({
 	first: lineNumber,
 	last: lineNumber
 });
-const commentBody = z
-	.string()
-	.max(MAX_COMMENT_LENGTH, 'the comment is too long')
-	.refine((body) => body.trim() !== '', 'write a comment before saving');
+/** A comment's words, or a flag's; only a flag's may be empty, which the report service checks. */
+const commentBody = z.string().max(MAX_COMMENT_LENGTH, 'the comment is too long');
 
-export const AddDraftCommentSchema = z.strictObject({
+/** A comment, the reviewer's words on lines, or a flag, their "look at this again", whose words are optional. */
+const threadKind = z.enum(['comment', 'flag']);
+
+/** What a comment or a flag is: its kind, the version its lines are in, its lines and its words. */
+const draftThread = z.strictObject({
+	kind: threadKind,
 	version,
 	anchor: commentRange,
 	body: commentBody
 });
+
+/** POST /api/diffs/[id]/comments: a new comment, or a flag, on lines of the version the page shows. */
+export const AddDraftCommentSchema = draftThread.refine(
+	({ kind, body }) => kind === 'flag' || body.trim() !== '',
+	{ message: 'write a comment before saving', path: ['body'] }
+);
 export type AddDraftComment = z.infer<typeof AddDraftCommentSchema>;
 
-/** POST /api/diffs/[id]/comments/[comment]: a comment's new words, from a page that shows `version`. */
+/** POST /api/diffs/[id]/comments/[comment]: a comment's or a flag's new words, from a page that shows `version`. */
 export const EditDraftCommentSchema = z.strictObject({
 	version,
 	/** How many times the comment's words had been changed when the page read them. */
@@ -1036,8 +1045,8 @@ export type DeleteDraftComment = z.infer<typeof DeleteDraftCommentSchema>;
 
 const draftCommentId = parsed(z.number(), parseDraftCommentId);
 
-/** One saved comment: the version its lines are in, its words, and when they were written. */
-export const DraftCommentSchema = AddDraftCommentSchema.extend({
+/** One saved comment or flag: the version its lines are in, its words, and when they were written. */
+export const DraftCommentSchema = draftThread.extend({
 	id: draftCommentId,
 	writtenAt: timestamp,
 	/** When its words were last changed, or null while they are as first written. */
@@ -1133,6 +1142,8 @@ export const FinishedReviewSchema = z.strictObject({
 	version,
 	submittedAt: timestamp,
 	comments: parsed(z.number(), parseCommentCount),
+	/** How many lines it flagged to look at again. */
+	flags: parsed(z.number(), parseCommentCount),
 	/** Whether it holds an overall review. */
 	overall: z.boolean(),
 	progress: z.strictObject({

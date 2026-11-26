@@ -1,8 +1,9 @@
 /**
  * A finished review as one GitHub pull request review (DESIGN 8.6, the
  * GitHub bullet), pure: which of its comments GitHub can place on their
- * lines, and the review's text, which holds the overall review and every
- * comment GitHub cannot place, so nothing is left out.
+ * lines, and the review's text, which holds the overall review, every
+ * comment GitHub cannot place, so nothing is left out, and the lines the
+ * reviewer flagged to look at again, which are never threads on GitHub.
  *
  * **Which lines GitHub can take a comment on.** GitHub takes a line comment
  * only on a line its pull request's diff shows: a changed line, or one of the
@@ -129,9 +130,9 @@ export interface GitHubLineComment {
 	readonly body: string;
 }
 
-/** Why a comment goes in the review's text and not on its lines. */
+/** Why a comment goes in the review's text and not on its lines; a flag always does. */
 export type InTextBecause =
-	'earlier-version' | 'outside-the-diff' | 'no-lines-shown' | 'copied' | 'path-not-shown';
+	'earlier-version' | 'outside-the-diff' | 'no-lines-shown' | 'copied' | 'path-not-shown' | 'flag';
 
 /** Where a comment goes on GitHub: on its lines, or in the review's text, and why. */
 export type Placement =
@@ -159,6 +160,8 @@ export function placeComment(
 	version: RevisionNumber,
 	comment: SubmittedComment
 ): Placement {
+	// A flag is the reviewer's note to look again, listed in the text, never a thread on GitHub.
+	if (comment.kind === 'flag') return { kind: 'text', because: 'flag' };
 	if (comment.version !== version) return { kind: 'text', because: 'earlier-version' };
 	const { path, side, first, last } = comment.anchor;
 	const file = fileOf(diff, path, side);
@@ -187,7 +190,7 @@ export function placeComment(
 export interface GitHubReviewDraft {
 	readonly body: string;
 	readonly comments: readonly GitHubLineComment[];
-	/** How many comments are in the text instead of on their lines. */
+	/** How many comments are in the text instead of on their lines; flags are not counted. */
 	readonly inText: CommentCount;
 }
 
@@ -199,6 +202,7 @@ export interface GitHubReviewInput {
 	readonly version: RevisionNumber;
 	/** The overall review, exactly as typed; '' when none was written. */
 	readonly overall: string;
+	/** Its comments and flags, in the order they were made. */
 	readonly comments: readonly SubmittedComment[];
 	/** Every comment in the text, as when GitHub refused to place them on their lines. */
 	readonly allInText: boolean;
@@ -259,11 +263,22 @@ export function tooLongForGitHub(review: GitHubReviewDraft): number | undefined 
 /** The heading over the comments in the review's text. */
 export const IN_TEXT_HEADING = '**Comments on lines GitHub does not show**';
 
-/** The review as GitHub takes it: the overall review, the comments it cannot place, and the mark. */
+/** The heading over the flags in the review's text. */
+export const FLAGS_HEADING = '**Flagged for another look**';
+
+/**
+ * The review as GitHub takes it: the overall review, the comments it cannot
+ * place, the flags, and the mark.
+ */
 export function gitHubReview(input: GitHubReviewInput): GitHubReviewDraft {
 	const onLines: GitHubLineComment[] = [];
 	const inText: SubmittedComment[] = [];
+	const flags: SubmittedComment[] = [];
 	for (const comment of input.comments) {
+		if (comment.kind === 'flag') {
+			flags.push(comment);
+			continue;
+		}
 		const placed: Placement = input.allInText
 			? { kind: 'text', because: 'outside-the-diff' }
 			: placeComment(input.diff, input.version, comment);
@@ -281,6 +296,9 @@ export function gitHubReview(input: GitHubReviewInput): GitHubReviewDraft {
 			[IN_TEXT_HEADING, ...inText.map((c) => inTextComment(c, input.version))].join('\n\n')
 		);
 	}
+	if (flags.length > 0) {
+		parts.push([FLAGS_HEADING, ...flags.map((f) => inTextFlag(f, input.version))].join('\n\n'));
+	}
 	if (input.mark !== undefined) parts.push(reviewMarker(input.report, input.number, input.mark));
 	return { body: parts.join('\n\n'), comments: onLines, inText: commentCountOf(inText.length) };
 }
@@ -291,19 +309,34 @@ export function gitHubReview(input: GitHubReviewInput): GitHubReviewDraft {
  * in them opens structure in the text around them.
  */
 function inTextComment(comment: SubmittedComment, version: RevisionNumber): string {
-	const { path, side, first, last } = comment.anchor;
-	const lines = first === last ? `line ${String(first)}` : `lines ${String(first)}–${String(last)}`;
-	const shownSide = side === 'old' ? 'before the change' : 'after the change';
-	const earlier = comment.version === version ? '' : `, in version ${String(comment.version)}`;
+	const { path, first, last } = comment.anchor;
 	const code = comment.quoted.map(quotedLine);
 	const fence = '`'.repeat(Math.max(3, longestRun(code, '`') + 1));
 	const total = last - first + 1;
-	const out = [`${inlineCode(agentPath(path))}, ${lines} (${shownSide}${earlier})`, ''];
+	const out = [placeInText(comment, version), ''];
 	if (code.length > 0) out.push(`${fence}${languageOf(path) ?? ''}`, ...code, fence);
 	if (code.length < total && code.length > 0) {
 		out.push(`(The first ${countOf(code.length, 'line', 'lines')} of ${String(total)}.)`);
 	}
 	out.push(...comment.body.split('\n').map((line) => (line === '' ? '>' : `> ${line}`)));
+	return out.join('\n');
+}
+
+/** Where a comment or a flag is, in the review's text: its file, its lines and their side. */
+function placeInText(comment: SubmittedComment, version: RevisionNumber): string {
+	const { path, side, first, last } = comment.anchor;
+	const lines = first === last ? `line ${String(first)}` : `lines ${String(first)}–${String(last)}`;
+	const shownSide = side === 'old' ? 'before the change' : 'after the change';
+	const earlier = comment.version === version ? '' : `, in version ${String(comment.version)}`;
+	return `${inlineCode(agentPath(path))}, ${lines} (${shownSide}${earlier})`;
+}
+
+/** A flag in the review's text: where it is, and the reviewer's words, if any, as a quote. */
+function inTextFlag(flag: SubmittedComment, version: RevisionNumber): string {
+	const out = [placeInText(flag, version)];
+	if (flag.body.trim() !== '') {
+		out.push('', ...flag.body.split('\n').map((line) => (line === '' ? '>' : `> ${line}`)));
+	}
 	return out.join('\n');
 }
 

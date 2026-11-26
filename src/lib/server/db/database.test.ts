@@ -246,6 +246,11 @@ describe('the database', () => {
 				version: 15,
 				name: 'where each finished review was delivered, and reviews being posted to GitHub',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 16,
+				name: 'flags on lines, beside comments, in the draft and in finished reviews',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -455,7 +460,14 @@ describe('the database', () => {
 		const next = value(
 			db.write((q) => {
 				deleteDraftComment(q, second.id);
-				return insertDraftComment(q, revision.id, first.anchor, 'After the upgrade.', at(9_000));
+				return insertDraftComment(
+					q,
+					revision.id,
+					'comment',
+					first.anchor,
+					'After the upgrade.',
+					at(9_000)
+				);
 			})
 		);
 		expect(next.id).toBe(3);

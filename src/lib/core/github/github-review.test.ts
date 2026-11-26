@@ -56,6 +56,7 @@ function comment(
 	options: { version?: number; body?: string; quoted?: readonly string[] } = {}
 ): SubmittedComment {
 	return {
+		kind: 'comment',
 		anchor: { path: path(at), side, first: lineNumberOf(first), last: lineNumberOf(last) },
 		version: version(options.version ?? 2),
 		body: options.body ?? 'A comment.',

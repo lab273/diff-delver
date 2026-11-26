@@ -12,6 +12,7 @@ import { canReview, reviewSessionRequired } from './review-session.ts';
 export function commentView(comment: DraftComment): DraftCommentView {
 	return {
 		id: comment.id,
+		kind: comment.kind,
 		version: comment.version,
 		anchor: { ...comment.anchor, path: escapedRepoPath(comment.anchor.path) },
 		body: comment.body,

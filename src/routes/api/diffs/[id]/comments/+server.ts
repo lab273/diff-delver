@@ -28,7 +28,7 @@ export const GET: RequestHandler = ({ locals, params, request }) => {
 	return Response.json(body, { headers: PRIVATE });
 };
 
-/** Saves a comment on lines of the version the page shows. */
+/** Saves a comment, or a flag, on lines of the version the page shows. */
 export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const refused = draftsRefused(locals.daemon, request);
 	if (refused !== undefined) return refused;
@@ -36,14 +36,15 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	if (!id.ok) return id.error;
 	const parsed = await readBody(request, AddDraftCommentSchema);
 	if (!parsed.ok) return parsed.error;
-	const { version, anchor, body } = parsed.value;
+	const { kind, version, anchor, body } = parsed.value;
 	const path = resolveEscapedPath(anchor.path);
 	if (path === undefined) return unknownPath();
 	const saved = await locals.daemon.service.addDraftComment(
 		id.value,
 		version,
 		{ ...anchor, path },
-		body
+		body,
+		kind
 	);
 	return saved.ok
 		? Response.json(commentView(saved.value), { status: 201, headers: PRIVATE })

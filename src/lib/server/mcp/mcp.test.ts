@@ -966,6 +966,7 @@ describe('/mcp over HTTP', () => {
 			.find((part) => part.path === 'src/cart.ts');
 		if (part === undefined) throw new Error('The shop diff should contain src/cart.ts');
 		const draft = {
+			kind: 'comment',
 			version: loaded.summary.version,
 			anchor: { path: part.path, side: 'new', first: 1, last: 1 },
 			body: 'Draft text only the reviewer can remove.'
@@ -1114,6 +1115,7 @@ describe('/mcp over HTTP', () => {
 		const browser = await browserClient(daemon);
 		const comment = value(
 			await browser.addDraftComment(id, {
+				kind: 'comment',
 				version: value(parseRevisionNumber(1)),
 				anchor: {
 					path: escapedRepoPath(value(parseRepoPath('src/cart.ts'))),

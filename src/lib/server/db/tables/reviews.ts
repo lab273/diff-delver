@@ -32,6 +32,7 @@ const row = z
 		ignored: whole(parseUnitCount),
 		uncategorised: whole(parseUnitCount),
 		comments: whole(parseCommentCount),
+		flags: whole(parseCommentCount),
 		overall: z
 			.number()
 			.int()
@@ -51,6 +52,7 @@ const row = z
 			ignored,
 			uncategorised,
 			comments,
+			flags,
 			overall,
 			text
 		}) =>
@@ -60,6 +62,7 @@ const row = z
 				submittedAt,
 				progress: { counted, reviewed, ignored, uncategorised },
 				comments,
+				flags,
 				overall,
 				text
 			}) satisfies Omit<FinishedReview, 'posted'>
@@ -80,7 +83,9 @@ function withDeliveries(
 const COLUMNS = `v.number, r.number AS version, v.submitted_at AS submittedAt, v.counted,
 	v.reviewed, v.ignored, v.uncategorised, v.export_text AS text, v.summary <> '' AS overall,
 	(SELECT count(*) FROM review_comments c
-	 WHERE c.report_id = v.report_id AND c.review_number = v.number) AS comments`;
+	 WHERE c.report_id = v.report_id AND c.review_number = v.number AND c.kind = 'comment') AS comments,
+	(SELECT count(*) FROM review_comments c
+	 WHERE c.report_id = v.report_id AND c.review_number = v.number AND c.kind = 'flag') AS flags`;
 
 /** Every review of the report, oldest first. */
 export function reviewsOf(

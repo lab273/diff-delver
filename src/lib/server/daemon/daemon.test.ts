@@ -337,6 +337,7 @@ describe('the daemon’s gate', () => {
 		const browser = await browserClient(first);
 		const saved = value(
 			await browser.addDraftComment(id, {
+				kind: 'comment',
 				version: opened.diff.version,
 				anchor: {
 					path: escapedRepoPath(value(parseRepoPath('src/a.ts'))),

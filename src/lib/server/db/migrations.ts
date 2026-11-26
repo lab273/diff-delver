@@ -576,6 +576,90 @@ CREATE TABLE github_review_post_marks (
 CREATE INDEX github_review_posts_by_revision ON github_review_posts (revision_id);
 CREATE INDEX github_review_post_comments_by_revision ON github_review_post_comments (revision_id);
 `
+	},
+	{
+		version: schemaVersionOf(16),
+		name: 'flags on lines, beside comments, in the draft and in finished reviews',
+		rebuildsTables: true,
+		sql: `
+-- A thread of the draft is a comment or a flag (DESIGN 5): a flag is the
+-- reviewer's "look at this again" on lines, whose words are optional, so
+-- only a comment must have some. The same kind is kept by a finished review
+-- and by a review being posted. Every row before was a comment.
+CREATE TABLE draft_comments_rebuilt (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	kind TEXT NOT NULL CHECK (kind IN ('comment', 'flag')),
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new')),
+	first_line INTEGER NOT NULL CHECK (first_line >= 1),
+	last_line INTEGER NOT NULL CHECK (last_line >= first_line),
+	body TEXT NOT NULL CHECK (kind = 'flag' OR body <> ''),
+	written_at INTEGER NOT NULL CHECK (written_at >= 0),
+	edited_at INTEGER CHECK (edited_at >= 0),
+	edits INTEGER NOT NULL CHECK (edits >= 0),
+	CHECK ((edits = 0) = (edited_at IS NULL))
+) STRICT;
+INSERT INTO draft_comments_rebuilt (id, revision_id, kind, path, side, first_line, last_line, body, written_at, edited_at, edits)
+	SELECT id, revision_id, 'comment', path, side, first_line, last_line, body, written_at, edited_at, edits
+	FROM draft_comments;
+-- An id is never given out again, so the count goes on from where it was,
+-- past comments deleted since the last one kept.
+DELETE FROM sqlite_sequence WHERE name = 'draft_comments_rebuilt';
+INSERT INTO sqlite_sequence (name, seq)
+	SELECT 'draft_comments_rebuilt', seq FROM sqlite_sequence WHERE name = 'draft_comments';
+DROP TABLE draft_comments;
+ALTER TABLE draft_comments_rebuilt RENAME TO draft_comments;
+CREATE INDEX draft_comments_by_revision ON draft_comments (revision_id);
+
+CREATE TABLE review_comments_rebuilt (
+	report_id TEXT NOT NULL,
+	review_number INTEGER NOT NULL,
+	position INTEGER NOT NULL CHECK (position >= 1),
+	draft_comment_id INTEGER NOT NULL CHECK (draft_comment_id >= 1),
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	kind TEXT NOT NULL CHECK (kind IN ('comment', 'flag')),
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new')),
+	first_line INTEGER NOT NULL CHECK (first_line >= 1),
+	last_line INTEGER NOT NULL CHECK (last_line >= first_line),
+	body TEXT NOT NULL CHECK (kind = 'flag' OR body <> ''),
+	written_at INTEGER NOT NULL CHECK (written_at >= 0),
+	quoted TEXT NOT NULL,
+	PRIMARY KEY (report_id, review_number, position),
+	FOREIGN KEY (report_id, review_number) REFERENCES reviews (report_id, number) ON DELETE CASCADE
+) STRICT;
+INSERT INTO review_comments_rebuilt (report_id, review_number, position, draft_comment_id, revision_id, kind, path, side, first_line, last_line, body, written_at, quoted)
+	SELECT report_id, review_number, position, draft_comment_id, revision_id, 'comment', path, side, first_line, last_line, body, written_at, quoted
+	FROM review_comments;
+DROP TABLE review_comments;
+ALTER TABLE review_comments_rebuilt RENAME TO review_comments;
+CREATE INDEX review_comments_by_revision ON review_comments (revision_id);
+CREATE UNIQUE INDEX review_comments_by_draft ON review_comments (report_id, draft_comment_id);
+
+CREATE TABLE github_review_post_comments_rebuilt (
+	report_id TEXT NOT NULL REFERENCES github_review_posts (report_id) ON DELETE CASCADE,
+	position INTEGER NOT NULL CHECK (position >= 1),
+	draft_comment_id INTEGER NOT NULL CHECK (draft_comment_id >= 1),
+	edits INTEGER NOT NULL CHECK (edits >= 0),
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	kind TEXT NOT NULL CHECK (kind IN ('comment', 'flag')),
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new')),
+	first_line INTEGER NOT NULL CHECK (first_line >= 1),
+	last_line INTEGER NOT NULL CHECK (last_line >= first_line),
+	body TEXT NOT NULL CHECK (kind = 'flag' OR body <> ''),
+	written_at INTEGER NOT NULL CHECK (written_at >= 0),
+	quoted TEXT NOT NULL,
+	PRIMARY KEY (report_id, position)
+) STRICT;
+INSERT INTO github_review_post_comments_rebuilt (report_id, position, draft_comment_id, edits, revision_id, kind, path, side, first_line, last_line, body, written_at, quoted)
+	SELECT report_id, position, draft_comment_id, edits, revision_id, 'comment', path, side, first_line, last_line, body, written_at, quoted
+	FROM github_review_post_comments;
+DROP TABLE github_review_post_comments;
+ALTER TABLE github_review_post_comments_rebuilt RENAME TO github_review_post_comments;
+CREATE INDEX github_review_post_comments_by_revision ON github_review_post_comments (revision_id);
+`
 	}
 ];
 

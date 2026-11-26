@@ -24,7 +24,7 @@ import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 
 /** Lines of one side of a file, in the version they are numbered in. */
-export type CommentPlace = Omit<AddDraftComment, 'body'>;
+export type CommentPlace = Omit<AddDraftComment, 'body' | 'kind'>;
 
 function samePlace(a: CommentPlace, b: CommentPlace): boolean {
 	return (
@@ -376,7 +376,11 @@ export class Comments {
 		writing.saving = true;
 		const saved =
 			editing === undefined
-				? await this.#client.addDraftComment(this.id, { ...writing.place, body: writing.body })
+				? await this.#client.addDraftComment(this.id, {
+						...writing.place,
+						kind: 'comment',
+						body: writing.body
+					})
 				: await this.#client.editDraftComment(this.id, editing.id, {
 						version: shown,
 						edits: editing.edits,

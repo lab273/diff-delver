@@ -162,12 +162,14 @@ describe('finishing a review', () => {
 			try {
 				expect(value(db.read((q) => reviewCommentsOf(q, id, number)))).toEqual([
 					{
+						kind: 'comment',
 						anchor: { path: 'src/cart.ts', side: 'new', first: 2, last: 4 },
 						version: 1,
 						body: 'New lines.',
 						quoted: ['2', '3', 'four']
 					},
 					{
+						kind: 'comment',
 						anchor: { path: 'src/cart.ts', side: 'old', first: 3, last: 3 },
 						version: 1,
 						body: 'An old line.\n\nWith a gap.',
@@ -308,6 +310,69 @@ describe('finishing a review', () => {
 			expect(review.text).toContain(
 				'### src/cart.ts:4 (new, version 1)\n```typescript\nfour\n```\n'
 			);
+		} finally {
+			service.close();
+		}
+	});
+});
+
+describe('flags', () => {
+	it('flag lines once, with or without words, are cleared like comments, and finish under their own heading', async () => {
+		const { repo, service, id } = await setUp();
+		try {
+			const lines = {
+				path: path('src/cart.ts'),
+				side: 'new' as const,
+				first: lineNumberOf(2),
+				last: lineNumberOf(3)
+			};
+			const flag = value(await service.addDraftComment(id, FIRST, lines, '', 'flag'));
+			expect(flag).toMatchObject({ kind: 'flag', body: '' });
+			// Flagging the same lines again finds the flag they have.
+			expect(value(await service.addDraftComment(id, FIRST, lines, '', 'flag'))).toEqual(flag);
+			// A comment still needs words; a flag's words can be added, and taken away.
+			expect(failure(await service.addDraftComment(id, FIRST, lines, ' ', 'comment'))).toEqual({
+				kind: 'InvalidCommentBody'
+			});
+			const worded = value(
+				service.editDraftComment(id, FIRST, flag.id, flag.edits, 'Check the rounding.')
+			);
+			expect(worded).toMatchObject({ kind: 'flag', body: 'Check the rounding.', edits: 1 });
+			const other = value(
+				await service.addDraftComment(
+					id,
+					FIRST,
+					{ ...lines, side: 'old', first: lineNumberOf(1), last: lineNumberOf(1) },
+					' \n',
+					'flag'
+				)
+			);
+			expect(other.body).toBe('');
+			value(service.deleteDraftComment(id, FIRST, other.id, other.edits));
+			const comment = value(
+				await service.addDraftComment(id, FIRST, lines, 'Why are these numbers now?')
+			);
+
+			// Flags survive an update, on the lines of the version they were raised on.
+			await repo.write('README.md', '# Shop\n\nMore.\n');
+			value(await service.update(id));
+			const second = value(parseRevisionNumber(2));
+			expect(value(service.draftComments(id)).map((c) => [c.kind, c.version])).toEqual([
+				['flag', 1],
+				['comment', 1]
+			]);
+
+			const review = value(
+				await service.finishReview(id, second, {
+					comments: [worded, comment].map((c) => ({ id: c.id, edits: c.edits })),
+					overall: NO_EDITS
+				})
+			);
+			expect(review).toMatchObject({ comments: 1, flags: 1 });
+			expect(review.text).toContain(
+				'## Comments\n\n### src/cart.ts:2-3 (new, version 1)\n```typescript\n2\n3\n```\n> Why are these numbers now?\n\n## Flagged for another look\n\n- src/cart.ts:2-3 (new, version 1)\n  > Check the rounding.\n\n## Not reviewed'
+			);
+			expect(value(service.draftComments(id))).toEqual([]);
 		} finally {
 			service.close();
 		}

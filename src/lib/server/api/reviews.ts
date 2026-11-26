@@ -14,6 +14,7 @@ export function reviewView(review: FinishedReview): FinishedReviewView {
 		version: review.version,
 		submittedAt: review.submittedAt,
 		comments: review.comments,
+		flags: review.flags,
 		overall: review.overall,
 		progress: review.progress,
 		text: review.text,

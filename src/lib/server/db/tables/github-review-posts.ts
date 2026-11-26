@@ -161,13 +161,14 @@ export function notePosting(
 	review.comments.forEach(({ draft, edits, revision, comment, writtenAt }, i) => {
 		q.run(
 			`INSERT INTO github_review_post_comments (report_id, position, draft_comment_id, edits,
-				revision_id, path, side, first_line, last_line, body, written_at, quoted)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				revision_id, kind, path, side, first_line, last_line, body, written_at, quoted)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			report,
 			i + 1,
 			draft,
 			edits,
 			revision,
+			comment.kind,
 			repoPathBytes(comment.anchor.path),
 			comment.anchor.side,
 			comment.anchor.first,
@@ -202,8 +203,8 @@ export function noteAllInText(q: Queries, report: ReportId, inText: CommentCount
 export function copyNotedReview(q: Queries, report: ReportId, number: ReviewNumber): void {
 	q.run(
 		`INSERT INTO review_comments (report_id, review_number, position, draft_comment_id,
-			revision_id, path, side, first_line, last_line, body, written_at, quoted)
-		 SELECT report_id, ?, position, draft_comment_id, revision_id, path, side, first_line,
+			revision_id, kind, path, side, first_line, last_line, body, written_at, quoted)
+		 SELECT report_id, ?, position, draft_comment_id, revision_id, kind, path, side, first_line,
 			last_line, body, written_at, quoted
 		 FROM github_review_post_comments WHERE report_id = ? ORDER BY position`,
 		number,

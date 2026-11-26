@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { parseDraftCommentId } from '../draft-comment-id.tiny.ts';
 import { lineNumberOf } from '../line-number.tiny.ts';
-import { MAX_COMMENT_LENGTH, describeCommentLines, isCommentBody } from './draft-comment.ts';
+import {
+	MAX_COMMENT_LENGTH,
+	describeCommentLines,
+	isCommentBody,
+	isThreadBody,
+	storedThreadBody
+} from './draft-comment.ts';
 
 describe('a draft comment', () => {
 	it('has an id that is a whole number of 1 or more', () => {
@@ -18,6 +24,16 @@ describe('a draft comment', () => {
 		expect(isCommentBody('x'.repeat(MAX_COMMENT_LENGTH))).toBe(true);
 		expect(isCommentBody('x'.repeat(MAX_COMMENT_LENGTH + 1))).toBe(false);
 		for (const empty of ['', ' ', '\n\t ']) expect(isCommentBody(empty)).toBe(false);
+	});
+
+	it('is a flag when the reviewer only marks the lines, whose words may be none', () => {
+		expect(isThreadBody('flag', '')).toBe(true);
+		expect(isThreadBody('flag', 'Check the rounding')).toBe(true);
+		expect(isThreadBody('flag', 'x'.repeat(MAX_COMMENT_LENGTH + 1))).toBe(false);
+		expect(isThreadBody('comment', '')).toBe(false);
+		expect(storedThreadBody('flag', ' \n ')).toBe('');
+		expect(storedThreadBody('flag', ' kept ')).toBe(' kept ');
+		expect(storedThreadBody('comment', ' kept ')).toBe(' kept ');
 	});
 
 	it('names its lines by the side they are on', () => {
