@@ -897,13 +897,20 @@ overall review is its text and each comment goes on its lines; a comment GitHub
 cannot place there, on lines outside its diff, on an earlier version or on a
 binary file, goes into the text with its file, lines and code, and if GitHub
 still refuses the lines the review is posted once more with every comment in the
-text, and the page says so. Nothing is finished unless the post was taken: a
-refusal keeps the draft and says why and what to do. A post is never made twice:
-one that may have reached GitHub without its answer is found there before
-another is tried. Each finished review shows where it was posted, with a link to
-it; that, and only that, is kept of the delivery log (6.3) so far. A finished
-review cannot be posted again from the list yet. "Finish and copy only" leaves
-GitHub alone.
+text, and the page says so. Before posting, "Show what will be posted" shows the review's
+text and which comments go on their lines, and the page says how many will go in
+the text. Nothing is finished unless the post was taken: a refusal keeps the
+draft and says why and what to do. A post is never made twice: one that may
+have reached GitHub without its answer is looked for there, by a mark with a
+secret part and by the signed-in account as its author, before anything else is
+finished; for a minute after it was sent nothing is, since GitHub may still be
+making it; and a review GitHub took is recorded as it was sent, while anything
+written since stays in the draft. When GitHub cannot be asked about such a post,
+the reviewer may still finish and copy, knowing it may be on GitHub. GitHub
+offers no way to make a post safe to send twice, so this is the guard. Each
+finished review shows where it was posted, with a link to it; that, and only
+that, is kept of the delivery log (6.3) so far. A finished review cannot be
+posted again from the list yet. "Finish and copy only" posts nothing.
 
 **The overall review.** The reviewer writes the review's summary (6.3) in a bar
 pinned to the foot of a Delve's page, so it is at hand wherever they are in the
