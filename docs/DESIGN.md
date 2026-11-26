@@ -677,12 +677,18 @@ line, with shift-click or a drag to extend. By keyboard it is the same thing:
 move to a line with the arrow keys, hold Shift with the arrow keys to extend the
 selection, and press Enter to open the menu.
 
-Commenting is the one of the three built so far, so for now there is no menu: a
-line's number is the control, a `+` shows on it on hover and focus, and pressing it
-opens the comment box under the line. `c` goes from a file to its lines and, on a
-line, opens the box. A saved comment is drawn under the last of its lines, as plain
-text, with **Edit** and **Delete**; a list above the diff counts every comment and
-goes to each. The menu comes back when flags and questions do.
+Comment and Flag are built; Ask comes with the live loop. A line's number is the
+control: a `+` shows on it on hover and focus, and pressing it, or taking several
+lines, opens the menu under them (Comment, Flag, Cancel). `c` and `f` skip the menu:
+`c` goes from a file to its lines and, on a line, opens the comment box; `f` flags
+the line or the lines taken at once. A saved comment is drawn under the last of its
+lines, as plain text, with **Edit** and **Delete**. A flag is drawn there too,
+"Flagged to look at again", with **Add words** and **Clear**: its words are
+optional, flagging the same lines again makes no second flag, and Clear takes it
+off in one press, since raising it again is one press too. A list above the diff
+counts every comment and flag and goes to each, and `F` goes to the next flag. A
+flag is stored as a comment of kind `flag`, so it carries over to a new version as
+comments do.
 
 **States explained in place.** Wherever something could puzzle a newcomer, the
 page says what it is, once and briefly:
@@ -876,7 +882,9 @@ This drops the grace period. Was that intended?
 The quoted code is inserted by the server from the snapshot.
 
 **What is built.** Finish and copy, the preview and the list of finished
-reviews, with comments only, and `get_review`. The panel sits under the draft
+reviews, with comments and flags, and `get_review`. Flags are listed under
+"Flagged for another look" with their words quoted, and no code; on a pull
+request they go in the review's text, never on lines. The panel sits under the draft
 comments on a Delve's page and finishing needs the same review access as
 writing a comment. The text differs from the example above in these ways, on
 purpose:
