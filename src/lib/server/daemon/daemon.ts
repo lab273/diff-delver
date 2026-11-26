@@ -53,7 +53,7 @@ import {
 	reviewCookieName,
 	type GateSettings
 } from '#lib/core/daemon/request-gate.ts';
-import { describeStablePortTaken } from '#lib/core/daemon/stable-port.ts';
+import { describeStablePortTaken, type PortNotHad } from '#lib/core/daemon/stable-port.ts';
 import type { EntryCode } from '#lib/core/entry-code.tiny.ts';
 import type { IdSource } from '#lib/core/ids.ts';
 import { parsePortNumber, type PortNumber } from '#lib/core/port-number.tiny.ts';
@@ -290,7 +290,7 @@ export const PREFERRED_PORT_TRIES_FOR_MS = 500;
 /** Where the daemon listens, and, when it could not listen on its preferred port, why. */
 interface Listening {
 	readonly port: PortNumber;
-	readonly notPreferred: string | undefined;
+	readonly notPreferred: PortNotHad | undefined;
 }
 
 /**
@@ -303,7 +303,7 @@ async function listen(
 	server: Server,
 	preferred: PortNumber | undefined
 ): Promise<Result<Listening, DaemonStartError>> {
-	let notPreferred: string | undefined;
+	let notPreferred: PortNotHad | undefined;
 	if (preferred !== undefined) {
 		const until = Date.now() + PREFERRED_PORT_TRIES_FOR_MS;
 		for (;;) {
@@ -314,7 +314,9 @@ async function listen(
 				await new Promise((resolve) => setTimeout(resolve, 50));
 				continue;
 			}
-			notPreferred = inUse ? 'another program is using that port' : listened.error.message;
+			notPreferred = inUse
+				? { kind: 'in-use' }
+				: { kind: 'refused', detail: reviewerMessage(listened.error.message) };
 			break;
 		}
 	}

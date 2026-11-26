@@ -137,7 +137,20 @@ export function describeReplacedForPage(now: CodeVersion, unsaved: boolean): Rev
 	const reload = `This page was opened by an earlier version; ${which} is running now. Reload the page to use it.`;
 	return reviewerMessage(
 		unsaved
-			? `${reload} Save what you have typed first: reloading would lose it, and your browser asks before it does.`
+			? `${reload} Save or copy what you have typed first: reloading would lose it, and your browser asks before it does.`
 			: reload
+	);
+}
+
+/**
+ * What a page says when the daemon at its address no longer lets it in, as
+ * when one opened from an agent's link, which lets a browser in for one daemon
+ * only, finds a new daemon there after a restart.
+ */
+export function describeRestartedForPage(unsaved: boolean): ReviewerMessage {
+	const said =
+		'diff delver has restarted, and this page was let in by the one before. Reload the page: it says how to open it again.';
+	return reviewerMessage(
+		unsaved ? `${said} Copy what you have typed first: reloading would lose it.` : said
 	);
 }

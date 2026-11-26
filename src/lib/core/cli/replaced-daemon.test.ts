@@ -5,6 +5,7 @@ import {
 	describeNewerDaemon,
 	describeReplacedDaemon,
 	describeReplacedForPage,
+	describeRestartedForPage,
 	describeTooOldForDaemon,
 	howToUpgrade,
 	npxCopyOf,
@@ -163,7 +164,13 @@ describe('a page served by a daemon that has since been replaced', () => {
 
 	it('says to save first when something typed is not saved, and of a build that is no release', () => {
 		expect(describeReplacedForPage(version('0.0.1-dev+bbbbbbbbbbbb'), true)).toBe(
-			'This page was opened by an earlier version; another version of diff delver is running now. Reload the page to use it. Save what you have typed first: reloading would lose it, and your browser asks before it does.'
+			'This page was opened by an earlier version; another version of diff delver is running now. Reload the page to use it. Save or copy what you have typed first: reloading would lose it, and your browser asks before it does.'
+		);
+	});
+
+	it('says a page the new daemon will not let in can reload to be told how to get back in', () => {
+		expect(describeRestartedForPage(true)).toBe(
+			'diff delver has restarted, and this page was let in by the one before. Reload the page: it says how to open it again. Copy what you have typed first: reloading would lose it.'
 		);
 	});
 });

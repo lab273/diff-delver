@@ -9,7 +9,10 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import type { CodeVersion } from '#lib/core/code-version.tiny.ts';
-	import { describeReplacedForPage } from '#lib/core/cli/replaced-daemon.ts';
+	import {
+		describeReplacedForPage,
+		describeRestartedForPage
+	} from '#lib/core/cli/replaced-daemon.ts';
 	import Notice from './Notice.svelte';
 	import { pageClient } from './client.ts';
 	import { hasAnyUnsavedWords } from './viewer/kept-comments.ts';
@@ -22,17 +25,21 @@
 	// The version the page's scripts came with: the first one it was given.
 	const mine = untrack(() => servedBy);
 	let running = $state<CodeVersion>();
+	// A refusal: a daemon that does not let this page in, as after a restart for a page let in by an agent's link.
+	let refused = $state(false);
 
 	onMount(() => {
 		if (mine === undefined) return;
 		const client = pageClient();
 		let asking = false;
 		const ask = async (): Promise<void> => {
-			if (asking || running !== undefined) return;
+			if (asking || running !== undefined || refused) return;
 			asking = true;
 			const info = await client.daemonInfo();
 			asking = false;
 			if (info.ok && info.value.version !== mine) running = info.value.version;
+			else if (!info.ok && info.error.kind === 'refused' && info.error.status === 403)
+				refused = true;
 		};
 		const cameBack = (): void => {
 			if (document.visibilityState === 'visible') void ask();
@@ -48,9 +55,13 @@
 	});
 </script>
 
-{#if running !== undefined}
-	<Notice heading="diff delver has been updated">
-		<p>{describeReplacedForPage(running, hasAnyUnsavedWords())}</p>
+{#if running !== undefined || refused}
+	<Notice heading={refused ? 'diff delver has restarted' : 'diff delver has been updated'}>
+		<p>
+			{running !== undefined
+				? describeReplacedForPage(running, hasAnyUnsavedWords())
+				: describeRestartedForPage(hasAnyUnsavedWords())}
+		</p>
 		{#snippet actions()}
 			<button
 				type="button"

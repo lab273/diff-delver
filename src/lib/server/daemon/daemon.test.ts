@@ -577,7 +577,7 @@ describe('the daemon’s lock', () => {
 		const daemon = await testDaemon({ preferredPort });
 		expect(daemon.port).not.toBe(preferredPort);
 		expect(daemon.portNotice).toBe(
-			describeStablePortTaken(preferredPort, daemon.port, 'another program is using that port')
+			describeStablePortTaken(preferredPort, daemon.port, { kind: 'in-use' })
 		);
 	});
 

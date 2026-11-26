@@ -30,16 +30,36 @@ export function preferredPortFor(
 	return dataDirectory === machineDefault ? STABLE_PORT : undefined;
 }
 
+/** Why a daemon could not listen on its preferred port. */
+export type PortNotHad =
+	/** Something else listens there, perhaps an older diff delver still stopping. */
+	| { readonly kind: 'in-use' }
+	/** The system refused for another reason, in its own words. */
+	| { readonly kind: 'refused'; readonly detail: ReviewerMessage };
+
 /**
  * What a daemon says, once, when it could not listen on its preferred port and
- * listens on another; `reason` says why, such as that another program uses it.
+ * listens on another, with why.
  */
 export function describeStablePortTaken(
 	preferred: PortNumber,
 	taken: PortNumber,
-	reason: string
+	why: PortNotHad
 ): ReviewerMessage {
-	return reviewerMessage(
-		`diff delver usually listens at http://127.0.0.1:${String(preferred)}, but could not this time (${reason}), so it is at http://127.0.0.1:${String(taken)}. Pages opened before it started cannot find it there; run diff-delver to open them again. To have the usual address back, stop the program using port ${String(preferred)}, then run diff-delver stop and diff-delver.`
-	);
+	const usual = `diff delver usually listens at http://127.0.0.1:${String(preferred)}`;
+	const now = `so it is at http://127.0.0.1:${String(taken)}. Pages opened before it started cannot find it there; run diff-delver to open them again.`;
+	switch (why.kind) {
+		case 'in-use':
+			return reviewerMessage(
+				`${usual}, but something else was using that port, perhaps an earlier diff delver still stopping, ${now} To have the usual address back, stop whatever uses port ${String(preferred)}, then run diff-delver stop and diff-delver.`
+			);
+		case 'refused':
+			return reviewerMessage(
+				`${usual}, but the system would not let it listen there (${why.detail}), ${now}`
+			);
+		default: {
+			const unknown: never = why;
+			return unknown;
+		}
+	}
 }
