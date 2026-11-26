@@ -20,7 +20,10 @@ export const GET: RequestHandler = ({ locals, params, request }) => {
 	return Response.json(body, { headers: PRIVATE });
 };
 
-/** Finishes the draft the page showed as the Delve's next review, on the version it shows. */
+/**
+ * Finishes the draft the page showed as the Delve's next review, on the version
+ * it shows, and for a pull request's Delve, when asked, posts it to GitHub.
+ */
 export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const refused = reviewsRefused(locals.daemon, request);
 	if (refused !== undefined) return refused;
@@ -28,10 +31,12 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	if (!id.ok) return id.error;
 	const parsed = await readBody(request, FinishReviewSchema);
 	if (!parsed.ok) return parsed.error;
-	const finished = await locals.daemon.service.finishReview(id.value, parsed.value.version, {
-		comments: parsed.value.comments,
-		overall: parsed.value.overall
-	});
+	const shown = { comments: parsed.value.comments, overall: parsed.value.overall };
+	const { github } = parsed.value;
+	const finished =
+		github === undefined
+			? await locals.daemon.service.finishReview(id.value, parsed.value.version, shown)
+			: await locals.daemon.service.postReview(id.value, parsed.value.version, shown, github);
 	return finished.ok
 		? Response.json(reviewView(finished.value), { status: 201, headers: PRIVATE })
 		: serviceFailure(finished.error);

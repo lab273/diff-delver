@@ -15,7 +15,15 @@ export function reviewView(review: FinishedReview): FinishedReviewView {
 		comments: review.comments,
 		overall: review.overall,
 		progress: review.progress,
-		text: review.text
+		text: review.text,
+		posted:
+			review.posted === undefined
+				? null
+				: {
+						as: review.posted.postedAs,
+						address: review.posted.address,
+						inText: review.posted.inText
+					}
 	};
 }
 

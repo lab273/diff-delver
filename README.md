@@ -162,6 +162,13 @@ list, open a pull request or bring one up to date, and when a pull request's pag
 checks for new commits, at most once a minute, or once every five minutes when you
 are not signed in, since GitHub then allows a computer few requests.
 
+Finishing a review of a pull request posts it to GitHub as one review from your
+account, as a comment, an approval or a request for changes, or, with **Post as a
+draft on GitHub** ticked, as a draft only you see until you submit it there. A
+comment on lines GitHub does not show goes in the review's text, so nothing is
+left out. Posting needs you signed in with a token that can write pull requests;
+**Finish and copy only** hands the review over without posting it.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="tests/journeys/screenshots/j11-review-a-github-pr.02.the-open-pull-requests.dark.png">
   <img src="tests/journeys/screenshots/j11-review-a-github-pr.02.the-open-pull-requests.light.png" alt="The choose page of a clone of acme/shop, listing its two open pull requests on GitHub, one of them a draft" width="800">
@@ -187,7 +194,8 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 - Opening uncommitted changes, staged changes, a commit, or two branches compared,
   from a local git repository. Builds from `main` also let you choose commits or a
   branch from a page, and open a GitHub pull request, from a clone of its
-  repository, and follow it as commits are pushed.
+  repository, follow it as commits are pushed, and post a finished review to it,
+  published or as a draft.
 - Reading a diff: code coloured by language, one column or side by side, white-space
   changes hidden, unchanged lines opened, search, and a reading bookmark that
   survives reload in the same tab.
@@ -210,7 +218,7 @@ Not built yet:
 
 - The agent’s cross-references between sections.
 - Flags, agent notes, replies to earlier reviews and asking the agent from the page.
-- Saving a review to a file or posting it to GitHub.
+- Saving a review to a file.
 - A pull request with no clone of its repository on this machine, and GitHub
   Enterprise.
 - Snapshot-test images shown beside their tests.

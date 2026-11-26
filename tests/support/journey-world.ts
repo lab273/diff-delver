@@ -47,7 +47,7 @@ import { buildImages } from './image-fixtures.ts';
 import { buildLedger } from './ledger.ts';
 import { mcpOverHttp } from './mcp-client.ts';
 import { buildShop } from './scripted-categorisation.ts';
-import { startGitHubStandIn, type StandInPull } from './github-stand-in.ts';
+import { startGitHubStandIn, STAND_IN_TOKEN, type StandInPull } from './github-stand-in.ts';
 import {
 	buildShopUpstream,
 	DISCOUNT_PULL,
@@ -778,7 +778,8 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 		version: version.value,
 		app: await app,
 		repository: { gitEnv: await reviewerGitEnv() },
-		github: github.access(),
+		// The journey's person is signed in to it, so a review can be posted.
+		github: github.access(STAND_IN_TOKEN),
 		machine: {
 			home: absolutePath(dir),
 			defaultDataDirectory: absolutePath(join(dir, 'data'))

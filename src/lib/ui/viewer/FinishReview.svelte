@@ -5,6 +5,13 @@
 	agent reads with `get_review`. What it will hand over can be read first, in
 	place. Each finished review can be copied again, or read, afterwards.
 
+	On a pull request's Delve, the main button finishes it, posts it to the
+	pull request as one GitHub review and copies it: published as the kind
+	chosen, Comment to start with, or, with the tick box, as a draft only the
+	reviewer sees on GitHub until they submit it there. "Finish and copy
+	only" hands it over without posting it. A finished review says where it
+	was posted, with a link to it on GitHub.
+
 	It asks the daemon for what finishing would hand over only when that is
 	opened, and again when the draft changes while it is open; finishing sends
 	the comments the page shows, so nothing written in another tab is handed
@@ -21,17 +28,27 @@
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 	import { describeReviewContents, isWritten } from '#lib/core/review/overall-review.ts';
+	import {
+		describePostedAs,
+		gitHubReviewKindName,
+		GITHUB_REVIEW_KINDS,
+		type GitHubReviewKind
+	} from '#lib/core/github/github-review.ts';
+	import { pullRequestShortName, type PullRequestRef } from '#lib/core/github/pull-request.ts';
 	import VisibleText from '#lib/ui/VisibleText.svelte';
 	import { pageClient } from '#lib/ui/client.ts';
 	import type { Comments } from './comments.svelte.ts';
 
 	let {
 		id,
+		pullRequest,
 		comments,
 		version,
 		open
 	}: {
 		id: ReportId;
+		/** The pull request the Delve follows, to post the review to; undefined for other Delves. */
+		pullRequest: PullRequestRef | undefined;
 		comments: Comments;
 		/** The version the page shows. */
 		version: RevisionNumber;
@@ -51,6 +68,10 @@
 	let reading = $state<number>();
 	const copyButtons: Record<number, HTMLButtonElement | undefined> = $state({});
 	const previewId = $props.id();
+	/** What the review is posted to GitHub as: Comment to start with. */
+	let kind = $state<GitHubReviewKind>('comment');
+	/** Whether it is posted as a draft on GitHub, its kind then set aside. */
+	let asDraft = $state(false);
 
 	const saved = $derived(comments.saved ?? []);
 	const overall = $derived(comments.overall);
@@ -138,7 +159,8 @@
 		return came === undefined ? false : copy(came);
 	}
 
-	async function finish(): Promise<void> {
+	/** Finishes the draft and copies it, and, with `post`, posts it to the pull request first. */
+	async function finish(post: boolean): Promise<void> {
 		if (finishing) return;
 		finishing = true;
 		problem = '';
@@ -147,7 +169,8 @@
 		const request = pageClient().finishReview(id, {
 			version,
 			comments: saved.map((c) => ({ id: c.id, edits: c.edits })),
-			overall: overallShown
+			overall: overallShown,
+			...(post && pullRequest !== undefined ? { github: { kind, draft: asDraft } } : {})
 		});
 		const copying = copyWhenReady(request.then((r) => (r.ok ? r.value.text : undefined)));
 		const finished = await request;
@@ -165,11 +188,36 @@
 		previewOpen = false;
 		preview = undefined;
 		await comments.reviewFinished(overallShown);
-		said = copied
-			? `Review ${String(review.number)} is finished and copied. Paste it to your agent, or ask your agent to act on your review in diff delver.`
-			: `Review ${String(review.number)} is finished, but this browser would not let diff delver copy it. Press “Copy review ${String(review.number)}” to try again, or show it and copy the text yourself.`;
+		said = `${finishedWords(review, copied)}${inTextWords(review)}`;
 		await tick();
 		copyButtons[review.number]?.focus();
+	}
+
+	/** What finishing did, in words: finished, posted and copied. */
+	function finishedWords(review: FinishedReviewView, copied: boolean): string {
+		const n = String(review.number);
+		const posted = review.posted;
+		if (posted === null) {
+			return copied
+				? `Review ${n} is finished and copied. Paste it to your agent, or ask your agent to act on your review in diff delver.`
+				: `Review ${n} is finished, but this browser would not let diff delver copy it. Press “Copy review ${n}” to try again, or show it and copy the text yourself.`;
+		}
+		const where =
+			posted.as === 'draft'
+				? `posted to GitHub as a draft, which only you can see there until you submit it`
+				: `posted to GitHub ${describePostedAs(posted.as)}`;
+		return copied
+			? `Review ${n} is finished, ${where}, and copied.`
+			: `Review ${n} is finished and ${where}, but this browser would not let diff delver copy it. Press “Copy review ${n}” to try again.`;
+	}
+
+	/** What went in the review's text on GitHub, when anything did. */
+	function inTextWords(review: FinishedReviewView): string {
+		const count = review.posted?.inText ?? 0;
+		if (count === 0) return '';
+		return count === 1
+			? ' 1 comment is on lines GitHub does not show, so it is in the review’s text on GitHub.'
+			: ` ${String(count)} comments are on lines GitHub does not show, so they are in the review’s text on GitHub.`;
 	}
 
 	async function copyAgain(review: FinishedReviewView): Promise<void> {
@@ -191,6 +239,61 @@
 				This Delve is closed, so {contents} cannot be finished. Reopen it to finish
 				{saved.length === 1 || (saved.length === 0 && written) ? 'it' : 'them'} as review {next}.
 			</p>
+		{:else if drafted && pullRequest !== undefined}
+			<p class="lead">
+				Finishing makes {contents} review {next}. It is posted to {pullRequestShortName(
+					pullRequest
+				)} on GitHub as one review from your GitHub account, and copied, ready to paste to your agent.
+				Your next comment or overall review starts review {next + 1}.
+			</p>
+			{#if unsaved}
+				<p class="note">
+					What you are writing and have not saved, in a comment box or the overall review, is not in
+					this review.
+				</p>
+			{/if}
+			<fieldset class="kind" disabled={finishing || asDraft}>
+				<legend>Post to GitHub as</legend>
+				{#each GITHUB_REVIEW_KINDS as each (each)}
+					<label>
+						<input type="radio" name="{previewId}-kind" value={each} bind:group={kind} />
+						{gitHubReviewKindName(each)}
+					</label>
+				{/each}
+			</fieldset>
+			<label class="draft">
+				<input type="checkbox" bind:checked={asDraft} disabled={finishing} />
+				Post as a draft on GitHub
+			</label>
+			{#if asDraft}
+				<p class="note">
+					As a draft, only you can see the review on GitHub until you submit it there. GitHub asks
+					then whether it is a comment, an approval or a request for changes, so that is not chosen
+					here.
+				</p>
+			{/if}
+			<div class="actions">
+				<button
+					type="button"
+					class="primary"
+					id="finish-and-copy"
+					disabled={finishing}
+					onclick={() => finish(true)}
+				>
+					{finishing ? 'Finishing…' : 'Finish and post to GitHub'}
+				</button>
+				<button type="button" disabled={finishing} onclick={() => finish(false)}>
+					Finish and copy only
+				</button>
+				<button
+					type="button"
+					aria-expanded={previewOpen}
+					aria-controls={previewId}
+					onclick={() => (previewOpen = !previewOpen)}
+				>
+					Show what will be copied
+				</button>
+			</div>
 		{:else if drafted}
 			<p class="lead">
 				Finishing makes {contents} review {next}. The review is copied, ready to paste to your
@@ -209,7 +312,7 @@
 					class="primary"
 					id="finish-and-copy"
 					disabled={finishing}
-					onclick={finish}
+					onclick={() => finish(false)}
 				>
 					{finishing ? 'Finishing…' : 'Finish and copy'}
 				</button>
@@ -275,6 +378,18 @@
 						>
 							Show review {review.number}
 						</button>
+						{#if review.posted !== null}
+							<span class="posted">
+								{review.posted.as === 'draft'
+									? 'Posted as a draft on GitHub: submit it there.'
+									: `Posted to GitHub ${describePostedAs(review.posted.as)}.`}
+							</span>
+							<a href={review.posted.address} target="_blank" rel="external noopener noreferrer">
+								{review.posted.as === 'draft'
+									? `Submit review ${String(review.number)} on GitHub`
+									: `Open review ${String(review.number)} on GitHub`}
+							</a>
+						{/if}
 						{#if reading === review.number}
 							<div class="text" role="region" aria-label="Review {review.number} as it was copied">
 								<pre><code
@@ -310,6 +425,37 @@
 	.note {
 		color: var(--color-muted);
 		font-size: 0.875rem;
+	}
+
+	.kind {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem 1rem;
+		margin: 0 0 0.5rem;
+		border: none;
+		padding: 0;
+	}
+
+	.kind legend {
+		padding: 0;
+		margin-bottom: 0.25rem;
+		font-weight: 700;
+		font-size: 0.875rem;
+	}
+
+	.kind:disabled label {
+		color: var(--color-muted);
+	}
+
+	.kind label,
+	.draft {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.draft {
+		margin: 0 0 0.5rem;
 	}
 
 	.actions {

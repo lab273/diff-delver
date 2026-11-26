@@ -8,6 +8,8 @@
  * Optional values are `null` in JSON, never left out, so a value and its JSON
  * have the same keys.
  */
+import { GITHUB_REVIEW_KINDS } from '#lib/core/github/github-review.ts';
+import { parseGitHubReviewAddress } from '#lib/core/github/github-review-address.tiny.ts';
 import { z } from 'zod';
 import { IMAGE_FORMATS, NOT_IMAGE_KINDS } from '#lib/core/image/image-format.ts';
 import { FILE_PAGE_LINES, FILE_QUERY_LENGTH } from '#lib/core/viewer/file-reader.ts';
@@ -1104,7 +1106,12 @@ export const FinishReviewSchema = z.strictObject({
 	version,
 	comments: z.array(shownComment).max(100_000),
 	/** How many times the overall review had been changed when the page showed it. */
-	overall: editCount
+	overall: editCount,
+	/**
+	 * For a pull request's Delve, to post it to GitHub as one review too:
+	 * published as `kind`, or, with `draft`, left a draft there, `kind` set aside.
+	 */
+	github: z.strictObject({ kind: z.enum(GITHUB_REVIEW_KINDS), draft: z.boolean() }).optional()
 });
 export type FinishReview = z.infer<typeof FinishReviewSchema>;
 
@@ -1122,7 +1129,17 @@ export const FinishedReviewSchema = z.strictObject({
 		ignored: unitCount,
 		uncategorised: unitCount
 	}),
-	text: reviewText
+	text: reviewText,
+	/** Where it was posted on GitHub, when it was. */
+	posted: z
+		.strictObject({
+			as: z.enum(['comment', 'approve', 'request-changes', 'draft']),
+			/** The review on GitHub, or for a draft, the pull request's changes, where it is submitted. */
+			address: parsed(z.string(), parseGitHubReviewAddress),
+			/** How many comments went in the review's text, since GitHub shows no lines for them. */
+			inText: parsed(z.number(), parseCommentCount)
+		})
+		.nullable()
 });
 export type FinishedReviewView = z.infer<typeof FinishedReviewSchema>;
 

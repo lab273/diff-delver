@@ -7,9 +7,13 @@ import { expect, test } from '../support/journey.ts';
 // draft; one is opened as a Delve with the keyboard; someone pushes a commit
 // to it on GitHub, the command is run again for it, and the Delve becomes its
 // next version, with the tick on what did not change kept and what is new
-// marked new. Posting the review to GitHub is part 2, appended after these steps.
+// marked new. Then the reviewer comments on a line and writes an overall
+// review, and finishing posts them to the pull request as one GitHub review,
+// published as a comment, with a link to it on GitHub; and a second review,
+// with the tick box, as a draft on GitHub, to submit there. The links are
+// never followed: they lead to github.com.
 test.describe('J11 Review a GitHub PR', () => {
-	test('the reviewer opens a pull request from the list, and follows it to its next version', async ({
+	test('the reviewer opens a pull request from the list, follows it to its next version, and posts the review to it', async ({
 		journey
 	}) => {
 		const shop = await journey.repository('on-github');
@@ -77,5 +81,92 @@ test.describe('J11 Review a GitHub PR', () => {
 		await journey.expectState(discountTick, { checked: true });
 		await journey.expectText(journey.byRole('article', { name: 'src/coupon.ts' }), '1 new');
 		await journey.step('A new commit, as the next version');
+
+		// A comment on the new file's line, and an overall review.
+		const coupon = journey.within(journey.byRole('article', { name: 'src/coupon.ts' }));
+		await journey.activate(
+			coupon.byRole('button', { name: 'Comment on line 1, after', exact: true })
+		);
+		const box = journey.within(
+			journey.byRole('form', { name: 'New comment on After, line 1', exact: true })
+		);
+		await journey.expectFocused(box.byRole('textbox', { name: 'Comment', exact: true }));
+		await journey.type('Read the coupons from settings.');
+		await journey.activate(box.byRole('button', { name: 'Save comment', exact: true }));
+		const bar = journey.within(journey.byRole('region', { name: 'Overall review' }));
+		await journey.expectVisible(bar.byText('1 comment', { exact: true }));
+		await journey.press('v');
+		await journey.expectFocused(
+			bar.byRole('textbox', { name: /^Your overall review of the change/ })
+		);
+		await journey.type('The discount reads well. One question on the coupons.');
+		await journey.press('Control+Enter');
+		await journey.expectHidden(bar.byText('Not saved', { exact: true }));
+		await journey.press('Escape');
+
+		// From the bar to finishing, which on a pull request offers to post to it.
+		await journey.activate(bar.byRole('button', { name: 'Finish your review', exact: true }));
+		const finish = journey.within(journey.byRole('region', { name: 'Finish your review' }));
+		const post = finish.byRole('button', { name: 'Finish and post to GitHub', exact: true });
+		await journey.expectFocused(post);
+		await journey.expectText(
+			journey.byRole('region', { name: 'Finish your review' }),
+			'It is posted to acme/shop#7 on GitHub as one review from your GitHub account'
+		);
+		const asComment = finish.byRole('radio', { name: 'Comment', exact: true });
+		await journey.expectState(asComment, { checked: true });
+		await journey.expectVisible(finish.byRole('button', { name: 'Finish and copy only' }));
+		await journey.step('Finishing offers to post to GitHub');
+
+		await journey.activate(post);
+		await journey.expectVisible(
+			finish.byText('Review 1 is finished, posted to GitHub as a comment, and copied.', {
+				exact: false
+			})
+		);
+		await journey.expectVisible(finish.byText('Posted to GitHub as a comment.', { exact: true }));
+		await journey.expectVisible(
+			finish.byRole('link', { name: 'Open review 1 on GitHub', exact: true })
+		);
+		expect(await journey.readClipboard()).toContain('> Read the coupons from settings.');
+		await journey.step('Posted to GitHub, with a link to it');
+
+		// A second review, posted as a draft on GitHub: its kind is set aside.
+		await journey.activate(
+			coupon.byRole('button', { name: 'Comment on line 1, after', exact: true })
+		);
+		await journey.type('And say which are seasonal.');
+		await journey.activate(
+			journey
+				.within(journey.byRole('form', { name: 'New comment on After, line 1', exact: true }))
+				.byRole('button', { name: 'Save comment', exact: true })
+		);
+		await journey.activate(bar.byRole('button', { name: 'Finish your review', exact: true }));
+		await journey.expectFocused(post);
+		const asDraft = finish.byRole('checkbox', { name: 'Post as a draft on GitHub', exact: true });
+		await journey.activate(asDraft, 'Space');
+		await journey.expectState(asDraft, { checked: true });
+		await journey.expectState(asComment, { disabled: true });
+		await journey.expectVisible(
+			finish.byText(
+				'As a draft, only you can see the review on GitHub until you submit it there.',
+				{
+					exact: false
+				}
+			)
+		);
+		await journey.step('Posting as a draft on GitHub');
+
+		await journey.activate(post);
+		await journey.expectVisible(
+			finish.byText(
+				'Review 2 is finished, posted to GitHub as a draft, which only you can see there until you submit it, and copied.',
+				{ exact: false }
+			)
+		);
+		await journey.expectVisible(
+			finish.byRole('link', { name: 'Submit review 2 on GitHub', exact: true })
+		);
+		await journey.step('Posted as a draft, to submit on GitHub');
 	});
 });

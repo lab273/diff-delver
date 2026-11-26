@@ -88,6 +88,7 @@
 	} from '#lib/ui/viewer/viewer.svelte.ts';
 	import { withSetting, type Layout, type SettingChange } from '#lib/core/settings.ts';
 	import { parseSourceSpec } from '#lib/core/sources/source-spec.ts';
+	import type { PullRequestRef } from '#lib/core/github/pull-request.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -257,6 +258,12 @@
 	function followsPullRequest(source: string): boolean {
 		const spec = parseSourceSpec(source);
 		return spec.ok && spec.value.kind === 'pull-request';
+	}
+
+	/** The pull request the Delve follows, if it follows one, to post its reviews to. */
+	function pullRequestOf(source: string): PullRequestRef | undefined {
+		const spec = parseSourceSpec(source);
+		return spec.ok && spec.value.kind === 'pull-request' ? spec.value.pullRequest : undefined;
 	}
 
 	function fileCount(count: number): string {
@@ -2350,6 +2357,7 @@
 					/>
 					<FinishReview
 						id={summary.id}
+						pullRequest={pullRequestOf(page.source)}
 						{comments}
 						version={summary.version}
 						open={summary.state.kind === 'open'}
