@@ -2359,7 +2359,7 @@
 			await goToPart(at, true);
 			if (viewer !== shown) return;
 		}
-		await shown.load(at);
+		await shown.settled(at);
 		await tick();
 		const part = document.getElementById(`part-${String(at)}`);
 		if (part === null || viewer !== shown) return;

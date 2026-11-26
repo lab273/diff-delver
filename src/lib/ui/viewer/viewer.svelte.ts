@@ -393,6 +393,8 @@ export class Viewer {
 	readonly #colourTurns = new Turns(COLOUR_REQUESTS_AT_ONCE);
 	/** Parts' lines on their way, so a second asker waits for the same answer. */
 	readonly #loading = new WeakMap<PartState, Promise<void>>();
+	/** Unchanged lines being opened in each part, so a key pressed meanwhile can wait for them. */
+	readonly #opening = new WeakMap<PartState, Promise<unknown>>();
 	/** Which lines' colours each part has asked for, so none is asked for twice. */
 	readonly #askedColours = new AskedLines();
 	/** How many ticks have been answered, so a slower refresh never undoes a newer tick. */
@@ -706,7 +708,37 @@ export class Viewer {
 	}
 
 	/** Opens hidden lines of a part's block: a step down, a step up, or all of them. */
-	async openLines(at: PartIndex, block: number, direction: Direction): Promise<void> {
+	openLines(at: PartIndex, block: number, direction: Direction): Promise<void> {
+		return this.#whileOpening(at, () => this.#openLines(at, block, direction));
+	}
+
+	/**
+	 * Waits for a part's lines and for any of its unchanged lines being opened,
+	 * so what is drawn next, such as the line `c` goes to, is among them.
+	 */
+	async settled(at: PartIndex): Promise<void> {
+		await this.load(at);
+		const state = this.parts[at];
+		const opening = state === undefined ? undefined : this.#opening.get(state);
+		if (opening !== undefined) await opening;
+	}
+
+	/** Does `work` on a part, which `settled` then waits for, with all begun before it. */
+	async #whileOpening(at: PartIndex, work: () => Promise<void>): Promise<void> {
+		const state = this.parts[at];
+		if (state === undefined) return;
+		const done = work();
+		const all = Promise.allSettled([this.#opening.get(state), done]);
+		this.#opening.set(state, all);
+		try {
+			await done;
+		} finally {
+			await all;
+			if (this.#opening.get(state) === all) this.#opening.delete(state);
+		}
+	}
+
+	async #openLines(at: PartIndex, block: number, direction: Direction): Promise<void> {
 		const state = this.parts[at];
 		if (state?.lines.kind !== 'loaded') return;
 		const hidden = state.lines.blocks[block];
@@ -721,7 +753,11 @@ export class Viewer {
 	}
 
 	/** Opens a bounded window around a saved line in the middle of unchanged context. */
-	async openBookmarkContext(at: PartIndex, block: number, target: BookmarkLine): Promise<void> {
+	openBookmarkContext(at: PartIndex, block: number, target: BookmarkLine): Promise<void> {
+		return this.#whileOpening(at, () => this.#openBookmarkContext(at, block, target));
+	}
+
+	async #openBookmarkContext(at: PartIndex, block: number, target: BookmarkLine): Promise<void> {
 		const state = this.parts[at];
 		if (state?.lines.kind !== 'loaded') return;
 		const hidden = state.lines.blocks[block];
