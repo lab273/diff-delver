@@ -102,7 +102,7 @@ export interface PartSummary {
 	/** In a section with a reading order, the step it is; undefined when it follows the steps, or the section has none. */
 	readonly step: OrderStep | undefined;
 	/** How many steps the reading order of its section has; 0 when it has none. */
-	readonly steps: number;
+	readonly steps: SliceCount;
 	/** The agent's note on its step. */
 	readonly note: AgentMarkdown | undefined;
 	/**
@@ -319,7 +319,7 @@ export function fileParts(
 			group,
 			file,
 			step,
-			steps: order.length,
+			steps: sliceCountOf(order.length),
 			note: step === undefined ? undefined : order[step - 1]?.note,
 			change: changeOf(slice, file, hasLines),
 			added: lineCountOf(counted.added),

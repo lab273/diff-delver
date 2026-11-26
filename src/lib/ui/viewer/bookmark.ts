@@ -1,12 +1,14 @@
 /** A tab-local reading place, using file identity and line numbers within one version. */
 import { z } from 'zod';
-import { GroupKeySchema, PartQuerySchema } from '#lib/api/schemas.ts';
+import { GroupKeySchema, OrderStepSchema, PartQuerySchema } from '#lib/api/schemas.ts';
 import type { BlockState, OpenLine, PartState } from './viewer.svelte.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 
 const lineSchema = z.object({ side: z.enum(['old', 'new']), line: z.number().int().positive() });
 const bookmarkSchema = PartQuerySchema.pick({ path: true }).extend({
 	group: GroupKeySchema,
+	/** The part's step in its section's reading order; null after the steps, left out by an older page. */
+	step: OrderStepSchema.nullish(),
 	version: z.number().int().positive(),
 	line: lineSchema.nullable(),
 	open: z.boolean()

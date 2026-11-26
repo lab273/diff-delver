@@ -25,6 +25,7 @@ import type {
 	NoteAction,
 	PartLines,
 	PartView,
+	PlaceView,
 	ShownLineView,
 	SideColoursView,
 	TallyView,
@@ -55,6 +56,7 @@ import {
 	shownParts
 } from '#lib/core/viewer/reading-order.ts';
 import { partIndexOf, type PartIndex } from '#lib/core/part-index.tiny.ts';
+import type { OrderStep } from '#lib/core/order-step.tiny.ts';
 import { countOf, describeChanges, formatCount } from '#lib/core/viewer/words.ts';
 import { pageClient } from '#lib/ui/client.ts';
 import { SvelteMap } from 'svelte/reactivity';
@@ -108,7 +110,7 @@ export type BlockState =
 	  }
 	| {
 			readonly kind: 'elsewhere';
-			readonly groups: readonly GroupKeyView[];
+			readonly places: readonly PlaceView[];
 			readonly lines: readonly ShownLineView[];
 			/** Whether its lines are shown here too. */
 			shown: boolean;
@@ -152,7 +154,10 @@ function forWhiteSpace(line: ShownLineView): LineForWhiteSpace {
 	return {
 		kind: line.kind,
 		text: line.text,
-		group: line.kind === 'context' || line.home.kind === 'here' ? '' : groupKeyId(line.home.group)
+		group:
+			line.kind === 'context' || line.home.kind === 'here'
+				? ''
+				: placeKey(line.home.group, line.home.step)
 	};
 }
 
@@ -198,7 +203,7 @@ export function shownLineNumbers(blocks: readonly BlockState[]): {
 export interface PartState {
 	/** Its place in reading order, which its element's id uses. */
 	readonly index: PartIndex;
-	/** The same for the same part of the same file in any answer: group and path. */
+	/** The same for the same part of the same file in any answer: group, step and path. */
 	readonly key: string;
 	/** The view measures this part while restoring the reader's place. */
 	measuring: boolean;
@@ -236,8 +241,13 @@ export interface GroupInfo {
 	readonly count: number;
 }
 
-function keyOf(group: GroupKeyView, path: EscapedPath): string {
-	return `${groupKeyId(group)}\u0000${path}`;
+/** A place written as text: a group, and its step in a section's reading order. */
+export function placeKey(group: GroupKeyView, step: OrderStep | null): string {
+	return step === null ? groupKeyId(group) : `${groupKeyId(group)}#${String(step)}`;
+}
+
+function keyOf(group: GroupKeyView, path: EscapedPath, step: OrderStep | null): string {
+	return `${placeKey(group, step)}\u0000${path}`;
 }
 
 /** Whether a part still waits for the reviewer. */
@@ -453,7 +463,7 @@ export class Viewer {
 			groups.push(info);
 			for (const part of group.parts) {
 				const index = partIndexOf(parts.length);
-				const key = keyOf(part.group, part.path);
+				const key = keyOf(part.group, part.path, part.step);
 				const before = previous === undefined ? undefined : previous.#partWithKey(key);
 				byKey.set(key, index);
 				this.#groupOf.push(groups.length - 1);
@@ -531,9 +541,15 @@ export class Viewer {
 		return this.groups.find((g) => g.id === id);
 	}
 
-	/** Where a file's part in a group is in reading order. */
-	partOf(group: GroupKeyView, path: EscapedPath): PartIndex | undefined {
-		return this.#byKey.get(keyOf(group, path));
+	/**
+	 * Where a file's part in a group is in reading order: the part of `step`
+	 * (null for the part after the steps), or with `step` left out the file's
+	 * first part in the group.
+	 */
+	partOf(group: GroupKeyView, path: EscapedPath, step?: OrderStep | null): PartIndex | undefined {
+		if (step !== undefined) return this.#byKey.get(keyOf(group, path, step));
+		const id = groupKeyId(group);
+		return this.parts.find((p) => p.part.path === path && groupKeyId(p.part.group) === id)?.index;
 	}
 
 	groupTally(group: GroupInfo): TallyView {
@@ -648,7 +664,8 @@ export class Viewer {
 				assignments: this.assignments,
 				view: this.view,
 				group: state.part.group,
-				path: state.part.path
+				path: state.part.path,
+				step: state.part.step ?? undefined
 			});
 		} finally {
 			release();
@@ -918,7 +935,8 @@ export class Viewer {
 							kind: 'slice',
 							sorting: this.#sorting,
 							group: this.parts[target.at]?.part.group ?? { kind: 'uncategorised' },
-							path: this.parts[target.at]?.part.path ?? ''
+							path: this.parts[target.at]?.part.path ?? '',
+							step: this.parts[target.at]?.part.step ?? null
 						}
 					: target.kind === 'file'
 						? { kind: 'file', path: target.path }
@@ -932,7 +950,7 @@ export class Viewer {
 		}
 		this.summary = sent.value.summary;
 		for (const part of sent.value.parts) {
-			const at = this.#byKey.get(keyOf(part.group, part.path));
+			const at = this.#byKey.get(keyOf(part.group, part.path, part.step));
 			const state = at === undefined ? undefined : this.parts[at];
 			if (state === undefined) continue;
 			const wasDone = done(state.part.tally);
@@ -993,7 +1011,7 @@ export class Viewer {
 		this.summary = frame.summary;
 		for (const group of frame.groups) {
 			for (const part of group.parts) {
-				const at = this.#byKey.get(keyOf(part.group, part.path));
+				const at = this.#byKey.get(keyOf(part.group, part.path, part.step));
 				const state = at === undefined ? undefined : this.parts[at];
 				if (state !== undefined && !sameTally(state.part.tally, part.tally)) state.part = part;
 			}

@@ -52,7 +52,7 @@ import {
 	type ImageFormat,
 	type NotImageKind
 } from '#lib/core/image/image-format.ts';
-import { fileSlices, groupKeyId, type GroupKey, type ViewKind } from '#lib/core/diff/slices.ts';
+import { fileSlices, placeId, type GroupKey, type ViewKind } from '#lib/core/diff/slices.ts';
 import { lineCountOf, type LineCount } from '#lib/core/line-count.tiny.ts';
 import { lineNumberOf, type LineNumber } from '#lib/core/line-number.tiny.ts';
 import type { Side } from '#lib/core/side.tiny.ts';
@@ -115,11 +115,14 @@ import type { AgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { overviewOf, setOverview as storeOverview } from '../db/tables/overviews.ts';
 import { referenceRowsFor, replaceReferenceRows } from '../db/tables/section-references.ts';
 import { readingStepsFor, type StoredStep } from '../db/tables/reading-steps.ts';
+import type { OrderStep } from '#lib/core/order-step.tiny.ts';
+import { RangeSet } from '#lib/core/range-set.ts';
 import {
 	asUnitSets,
 	effectiveOrders,
 	fromUnitSets,
 	orderSection,
+	StepLookup,
 	type ReadingOrders,
 	type ReadingStep,
 	type StepRequest
@@ -699,12 +702,17 @@ export interface PartContent {
 export interface PartMatches {
 	readonly group: GroupKey;
 	readonly path: RepoPath;
+	readonly step: OrderStep | undefined;
 	readonly matches: MatchCount;
 }
 
 /** Every part of a revision as a search reads it, in reading order, with its group and path. */
 interface SearchIndex {
-	readonly parts: readonly { readonly group: GroupKey; readonly path: RepoPath }[];
+	readonly parts: readonly {
+		readonly group: GroupKey;
+		readonly path: RepoPath;
+		readonly step: OrderStep | undefined;
+	}[];
 	readonly index: DiffSearchIndex;
 }
 
@@ -1045,6 +1053,34 @@ function stepsToStore(orders: ReadingOrders): ReadonlyMap<SectionId, readonly St
 			}))
 		])
 	);
+}
+
+/**
+ * The reading orders as one file's part reads them: that file's steps checked
+ * against `one`, a diff of that file alone, and every other step kept in its
+ * place with no units, so the steps keep their numbers.
+ */
+function ordersForFile(
+	one: Diff,
+	path: RepoPath,
+	stored: ReadonlyMap<SectionId, readonly StoredStep[]>
+): Result<ReadingOrders, ReportError> {
+	const none = { old: RangeSet.empty, new: RangeSet.empty, file: false };
+	const orders = new Map<SectionId, readonly ReadingStep[]>();
+	for (const [section, steps] of stored) {
+		const read: ReadingStep[] = [];
+		for (const step of steps) {
+			if (step.path !== path) {
+				read.push({ path: step.path, units: none, note: step.note });
+				continue;
+			}
+			const set = unitSetFromRows(one, step.rows, 'reading order');
+			if (!set.ok) return set;
+			read.push({ path, units: set.value.files.get(path) ?? none, note: step.note });
+		}
+		orders.set(section, read);
+	}
+	return ok(orders);
 }
 
 /** A revision's reading orders, read and checked against its diff. */
@@ -2110,7 +2146,10 @@ export class ReportService {
 			if (target.kind !== 'file' && sorting !== this.#sortingOf(revision.id, writesElsewhere(q))) {
 				return err({ kind: 'SortingChanged' });
 			}
-			return andThen(markReviewed(diff, state, marks, target, reviewed, view), (marked) =>
+			const orders = readingOrdersOf(q, revision.id, diff);
+			if (!orders.ok) return orders;
+			const steps = new StepLookup(orders.value);
+			return andThen(markReviewed(diff, state, marks, target, reviewed, view, steps), (marked) =>
 				andThen(sectionsOf(q, revision.id), (sections) => {
 					replaceReviewedRows(
 						q,
@@ -2160,7 +2199,8 @@ export class ReportService {
 		view: ViewKind,
 		group: GroupKey,
 		path: RepoPath,
-		assignments?: string
+		assignments?: string,
+		step?: OrderStep
 	): Promise<Result<PartContent, ReportError>> {
 		const shown = this.#db.read((q) => asOf(q, id, version));
 		if (!shown.ok) return shown;
@@ -2173,7 +2213,14 @@ export class ReportService {
 		const rows = this.#db.read(
 			(
 				q
-			): Result<{ assigned: readonly AssignmentRow[]; fresh: readonly UnitRow[] }, ReportError> => {
+			): Result<
+				{
+					assigned: readonly AssignmentRow[];
+					fresh: readonly UnitRow[];
+					steps: ReadonlyMap<SectionId, readonly StoredStep[]>;
+				},
+				ReportError
+			> => {
 				// Reading data_version pins the same SQLite snapshot as these rows.
 				if (
 					assignments !== undefined &&
@@ -2182,7 +2229,9 @@ export class ReportService {
 					return err({ kind: 'AssignmentsChanged' });
 				}
 				return andThen(assignmentRowsFor(q, revision.id, path), (assigned) =>
-					andThen(newUnitRowsFor(q, revision.id, path), (fresh) => ok({ assigned, fresh }))
+					andThen(newUnitRowsFor(q, revision.id, path), (fresh) =>
+						andThen(readingStepsFor(q, revision.id), (steps) => ok({ assigned, fresh, steps }))
+					)
 				);
 			}
 		);
@@ -2191,8 +2240,16 @@ export class ReportService {
 		if (!state.ok) return state;
 		const fresh = unitSetFromRows(one, rows.value.fresh, 'new changes');
 		if (!fresh.ok) return fresh;
-		const wanted = groupKeyId(group);
-		if (!fileSlices(file, state.value, view).some((s) => groupKeyId(s.group) === wanted)) {
+		const orders = ordersForFile(one, path, rows.value.steps);
+		if (!orders.ok) return orders;
+		const steps = new StepLookup(orders.value);
+		const place = { group, step };
+		const wanted = placeId(place);
+		if (
+			!fileSlices(file, state.value, view, steps).some(
+				(s) => placeId({ group: s.group, step: s.step }) === wanted
+			)
+		) {
 			return err({ kind: 'PartNotFound', path });
 		}
 		let headLines: LineCount | undefined;
@@ -2254,14 +2311,7 @@ export class ReportService {
 		}
 		return ok({
 			file,
-			blocks: partBlocks(
-				file,
-				{ group, step: undefined },
-				state.value,
-				view,
-				fresh.value,
-				headLines
-			),
+			blocks: partBlocks(file, place, state.value, view, fresh.value, headLines, steps),
 			sizes,
 			image
 		});
@@ -2349,27 +2399,32 @@ export class ReportService {
 			if (!rows.ok) return rows;
 			const state = assignmentStateFromRows(diff, rows.value);
 			if (!state.ok) return state;
+			const orders = readingOrdersOf(q, revision.id, diff);
+			if (!orders.ok) return orders;
+			const steps = new StepLookup(orders.value);
 			const frame = frameOf(
 				diff,
 				state.value,
 				NO_PART_MARKS,
 				view,
-				sections.value.map((s) => s.id)
+				sections.value.map((s) => s.id),
+				steps
 			);
 			const parts = frame.groups.flatMap((g) => g.parts);
 			const found = {
-				parts: parts.map((p) => ({ group: p.group, path: p.file.file.path })),
+				parts: parts.map((p) => ({ group: p.group, path: p.file.file.path, step: p.step })),
 				index: new DiffSearchIndex(
 					parts.map((p) => ({
 						path: shownRepoPath(p.file.file.path),
 						lines: searchedLines(
 							partBlocks(
 								p.file,
-								{ group: p.group, step: undefined },
+								{ group: p.group, step: p.step },
 								state.value,
 								view,
 								NO_PART_MARKS.fresh,
-								undefined
+								undefined,
+								steps
 							)
 						)
 					}))

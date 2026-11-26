@@ -332,7 +332,8 @@ export class ApiClient {
 			assignments: part.assignments,
 			view: part.view,
 			group: groupKeyId(part.group),
-			path: part.path
+			path: part.path,
+			...(part.step === undefined ? {} : { step: String(part.step) })
 		});
 		return this.#call('GET', `/api/diffs/${id}/part?${query.toString()}`, PartLinesSchema);
 	}

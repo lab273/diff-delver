@@ -44,6 +44,7 @@
 	import { countOf, describeChanges, describeTally, formatCount } from '#lib/core/viewer/words.ts';
 	import { nextShown, previousShown } from '#lib/core/viewer/reading-order.ts';
 	import { parsePartIndex, type PartIndex } from '#lib/core/part-index.tiny.ts';
+	import type { OrderStep } from '#lib/core/order-step.tiny.ts';
 	import FileList from '#lib/ui/viewer/FileList.svelte';
 	import SectionFiles from '#lib/ui/viewer/SectionFiles.svelte';
 	import { collapseReviewedPart } from '#lib/ui/viewer/collapse-reviewed.ts';
@@ -835,6 +836,7 @@
 		const place: Bookmark = {
 			path: part.part.path,
 			group: part.part.group,
+			step: part.part.step,
 			version: shown.version,
 			line,
 			open: part.open
@@ -856,7 +858,7 @@
 			return;
 		}
 
-		const at = shown.partOf(place.group, place.path);
+		const at = shown.partOf(place.group, place.path, place.step);
 		const same = at === undefined ? undefined : shown.parts[at];
 		const files = shown.parts.filter((part) => part.part.path === place.path);
 		const name = shownPath(place.path);
@@ -1283,8 +1285,12 @@
 		void goToPart(at, true);
 	}
 
-	async function goTo(path: EscapedPath, group: GroupKeyView): Promise<void> {
-		const at = viewer?.partOf(group, path);
+	async function goTo(
+		path: EscapedPath,
+		group: GroupKeyView,
+		step?: OrderStep | null
+	): Promise<void> {
+		const at = viewer?.partOf(group, path, step);
 		if (at !== undefined) await goToPart(at, true);
 	}
 

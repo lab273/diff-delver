@@ -10,7 +10,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	if (!id.ok) return id.error;
 	const query = readQuery(url, PartQuerySchema);
 	if (!query.ok) return query.error;
-	const { version, view, group, path, assignments } = query.value;
+	const { version, view, group, path, assignments, step } = query.value;
 	const repoPath = resolveEscapedPath(path);
 	if (repoPath === undefined) return unknownPath();
 	const part = await locals.daemon.service.readPart(
@@ -19,7 +19,8 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 		view,
 		group,
 		repoPath,
-		assignments
+		assignments,
+		step
 	);
 	if (!part.ok) return serviceFailure(part.error);
 	const body: PartLines = partLinesView(part.value);

@@ -330,12 +330,12 @@ describe('the viewer’s routes', () => {
 				});
 			// The hunk around "line ten", three lines either side; the path; nothing in the binary file.
 			expect(value(await search('line t')).parts).toEqual([
-				{ group: { kind: 'uncategorised' }, path: 'src/long.ts', matches: 1 }
+				{ group: { kind: 'uncategorised' }, path: 'src/long.ts', step: null, matches: 1 }
 			]);
 			expect(value(await search('LINE', true)).parts).toEqual([]);
 			// Ignored files are searched too: the path, and the line on each side.
 			expect(value(await search('lock')).parts).toEqual([
-				{ group: { kind: 'ignored' }, path: 'pnpm-lock.yaml', matches: 3 }
+				{ group: { kind: 'ignored' }, path: 'pnpm-lock.yaml', step: null, matches: 3 }
 			]);
 			const auth = { authorization: `Bearer ${daemon.token}` };
 			const empty = await rawRequest(daemon.port, {

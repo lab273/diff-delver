@@ -46,6 +46,9 @@
 						}}
 					>
 						<PathText path={part.path} />
+						{#if part.step !== null}
+							<span> Step {part.step}</span>
+						{/if}
 						{#if part.of > 1}
 							<span> Part {part.position} of {part.of}</span>
 						{/if}

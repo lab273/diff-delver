@@ -28,7 +28,10 @@ function removed(n: number, value: string, home: Home = 'here'): ShownLineView {
 		old: lineNumberOf(n),
 		text: text(value),
 		noNewlineAtEnd: false,
-		home: home === 'here' ? { kind: 'here', fresh: false } : { kind: 'elsewhere', group: IGNORED }
+		home:
+			home === 'here'
+				? { kind: 'here', fresh: false }
+				: { kind: 'elsewhere', group: IGNORED, step: null }
 	};
 }
 
@@ -38,7 +41,10 @@ function added(n: number, value: string, home: Home = 'here'): ShownLineView {
 		new: lineNumberOf(n),
 		text: text(value),
 		noNewlineAtEnd: false,
-		home: home === 'here' ? { kind: 'here', fresh: false } : { kind: 'elsewhere', group: IGNORED }
+		home:
+			home === 'here'
+				? { kind: 'here', fresh: false }
+				: { kind: 'elsewhere', group: IGNORED, step: null }
 	};
 }
 

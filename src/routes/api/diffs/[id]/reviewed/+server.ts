@@ -24,7 +24,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 			if (path === undefined) return unknownPath();
 			resolved =
 				target.kind === 'slice'
-					? { kind: 'slice', group: target.group, path }
+					? { kind: 'slice', group: target.group, path, step: target.step ?? undefined }
 					: { kind: 'file', path };
 			break;
 		}

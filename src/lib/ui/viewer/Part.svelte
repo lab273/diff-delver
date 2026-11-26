@@ -6,7 +6,9 @@
 	pictures.
 -->
 <script lang="ts">
-	import type { GroupKeyView, PartLines as PartLinesView } from '#lib/api/schemas.ts';
+	import type { GroupKeyView, PartLines as PartLinesView, PlaceView } from '#lib/api/schemas.ts';
+	import type { OrderStep } from '#lib/core/order-step.tiny.ts';
+	import AgentMarkdown from './AgentMarkdown.svelte';
 	import { describeByteSize, countOf, describeTally, formatCount } from '#lib/core/viewer/words.ts';
 	import type { EscapedPath } from '#lib/core/path-bytes.ts';
 	import { shownPath } from '#lib/core/shown-path.tiny.ts';
@@ -56,7 +58,8 @@
 		previousVersion: RevisionNumber | null;
 		sortingProblem?: string | undefined;
 		ontick: (at: PartIndex, reviewed: boolean) => Promise<void>;
-		ongo: (path: EscapedPath, group: GroupKeyView) => void;
+		/** Goes to a part of a file: in `group`, its part of `step` when given, else its first. */
+		ongo: (path: EscapedPath, group: GroupKeyView, step?: OrderStep | null) => void;
 		/** Shows the diff's newer version, when a tick was refused for being behind it. */
 		onshownewer: () => void;
 		/** The reviewer's comments on this Delve, drawn under their lines. */
@@ -80,6 +83,14 @@
 	const whiteSpaceMatters = $derived(whereWhiteSpaceMatters(part.path));
 	const large = $derived(viewer.isLarge(state));
 	const groupName = $derived(viewer.groupOfPart(at)?.name ?? '');
+	/** In a section with a reading order: "step 2 of 5", or that it follows the steps. */
+	const stepWords = $derived(
+		part.steps === 0
+			? ''
+			: part.step === null
+				? 'after the steps'
+				: `step ${String(part.step)} of ${String(part.steps)}`
+	);
 	/** Its path as a person is shown it, in what is read out. */
 	const shown = $derived(shownPath(part.path));
 	/**
@@ -201,7 +212,9 @@
 				id="part-{at}-toggle"
 				aria-expanded={state.open}
 				aria-controls="part-{at}-body"
-				aria-label="{shown}{part.of > 1 ? `, part ${part.position} of ${part.of}` : ''}"
+				aria-label="{shown}{part.of > 1
+					? `, part ${part.position} of ${part.of}`
+					: ''}{stepWords === '' ? '' : `, ${stepWords}`}"
 				onclick={() => {
 					state.open = !state.open;
 					viewer.current = at;
@@ -225,6 +238,11 @@
 					<code>{part.modeChange.from}</code> to <code>{part.modeChange.to}</code>
 				</span>
 			</span>
+		{/if}
+		{#if part.step !== null}
+			<span class="chip step" aria-hidden="true">Step {part.step} of {part.steps}</span>
+		{:else if part.steps > 0}
+			<span class="chip step" aria-hidden="true">After the steps</span>
 		{/if}
 		{#if part.of > 1}
 			<span class="chip" aria-hidden="true">Part {part.position} of {part.of}</span>
@@ -262,7 +280,9 @@
 			<label class="tick">
 				<input
 					type="checkbox"
-					aria-label="Reviewed: {shown}{part.of > 1 ? ` in ${groupName}` : ''}"
+					aria-label="Reviewed: {shown}{part.of > 1 ? ` in ${groupName}` : ''}{part.step === null
+						? ''
+						: `, step ${String(part.step)}`}"
 					checked={reviewed}
 					indeterminate={partly(part.tally)}
 					aria-describedby={[
@@ -297,6 +317,11 @@
 	{/if}
 	<div class="body" id="part-{at}-body" hidden={!state.open && !closing}>
 		{#if state.open || closing}
+			{#if part.note !== null}
+				<div class="step-note">
+					<AgentMarkdown markdown={part.note} label="From the agent, on this step" />
+				</div>
+			{/if}
 			{#if part.tally.unmarked > 0}
 				<p class="unmarked">
 					You had marked {countOf(part.tally.unmarked, 'change', 'changes')} here as reviewed. {part
@@ -422,8 +447,8 @@
 						layout={viewer.layout}
 						path={part.path}
 						{previousVersion}
-						ongo={(group: GroupKeyView) => {
-							ongo(part.path, group);
+						ongo={(place: PlaceView) => {
+							ongo(part.path, place.group, place.step);
 						}}
 						{marks}
 					/>
@@ -569,6 +594,14 @@
 	.problem {
 		margin: 0;
 		padding: 0.5rem 0.75rem;
+		font-size: 0.875rem;
+	}
+
+	.step-note {
+		padding: 0 0.75rem;
+		border-bottom: 1px solid var(--color-border);
+		border-left: 3px solid var(--color-border);
+		color: var(--color-muted);
 		font-size: 0.875rem;
 	}
 

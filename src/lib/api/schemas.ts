@@ -42,6 +42,7 @@ import { parseLineNumber } from '#lib/core/line-number.tiny.ts';
 import { parseLineText } from '#lib/core/line-text.tiny.ts';
 import { parsePartPosition } from '#lib/core/part-position.tiny.ts';
 import { parseSliceCount } from '#lib/core/slice-count.tiny.ts';
+import { parseOrderStep } from '#lib/core/order-step.tiny.ts';
 import { parseProcessId } from '#lib/core/process-id.tiny.ts';
 import { parseEscapedPath } from '#lib/core/path-bytes.ts';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
@@ -311,6 +312,14 @@ export const GroupKeySchema = z.discriminatedUnion('kind', [
 ]);
 export type GroupKeyView = z.output<typeof GroupKeySchema>;
 
+/** A step of a section's reading order (DESIGN 4.3.1), counted from 1. */
+export const OrderStepSchema = parsed(z.number(), parseOrderStep);
+const orderStep = OrderStepSchema;
+
+/** Where a change is read: a group, and in a section with a reading order its step, or null after the steps. */
+const PlaceSchema = z.object({ group: GroupKeySchema, step: orderStep.nullable() });
+export type PlaceView = z.output<typeof PlaceSchema>;
+
 /** How the page groups the diff: by section with tests in them (the only view so far), or tests apart. */
 const ViewSchema = z.enum(['sections', 'tests-separate']);
 export type ViewName = z.output<typeof ViewSchema>;
@@ -333,6 +342,12 @@ export type TallyView = z.output<typeof TallySchema>;
 const PartSchema = z.object({
 	group: GroupKeySchema,
 	path: escapedPath,
+	/** In a section with a reading order, the step this part is; null after the steps or with none. */
+	step: orderStep.nullable(),
+	/** How many steps its section's reading order has; 0 with none. */
+	steps: parsed(z.number(), parseSliceCount),
+	/** The agent's note on its step, to be drawn as agent text. */
+	note: parsed(z.string(), parseAgentMarkdown).nullable(),
 	/** How the file changed, saying only what is in this part: "changed", "renamed from src/old.ts". */
 	change: message,
 	added: lineCount,
@@ -354,7 +369,7 @@ const PartSchema = z.object({
 	/** Part 2 of 3. */
 	position: parsed(z.number(), parsePartPosition),
 	of: parsed(z.number(), parseSliceCount),
-	/** The groups the file's other parts are in, in reading order. */
+	/** The other groups the file's parts are in, each once, in reading order. */
 	others: z.array(GroupKeySchema),
 	/** What the file holds: text, or no lines to show. */
 	content: z.enum(['text', 'binary', 'submodule'])
@@ -476,7 +491,9 @@ export const PartQuerySchema = z.object({
 	view: ViewSchema,
 	/** The group as `groupKeyId` writes it: `uncategorised`, `section:auth`. */
 	group: parsed(z.string(), parseGroupText),
-	path: escapedPath
+	path: escapedPath,
+	/** The part's step in its section's reading order; left out for a part after the steps. */
+	step: inQuery(parseOrderStep).optional()
 });
 export type PartQuery = z.output<typeof PartQuerySchema>;
 
@@ -518,7 +535,7 @@ export type ImageQuery = z.output<typeof ImageQuerySchema>;
 /** Where a changed line of a part belongs: here (and whether it is new), or in another group. */
 const LineHomeSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('here'), fresh: z.boolean() }),
-	z.object({ kind: z.literal('elsewhere'), group: GroupKeySchema })
+	z.object({ kind: z.literal('elsewhere'), group: GroupKeySchema, step: orderStep.nullable() })
 ]);
 
 const lineText = parsed(z.string(), parseLineText);
@@ -561,7 +578,7 @@ export const PartLinesSchema = z.object({
 			/** A hunk with none of this part's changes: where they are. */
 			z.object({
 				kind: z.literal('elsewhere'),
-				groups: z.array(GroupKeySchema),
+				places: z.array(PlaceSchema),
 				lines: z.array(ShownLineSchema)
 			})
 		])
@@ -656,7 +673,14 @@ export type DiffSearchQuery = z.output<typeof DiffSearchQuerySchema>;
  * page finds where each is in the part's lines when it has them.
  */
 export const DiffSearchSchema = z.object({
-	parts: z.array(z.object({ group: GroupKeySchema, path: escapedPath, matches: matchCount }))
+	parts: z.array(
+		z.object({
+			group: GroupKeySchema,
+			path: escapedPath,
+			step: orderStep.nullable(),
+			matches: matchCount
+		})
+	)
 });
 export type DiffSearchView = z.output<typeof DiffSearchSchema>;
 
@@ -769,6 +793,8 @@ export const MarkReviewedRequestSchema = z.object({
 			kind: z.literal('slice'),
 			group: GroupKeySchema,
 			path: escapedPath,
+			/** The part's step in its section's reading order; null or left out after the steps. */
+			step: orderStep.nullish(),
 			sorting: frameStamp
 		}),
 		z.object({ kind: z.literal('file'), path: escapedPath }),

@@ -59,7 +59,9 @@ import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { SectionId } from '#lib/core/section-id.tiny.ts';
 import { parseSectionTitle, type SectionTitle } from '#lib/core/section-title.tiny.ts';
-import type { ShownLine } from '#lib/core/viewer/part-lines.ts';
+import type { LineHome, ShownLine } from '#lib/core/viewer/part-lines.ts';
+import { StepLookup } from '#lib/core/reports/reading-order.ts';
+import { groupKeyId } from '#lib/core/group-key-id.tiny.ts';
 import {
 	fileParts,
 	fileTally,
@@ -353,6 +355,9 @@ export function partView(part: PartSummary): PartView {
 	return {
 		group: part.group,
 		path: escapedRepoPath(part.file.file.path),
+		step: part.step ?? null,
+		steps: part.steps,
+		note: part.note ?? null,
 		change: part.change,
 		added: part.added,
 		removed: part.removed,
@@ -376,7 +381,8 @@ export function fileView(file: FrameFile): FileView {
 		removed: file.removed,
 		tally: file.tally,
 		ignored: file.ignored,
-		parts: file.parts.map((p) => p.group)
+		// A file over several steps of a section is in that section once.
+		parts: [...new Map(file.parts.map((p) => [groupKeyId(p.group), p.group])).values()]
 	};
 }
 
@@ -393,7 +399,8 @@ export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): 
 		loaded.state,
 		marksOf(loaded),
 		view,
-		loaded.sections.map((s) => s.id)
+		loaded.sections.map((s) => s.id),
+		new StepLookup(loaded.readingOrders)
 	);
 	return {
 		now,
@@ -442,12 +449,13 @@ export function markedView(
 	progress: Progress
 ): Marked {
 	const sections = loaded.sections.map((s) => s.id);
+	const steps = new StepLookup(loaded.readingOrders);
 	const parts: PartView[] = [];
 	const files: FileView[] = [];
 	for (const path of paths) {
 		const file = loaded.diff.byPath.get(path);
 		if (file === undefined) continue;
-		const own = fileParts(file, loaded.state, marksOf(loaded), view, sections);
+		const own = fileParts(file, loaded.state, marksOf(loaded), view, sections, steps);
 		parts.push(...own.map(partView));
 		const { tally, ignored } = fileTally(own);
 		files.push(
@@ -475,6 +483,12 @@ export function markedView(
 	};
 }
 
+function homeView(home: LineHome): Extract<ShownLineView, { kind: 'added' }>['home'] {
+	return home.kind === 'here'
+		? home
+		: { kind: 'elsewhere', group: home.group, step: home.step ?? null };
+}
+
 function lineView(line: ShownLine): ShownLineView {
 	switch (line.kind) {
 		case 'context':
@@ -491,7 +505,7 @@ function lineView(line: ShownLine): ShownLineView {
 				old: line.line.old,
 				text: line.line.text,
 				noNewlineAtEnd: line.line.noNewlineAtEnd,
-				home: line.home
+				home: homeView(line.home)
 			};
 		case 'added':
 			return {
@@ -499,7 +513,7 @@ function lineView(line: ShownLine): ShownLineView {
 				new: line.line.new,
 				text: line.line.text,
 				noNewlineAtEnd: line.line.noNewlineAtEnd,
-				home: line.home
+				home: homeView(line.home)
 			};
 	}
 }
@@ -532,7 +546,7 @@ export function partLinesView(content: PartContent): PartLines {
 				case 'elsewhere':
 					return {
 						kind: 'elsewhere',
-						groups: [...block.places.map((p) => p.group)],
+						places: block.places.map((p) => ({ group: p.group, step: p.step ?? null })),
 						lines: block.lines.map(lineView)
 					};
 			}

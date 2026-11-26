@@ -31,6 +31,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 		parts: found.value.map((p) => ({
 			group: p.group,
 			path: escapedRepoPath(p.path),
+			step: p.step ?? null,
 			matches: p.matches
 		}))
 	};

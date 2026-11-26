@@ -222,6 +222,9 @@ To take comment access away from every browser, run `diff-delver stop`, delete
   question, info). They are shown at their lines as the agent's, after your own
   comments; `a` hides them all, Dismiss puts one away, and **Promote to review**
   makes one a comment of yours. Only promoted ones go in your review.
+- A reading order within a section: the agent can order a section's code in steps,
+  a definition before its use, with a short note on a step. Each step is a part you
+  tick on its own; lines no step names come after the steps.
 
 Not built yet:
 

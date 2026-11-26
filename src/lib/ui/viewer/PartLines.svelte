@@ -11,7 +11,8 @@
 	table's column headers, "Before" and "After", say which side a cell is on.
 -->
 <script lang="ts">
-	import type { GroupKeyView, ShownLineView } from '#lib/api/schemas.ts';
+	import type { PlaceView, ShownLineView } from '#lib/api/schemas.ts';
+	import { groupKeyId } from '#lib/core/group-key-id.tiny.ts';
 	import type { EscapedPath } from '#lib/core/path-bytes.ts';
 	import { shownPath } from '#lib/core/shown-path.tiny.ts';
 	import type { PartIndex } from '#lib/core/part-index.tiny.ts';
@@ -82,8 +83,8 @@
 		path: EscapedPath;
 		/** The version before this one, for "new since version 1"; null for a first version. */
 		previousVersion: RevisionNumber | null;
-		/** Goes to the part of this file in another group. */
-		ongo: (group: GroupKeyView) => void;
+		/** Goes to the part of this file in another place: another group, or another step of this one. */
+		ongo: (place: PlaceView) => void;
 		/** A search's matches in the part, to mark; undefined when it has none. */
 		marks: PartMarks | undefined;
 		/** The reviewer's comments on this Delve, saved and being written. */
@@ -173,11 +174,11 @@
 	}
 
 	/** The lines that start a run of another group's changes, with that group, to say where once. */
-	const NOTES = new WeakMap<readonly Drawn[], ReadonlyMap<Drawn, GroupKeyView>>();
-	function notesOf(shown: readonly Drawn[]): ReadonlyMap<Drawn, GroupKeyView> {
+	const NOTES = new WeakMap<readonly Drawn[], ReadonlyMap<Drawn, PlaceView>>();
+	function notesOf(shown: readonly Drawn[]): ReadonlyMap<Drawn, PlaceView> {
 		const kept = NOTES.get(shown);
 		if (kept !== undefined) return kept;
-		const notes = new SvelteMap<Drawn, GroupKeyView>();
+		const notes = new SvelteMap<Drawn, PlaceView>();
 		for (const [i, item] of shown.entries()) {
 			const group = startsElsewhere(shown, i);
 			if (group !== undefined) notes.set(item, group);
@@ -186,12 +187,31 @@
 		return notes;
 	}
 
-	function name(group: GroupKeyView): string {
-		return viewer.groupWithKey(group)?.name ?? 'another group';
+	/**
+	 * Where a place is, in words: another group by its name, a step of it
+	 * after; in this part's own group, its step, or what follows the steps.
+	 */
+	function name(place: PlaceView): string {
+		const own = viewer.parts[at]?.part.group;
+		if (own !== undefined && groupKeyId(own) === groupKeyId(place.group)) {
+			return place.step === null
+				? 'this section, after its steps'
+				: `step ${String(place.step)} of this section`;
+		}
+		const group = viewer.groupWithKey(place.group)?.name ?? 'another group';
+		return place.step === null ? group : `${group}, step ${String(place.step)}`;
+	}
+
+	/** The address of the part a place is, or of its group. */
+	function anchorOf(place: PlaceView): string {
+		const part = viewer.partOf(place.group, path, place.step);
+		return part === undefined
+			? (viewer.groupWithKey(place.group)?.anchor ?? '')
+			: `part-${String(part)}`;
 	}
 
 	/** A run of changes that belong to another group starts here: say where, once. */
-	function startsElsewhere(items: readonly Drawn[], i: number): GroupKeyView | undefined {
+	function startsElsewhere(items: readonly Drawn[], i: number): PlaceView | undefined {
 		const item = items[i];
 		if (item === undefined) return undefined;
 		const line = lineOf(item);
@@ -202,10 +222,11 @@
 			before !== undefined &&
 			before.kind !== 'context' &&
 			before.home.kind === 'elsewhere' &&
-			JSON.stringify(before.home.group) === JSON.stringify(line.home.group)
+			JSON.stringify(before.home.group) === JSON.stringify(line.home.group) &&
+			before.home.step === line.home.step
 		)
 			return undefined;
-		return line.home.group;
+		return { group: line.home.group, step: line.home.step };
 	}
 
 	function isFresh(line: ShownLineView): boolean {
@@ -980,11 +1001,11 @@
 	)}
 {/snippet}
 
-{#snippet where(elsewhere: GroupKeyView)}
+{#snippet where(elsewhere: PlaceView)}
 	<tr class="note">
 		<td colspan={columns} class="where">
 			Shown in <a
-				href="#{viewer.groupWithKey(elsewhere)?.anchor ?? ''}"
+				href="#{anchorOf(elsewhere)}"
 				aria-label="Go to {shownPath(path)} in {name(elsewhere)}"
 				onclick={(event) => {
 					event.preventDefault();
@@ -1348,8 +1369,8 @@
 								{countOf(changed, 'changed line', 'changed lines')} here {changed === 1
 									? 'is'
 									: 'are'} shown in
-								{#each block.groups as group, g (g)}{g > 0 ? ', ' : ''}<a
-										href="#{viewer.groupWithKey(group)?.anchor ?? ''}"
+								{#each block.places as group, g (g)}{g > 0 ? ', ' : ''}<a
+										href="#{anchorOf(group)}"
 										aria-label="Go to {shownPath(path)} in {name(group)}"
 										onclick={(event) => {
 											event.preventDefault();

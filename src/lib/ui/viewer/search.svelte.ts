@@ -493,7 +493,7 @@ export class DiffSearch {
 	#countsOf(answer: DiffSearchView): ReadonlyMap<PartIndex, number> {
 		const counts = new SvelteMap<PartIndex, number>();
 		for (const part of answer.parts) {
-			const at = this.#viewer.partOf(part.group, part.path);
+			const at = this.#viewer.partOf(part.group, part.path, part.step);
 			if (at !== undefined) counts.set(at, part.matches);
 		}
 		return counts;
