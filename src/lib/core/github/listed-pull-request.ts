@@ -8,7 +8,7 @@ import { describeTimeAgo } from '../time-ago.ts';
 import type { Timestamp } from '../timestamp.tiny.ts';
 import { formatCount } from '../viewer/words.ts';
 import type { GitHubBranchName } from './github-branch-name.tiny.ts';
-import type { GitHubOwner } from './github-owner.tiny.ts';
+import type { GitHubAuthor } from './github-author.tiny.ts';
 import type { PullRequestNumber } from './pull-request-number.tiny.ts';
 import type { PullRequestTitle } from './pull-request-title.tiny.ts';
 
@@ -16,7 +16,7 @@ export interface ListedPullRequest {
 	readonly number: PullRequestNumber;
 	readonly title: PullRequestTitle;
 	/** Who opened it; undefined for an account that has been deleted. */
-	readonly author: GitHubOwner | undefined;
+	readonly author: GitHubAuthor | undefined;
 	/** The branch it would merge, by its name in the repository it is in. */
 	readonly head: GitHubBranchName;
 	/** The branch it would merge into. */

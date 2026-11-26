@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseTimestamp, type Timestamp } from '../timestamp.tiny.ts';
 import { parseGitHubBranchName, type GitHubBranchName } from './github-branch-name.tiny.ts';
-import { parseGitHubOwner } from './github-owner.tiny.ts';
+import { parseGitHubAuthor } from './github-author.tiny.ts';
 import {
 	describeListedDetails,
 	describeListedTitle,
@@ -25,7 +25,7 @@ function branch(name: string): GitHubBranchName {
 
 const HOUR = 3_600_000;
 const number = parsePullRequestNumber(12);
-const author = parseGitHubOwner('octo');
+const author = parseGitHubAuthor('octo');
 if (!number.ok || !author.ok) throw new Error('parts');
 
 const pull: ListedPullRequest = {

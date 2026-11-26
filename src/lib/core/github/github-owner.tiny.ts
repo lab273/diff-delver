@@ -2,8 +2,11 @@ import { err, ok, type Result } from '../result.ts';
 import type { Tiny } from '../tiny.ts';
 
 /**
- * A GitHub account, a person's or an organisation's, as it names a repository's
- * owner or a pull request's author: `octo-org`. GitHub compares them in any case.
+ * A GitHub account, a person's or an organisation's, as it names a
+ * repository's owner: `octo-org`. GitHub compares them in any case. It goes
+ * into the address git fetches from (`gitHubCloneAddress`), so it is never
+ * more than GitHub allows in an account's name; a pull request's author,
+ * which may be one of GitHub's own `[bot]` accounts, is a `GitHubAuthor`.
  */
 export type GitHubOwner = Tiny<string, 'GitHubOwner'>;
 
@@ -13,12 +16,11 @@ export interface InvalidGitHubOwner {
 }
 
 /**
- * Accepts what GitHub allows in an account's name: letters, digits and hyphens,
- * not starting with a hyphen, at most 39 characters; and, for the accounts
- * GitHub runs itself, such as `dependabot[bot]`, a `[bot]` at the end.
+ * Accepts what GitHub allows in an account's name: letters, digits and
+ * hyphens, not starting with a hyphen, at most 39 characters.
  */
 export function parseGitHubOwner(value: string): Result<GitHubOwner, InvalidGitHubOwner> {
-	return /^[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\[bot\])?$/.test(value)
+	return /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(value)
 		? ok(value as GitHubOwner)
 		: err({ kind: 'InvalidGitHubOwner', value });
 }

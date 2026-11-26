@@ -53,6 +53,7 @@ describe('gitHubRepositoryOf', () => {
 			'https://github.com/acme',
 			'https://github.com/acme/shop/tree/main',
 			'https://github.com/-acme/shop',
+			'https://github.com/dependabot[bot]/shop',
 			'https://github.com/acme/shop?x=1',
 			''
 		]) {

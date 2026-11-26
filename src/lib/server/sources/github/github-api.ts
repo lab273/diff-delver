@@ -12,7 +12,7 @@ import {
 	parseGitHubBranchName,
 	type GitHubBranchName
 } from '#lib/core/github/github-branch-name.tiny.ts';
-import { parseGitHubOwner, type GitHubOwner } from '#lib/core/github/github-owner.tiny.ts';
+import { parseGitHubAuthor, type GitHubAuthor } from '#lib/core/github/github-author.tiny.ts';
 import type { GitHubRepository } from '#lib/core/github/github-repository.ts';
 import type { GitHubToken } from '#lib/core/github/github-token.tiny.ts';
 import type { ListedPullRequest } from '#lib/core/github/listed-pull-request.ts';
@@ -43,7 +43,7 @@ export interface PullRequestDetails {
 	readonly description: PullRequestDescription | undefined;
 	readonly state: PullRequestState;
 	readonly draft: boolean;
-	readonly author: GitHubOwner | undefined;
+	readonly author: GitHubAuthor | undefined;
 	/** The commit its branch is at, and the branch's name. */
 	readonly head: { readonly commit: CommitId; readonly branch: GitHubBranchName };
 	/** The branch it would merge into, and the commit GitHub last saw it at. */
@@ -73,7 +73,7 @@ const number = z.number().transform((value, context) => {
 	return z.NEVER;
 });
 
-const user = z.object({ login: tiny(parseGitHubOwner) }).nullable();
+const user = z.object({ login: tiny(parseGitHubAuthor) }).nullable();
 
 const pullShape = z.object({
 	number,
