@@ -155,6 +155,7 @@ import {
 import {
 	gitHubReview,
 	postedAs,
+	placeComment,
 	reviewMarker,
 	tooLongForGitHub,
 	type GitHubPosting,
@@ -1013,6 +1014,16 @@ export interface ReviewPreview {
 	readonly comments: readonly DraftComment[];
 	/** The draft's overall review, as it is now. */
 	readonly overall: OverallReview;
+	/** For a pull request's Delve, what posting it would put on GitHub; undefined for others. */
+	readonly github: GitHubPreview | undefined;
+}
+
+/** What posting the draft would put on GitHub, before it is posted. */
+export interface GitHubPreview {
+	/** The review's text, as it is posted, without the hidden mark made when it is posted. */
+	readonly body: string;
+	/** Which of the draft's comments go on their lines; the rest go in the text. */
+	readonly onLines: ReadonlySet<DraftCommentId>;
 }
 
 /**
@@ -2273,9 +2284,30 @@ export class ReportService {
 		if (!prepared.ok) return prepared;
 		const { found, diff, draft, quoted } = prepared.value;
 		return this.#db.read((q) =>
-			andThen(this.#reviewText(q, found, diff, draft, quoted), ({ number, text }) =>
-				ok({ number, text, comments: draft.comments, overall: draft.overall })
-			)
+			andThen(this.#reviewText(q, found, diff, draft, quoted), ({ number, text, comments }) => {
+				const version = found.revision.number;
+				const github: GitHubPreview | undefined =
+					found.report.source.kind === 'github'
+						? {
+								body: gitHubReview({
+									report: id,
+									number,
+									diff,
+									version,
+									overall: draft.overall.body,
+									comments: comments.map((r) => r.comment),
+									allInText: false,
+									mark: undefined
+								}).body,
+								onLines: new Set(
+									comments
+										.filter((r) => placeComment(diff, version, r.comment).kind === 'line')
+										.map((r) => r.draft)
+								)
+							}
+						: undefined;
+				return ok({ number, text, comments: draft.comments, overall: draft.overall, github });
+			})
 		);
 	}
 

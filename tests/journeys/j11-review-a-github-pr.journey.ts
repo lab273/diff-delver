@@ -9,8 +9,9 @@ import { expect, test } from '../support/journey.ts';
 // next version, with the tick on what did not change kept and what is new
 // marked new. Then the reviewer comments on a line and writes an overall
 // review, and finishing posts them to the pull request as one GitHub review,
-// published as a comment, with a link to it on GitHub; and a second review,
-// with the tick box, as a draft on GitHub, to submit there. The links are
+// published as a comment, with a link to it on GitHub, after showing what
+// will be posted; and a second review, with the tick box, as a draft on
+// GitHub. The links are
 // never followed: they lead to github.com.
 test.describe('J11 Review a GitHub PR', () => {
 	test('the reviewer opens a pull request from the list, follows it to its next version, and posts the review to it', async ({
@@ -118,15 +119,24 @@ test.describe('J11 Review a GitHub PR', () => {
 		await journey.expectVisible(finish.byRole('button', { name: 'Finish and copy only' }));
 		await journey.step('Finishing offers to post to GitHub');
 
+		// What GitHub will have, before it is posted.
+		await journey.activate(
+			finish.byRole('button', { name: 'Show what will be posted', exact: true })
+		);
+		const willPost = journey.byRole('region', { name: 'What will be posted to GitHub' });
+		await journey.expectText(willPost, 'The discount reads well. One question on the coupons.');
+		await journey.expectVisible(finish.byText('On their lines on GitHub', { exact: true }));
+		await journey.step('What will be posted to GitHub');
+
 		await journey.activate(post);
 		await journey.expectVisible(
 			finish.byText('Review 1 is finished, posted to GitHub as a comment, and copied.', {
 				exact: false
 			})
 		);
-		await journey.expectVisible(finish.byText('Posted to GitHub as a comment.', { exact: true }));
+		await journey.expectVisible(finish.byText('Posted to GitHub as a comment —', { exact: false }));
 		await journey.expectVisible(
-			finish.byRole('link', { name: 'Open review 1 on GitHub', exact: true })
+			finish.byRole('link', { name: 'open review 1 on GitHub', exact: true })
 		);
 		expect(await journey.readClipboard()).toContain('> Read the coupons from settings.');
 		await journey.step('Posted to GitHub, with a link to it');
@@ -164,9 +174,10 @@ test.describe('J11 Review a GitHub PR', () => {
 				{ exact: false }
 			)
 		);
+		await journey.expectVisible(finish.byText('Posted as a draft —', { exact: false }));
 		await journey.expectVisible(
-			finish.byRole('link', { name: 'Submit review 2 on GitHub', exact: true })
+			finish.byRole('link', { name: 'open review 2 on GitHub', exact: true })
 		);
-		await journey.step('Posted as a draft, to submit on GitHub');
+		await journey.step('Posted as a draft on GitHub');
 	});
 });

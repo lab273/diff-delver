@@ -1097,7 +1097,13 @@ export const ReviewPreviewSchema = z.strictObject({
 	/** The draft's comments it holds: sent back to finish it. */
 	comments: z.array(shownComment),
 	/** How many times the overall review it holds had been changed: sent back to finish it. */
-	overall: editCount
+	overall: editCount,
+	/**
+	 * For a pull request's Delve, what posting it would put on GitHub: the
+	 * review's text as posted, without the hidden mark made then, and which
+	 * comments go on their lines; the rest go in the text. Null for others.
+	 */
+	github: z.strictObject({ body: z.string(), onLines: z.array(draftCommentId) }).nullable()
 });
 export type ReviewPreviewView = z.infer<typeof ReviewPreviewSchema>;
 

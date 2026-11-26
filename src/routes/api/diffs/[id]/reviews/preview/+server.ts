@@ -19,7 +19,11 @@ export const GET: RequestHandler = async ({ locals, params, request, url }) => {
 		number: preview.value.number,
 		text: preview.value.text,
 		comments: preview.value.comments.map((c) => ({ id: c.id, edits: c.edits })),
-		overall: preview.value.overall.edits
+		overall: preview.value.overall.edits,
+		github:
+			preview.value.github === undefined
+				? null
+				: { body: preview.value.github.body, onLines: [...preview.value.github.onLines] }
 	};
 	return Response.json(body, { headers: PRIVATE });
 };

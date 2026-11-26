@@ -166,7 +166,7 @@ Finishing a review of a pull request posts it to GitHub as one review from your
 account, as a comment, an approval or a request for changes, or, with **Post as a
 draft on GitHub** ticked, as a draft only you see until you submit it there. A
 comment on lines GitHub does not show goes in the review's text, so nothing is
-left out. Posting needs you signed in with a token that can write pull requests;
+left out; **Show what will be posted** shows it all first. Posting needs you signed in with a token that can write pull requests;
 **Finish and copy only** hands the review over without posting it.
 
 <picture>

@@ -9,11 +9,15 @@
 	pull request as one GitHub review and copies it: published as the kind
 	chosen, Comment to start with, or, with the tick box, as a draft only the
 	reviewer sees on GitHub until they submit it there. "Finish and copy
-	only" hands it over without posting it. A finished review says where it
-	was posted, with a link to it on GitHub.
+	only" hands it over without posting it. Before posting, it says how many
+	comments go in the review's text, since GitHub shows no lines for them,
+	and "Show what will be posted" shows the review's text as GitHub will
+	have it, and which comments go on their lines and which in the text. A
+	finished review says where it was posted, with a link to it on GitHub.
 
 	It asks the daemon for what finishing would hand over only when that is
-	opened, and again when the draft changes while it is open; finishing sends
+	opened, or on a pull request's Delve, to say what goes in the text, and
+	again when the draft changes; finishing sends
 	the comments the page shows, so nothing written in another tab is handed
 	over unseen.
 -->
@@ -32,6 +36,8 @@
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
 	import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 	import { describeReviewContents, isWritten } from '#lib/core/review/overall-review.ts';
+	import { describeCommentLines } from '#lib/core/review/draft-comment.ts';
+	import PathText from '#lib/ui/PathText.svelte';
 	import {
 		describePostedAs,
 		gitHubReviewKindName,
@@ -65,13 +71,18 @@
 	let previewOpen = $state(false);
 	let preview = $state.raw<ReviewPreviewView>();
 	let previewProblem = $state('');
-	let finishing = $state(false);
+	/** Which finish is under way: posting to GitHub, or copying only. */
+	let pressed = $state<'post' | 'copy'>();
+	const finishing = $derived(pressed !== undefined);
+	/** Whether what will be posted to GitHub is shown. */
+	let postedOpen = $state(false);
 	let problem = $state('');
 	let said = $state('');
 	/** The finished review whose text is shown, by number. */
 	let reading = $state<number>();
 	const copyButtons: Record<number, HTMLButtonElement | undefined> = $state({});
 	const previewId = $props.id();
+	const postedId = `${previewId}-posted`;
 	/** What the review is posted to GitHub as: Comment to start with. */
 	let kind = $state<GitHubReviewKind>('comment');
 	/** Whether it is posted as a draft on GitHub, its kind then set aside. */
@@ -86,6 +97,17 @@
 	const contents = $derived(describeReviewContents(saved.length, written));
 	const next = $derived((reviews?.at(-1)?.number ?? 0) + 1);
 	const unsaved = $derived(comments.overallUnsaved || comments.writing.some((w) => w.worthKeeping));
+	/** The draft's comments and their words, so what finishing would hand over is read again when they change. */
+	const draftKey = $derived(saved.map((c) => `${String(c.id)}:${String(c.edits)}`).join(','));
+	/** What finishing would hand over is wanted: shown, or on a pull request's Delve, to count what goes in the text. */
+	const wanted = $derived(previewOpen || postedOpen || pullRequest !== undefined);
+	/** The comments that go on their lines on GitHub, and those in the review's text, as last read. */
+	const onLines = $derived(new Set(preview?.github?.onLines ?? []));
+	const previewed = $derived(
+		(preview?.comments ?? []).flatMap((shown) => saved.filter((c) => c.id === shown.id))
+	);
+	const inText = $derived(previewed.filter((c) => !onLines.has(c.id)));
+	const lineComments = $derived(previewed.filter((c) => onLines.has(c.id)));
 
 	async function loadReviews(): Promise<void> {
 		const read = await pageClient().reviews(id);
@@ -114,13 +136,14 @@
 
 	/** What finishing would hand over, read again whenever the draft changes while it is shown. */
 	$effect(() => {
-		// Read again when the overall review changes too.
-		if (!open || !previewOpen || !drafted || overallEdits === undefined) return;
+		// Read again when the overall review or a comment changes too.
+		const key = draftKey;
+		if (!open || !wanted || !drafted || overallEdits === undefined) return;
 		let current = true;
 		void pageClient()
 			.previewReview(id, version)
 			.then((read) => {
-				if (!current) return;
+				if (!current || key !== draftKey) return;
 				if (read.ok) {
 					preview = read.value;
 					previewProblem = '';
@@ -166,7 +189,7 @@
 	/** Finishes the draft and copies it, and, with `post`, posts it to the pull request first. */
 	async function finish(post: boolean): Promise<void> {
 		if (finishing) return;
-		finishing = true;
+		pressed = post ? 'post' : 'copy';
 		problem = '';
 		said = '';
 		const overallShown = comments.overall?.edits ?? NO_EDITS;
@@ -178,7 +201,7 @@
 		});
 		const copying = copyWhenReady(request.then((r) => (r.ok ? r.value.text : undefined)));
 		const finished = await request;
-		finishing = false;
+		pressed = undefined;
 		if (!finished.ok) {
 			// Whatever went wrong, show the draft and the reviews as they are now.
 			await Promise.all([comments.load(), loadReviews()]);
@@ -190,9 +213,10 @@
 		reviews = [...(reviews ?? []), review];
 		now = review.submittedAt;
 		previewOpen = false;
+		postedOpen = false;
 		preview = undefined;
 		await comments.reviewFinished(overallShown);
-		said = `${finishedWords(review, copied)}${inTextWords(review)}`;
+		said = `${finishedWords(review, copied)}${postedInTextWords(review)}`;
 		await tick();
 		copyButtons[review.number]?.focus();
 	}
@@ -222,12 +246,23 @@
 	}
 
 	/** What went in the review's text on GitHub, when anything did. */
-	function inTextWords(review: FinishedReviewView): string {
+	function postedInTextWords(review: FinishedReviewView): string {
 		const count = review.posted?.inText ?? 0;
 		if (count === 0) return '';
 		return count === 1
 			? ' 1 comment is on lines GitHub does not show, so it is in the review’s text on GitHub.'
 			: ` ${String(count)} comments are on lines GitHub does not show, so they are in the review’s text on GitHub.`;
+	}
+
+	/** Before posting: how many comments will go in the review's text, when any will. */
+	function inTextWords(count: number, total: number): string {
+		if (count === 0) return '';
+		if (total === 1) {
+			return 'Your comment is on lines GitHub does not show, so it goes in the review’s text.';
+		}
+		return count === 1
+			? `1 of your ${String(total)} comments is on lines GitHub does not show, so it goes in the review’s text.`
+			: `${String(count)} of your ${String(total)} comments are on lines GitHub does not show, so they go in the review’s text.`;
 	}
 
 	async function copyAgain(review: FinishedReviewView): Promise<void> {
@@ -255,6 +290,12 @@
 					pullRequest
 				)} on GitHub as one review from your GitHub account, and copied, ready to paste to your agent.
 				Your next comment or overall review starts review {next + 1}.
+			</p>
+			<p
+				class="note in-text"
+				aria-busy={preview === undefined && previewProblem === '' ? 'true' : undefined}
+			>
+				{inTextWords(inText.length, previewed.length)}
 			</p>
 			{#if unsaved}
 				<p class="note">
@@ -290,10 +331,18 @@
 					disabled={finishing}
 					onclick={() => finish(true)}
 				>
-					{finishing ? 'Finishing…' : 'Finish and post to GitHub'}
+					{pressed === 'post' ? 'Posting…' : 'Finish and post to GitHub'}
 				</button>
 				<button type="button" disabled={finishing} onclick={() => finish(false)}>
-					Finish and copy only
+					{pressed === 'copy' ? 'Finishing…' : 'Finish and copy only'}
+				</button>
+				<button
+					type="button"
+					aria-expanded={postedOpen}
+					aria-controls={postedId}
+					onclick={() => (postedOpen = !postedOpen)}
+				>
+					Show what will be posted
 				</button>
 				<button
 					type="button"
@@ -303,6 +352,61 @@
 				>
 					Show what will be copied
 				</button>
+			</div>
+			<div id={postedId} hidden={!postedOpen}>
+				{#if postedOpen}
+					{#if previewProblem !== ''}
+						<p role="alert">{previewProblem}</p>
+					{:else if preview?.github == null}
+						<p role="status">Preparing what will be posted…</p>
+					{:else}
+						<div class="text" role="region" aria-label="What will be posted to GitHub">
+							<pre><code
+									>{#each linesOf(preview.github.body) as line, i (i)}{i > 0
+											? '\n'
+											: ''}<VisibleText text={line} />{/each}</code
+								></pre>
+						</div>
+						<p class="note">
+							This is the review’s text as posted, written in Markdown, which GitHub shows
+							formatted. It ends with a mark GitHub does not show, made when it is posted, so diff
+							delver can find it there again.
+						</p>
+						{#if lineComments.length > 0}
+							<h4>On their lines on GitHub</h4>
+							<ul class="placed">
+								{#each lineComments as c (c.id)}
+									<li><PathText path={c.anchor.path} />, {describeCommentLines(c.anchor)}</li>
+								{/each}
+							</ul>
+						{/if}
+						{#if inText.length > 0}
+							<h4>In the review’s text, since GitHub does not show their lines</h4>
+							<ul class="placed">
+								{#each inText as c (c.id)}
+									<li><PathText path={c.anchor.path} />, {describeCommentLines(c.anchor)}</li>
+								{/each}
+							</ul>
+						{/if}
+					{/if}
+				{/if}
+			</div>
+			<div id={previewId} hidden={!previewOpen}>
+				{#if previewOpen}
+					{#if previewProblem !== ''}
+						<p role="alert">{previewProblem}</p>
+					{:else if preview === undefined}
+						<p role="status">Preparing what will be copied…</p>
+					{:else}
+						<div class="text" role="region" aria-label="What will be copied">
+							<pre><code
+									>{#each linesOf(preview.text) as line, i (i)}{i > 0 ? '\n' : ''}<VisibleText
+											text={line}
+										/>{/each}</code
+								></pre>
+						</div>
+					{/if}
+				{/if}
 			</div>
 		{:else if drafted}
 			<p class="lead">
@@ -389,16 +493,14 @@
 							Show review {review.number}
 						</button>
 						{#if review.posted !== null}
-							<span class="posted">
+							<p class="posted">
 								{review.posted.as === 'draft'
-									? 'Posted as a draft on GitHub: submit it there.'
-									: `Posted to GitHub ${describePostedAs(review.posted.as)}.`}
-							</span>
-							<a href={review.posted.address} target="_blank" rel="external noopener noreferrer">
-								{review.posted.as === 'draft'
-									? `Submit review ${String(review.number)} on GitHub`
-									: `Open review ${String(review.number)} on GitHub`}
-							</a>
+									? 'Posted as a draft —'
+									: `Posted to GitHub ${describePostedAs(review.posted.as)} —`}
+								<a href={review.posted.address} target="_blank" rel="external noopener noreferrer">
+									open review {review.number} on GitHub
+								</a>
+							</p>
 						{/if}
 						{#if reading === review.number}
 							<div class="text" role="region" aria-label="Review {review.number} as it was copied">
@@ -539,7 +641,32 @@
 		font-size: 0.8125rem;
 	}
 
-	li .text {
+	li .text,
+	li .posted {
 		flex-basis: 100%;
+	}
+
+	.posted {
+		margin: 0;
+	}
+
+	.in-text:empty {
+		display: none;
+	}
+
+	h4 {
+		margin: 0.5rem 0 0.25rem;
+		font-size: 0.875rem;
+	}
+
+	.placed {
+		list-style: disc;
+		padding-left: 1.25rem;
+		font-size: 0.875rem;
+	}
+
+	.placed li {
+		display: list-item;
+		margin-top: 0.2rem;
 	}
 </style>

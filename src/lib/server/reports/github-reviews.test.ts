@@ -590,6 +590,36 @@ describe('posting a review to its pull request', () => {
 		expect(value(w.service.reviews(w.id)).map((r) => r.number)).toEqual([1, 2]);
 	});
 
+	it('shows what posting would put on GitHub before it is posted: the text, and which comments go where', async () => {
+		const w = await world();
+		await comment(w, 'src/discount.ts', 'new', 2, 2, 'On its line.');
+		await comment(w, 'src/price.ts', 'new', 1, 1, 'Far from the change.');
+		overall(w, 'Overall.');
+		const [online, far] = value(w.service.draftComments(w.id));
+		const asked = w.github.requests.length;
+
+		const preview = value(await w.service.previewReview(w.id, FIRST));
+
+		expect(preview.github?.onLines).toEqual(new Set([online?.id]));
+		expect(far).toBeDefined();
+		expect(preview.github?.body).toBe(
+			[
+				'Overall.',
+				'',
+				IN_TEXT_HEADING,
+				'',
+				'`src/price.ts`, line 1 (after the change)',
+				'',
+				'```typescript',
+				'export function price(cents: number): number {',
+				'```',
+				'> Far from the change.'
+			].join('\n')
+		);
+		// GitHub is not asked.
+		expect(w.github.requests).toHaveLength(asked);
+	});
+
 	it('still finishes and copies a pull request’s review without posting it', async () => {
 		const w = await world();
 		overall(w, 'Just for my agent.');
