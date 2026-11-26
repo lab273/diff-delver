@@ -8,7 +8,7 @@
 import { z } from 'zod';
 import { parseCommentCount } from '#lib/core/comment-count.tiny.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
-import { err, map, ok, type Result } from '#lib/core/result.ts';
+import { andThen, err, map, ok, type Result } from '#lib/core/result.ts';
 import type { FinishedReview } from '#lib/core/review/review-export.ts';
 import { parseReviewNumber, type ReviewNumber } from '#lib/core/review-number.tiny.ts';
 import type { RevisionId } from '#lib/core/revision-id.tiny.ts';
@@ -20,6 +20,7 @@ import { parseUnitCount } from '#lib/core/unit-count.tiny.ts';
 import { nullable, parseRow, parseRows, text, timestamp, whole } from '../columns.ts';
 import type { Queries } from '../database.ts';
 import type { StoredRowInvalid } from '../database-error.ts';
+import { deliveriesOf } from './review-deliveries.ts';
 
 const row = z
 	.object({
@@ -61,8 +62,20 @@ const row = z
 				comments,
 				overall,
 				text
-			}) satisfies FinishedReview
+			}) satisfies Omit<FinishedReview, 'posted'>
 	);
+
+/** A review read with where it was posted, from `review_deliveries`. */
+function withDeliveries(
+	q: Queries,
+	report: ReportId,
+	reviews: readonly Omit<FinishedReview, 'posted'>[]
+): Result<readonly FinishedReview[], StoredRowInvalid> {
+	if (reviews.length === 0) return ok([]);
+	return map(deliveriesOf(q, report), (posted) =>
+		reviews.map((r) => ({ ...r, posted: posted.get(r.number) }))
+	);
+}
 
 const COLUMNS = `v.number, r.number AS version, v.submitted_at AS submittedAt, v.counted,
 	v.reviewed, v.ignored, v.uncategorised, v.export_text AS text, v.summary <> '' AS overall,
@@ -74,14 +87,17 @@ export function reviewsOf(
 	q: Queries,
 	report: ReportId
 ): Result<readonly FinishedReview[], StoredRowInvalid> {
-	return parseRows(
-		'reviews',
-		row,
-		q.all(
-			`SELECT ${COLUMNS} FROM reviews v JOIN revisions r ON r.id = v.revision_id
-			 WHERE v.report_id = ? ORDER BY v.number`,
-			report
-		)
+	return andThen(
+		parseRows(
+			'reviews',
+			row,
+			q.all(
+				`SELECT ${COLUMNS} FROM reviews v JOIN revisions r ON r.id = v.revision_id
+				 WHERE v.report_id = ? ORDER BY v.number`,
+				report
+			)
+		),
+		(reviews) => withDeliveries(q, report, reviews)
 	);
 }
 
@@ -104,7 +120,10 @@ export function reviewOf(
 					report,
 					number
 				);
-	return found === undefined ? ok(undefined) : parseRow('reviews', row, found);
+	if (found === undefined) return ok(undefined);
+	return andThen(parseRow('reviews', row, found), (review) =>
+		map(withDeliveries(q, report, [review]), (reviews) => reviews[0])
+	);
 }
 
 const latest = z.object({ number: nullable(whole(parseReviewNumber)) });

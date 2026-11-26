@@ -28,7 +28,9 @@ export type TableName =
 	| 'draft_summaries'
 	| 'reviews'
 	| 'review_comments'
-	| 'review_marks';
+	| 'review_marks'
+	| 'review_deliveries'
+	| 'github_review_posts';
 
 /**
  * The file could not be opened or made (a missing folder, no permission, a full
@@ -201,6 +203,10 @@ function tableInWords(table: TableName): string {
 			return 'which commits a diff of several commits is named after';
 		case 'pull_requests':
 			return 'the title and description of a Delve’s pull request';
+		case 'review_deliveries':
+			return 'where a finished review was posted';
+		case 'github_review_posts':
+			return 'a review being posted to GitHub';
 	}
 }
 
@@ -228,7 +234,10 @@ function storedRowAdvice(table: TableName): string {
 		case 'reviews':
 		case 'review_comments':
 		case 'review_marks':
+		case 'review_deliveries':
 			return 'Restore the database from a backup to recover the finished reviews.';
+		case 'github_review_posts':
+			return 'Look on the pull request on GitHub for the review, then restore the database from a backup or delete that Delve from the list of Delves.';
 		case 'settings':
 			return 'Change any setting on a Delve’s page, which stores it again.';
 		case 'schema_migrations':

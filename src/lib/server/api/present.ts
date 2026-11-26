@@ -76,6 +76,7 @@ import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 // Its errors' messages from their own module, so the app's build does not take in
 // the report service, which runs in the daemon.
 import { describeReportError } from '../reports/report-error.ts';
+import type { ReviewPostProblem } from '../sources/github/index.ts';
 import type {
 	ChangeCheck,
 	ListedReport,
@@ -584,9 +585,38 @@ export function updateResponseView(outcome: UpdateOutcome): UpdateResponse {
 	}
 }
 
+/** The HTTP status a review that was not posted is answered with. */
+function postStatusOf(problem: ReviewPostProblem): number {
+	switch (problem.kind) {
+		case 'rate-limited':
+			return 429;
+		case 'unreachable':
+		case 'unreadable':
+			return 502;
+		case 'unanswered':
+			return 504;
+		case 'being-posted':
+			return 409;
+		case 'signed-out':
+		case 'sign-in-refused':
+		case 'not-allowed':
+		case 'pending-review-exists':
+		case 'own-pull-request':
+		case 'refused':
+		case 'lines-refused':
+		case 'closed':
+		case 'no-commit':
+			return 422;
+	}
+}
+
 /** The HTTP status a service error is answered with. */
 export function statusOf(error: ReportError): number {
 	switch (error.kind) {
+		case 'ReviewNotPosted':
+			return postStatusOf(error.problem);
+		case 'NotAPullRequest':
+			return 422;
 		case 'ReportNotFound':
 		case 'StoreNotFound':
 		case 'SnapshotNotFound':

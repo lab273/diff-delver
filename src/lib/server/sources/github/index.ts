@@ -18,3 +18,17 @@ export { gitHubRemoteOf, gitHubRemotesOf } from './github-remote.ts';
 export type { KeptFetch } from './kept-fetches.ts';
 export { fetchKey, forgetPullRequestFetches, removeHalfKeptFetches } from './kept-fetches.ts';
 export { pullRequestFingerprint, snapshotPullRequest } from './snapshot-pull-request.ts';
+export type {
+	GitHubReviewFound,
+	NotAPullRequest,
+	ReviewNotPosted,
+	ReviewPostProblem,
+	ReviewToPost
+} from './review-post.ts';
+export {
+	describeNotAPullRequest,
+	describeReviewNotPosted,
+	findReview,
+	postReview,
+	problemOf
+} from './review-post.ts';

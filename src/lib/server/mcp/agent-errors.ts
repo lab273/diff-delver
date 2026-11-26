@@ -112,6 +112,8 @@ export function describeForAgent(error: ReportError): TextForAgent {
 		case 'PullRequestNoMergeBase':
 		case 'NotACloneOf':
 		case 'NotOnGitHub':
+		case 'ReviewNotPosted':
+		case 'NotAPullRequest':
 			return textForAgent(describeReportError(error));
 	}
 }

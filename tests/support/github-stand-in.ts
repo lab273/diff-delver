@@ -4,12 +4,16 @@
  * repositories on disk, which a fetch reads `refs/pull/<number>/head` and
  * branches from, as it would from GitHub; and a small HTTP server on a free
  * port of 127.0.0.1 answers the REST calls diff delver makes: one pull request,
- * a repository's open pull requests, and the repository itself. What it
+ * a repository's open pull requests, the repository itself, and a pull
+ * request's reviews: posting one, as GitHub checks it (each comment on a line
+ * of a hunk of its own diff of the pull request, one draft per person, no
+ * approving one's own), and listing them. What it
  * gives diff delver says git fetches a repository from its folder, so a fetch
  * never leaves the machine. It records every request, so a test can check what was asked
  * and with which sign-in.
  */
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import { join } from 'node:path';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { GitHubAccess } from '#lib/server/sources/github/index.ts';
@@ -49,10 +53,40 @@ interface StandInRepository {
 	/** Shown only to a request with the token. */
 	readonly private: boolean;
 	readonly pulls: Map<number, StandInPull>;
+	/** Each pull request's reviews, oldest first. */
+	readonly reviews: Map<number, StandInReview[]>;
 }
+
+/** A review posted to a pull request on the stand-in, as GitHub keeps it. */
+export interface StandInReview {
+	readonly id: number;
+	readonly user: string;
+	readonly state: 'PENDING' | 'COMMENTED' | 'APPROVED' | 'CHANGES_REQUESTED';
+	readonly commitId: string;
+	readonly body: string;
+	readonly comments: readonly StandInReviewComment[];
+}
+
+/** A comment of a review on its lines, as it was posted. */
+export interface StandInReviewComment {
+	readonly path: string;
+	readonly body: string;
+	readonly line: number;
+	readonly side: 'LEFT' | 'RIGHT';
+	readonly startLine?: number;
+	readonly startSide?: 'LEFT' | 'RIGHT';
+}
+
+/** How the stand-in answers the next review posted, instead of as GitHub would. */
+export type ReviewRefusal =
+	/** GitHub refuses it with this status and message. */
+	| { readonly kind: 'status'; readonly status: number; readonly message: string }
+	/** GitHub makes the review, and the connection drops before its answer is sent. */
+	| { readonly kind: 'drop-answer' };
 
 /** A request the stand-in answered: its path and query, its sign-in and tag, if any, and its status. */
 export interface StandInRequest {
+	readonly method: string;
 	readonly path: string;
 	readonly authorization: string | undefined;
 	/** The tag it asked with (`If-None-Match`). */
@@ -83,6 +117,13 @@ export interface GitHubStandIn {
 	 * connection would, or with false serves them again. The API still answers.
 	 */
 	refuseFetches(refuse: boolean): void;
+	/**
+	 * Refuses the reviews posted next, one refusal each, oldest first, instead
+	 * of checking them as GitHub would.
+	 */
+	refuseReviews(...refusals: readonly ReviewRefusal[]): void;
+	/** The reviews of a pull request, oldest first, as posted. */
+	reviews(owner: string, name: string, number: number): readonly StandInReview[];
 	/** The requests answered so far, oldest first. */
 	readonly requests: readonly StandInRequest[];
 	close(): Promise<void>;
@@ -90,6 +131,82 @@ export interface GitHubStandIn {
 
 /** The token the stand-in takes as a sign-in; any other is refused as expired. */
 export const STAND_IN_TOKEN = 'stand-in-token';
+
+/** Who is signed in with `STAND_IN_TOKEN`. */
+export const STAND_IN_USER = 'reviewer';
+
+/** The id the stand-in gives the first review posted to it; each next one is one more. */
+export const FIRST_REVIEW_ID = 4001;
+
+/** Reads a request's body as JSON, or undefined when it is not. */
+async function bodyOf(request: IncomingMessage): Promise<unknown> {
+	const chunks: Buffer[] = [];
+	for await (const chunk of request) {
+		chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+	}
+	try {
+		const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+		return parsed;
+	} catch {
+		return undefined;
+	}
+}
+
+const githubSide = z.enum(['LEFT', 'RIGHT']);
+
+/** A review as GitHub's API takes it. */
+const postedReview = z.object({
+	commit_id: z.string(),
+	body: z.string().optional(),
+	event: z.enum(['COMMENT', 'APPROVE', 'REQUEST_CHANGES']).optional(),
+	comments: z
+		.array(
+			z.object({
+				path: z.string(),
+				body: z.string(),
+				line: z.number().int(),
+				side: githubSide,
+				start_line: z.number().int().optional(),
+				start_side: githubSide.optional()
+			})
+		)
+		.optional()
+});
+
+/** The lines each file's diff shows on each side, by its path in the pull request, as GitHub's has them. */
+async function hunksOf(
+	repo: GitRepo,
+	base: string,
+	head: string
+): Promise<Map<string, { LEFT: [number, number][]; RIGHT: [number, number][] }>> {
+	const diff = await runGitText({
+		cwd: repo.dir,
+		args: ['-c', 'core.quotePath=false', 'diff', '--unified=3', '-M', `${base}...${head}`]
+	});
+	if (!diff.ok) throw new Error('The stand-in could not diff the pull request');
+	const files = new Map<string, { LEFT: [number, number][]; RIGHT: [number, number][] }>();
+	let current: { LEFT: [number, number][]; RIGHT: [number, number][] } | undefined;
+	let oldPath = '';
+	for (const line of diff.value.split('\n')) {
+		if (line.startsWith('diff --git ')) current = undefined;
+		else if (line.startsWith('--- ')) oldPath = line.slice(4).replace(/^a\//, '');
+		else if (line.startsWith('+++ ')) {
+			const newPath = line.slice(4).replace(/^b\//, '');
+			current = { LEFT: [], RIGHT: [] };
+			files.set(newPath === '/dev/null' ? oldPath : newPath, current);
+		} else if (line.startsWith('@@ ') && current !== undefined) {
+			const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+			if (match === null) continue;
+			const span = (start?: string, length?: string): [number, number] => [
+				Number(start),
+				Number(start) + Number(length ?? '1') - 1
+			];
+			current.LEFT.push(span(match[1], match[2]));
+			current.RIGHT.push(span(match[3], match[4]));
+		}
+	}
+	return files;
+}
 
 function json(
 	response: ServerResponse,
@@ -146,14 +263,17 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 	const requests: StandInRequest[] = [];
 	let refusingFetches = false;
 	let refusing: { readonly status: number; readonly resetAt: number | undefined } | undefined;
+	const reviewRefusals: ReviewRefusal[] = [];
+	let nextReviewId = FIRST_REVIEW_ID;
 	const key = (owner: string, name: string): string => `${owner}/${name}`.toLowerCase();
 
 	const answer = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
 		const url = new URL(request.url ?? '/', 'http://stand-in');
 		const authorization = request.headers.authorization;
 		const ifNoneMatch = request.headers['if-none-match'];
-		response.on('finish', () => {
+		response.on('close', () => {
 			requests.push({
+				method: request.method ?? 'GET',
 				path: `${url.pathname}${url.search}`,
 				authorization,
 				ifNoneMatch,
@@ -177,6 +297,11 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 		const signedIn = authorization === `Bearer ${STAND_IN_TOKEN}`;
 		if (authorization !== undefined && !signedIn) {
 			json(response, 401, { message: 'Bad credentials' });
+			return;
+		}
+		const reviewsMatch = /^\/repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\/reviews$/.exec(url.pathname);
+		if (reviewsMatch !== null) {
+			await answerReviews(request, response, reviewsMatch, signedIn, url);
 			return;
 		}
 		const match = /^\/repos\/([^/]+)\/([^/]+)(\/pulls(?:\/(\d+))?)?$/.exec(url.pathname);
@@ -221,6 +346,126 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 		);
 	};
 
+	const answerReviews = async (
+		request: IncomingMessage,
+		response: ServerResponse,
+		match: RegExpExecArray,
+		signedIn: boolean,
+		url: URL
+	): Promise<void> => {
+		const repository = repositories.get(key(match[1] ?? '', match[2] ?? ''));
+		const pull = repository?.pulls.get(Number(match[3]));
+		if (repository === undefined || pull === undefined || (repository.private && !signedIn)) {
+			json(response, 404, { message: 'Not Found' });
+			return;
+		}
+		const all = repository.reviews.get(pull.number) ?? [];
+		repository.reviews.set(pull.number, all);
+		const shown = (review: StandInReview): unknown => ({
+			id: review.id,
+			user: { login: review.user },
+			body: review.body,
+			state: review.state,
+			commit_id: review.commitId,
+			html_url: `https://github.com/${repository.owner}/${repository.name}/pull/${String(pull.number)}#pullrequestreview-${String(review.id)}`
+		});
+		if (request.method !== 'POST') {
+			const visible = all.filter(
+				(r) => r.state !== 'PENDING' || (signedIn && r.user === STAND_IN_USER)
+			);
+			const perPage = Number(url.searchParams.get('per_page') ?? '30');
+			const page = Number(url.searchParams.get('page') ?? '1');
+			const listed = visible.slice((page - 1) * perPage, page * perPage);
+			const more = visible.length > page * perPage;
+			json(
+				response,
+				200,
+				listed.map(shown),
+				more ? { link: '<http://stand-in/next>; rel="next"' } : {}
+			);
+			return;
+		}
+		const body = await bodyOf(request);
+		if (!signedIn) {
+			json(response, 401, { message: 'Requires authentication' });
+			return;
+		}
+		const refusal = reviewRefusals.shift();
+		if (refusal?.kind === 'status') {
+			json(response, refusal.status, { message: refusal.message });
+			return;
+		}
+		const read = postedReview.safeParse(body);
+		if (!read.success) {
+			json(response, 422, { message: 'Unprocessable Entity' });
+			return;
+		}
+		const sent = read.data;
+		const event = sent.event;
+		const comments = (sent.comments ?? []).map((c): StandInReviewComment => ({
+			path: c.path,
+			body: c.body,
+			line: c.line,
+			side: c.side,
+			...(c.start_line === undefined ? {} : { startLine: c.start_line }),
+			...(c.start_side === undefined ? {} : { startSide: c.start_side })
+		}));
+		if (event === undefined && all.some((r) => r.state === 'PENDING' && r.user === STAND_IN_USER)) {
+			json(response, 422, {
+				message: 'Unprocessable Entity',
+				errors: ['User can only have one pending review per pull request']
+			});
+			return;
+		}
+		if ((event === 'APPROVE' || event === 'REQUEST_CHANGES') && pull.author === STAND_IN_USER) {
+			json(response, 422, {
+				message: 'Unprocessable Entity',
+				errors: [
+					event === 'APPROVE'
+						? 'Can not approve your own pull request'
+						: 'Can not request changes on your own pull request'
+				]
+			});
+			return;
+		}
+		const hunks = await hunksOf(repository.repo, pull.base, sent.commit_id);
+		const placed = comments.every((c) => {
+			const spans = hunks.get(c.path)?.[c.side] ?? [];
+			const first = c.startLine ?? c.line;
+			return spans.some(([from, to]) => first >= from && c.line <= to);
+		});
+		if (!placed) {
+			json(response, 422, {
+				message: 'Unprocessable Entity',
+				errors: ['Line could not be resolved']
+			});
+			return;
+		}
+		const state =
+			event === 'APPROVE'
+				? 'APPROVED'
+				: event === 'REQUEST_CHANGES'
+					? 'CHANGES_REQUESTED'
+					: event === 'COMMENT'
+						? 'COMMENTED'
+						: 'PENDING';
+		const review: StandInReview = {
+			id: nextReviewId,
+			user: STAND_IN_USER,
+			state,
+			commitId: sent.commit_id,
+			body: sent.body ?? '',
+			comments
+		};
+		nextReviewId += 1;
+		all.push(review);
+		if (refusal?.kind === 'drop-answer') {
+			response.socket?.destroy();
+			return;
+		}
+		json(response, 200, shown(review));
+	};
+
 	const server: Server = createServer((request, response) => {
 		answer(request, response).catch((error: unknown) => {
 			json(response, 500, { message: String(error) });
@@ -261,7 +506,8 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 				name,
 				repo,
 				private: options.private ?? false,
-				pulls: new Map()
+				pulls: new Map(),
+				reviews: new Map()
 			});
 		},
 		async setPull(owner, name, pull) {
@@ -279,6 +525,12 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 		},
 		refuseFetches(refuse) {
 			refusingFetches = refuse;
+		},
+		refuseReviews(...refusals) {
+			reviewRefusals.push(...refusals);
+		},
+		reviews(owner, name, number) {
+			return repositories.get(key(owner, name))?.reviews.get(number) ?? [];
 		},
 		requests,
 		async close() {

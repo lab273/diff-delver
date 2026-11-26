@@ -33,7 +33,14 @@ import {
 	type PathNotFound
 } from '../store/index.ts';
 import { describeGitSourceError, type GitSourceError } from '../sources/git/index.ts';
-import { describeGitHubSourceError, type GitHubSourceError } from '../sources/github/index.ts';
+import {
+	describeGitHubSourceError,
+	describeNotAPullRequest,
+	describeReviewNotPosted,
+	type GitHubSourceError,
+	type NotAPullRequest,
+	type ReviewNotPosted
+} from '../sources/github/index.ts';
 
 /** No report has this id: it was deleted, or the link is wrong. */
 export interface ReportNotFound {
@@ -192,7 +199,9 @@ export type ReportError =
 	| PathIsSubmodule
 	| FileIsBinary
 	| NotAnImage
-	| ImageTooLarge;
+	| ImageTooLarge
+	| ReviewNotPosted
+	| NotAPullRequest;
 
 function sideName(side: Side): string {
 	switch (side) {
@@ -360,6 +369,10 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'SnapshotNotFound':
 		case 'StoreDamaged':
 			return describeGitSourceError(error);
+		case 'ReviewNotPosted':
+			return describeReviewNotPosted(error);
+		case 'NotAPullRequest':
+			return describeNotAPullRequest();
 		case 'GitHubUnreachable':
 		case 'GitHubTimedOut':
 		case 'GitHubSignInNeeded':

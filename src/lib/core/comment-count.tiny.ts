@@ -14,3 +14,10 @@ export function parseCommentCount(value: number): Result<CommentCount, InvalidCo
 	if (!Number.isSafeInteger(value) || value < 0) return err({ kind: 'InvalidCommentCount', value });
 	return ok(value as CommentCount);
 }
+
+/** The count of comments in a list, which is always a count. */
+export function commentCountOf(value: number): CommentCount {
+	const parsed = parseCommentCount(value);
+	if (!parsed.ok) throw new RangeError(`Not a comment count: ${String(value)}`);
+	return parsed.value;
+}

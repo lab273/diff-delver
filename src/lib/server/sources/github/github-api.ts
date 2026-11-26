@@ -98,18 +98,24 @@ const pullShape = z.object({
 
 type PullShape = z.infer<typeof pullShape>;
 
-interface Answer {
+export interface Answer {
 	readonly status: number;
 	readonly headers: Headers;
 	readonly body: unknown;
 }
 
-async function ask(
+/**
+ * One request to GitHub's API: a GET, or with `send`, a POST of that JSON,
+ * which is never followed to another address, so what is sent goes only
+ * where it was meant to.
+ */
+export async function ask(
 	access: GitHubAccess,
 	repository: GitHubRepository,
 	path: string,
 	token: GitHubToken | undefined,
-	etag?: GitHubEtag
+	etag?: GitHubEtag,
+	send?: unknown
 ): Promise<Result<Answer, GitHubApiError>> {
 	const headers: Record<string, string> = {
 		Accept: 'application/vnd.github+json',
@@ -118,11 +124,14 @@ async function ask(
 	};
 	if (token !== undefined) headers.Authorization = `Bearer ${token}`;
 	if (etag !== undefined) headers['If-None-Match'] = etag;
+	if (send !== undefined) headers['Content-Type'] = 'application/json';
 	let response: Response;
 	try {
 		response = await fetch(`${access.apiBase(repository.host)}${path}`, {
 			headers,
-			redirect: 'follow',
+			...(send === undefined
+				? { redirect: 'follow' }
+				: { method: 'POST', body: JSON.stringify(send), redirect: 'error' }),
 			signal: AbortSignal.timeout(access.seconds * 1000)
 		});
 	} catch (error) {
@@ -156,7 +165,7 @@ function secondsToWait(headers: Headers, now: Timestamp): number | undefined {
 }
 
 /** What a refusal means: who is asking matters for every one of them. */
-function refusal(
+export function refusal(
 	answer: Answer,
 	repository: GitHubRepository,
 	token: GitHubToken | undefined,
@@ -188,7 +197,7 @@ function refusal(
 	return { kind: 'GitHubAnswerUnreadable', host: repository.host, status: answer.status };
 }
 
-function repositoryPath(repository: GitHubRepository): string {
+export function repositoryPath(repository: GitHubRepository): string {
 	return `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}`;
 }
 

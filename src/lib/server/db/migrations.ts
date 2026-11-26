@@ -491,6 +491,39 @@ CREATE TABLE pull_requests (
 	description TEXT
 ) STRICT;
 `
+	},
+	{
+		version: schemaVersionOf(15),
+		name: 'where each finished review was delivered, and reviews being posted to GitHub',
+		sql: `
+-- The delivery log of a finished review (DESIGN 6.3), so far its posting to
+-- GitHub: the review GitHub made of it, its address there (always made from
+-- the pull request and the review's id), how it was posted ('comment',
+-- 'approve', 'request-changes', or 'draft', a pending review the reviewer
+-- submits on GitHub), how many of its comments went in its text, and when.
+CREATE TABLE review_deliveries (
+	report_id TEXT NOT NULL,
+	review_number INTEGER NOT NULL,
+	destination TEXT NOT NULL CHECK (destination IN ('github')),
+	posted_as TEXT NOT NULL CHECK (posted_as IN ('comment', 'approve', 'request-changes', 'draft')),
+	github_review_id INTEGER NOT NULL CHECK (github_review_id >= 1),
+	address TEXT NOT NULL CHECK (address LIKE 'https://%'),
+	in_text INTEGER NOT NULL CHECK (in_text >= 0),
+	delivered_at INTEGER NOT NULL CHECK (delivered_at >= 0),
+	PRIMARY KEY (report_id, review_number, destination),
+	FOREIGN KEY (report_id, review_number) REFERENCES reviews (report_id, number) ON DELETE CASCADE
+) STRICT;
+-- A review of the draft that is being posted to GitHub, written before it is
+-- sent and removed once it is recorded or GitHub refused it: the number it is
+-- posted as. A row left by a daemon stopped while posting, or by GitHub not
+-- answering, means it may be on GitHub already, so the next post of that
+-- number looks for its mark there first and is never posted twice.
+CREATE TABLE github_review_posts (
+	report_id TEXT PRIMARY KEY REFERENCES reports (id) ON DELETE CASCADE,
+	review_number INTEGER NOT NULL CHECK (review_number >= 1),
+	started_at INTEGER NOT NULL CHECK (started_at >= 0)
+) STRICT;
+`
 	}
 ];
 

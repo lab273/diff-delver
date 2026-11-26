@@ -34,6 +34,8 @@ import type { SectionTitle } from '../section-title.tiny.ts';
 import { textForAgent, type TextForAgent } from '../text-for-agent.tiny.ts';
 import type { Timestamp } from '../timestamp.tiny.ts';
 import type { CommentCount } from '../comment-count.tiny.ts';
+import type { GitHubReviewAddress } from '../github/github-review-address.tiny.ts';
+import type { PostedAs } from '../github/github-review.ts';
 import { countOf, formatCount } from '../viewer/words.ts';
 import type { CommentAnchor } from './draft-comment.ts';
 import { isWritten } from './overall-review.ts';
@@ -203,7 +205,7 @@ function wordsQuoted(body: string): string[] {
 }
 
 /** A line of code as quoted: a CRLF file's carriage return dropped, what cannot be seen escaped, cut when long. */
-function quotedLine(text: LineText): string {
+export function quotedLine(text: LineText): string {
 	const shown = hiddenShown(text.endsWith('\r') ? text.slice(0, -1) : text);
 	const chars = Array.from(shown);
 	if (chars.length <= MAX_QUOTED_LINE_LENGTH) return shown;
@@ -212,7 +214,7 @@ function quotedLine(text: LineText): string {
 }
 
 /** The length of the longest run of `character` in any of `lines`. */
-function longestRun(lines: readonly string[], character: string): number {
+export function longestRun(lines: readonly string[], character: string): number {
 	let longest = 0;
 	for (const line of lines) {
 		let run = 0;
@@ -264,4 +266,16 @@ export interface FinishedReview {
 	/** Whether the reviewer wrote an overall review in it. */
 	readonly overall: boolean;
 	readonly text: TextForAgent;
+	/** Where it was posted on GitHub, when it was: its delivery log (DESIGN 6.3), so far. */
+	readonly posted: GitHubDelivery | undefined;
+}
+
+/** A finished review posted to its pull request as one GitHub review. */
+export interface GitHubDelivery {
+	readonly postedAs: PostedAs;
+	/** The review on GitHub, or for a draft, the pull request's changes, where it is submitted. */
+	readonly address: GitHubReviewAddress;
+	/** How many of its comments went in the review's text, since GitHub could not place them on their lines. */
+	readonly inText: CommentCount;
+	readonly at: Timestamp;
 }

@@ -142,11 +142,22 @@ import {
 } from '../db/tables/review-comments.ts';
 import { copyReviewMarks } from '../db/tables/review-marks.ts';
 import { insertReview, latestReviewNumber, reviewOf, reviewsOf } from '../db/tables/reviews.ts';
+import { insertDelivery } from '../db/tables/review-deliveries.ts';
+import { forgetPosting, notePosting, reviewBeingPosted } from '../db/tables/github-review-posts.ts';
+import {
+	gitHubReview,
+	postedAs,
+	reviewMarker,
+	type GitHubPosting,
+	type GitHubReviewDraft
+} from '#lib/core/github/github-review.ts';
+import { gitHubReviewAddress } from '#lib/core/github/github-review-address.tiny.ts';
 import {
 	MAX_QUOTED_LINES,
 	notReviewed,
 	renderReviewExport,
-	type FinishedReview
+	type FinishedReview,
+	type GitHubDelivery
 } from '#lib/core/review/review-export.ts';
 import { nextReviewNumber, type ReviewNumber } from '#lib/core/review-number.tiny.ts';
 import { markReviewed, type ReviewTarget } from '#lib/core/review/mark-reviewed.ts';
@@ -192,6 +203,11 @@ import {
 	readPullRequest,
 	removeHalfKeptFetches,
 	snapshotPullRequest,
+	findReview,
+	postReview,
+	problemOf,
+	type GitHubReviewFound,
+	type ReviewPostProblem,
 	type GitHubAccess,
 	type GitHubApiError,
 	type GitHubRateLimited,
@@ -1102,6 +1118,33 @@ function frozenComments(
 	return ok(rows);
 }
 
+/**
+ * Whether GitHub surely made no review of a post that failed so, so that
+ * nothing needs looking for on GitHub before the next: it refused it, or it
+ * was never asked. Otherwise, as when it did not answer in time, the review
+ * may be there.
+ */
+function surelyNotPosted(problem: ReviewPostProblem): boolean {
+	switch (problem.kind) {
+		case 'unreachable':
+		case 'unanswered':
+		case 'unreadable':
+			return false;
+		case 'signed-out':
+		case 'sign-in-refused':
+		case 'not-allowed':
+		case 'rate-limited':
+		case 'pending-review-exists':
+		case 'own-pull-request':
+		case 'refused':
+		case 'lines-refused':
+		case 'closed':
+		case 'being-posted':
+		case 'no-commit':
+			return true;
+	}
+}
+
 export class ReportService {
 	readonly #db: Database;
 	readonly #dataDirectory: AbsolutePath;
@@ -1137,6 +1180,8 @@ export class ReportService {
 	readonly #sorting = new SortingWrites();
 	readonly #frameVersions = new FrameVersions();
 	readonly #github: GitHubAccess;
+	/** Delves whose draft is being posted to GitHub now, so it is neither posted nor finished twice. */
+	readonly #posting = new Set<ReportId>();
 	/** What GitHub last said of each pull request, by its identity, and when. */
 	readonly #pullRequests = new Map<string, KeptPullRequest>();
 	/**
@@ -2218,6 +2263,13 @@ export class ReportService {
 		seen: RevisionNumber,
 		shown: ShownDraft
 	): Promise<Result<FinishedReview, ReportError>> {
+		if (this.#posting.has(id)) {
+			return err({
+				kind: 'ReviewNotPosted',
+				pullRequest: undefined,
+				problem: { kind: 'being-posted' }
+			});
+		}
 		const prepared = await this.#prepareReview(id, seen, shown);
 		if (!prepared.ok) return prepared;
 		const { found, diff, draft, quoted } = prepared.value;
@@ -2256,6 +2308,188 @@ export class ReportService {
 				});
 			})
 		);
+	}
+
+	/**
+	 * Finishes the draft as `finishReview` does, and posts it to the Delve's
+	 * pull request as one GitHub review (DESIGN 8.6): published as the kind
+	 * chosen, or left a draft on GitHub. Its comments go on their lines where
+	 * GitHub shows them, and the rest, with the overall review, in its text
+	 * (`core/github/github-review.ts`); when GitHub refuses the lines, it is
+	 * posted again with every comment in its text.
+	 *
+	 * The order keeps it from being lost or posted twice. The draft is checked
+	 * as the page showed it, and the pull request is asked whether it is still
+	 * open. The review's number is noted as being posted, then it is sent, and
+	 * only once GitHub has made it is it recorded, with where it was posted, in
+	 * one transaction that empties the draft and forgets the note. When posting
+	 * fails, nothing is finished and the draft stays. When it may have reached
+	 * GitHub unanswered, or the daemon stopped before recording it, the note
+	 * stays, and the next post of that number looks on GitHub for its mark
+	 * (`reviewMarker`) first, and records the review found instead of posting.
+	 * Only one post or finish of a Delve runs at a time.
+	 */
+	async postReview(
+		id: ReportId,
+		seen: RevisionNumber,
+		shown: ShownDraft,
+		posting: GitHubPosting
+	): Promise<Result<FinishedReview, ReportError>> {
+		if (this.#posting.has(id)) {
+			return err({
+				kind: 'ReviewNotPosted',
+				pullRequest: undefined,
+				problem: { kind: 'being-posted' }
+			});
+		}
+		this.#posting.add(id);
+		try {
+			return await this.#post(id, seen, shown, posting);
+		} finally {
+			this.#posting.delete(id);
+		}
+	}
+
+	async #post(
+		id: ReportId,
+		seen: RevisionNumber,
+		shown: ShownDraft,
+		posting: GitHubPosting
+	): Promise<Result<FinishedReview, ReportError>> {
+		const prepared = await this.#prepareReview(id, seen, shown);
+		if (!prepared.ok) return prepared;
+		const { found, diff, draft, quoted } = prepared.value;
+		const { source } = found.report;
+		if (source.kind !== 'github') return err({ kind: 'NotAPullRequest' });
+		const pullRequest = source.pullRequest;
+		const refused = (problem: ReviewPostProblem): Result<never, ReportError> => {
+			if (problem.kind === 'rate-limited') this.#noteRateLimit(problem.limit, this.#clock.now());
+			return err({ kind: 'ReviewNotPosted', pullRequest, problem });
+		};
+		const commit = found.revision.headCommit;
+		if (commit === undefined) return refused({ kind: 'no-commit' });
+		const limited = await this.#rateLimited(pullRequest.repository.host);
+		if (limited !== undefined) return refused({ kind: 'rate-limited', limit: limited });
+		const asked = await readPullRequest(this.#github, pullRequest, this.#clock.now());
+		if (!asked.read.ok) return refused(problemOf(asked.read.error));
+		if (asked.read.value.kind === 'read' && asked.read.value.details.state !== 'open') {
+			return refused({ kind: 'closed', merged: asked.read.value.details.state === 'merged' });
+		}
+		const text = this.#db.read((q) => this.#reviewText(q, found, diff, draft, quoted));
+		if (!text.ok) return text;
+		const { number } = text.value;
+		const review = (allInText: boolean): GitHubReviewDraft =>
+			gitHubReview({
+				report: id,
+				number,
+				diff,
+				version: found.revision.number,
+				overall: draft.overall.body,
+				comments: text.value.comments.map((r) => r.comment),
+				allInText
+			});
+		const noted = this.#db.read((q) => reviewBeingPosted(q, id));
+		if (!noted.ok) return noted;
+		let made: { found: GitHubReviewFound; review: GitHubReviewDraft } | undefined;
+		if (noted.value === number) {
+			const before = await findReview(
+				this.#github,
+				pullRequest,
+				reviewMarker(id, number),
+				this.#clock.now()
+			);
+			if (!before.ok) return refused(before.error);
+			if (before.value !== undefined) made = { found: before.value, review: review(false) };
+		}
+		if (made === undefined) {
+			const note = this.#db.write((q): Result<undefined, ReportError> => {
+				notePosting(q, id, number, this.#clock.now());
+				return ok(undefined);
+			});
+			if (!note.ok) return note;
+			const sent = await this.#send(pullRequest, commit, posting, review);
+			if (!sent.ok) {
+				if (surelyNotPosted(sent.error)) {
+					this.#db.write((q): Result<undefined, ReportError> => {
+						forgetPosting(q, id);
+						return ok(undefined);
+					});
+				}
+				return refused(sent.error.kind === 'lines-refused' ? { kind: 'refused' } : sent.error);
+			}
+			made = sent.value;
+		}
+		const posted = made;
+		const at = this.#clock.now();
+		const delivery: GitHubDelivery = {
+			postedAs: posted.found.pending ? 'draft' : postedAs(posting),
+			address: gitHubReviewAddress(pullRequest, posted.found.id, posted.found.pending),
+			inText: posted.review.inText,
+			at
+		};
+		return this.#db.write((q) =>
+			andThen(current(q, id), (): Result<FinishedReview, ReportError> =>
+				andThen(draftOf(q, id), (draftNow): Result<FinishedReview, ReportError> => {
+					const { progress, comments } = text.value;
+					insertReview(
+						q,
+						id,
+						number,
+						found.revision.id,
+						at,
+						progress,
+						text.value.text,
+						draft.overall.body
+					);
+					insertReviewComments(q, id, number, comments);
+					copyReviewMarks(q, id, number, found.revision.id);
+					insertDelivery(q, id, number, posted.found.id, delivery);
+					forgetPosting(q, id);
+					// What was posted leaves the draft; words changed since stay in it, not posted.
+					const postedEdits = new Map(draft.comments.map((c) => [c.id, c.edits]));
+					for (const comment of draftNow.comments) {
+						if (postedEdits.get(comment.id) === comment.edits) deleteDraftComment(q, comment.id);
+					}
+					if (draftNow.overall.edits === draft.overall.edits && draft.overall.body !== '') {
+						writeDraftSummary(q, id, '', at);
+					}
+					touchReport(q, id, at);
+					return andThen(reviewOf(q, id, number), (finished) =>
+						finished === undefined ? err({ kind: 'ReviewNotFound', number }) : ok(finished)
+					);
+				})
+			)
+		);
+	}
+
+	/**
+	 * Sends the review to GitHub, its comments on their lines, and again with
+	 * every comment in its text when GitHub refuses the lines.
+	 */
+	async #send(
+		pullRequest: PullRequestRef,
+		commit: CommitId,
+		posting: GitHubPosting,
+		review: (allInText: boolean) => GitHubReviewDraft
+	): Promise<Result<{ found: GitHubReviewFound; review: GitHubReviewDraft }, ReviewPostProblem>> {
+		const kind = posting.draft ? undefined : posting.kind;
+		const first = review(false);
+		const sent = await postReview(
+			this.#github,
+			pullRequest,
+			{ commit, kind, body: first.body, comments: first.comments },
+			this.#clock.now()
+		);
+		if (sent.ok) return ok({ found: sent.value, review: first });
+		if (sent.error.kind !== 'lines-refused' || first.comments.length === 0) return sent;
+		const again = review(true);
+		const resent = await postReview(
+			this.#github,
+			pullRequest,
+			{ commit, kind, body: again.body, comments: [] },
+			this.#clock.now()
+		);
+		return resent.ok ? ok({ found: resent.value, review: again }) : resent;
 	}
 
 	/** The report's finished reviews, oldest first. */
