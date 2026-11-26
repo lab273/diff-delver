@@ -707,9 +707,9 @@
 	 * Scrolled to the top again whenever the diff's size changes, until a frame
 	 * passes with no change, no open part near the screen still waiting for its
 	 * lines and nothing in the diff busy, or the reader moves on: by their own
-	 * input, which the page's own scrolling never makes, or the page scrolls
-	 * something else to the top. The bound only ends the keeping if a part's
-	 * lines never come.
+	 * input, which the page's own scrolling never makes, the page scrolls
+	 * something else to the top, or a tick starts (`stopKeepingAtTop`). The bound
+	 * only ends the keeping if a part's lines never come.
 	 */
 	async function keepAtTop(element: HTMLElement): Promise<void> {
 		const shown = viewer;
@@ -758,6 +758,18 @@
 			observer.disconnect();
 			stopListening();
 		}
+	}
+
+	/**
+	 * Stops keeping anything at the top of the screen. A tick moves the page
+	 * itself, putting a part reviewed away and opening one unticked again, and
+	 * where the reader stays is then the tick's to keep (`tickTarget`). `r`
+	 * moves to its part first, which keeps it at the top; kept on, whether the
+	 * part opened again was scrolled back to the top would depend on whether the
+	 * tick's answer came before the diff had been still for two frames.
+	 */
+	function stopKeepingAtTop(): void {
+		if (keptAtTop !== undefined) keptAtTop.stopped = true;
 	}
 
 	let bookmark = $state.raw<Bookmark>();
@@ -1014,6 +1026,7 @@
 		const shown = viewer;
 		if (shown === undefined) return;
 		staleTick = undefined;
+		stopKeepingAtTop();
 		const animations: { part: PartState; animation: Animation }[] = [];
 		let inputAt: number | undefined;
 		let scrolled = false;
