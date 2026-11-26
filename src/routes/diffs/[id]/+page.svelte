@@ -973,7 +973,14 @@
 			marksWaiting -= 1;
 			await markAndMoveOn();
 		};
-		marking = marking.then(run, run);
+		// A press that fails in the page says so where the page speaks, and the
+		// next press is taken as if it had not happened.
+		marking = marking.then(run).catch((error: unknown) => {
+			console.error(error);
+			if (viewer !== undefined)
+				viewer.announcement =
+					'Something went wrong on this page, so the file may not be marked as reviewed. Press r to try again, or reload the page.';
+		});
 	}
 
 	async function markAndMoveOn(): Promise<void> {
