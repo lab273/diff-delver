@@ -357,6 +357,8 @@ export class Viewer {
 	overview = $state<DiffPage['overview']>(null);
 	/** The agent's notes on this version, dismissed ones too; promoted ones are comments by then. */
 	notes = $state.raw<DiffPage['notes']>([]);
+	/** On a version with no notes, what to say of an earlier version's. */
+	earlierNotes = $state.raw<DiffPage['earlierNotes']>(null);
 	/** Whether the agent's notes are drawn at their lines; the person's setting. */
 	showNotes = $state(true);
 	summary: DiffSummary;
@@ -434,6 +436,7 @@ export class Viewer {
 		this.sorted = page.sorted;
 		this.overview = page.overview;
 		this.notes = page.notes;
+		this.earlierNotes = page.earlierNotes;
 		const groups: GroupInfo[] = [];
 		const parts: PartState[] = [];
 		const byKey = new SvelteMap<string, PartIndex>();
@@ -986,6 +989,7 @@ export class Viewer {
 		this.#sorting = frame.sorting;
 		this.overview = frame.overview;
 		this.notes = frame.notes;
+		this.earlierNotes = frame.earlierNotes;
 		this.summary = frame.summary;
 		for (const group of frame.groups) {
 			for (const part of group.parts) {

@@ -406,6 +406,8 @@ export const DiffPageSchema = z.object({
 	overview: parsed(z.string(), parseAgentMarkdown).nullable(),
 	/** The agent's notes on this version, in the order they were added. */
 	notes: z.array(AgentNoteSchema),
+	/** On a version with no notes, what to say of the notes an earlier version has; null otherwise. */
+	earlierNotes: message.nullable(),
 	/** Identifies the frame of this version and view for a conditional read. */
 	frame: frameStamp,
 	/** The sorting the reviewer saw when deciding to tick a slice or group. */

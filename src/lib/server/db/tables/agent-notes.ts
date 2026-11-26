@@ -10,10 +10,11 @@ import { parseLineNumber } from '#lib/core/line-number.tiny.ts';
 import { repoPathBytes } from '#lib/core/path-bytes.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import type { RevisionId } from '#lib/core/revision-id.tiny.ts';
-import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import { parseRevisionNumber, type RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import {
 	NOTE_LABELS,
 	type AgentNote,
+	type EarlierNotes,
 	type NewNote,
 	type NoteState
 } from '#lib/core/review/agent-note.ts';
@@ -78,6 +79,28 @@ export function agentNoteOf(
 	);
 	return found === undefined ? ok(undefined) : parseRow('agent_notes', row, found);
 }
+
+/**
+ * The newest version of a report before `before` with notes still waiting,
+ * and how many: for a version with none, to say where the agent's notes are.
+ */
+export function earlierWaitingNotes(
+	q: Queries,
+	report: ReportId,
+	before: RevisionNumber
+): Result<EarlierNotes | undefined, StoredRowInvalid> {
+	const found = q.get(
+		`SELECT r.number AS version, count(*) AS waiting
+		 FROM revisions r JOIN agent_notes n ON r.id = n.revision_id
+		 WHERE r.report_id = ? AND r.number < ? AND n.state = 'waiting'
+		 GROUP BY r.number ORDER BY r.number DESC LIMIT 1`,
+		report,
+		before
+	);
+	return found === undefined ? ok(undefined) : parseRow('agent_notes', earlier, found);
+}
+
+const earlier = z.object({ version: whole(parseRevisionNumber), waiting: z.number().int().min(1) });
 
 export function insertAgentNote(
 	q: Queries,

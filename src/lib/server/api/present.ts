@@ -9,7 +9,7 @@ import {
 	describeListedTitle,
 	describePullRequestList
 } from '#lib/core/github/listed-pull-request.ts';
-import type { AgentNote } from '#lib/core/review/agent-note.ts';
+import { describeEarlierNotes, type AgentNote } from '#lib/core/review/agent-note.ts';
 import type {
 	AgentNoteView,
 	ApiErrorBody,
@@ -400,6 +400,8 @@ export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): 
 		summary: summaryView(loaded.summary),
 		overview: loaded.overview ?? null,
 		notes: notesView(loaded.notes),
+		earlierNotes:
+			loaded.earlierNotes === undefined ? null : describeEarlierNotes(loaded.earlierNotes),
 		frame: `${view}:${loaded.frame}`,
 		sorting: loaded.sorting,
 		assignments: loaded.assignments,

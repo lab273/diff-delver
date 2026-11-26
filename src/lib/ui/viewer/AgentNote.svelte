@@ -62,7 +62,7 @@
 			<button
 				type="button"
 				disabled={busy}
-				aria-label="Promote the agent note on {lines} to your review"
+				aria-label="Promote the agent note on {lines}, {note.label}, to your review"
 				onclick={() => run(onpromote)}
 			>
 				Promote to review
@@ -70,7 +70,7 @@
 			<button
 				type="button"
 				disabled={busy}
-				aria-label="Dismiss the agent note on {lines}"
+				aria-label="Dismiss the agent note on {lines}, {note.label}"
 				onclick={() => run(ondismiss)}
 			>
 				Dismiss

@@ -1897,7 +1897,13 @@
 					viewer.announcement = 'The agent left no notes on this version.';
 					return;
 				}
-				setShowNotes(!settings.agentNotes);
+				{
+					// A note's button with the keyboard is about to go: the toggle takes it.
+					const inNote = document.activeElement?.closest('[data-agent-note]') ?? null;
+					setShowNotes(!settings.agentNotes);
+					if (inNote !== null)
+						void tick().then(() => document.getElementById('agent-notes-toggle')?.focus());
+				}
 				return;
 			case 'side-by-side':
 				setLayout(settings.layout === 'side-by-side' ? 'unified' : 'side-by-side');
@@ -2743,6 +2749,8 @@
 					onshow={setShowNotes}
 					onrestore={() => viewer.changeNotes({ action: 'bring-back' })}
 				/>
+			{:else if viewer.earlierNotes !== null}
+				<p class="earlier-notes">{viewer.earlierNotes}</p>
 			{/if}
 			{#if data.canReview}
 				{#if reviewTurnedOn}
@@ -3247,6 +3255,13 @@
 
 	.empty {
 		color: var(--color-muted);
+	}
+
+	.earlier-notes {
+		margin-block: 0.75rem;
+		max-width: 46rem;
+		color: var(--color-muted);
+		font-size: 0.875rem;
 	}
 
 	.all-diffs {

@@ -6,6 +6,7 @@ import { parseReportId } from '../report-id.tiny.ts';
 import { parseRevisionNumber } from '../revision-number.tiny.ts';
 import { reviewerMessage } from '../reviewer-message.tiny.ts';
 import {
+	describeEarlierNotes,
 	describeNoteProblem,
 	MAX_NOTE_LENGTH,
 	promotedNoteBody,
@@ -26,6 +27,12 @@ const diff = syntheticDiff([
 		]
 	}
 ]);
+
+function parseRevisionNumberOrThrow(n: number) {
+	const parsed = parseRevisionNumber(n);
+	if (!parsed.ok) throw new Error('not a version');
+	return parsed.value;
+}
 
 function note(lines: string, more: Partial<NoteRequest> = {}): NoteRequest {
 	return { label: 'risk', file: 'src/b.ts', lines, text: 'Look here.', ...more };
@@ -75,6 +82,14 @@ describe('checking agent notes against the diff', () => {
 		if (a === undefined || b === undefined) throw new Error('missing');
 		expect(sameNote(a, a)).toBe(true);
 		expect(sameNote(a, b)).toBe(false);
+	});
+});
+
+describe('notes on an earlier version', () => {
+	it('are named with their version, since notes are not carried over', () => {
+		expect(describeEarlierNotes({ version: parseRevisionNumberOrThrow(1), waiting: 3 })).toBe(
+			'The agent left 3 notes on version 1; notes stay with the version they were written on.'
+		);
 	});
 });
 

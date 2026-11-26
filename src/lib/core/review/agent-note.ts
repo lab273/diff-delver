@@ -56,6 +56,19 @@ export interface AgentNote {
 	readonly state: NoteState;
 }
 
+/** The notes still waiting on an earlier version than the one shown, which notes are not carried to. */
+export interface EarlierNotes {
+	readonly version: RevisionNumber;
+	readonly waiting: number;
+}
+
+/** What the page says where the notes would be, on a version with none, when an earlier one has some. */
+export function describeEarlierNotes(earlier: EarlierNotes): ReviewerMessage {
+	return reviewerMessage(
+		`The agent left ${earlier.waiting === 1 ? '1 note' : `${String(earlier.waiting)} notes`} on version ${String(earlier.version)}; notes stay with the version they were written on.`
+	);
+}
+
 /** One note as `add_notes` sent it, after its schema has checked its shape. */
 export interface NoteRequest {
 	readonly label: NoteLabel;

@@ -68,7 +68,9 @@ test.describe('J14 Agent notes', () => {
 
 		// One is dismissed with a press, and brought back from the list above the diff.
 		await journey.activate(
-			journey.within(info).byRole('button', { name: 'Dismiss the agent note on After, line 1' })
+			journey
+				.within(info)
+				.byRole('button', { name: 'Dismiss the agent note on After, line 1, info' })
 		);
 		await journey.expectHidden(info);
 		await journey.expectVisible(summary.byText('2 notes waiting, 1 dismissed', { exact: false }));
@@ -76,16 +78,19 @@ test.describe('J14 Agent notes', () => {
 		await journey.step('A note dismissed');
 		await journey.activate(summary.byRole('button', { name: 'Bring back dismissed notes' }));
 		await journey.expectVisible(info);
+		await journey.expectFocused(summary.byRole('button', { name: 'Show agent notes' }));
 		await journey.activate(
-			journey.within(info).byRole('button', { name: 'Dismiss the agent note on After, line 1' })
+			journey
+				.within(info)
+				.byRole('button', { name: 'Dismiss the agent note on After, line 1, info' })
 		);
 		await journey.expectHidden(info);
 
 		// Promoted, a note becomes a comment of the reviewer's own, quoting the agent.
 		await journey.activate(
-			journey
-				.within(bug)
-				.byRole('button', { name: 'Promote the agent note on After, line 4 to your review' })
+			journey.within(bug).byRole('button', {
+				name: 'Promote the agent note on After, line 4, possible bug, to your review'
+			})
 		);
 		const promoted = journey.within(
 			discount.byRole('article', { name: 'Your comment on After, line 4' })

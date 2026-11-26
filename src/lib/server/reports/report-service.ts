@@ -142,6 +142,7 @@ import { draftSummaryOf, writeDraftSummary } from '../db/tables/draft-summaries.
 import {
 	agentNoteOf,
 	agentNotesOf,
+	earlierWaitingNotes,
 	insertAgentNote,
 	removeWaitingNotes,
 	restoreDismissedNotes,
@@ -153,6 +154,7 @@ import {
 	resolveNoteRequests,
 	sameNote,
 	type AgentNote,
+	type EarlierNotes,
 	type NoteRequest
 } from '#lib/core/review/agent-note.ts';
 import type { AgentNoteId } from '#lib/core/agent-note-id.tiny.ts';
@@ -564,6 +566,8 @@ export interface LoadedReport {
 	readonly overview: AgentMarkdown | undefined;
 	/** The agent's notes on this version, in the order they were added, promoted ones too. */
 	readonly notes: readonly AgentNote[];
+	/** When this version has no notes, the newest earlier one with notes waiting; else undefined. */
+	readonly earlierNotes: EarlierNotes | undefined;
 	readonly frame: string;
 	readonly sorting: string;
 	readonly assignments: string;
@@ -770,6 +774,7 @@ interface StoredFrame extends Stored {
 	readonly referenceRows: ReadonlyMap<SectionId, readonly UnitRow[]>;
 	readonly overview: AgentMarkdown | undefined;
 	readonly notes: readonly AgentNote[];
+	readonly earlierNotes: EarlierNotes | undefined;
 	readonly shown: Current;
 	readonly sorting: string;
 	readonly assignments: string;
@@ -1557,20 +1562,27 @@ export class ReportService {
 										andThen(referenceRowsFor(q, revision.id), (referenceRows) =>
 											andThen(overviewOf(q, revision.id), (overview) =>
 												andThen(agentNotesOf(q, revision.id), (notes) =>
-													ok({
-														sections,
-														rows,
-														marked,
-														fresh,
-														unmarked,
-														summary,
-														referenceRows,
-														overview,
-														notes,
-														sorting,
-														assignments,
-														shown: shownNow
-													})
+													andThen(
+														notes.length > 0
+															? ok(undefined)
+															: earlierWaitingNotes(q, id, revision.number),
+														(earlierNotes) =>
+															ok({
+																sections,
+																rows,
+																marked,
+																fresh,
+																unmarked,
+																summary,
+																referenceRows,
+																overview,
+																notes,
+																earlierNotes,
+																sorting,
+																assignments,
+																shown: shownNow
+															})
+													)
 												)
 											)
 										)
@@ -1604,6 +1616,7 @@ export class ReportService {
 			references: references.value,
 			overview: found.value.overview,
 			notes: found.value.notes,
+			earlierNotes: found.value.earlierNotes,
 			frame: this.#frameVersions.frame(found.value.shown.report, revision.id, found.value.sorting),
 			sorting: found.value.sorting,
 			assignments: found.value.assignments,

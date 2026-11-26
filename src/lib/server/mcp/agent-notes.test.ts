@@ -130,6 +130,9 @@ describe('agent notes, through the MCP server', () => {
 		expect(late.refused).toBe(true);
 		expect(late.text).toMatch(/^The diff changed since you read it: you sent "version": 1/);
 		// A note belongs to the version it was written on: the new version starts with none.
-		expect(value(await service.load(id)).notes).toEqual([]);
+		const updated = value(await service.load(id));
+		expect(updated.notes).toEqual([]);
+		// The page says where they are: the one still waiting on version 1.
+		expect(updated.earlierNotes).toEqual({ version: 1, waiting: 1 });
 	});
 });

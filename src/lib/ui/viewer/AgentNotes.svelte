@@ -30,6 +30,7 @@
 
 	let problem = $state('');
 	let busy = $state(false);
+	let toggle = $state<HTMLButtonElement>();
 </script>
 
 <section class="notes" aria-label="Agent notes">
@@ -45,6 +46,8 @@
 	<p class="actions">
 		<button
 			type="button"
+			id="agent-notes-toggle"
+			bind:this={toggle}
 			aria-pressed={shown}
 			onclick={() => {
 				onshow(!shown);
@@ -60,6 +63,8 @@
 					busy = true;
 					problem = (await onrestore()) ?? '';
 					busy = false;
+					// The button goes once nothing is dismissed: the toggle beside it takes the keyboard.
+					if (problem === '') toggle?.focus();
 				}}
 			>
 				Bring back dismissed notes
