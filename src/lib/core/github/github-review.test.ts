@@ -291,6 +291,54 @@ describe('gitHubReview', () => {
 	});
 });
 
+describe('gitHubReview, after an overall review that leaves something open', () => {
+	const base = {
+		report: REPORT,
+		number: REVIEW,
+		diff,
+		version: V2,
+		allInText: true,
+		mark: MARK,
+		comments: [comment('modified.txt', 'new', 3, 3, { body: 'In the text.', quoted: ['three'] })]
+	};
+
+	it('ends an open fence, so the comments in the text and the mark are not code', () => {
+		const review = gitHubReview({ ...base, overall: 'See:\n```ts\nconst a = 1;' });
+		expect(review.body).toBe(
+			[
+				'See:',
+				'```ts',
+				'const a = 1;',
+				'```',
+				'',
+				IN_TEXT_HEADING,
+				'',
+				'`modified.txt`, line 3 (after the change)',
+				'',
+				'```',
+				'three',
+				'```',
+				'> In the text.',
+				'',
+				reviewMarker(REPORT, REVIEW, MARK)
+			].join('\n')
+		);
+	});
+
+	it('ends an open HTML comment, so the comments in the text are shown and the mark stays hidden', () => {
+		const review = gitHubReview({ ...base, overall: 'Fine.\n\n<!-- my own note' });
+		expect(review.body.startsWith(`Fine.\n\n<!-- my own note\n-->\n\n${IN_TEXT_HEADING}`)).toBe(
+			true
+		);
+		expect(review.body.endsWith(`\n\n${reviewMarker(REPORT, REVIEW, MARK)}`)).toBe(true);
+	});
+
+	it('ends an open raw HTML block, which would run on to the end', () => {
+		const review = gitHubReview({ ...base, overall: '<pre>\nkept as typed' });
+		expect(review.body.startsWith(`<pre>\nkept as typed\n</pre>\n\n${IN_TEXT_HEADING}`)).toBe(true);
+	});
+});
+
 describe('tooLongForGitHub', () => {
 	const draft = (body: string, comments: readonly string[] = []) => ({
 		body,

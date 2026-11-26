@@ -39,6 +39,7 @@ import type { RepoPath } from '../repo-path.tiny.ts';
 import type { ReportId } from '../report-id.tiny.ts';
 import type { ReviewNumber } from '../review-number.tiny.ts';
 import type { ReviewMark } from './review-mark.tiny.ts';
+import { closingOpenBlocks } from './open-blocks.ts';
 import type { RevisionNumber } from '../revision-number.tiny.ts';
 import type { Side } from '../side.tiny.ts';
 import { isWritten } from '../review/overall-review.ts';
@@ -270,7 +271,11 @@ export function gitHubReview(input: GitHubReviewInput): GitHubReviewDraft {
 		else inText.push(comment);
 	}
 	const parts: string[] = [];
-	if (isWritten(input.overall)) parts.push(input.overall);
+	if (isWritten(input.overall)) {
+		// Whatever the overall review leaves open is ended, so nothing after it is swallowed or hidden.
+		const closing = closingOpenBlocks(input.overall);
+		parts.push(closing === '' ? input.overall : `${input.overall}\n${closing}`);
+	}
 	if (inText.length > 0) {
 		parts.push(
 			[IN_TEXT_HEADING, ...inText.map((c) => inTextComment(c, input.version))].join('\n\n')
