@@ -579,6 +579,18 @@
 		}
 	}
 
+	/**
+	 * The keyboard or a press leaving the lines lets go of the lines taken, as
+	 * leaving the menu puts it away, so neither holds up a regroup the reviewer
+	 * is not choosing lines for. The window losing the focus keeps them.
+	 */
+	function onFocusOut(event: FocusEvent): void {
+		const next = event.relatedTarget;
+		if (next instanceof Node && table.contains(next)) return;
+		if (next === null && !document.hasFocus()) return;
+		if (cursor !== undefined && drag === undefined) from = cursor.line;
+	}
+
 	async function onKey(event: KeyboardEvent): Promise<void> {
 		const line = lineAt(event.target);
 		if (line === undefined || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -1070,6 +1082,7 @@
 	aria-busy={busy}
 	data-selecting-comment={taken === undefined && menu === undefined ? undefined : ''}
 	onfocusin={onFocus}
+	onfocusout={onFocusOut}
 	onkeydown={onKey}
 	onclick={onClick}
 	onpointerdown={beginDrag}
