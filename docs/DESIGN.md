@@ -867,6 +867,7 @@ the starting vocabulary, to be adjusted by watching people use it.
 | revision | "Version 2", with when it arrived and what changed |
 | snapshot | Not shown. Its size appears on the update |
 | slice | Not named. A split file shows "part 2 of 3" |
+| step of a reading order (4.3.1) | "Step 2 of 3" on its part, "After the steps" on the lines no step names; in the Tests group, "Step 2 of *Session expiry*". Its note is headed "From the agent, on this step", apart from agent notes |
 | change line, file-level unit | "a change": one added line, one removed line, or one change to a file itself such as a rename. The page says so once, and every count is in changes |
 | bucket | Not shown |
 | `Uncategorised` | "Not sorted yet" |
