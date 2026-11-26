@@ -403,6 +403,9 @@ test('a click on a line puts the keyboard there, and leaves text being selected 
 		// The code of an unchanged line: the keyboard is on its number, and `c` comments there.
 		await code(lexer, 10, 'after').click();
 		await expect(number(lexer, 10, 'after')).toBeFocused();
+		// The number is marked, whether or not the browser draws a ring for a focus a press moved.
+		await expect(number(lexer, 10, 'after')).toHaveCSS('box-shadow', /inset/);
+		await expect(number(lexer, 11, 'after')).toHaveCSS('box-shadow', 'none');
 		await expect(page.getByRole('form', { name: /^New comment/ })).toHaveCount(0);
 		await page.keyboard.press('c');
 		const box = page.getByRole('form', { name: 'New comment on After, line 10', exact: true });

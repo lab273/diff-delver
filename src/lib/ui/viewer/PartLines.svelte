@@ -1438,6 +1438,17 @@
 		outline-offset: 0;
 	}
 
+	/*
+	 * The number the keyboard is on is marked however it got there, a bar in
+	 * the ring's colour, since a browser may draw no ring for a focus that
+	 * followed a press of the pointer, as a click on a line's code moves it.
+	 */
+	.pick-line:focus {
+		box-shadow: inset 3px 0 0 var(--color-focus);
+		color: var(--color-focus);
+		font-weight: 700;
+	}
+
 	.pick-line.marked {
 		background: var(--color-selected-button);
 		box-shadow: 0 0 0 1px var(--color-focus);
