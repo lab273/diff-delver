@@ -147,6 +147,38 @@ addEventListener('keydown', (event) => {
 		await journey.step('Held');
 	});
 
+	test('holds the next tick until the journey lets it through, and only that one', async ({
+		planted
+	}) => {
+		const journey = await planted(
+			pageWith(`<h1>Ticks</h1>
+<button type="button" id="tick">Tick</button>
+<p id="answers">Answered: none</p>
+<script>
+const answered = [];
+let ticks = 0;
+document.getElementById('tick').addEventListener('click', () => {
+	ticks += 1;
+	const tick = ticks;
+	// Answered or not, as long as it is settled.
+	void fetch('/api/diffs/1/reviewed', { method: 'POST' }).catch(() => undefined).finally(() => {
+		answered.push(tick);
+		document.getElementById('answers').textContent = 'Answered: ' + answered.join(', ');
+	});
+});
+</script>`)
+		);
+		const answers = journey.byText(/^Answered/);
+		const held = await journey.holdTick();
+		await journey.activate(journey.byRole('button', { name: 'Tick' }));
+		await held.requested;
+		// The next tick is not held, and is answered while the first still waits.
+		await journey.activate(journey.byRole('button', { name: 'Tick' }));
+		await journey.expectText(answers, 'Answered: 2');
+		held.release();
+		await journey.expectText(answers, 'Answered: 2, 1');
+	});
+
 	test('lists the whole tab order, even when two controls share a name', async ({ planted }) => {
 		const journey = await planted(
 			pageWith(`<h1>Links</h1>
