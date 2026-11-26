@@ -230,6 +230,31 @@ export function hasReviewMarker(
 	return body.includes(reviewMarker(report, number, mark));
 }
 
+/**
+ * The most characters GitHub takes in a review's text, and in each comment
+ * on its lines; it refuses a review with more.
+ */
+export const GITHUB_TEXT_LIMIT = 65_536;
+
+/** How many characters GitHub counts in text: one for each character, however it is encoded. */
+export function gitHubLength(text: string): number {
+	const pairs = text.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0;
+	return text.length - pairs;
+}
+
+/**
+ * Whether the review is too long for GitHub: its text, or a comment on its
+ * lines, past `GITHUB_TEXT_LIMIT`, and how long the longest is; undefined
+ * when GitHub takes it.
+ */
+export function tooLongForGitHub(review: GitHubReviewDraft): number | undefined {
+	const longest = Math.max(
+		gitHubLength(review.body),
+		...review.comments.map((c) => gitHubLength(c.body))
+	);
+	return longest > GITHUB_TEXT_LIMIT ? longest : undefined;
+}
+
 /** The heading over the comments in the review's text. */
 export const IN_TEXT_HEADING = '**Comments on lines GitHub does not show**';
 

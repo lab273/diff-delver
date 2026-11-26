@@ -156,6 +156,7 @@ import {
 	gitHubReview,
 	postedAs,
 	reviewMarker,
+	tooLongForGitHub,
 	type GitHubPosting,
 	type GitHubReviewDraft
 } from '#lib/core/github/github-review.ts';
@@ -1154,6 +1155,8 @@ function surelyNotPosted(problem: ReviewPostProblem): boolean {
 		case 'own-pull-request':
 		case 'refused':
 		case 'lines-refused':
+		case 'too-long':
+		case 'moved-on':
 		case 'closed':
 		case 'being-posted':
 		case 'no-commit':
@@ -2491,6 +2494,8 @@ export class ReportService {
 				mark
 			});
 		const first = review(false);
+		const long = tooLongForGitHub(first);
+		if (long !== undefined) return refused({ kind: 'too-long', length: long });
 		const edits = new Map(draft.comments.map((c) => [c.id, c.edits]));
 		const note = this.#db.write((q): Result<undefined, ReportError> => {
 			// Checked again where it is noted: the draft as the page showed it, on its version,
@@ -2539,7 +2544,7 @@ export class ReportService {
 					return ok(undefined);
 				});
 			}
-			return refused(sent.error.kind === 'lines-refused' ? { kind: 'refused' } : sent.error);
+			return refused(sent.error);
 		}
 		return this.#recordPosted(id, seen, pullRequest, sent.value, false);
 	}
@@ -2630,18 +2635,24 @@ export class ReportService {
 			this.#clock.now()
 		);
 		if (sent.ok) return sent;
-		if (sent.error.kind !== 'lines-refused' || first.comments.length === 0) return sent;
+		if (sent.error.kind !== 'lines-refused') return sent;
+		// No comment was on its lines: GitHub's complaint was about something else.
+		if (first.comments.length === 0) return err({ kind: 'refused', allInText: false });
 		const again = allInText();
+		const long = tooLongForGitHub(again);
+		if (long !== undefined) return err({ kind: 'too-long', length: long });
 		this.#db.write((q): Result<undefined, ReportError> => {
 			noteAllInText(q, id, again.inText);
 			return ok(undefined);
 		});
-		return postReview(
+		const resent = await postReview(
 			this.#github,
 			pullRequest,
 			{ commit, kind, body: again.body, comments: [] },
 			this.#clock.now()
 		);
+		if (resent.ok || resent.error.kind !== 'lines-refused') return resent;
+		return err({ kind: 'refused', allInText: true });
 	}
 
 	/** The report's finished reviews, oldest first. */

@@ -606,6 +606,8 @@ function postStatusOf(problem: ReviewPostProblem): number {
 		case 'own-pull-request':
 		case 'refused':
 		case 'lines-refused':
+		case 'too-long':
+		case 'moved-on':
 		case 'closed':
 		case 'no-commit':
 			return 422;

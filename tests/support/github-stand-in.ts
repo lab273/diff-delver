@@ -5,9 +5,10 @@
  * branches from, as it would from GitHub; and a small HTTP server on a free
  * port of 127.0.0.1 answers the REST calls diff delver makes: one pull request,
  * a repository's open pull requests, the repository itself, and a pull
- * request's reviews: posting one, as GitHub checks it (each comment on a line
- * of a hunk of its own diff of the pull request, one draft per person, no
- * approving one's own), and listing them. What it
+ * request's reviews: posting one, as GitHub checks it (its commit in the pull
+ * request, its text and each comment at most 65,536 characters, each comment
+ * on a line of a hunk of its own diff of the pull request, no other review
+ * while the person has a draft one, no approving one's own), and listing them. What it
  * gives diff delver says git fetches a repository from its folder, so a fetch
  * never leaves the machine. It records every request, so a test can check what was asked
  * and with which sign-in.
@@ -433,7 +434,8 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 			...(c.start_line === undefined ? {} : { startLine: c.start_line }),
 			...(c.start_side === undefined ? {} : { startSide: c.start_side })
 		}));
-		if (event === undefined && all.some((r) => r.state === 'PENDING' && r.user === STAND_IN_USER)) {
+		// GitHub takes no review from a person while they have a draft one there, of any kind.
+		if (all.some((r) => r.state === 'PENDING' && r.user === STAND_IN_USER)) {
 			json(response, 422, {
 				message: 'Unprocessable Entity',
 				errors: ['User can only have one pending review per pull request']
@@ -448,6 +450,27 @@ export async function startGitHubStandIn(): Promise<GitHubStandIn> {
 						? 'Can not approve your own pull request'
 						: 'Can not request changes on your own pull request'
 				]
+			});
+			return;
+		}
+		const tooLong = [sent.body ?? '', ...comments.map((c) => c.body)].some(
+			(text) => Array.from(text).length > 65_536
+		);
+		if (tooLong) {
+			json(response, 422, {
+				message: 'Unprocessable Entity',
+				errors: ['Body is too long (maximum is 65536 characters)']
+			});
+			return;
+		}
+		const inPull = await runGitText({
+			cwd: repository.repo.dir,
+			args: ['merge-base', '--is-ancestor', sent.commit_id, `refs/pull/${String(pull.number)}/head`]
+		});
+		if (!inPull.ok) {
+			json(response, 422, {
+				message: 'Unprocessable Entity',
+				errors: ['No commit found for SHA: ' + sent.commit_id]
 			});
 			return;
 		}

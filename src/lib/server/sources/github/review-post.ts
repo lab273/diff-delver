@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { CommitId } from '#lib/core/commit-id.tiny.ts';
 import {
 	gitHubEvent,
+	GITHUB_TEXT_LIMIT,
 	type GitHubLineComment,
 	type GitHubReviewKind,
 	type PostedAs
@@ -25,6 +26,7 @@ import { err, ok, type Result } from '#lib/core/result.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import type { ReviewNumber } from '#lib/core/review-number.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
+import { formatCount } from '#lib/core/viewer/words.ts';
 import type { GitHubAccess } from './github-access.ts';
 import { ask, refusal, repositoryPath, type Answer } from './github-api.ts';
 import type { GitHubApiError, GitHubRateLimited } from './github-error.ts';
@@ -78,8 +80,15 @@ export type ReviewPostProblem =
 	| { readonly kind: 'pending-review-exists' }
 	/** GitHub does not let anyone approve, or ask for changes on, their own pull request. */
 	| { readonly kind: 'own-pull-request'; readonly review: GitHubReviewKind }
-	/** GitHub refused the review, even with every comment in its text. */
-	| { readonly kind: 'refused' }
+	/**
+	 * GitHub refused the review for a reason it gave in its own words; with
+	 * `allInText`, when it was posted again with every comment in its text.
+	 */
+	| { readonly kind: 'refused'; readonly allInText: boolean }
+	/** The review's text, or a comment, is longer than GitHub takes: `length` characters. */
+	| { readonly kind: 'too-long'; readonly length: number }
+	/** The commit reviewed is no longer part of the pull request, as after a force-push. */
+	| { readonly kind: 'moved-on' }
 	/** GitHub refused to place the comments on their lines; posting again with them in the text may work. */
 	| { readonly kind: 'lines-refused' }
 	| { readonly kind: 'closed'; readonly merged: boolean }
@@ -151,14 +160,23 @@ const reviewShape = z.object({
 /** The signed-in account, as `GET /user` gives it. */
 const userShape = z.object({ id: z.number().int().positive() });
 
-/** What GitHub's 422 says is wrong, from its message and errors, which are GitHub's own words. */
+/**
+ * What GitHub's 422 says is wrong, from its message and errors, which are
+ * GitHub's own words: only an error that names a line, a path, a position or
+ * the diff is about the comments' lines.
+ */
 function unprocessable(answer: Answer, kind: GitHubReviewKind | undefined): ReviewPostProblem {
 	const said = JSON.stringify(answer.body ?? '').toLowerCase();
 	if (said.includes('pending review')) return { kind: 'pending-review-exists' };
 	if (said.includes('own pull request') && kind !== undefined) {
 		return { kind: 'own-pull-request', review: kind };
 	}
-	return { kind: 'lines-refused' };
+	if (said.includes('too long')) return { kind: 'too-long', length: GITHUB_TEXT_LIMIT + 1 };
+	if (/\bcommit/.test(said)) return { kind: 'moved-on' };
+	if (/\b(line|lines|start_line|path|position|diff|resolved)\b/.test(said)) {
+		return { kind: 'lines-refused' };
+	}
+	return { kind: 'refused', allInText: false };
 }
 
 /**
@@ -277,6 +295,8 @@ function whyUnasked(cause: ReviewPostProblem): string {
 		case 'own-pull-request':
 		case 'refused':
 		case 'lines-refused':
+		case 'too-long':
+		case 'moved-on':
 		case 'closed':
 		case 'being-posted':
 		case 'no-commit':
@@ -307,12 +327,19 @@ export function describeReviewNotPosted(error: ReviewNotPosted): ReviewerMessage
 			case 'unreadable':
 				return `GitHub answered in a way diff delver could not read (status ${String(problem.status)}), so diff delver cannot tell whether your review was posted. ${NOTHING_FINISHED} Finish again: diff delver first looks on GitHub for this review, so it is never posted twice.`;
 			case 'pending-review-exists':
-				return `You already have a draft review of ${pull} on GitHub, and GitHub keeps one at a time. ${NOTHING_FINISHED} Submit or delete that draft on GitHub, then finish again.`;
+				return `You already have a draft review of ${pull} on GitHub, and while it is a draft GitHub takes no other review from you. ${NOTHING_FINISHED} Submit or delete that draft on GitHub, then finish again.`;
 			case 'own-pull-request':
 				return `GitHub does not let you ${problem.review === 'approve' ? 'approve' : 'request changes on'} your own pull request. ${NOTHING_FINISHED} Choose Comment, then finish again.`;
 			case 'refused':
+				return problem.allInText
+					? `GitHub refused the review, even with every comment in its text. ${NOTHING_FINISHED} Finish and copy only to hand it over, or try again later.`
+					: `GitHub refused the review. ${NOTHING_FINISHED} Finish and copy only to hand it over, or try again later.`;
 			case 'lines-refused':
-				return `GitHub refused the review, even with every comment in its text. ${NOTHING_FINISHED} Finish and copy only to hand it over, or try again later.`;
+				return `GitHub refused to place the review's comments on their lines. ${NOTHING_FINISHED} Finish and copy only to hand it over, or try again later.`;
+			case 'too-long':
+				return `The review is too long for GitHub, which takes at most ${formatCount(GITHUB_TEXT_LIMIT)} characters in a review's text and in each comment${problem.length > GITHUB_TEXT_LIMIT + 1 ? `; this one has ${formatCount(problem.length)}` : ''}. ${NOTHING_FINISHED} Shorten the overall review or the comments that go in the review's text, or finish and copy only to hand it over without posting it.`;
+			case 'moved-on':
+				return `${pull} has moved on: the commit of the version you are reviewing is no longer part of it on GitHub, as after a force-push. ${NOTHING_FINISHED} Update this Delve to the pull request's newest version, then finish again, or finish and copy only.`;
 			case 'closed':
 				return `${pull} was ${problem.merged ? 'merged' : 'closed'} on GitHub, so diff delver will not post a review to it. ${NOTHING_FINISHED} Finish and copy only to hand the review over.`;
 			case 'being-posted':

@@ -11,13 +11,17 @@ import { parseReviewNumber, type ReviewNumber } from '../review-number.tiny.ts';
 import { parseRevisionNumber, type RevisionNumber } from '../revision-number.tiny.ts';
 import type { SubmittedComment } from '../review/review-export.ts';
 import { parseReviewMark } from './review-mark.tiny.ts';
+import { commentCountOf } from '../comment-count.tiny.ts';
 import type { Side } from '../side.tiny.ts';
 import {
 	gitHubReview,
 	hasReviewMarker,
 	IN_TEXT_HEADING,
 	placeComment,
-	reviewMarker
+	reviewMarker,
+	GITHUB_TEXT_LIMIT,
+	gitHubLength,
+	tooLongForGitHub
 } from './github-review.ts';
 
 function value<T>(parsed: { ok: true; value: T } | { ok: false }): T {
@@ -284,5 +288,28 @@ describe('gitHubReview', () => {
 			comments: [comment('modified.txt', 'new', 1, 60, { quoted: ['a ``` b', 'c'], version: 1 })]
 		});
 		expect(review.body).toContain('````\na ``` b\nc\n````\n(The first 2 lines of 60.)');
+	});
+});
+
+describe('tooLongForGitHub', () => {
+	const draft = (body: string, comments: readonly string[] = []) => ({
+		body,
+		comments: comments.map((c) => ({
+			path: value(parseRepoPath('a.txt')),
+			side: 'RIGHT' as const,
+			line: lineNumberOf(1),
+			startLine: undefined,
+			body: c
+		})),
+		inText: commentCountOf(0)
+	});
+
+	it('takes a text or comment of up to GitHub’s limit in characters, however they are encoded', () => {
+		expect(gitHubLength('😀é')).toBe(2);
+		expect(tooLongForGitHub(draft('😀'.repeat(GITHUB_TEXT_LIMIT)))).toBeUndefined();
+		expect(tooLongForGitHub(draft('x'.repeat(GITHUB_TEXT_LIMIT + 1)))).toBe(GITHUB_TEXT_LIMIT + 1);
+		expect(tooLongForGitHub(draft('short', ['y'.repeat(GITHUB_TEXT_LIMIT + 2)]))).toBe(
+			GITHUB_TEXT_LIMIT + 2
+		);
 	});
 });

@@ -318,9 +318,8 @@ describe('posting a review to its pull request', () => {
 		w.clock.set(at(1_700_000_100_000 + 301_000));
 
 		w.github.refuseReviews({ kind: 'status', status: 422, message: 'Validation Failed' });
-		w.github.refuseReviews({ kind: 'status', status: 422, message: 'Validation Failed' });
 		expect(describeReportError(failure(await post(w)))).toMatch(
-			/^GitHub refused the review, even with every comment in its text\./
+			/^GitHub refused the review\. Nothing was finished/
 		);
 
 		nothingFinished(w, 1);
@@ -329,20 +328,93 @@ describe('posting a review to its pull request', () => {
 		expect(value(await post(w)).number).toBe(1);
 	});
 
+	it('says GitHub refused the review even with every comment in its text only when it was posted so', async () => {
+		const w = await world();
+		await comment(w, 'src/discount.ts', 'new', 2, 2, 'On its line.');
+		const lines = {
+			kind: 'status',
+			status: 422,
+			message: 'pull_request_review_thread.line must be part of the diff'
+		} as const;
+		w.github.refuseReviews(lines, lines);
+		expect(describeReportError(failure(await post(w)))).toMatch(
+			/^GitHub refused the review, even with every comment in its text\. Nothing was finished/
+		);
+		expect(posts(w)).toHaveLength(2);
+
+		// With no comment on its lines, it is not posted again, and says nothing of the text.
+		const v = await world();
+		overall(v, 'Only an overall review.');
+		v.github.refuseReviews(lines);
+		const said = describeReportError(failure(await post(v)));
+		expect(said).toMatch(/^GitHub refused the review\. Nothing was finished/);
+		expect(said).not.toContain('every comment');
+		expect(posts(v)).toHaveLength(1);
+	});
+
+	it('says plainly when the review is too long for GitHub, and posts nothing', async () => {
+		const w = await world();
+		// Unchanged lines far from the change go in the review's text, with their code.
+		for (let i = 0; i < 7; i += 1) {
+			await comment(w, 'src/price.ts', 'new', 1, 1, `${String(i)}${'x'.repeat(9_999)}`);
+		}
+		const said = describeReportError(failure(await post(w)));
+		expect(said).toMatch(
+			/^The review is too long for GitHub, which takes at most 65,536 characters in a review's text and in each comment; this one has 70,\d{3}\. Nothing was finished, and your draft is as it was\. Shorten the overall review or the comments that go in the review's text, or finish and copy only/
+		);
+		expect(posts(w)).toEqual([]);
+		nothingFinished(w, 7);
+		// GitHub's own refusal for length says the same.
+		const v = await world();
+		overall(v, 'Short.');
+		v.github.refuseReviews({
+			kind: 'status',
+			status: 422,
+			message: 'Body is too long (maximum is 65536 characters)'
+		});
+		expect(describeReportError(failure(await post(v)))).toMatch(
+			/^The review is too long for GitHub, which takes at most 65,536 characters in a review's text and in each comment\. Nothing/
+		);
+	});
+
+	it('says the pull request has moved on when the commit reviewed is no longer part of it', async () => {
+		const w = await world();
+		await comment(w, 'src/discount.ts', 'new', 2, 2, 'On the old commit.');
+		// A force-push while the Delve still shows version 1.
+		await w.upstream.git('checkout', '--quiet', 'discount');
+		await w.upstream.write('src/discount.ts', 'export const RATE = 0.1;\n');
+		await w.upstream.git('commit', '--quiet', '--all', '--amend', '--no-edit');
+		await w.upstream.git('checkout', '--quiet', 'main');
+		await w.github.setPull(SHOP_OWNER, SHOP_NAME, DISCOUNT_PULL);
+
+		expect(describeReportError(failure(await post(w)))).toBe(
+			"acme/shop#7 has moved on: the commit of the version you are reviewing is no longer part of it on GitHub, as after a force-push. Nothing was finished, and your draft is as it was. Update this Delve to the pull request's newest version, then finish again, or finish and copy only."
+		);
+		expect(posts(w)).toHaveLength(1);
+		nothingFinished(w, 1);
+	});
+
 	it('says when the reviewer has a draft on GitHub already, or would approve their own pull request', async () => {
 		const w = await world();
 		overall(w, 'First draft.');
 		value(await post(w, { kind: 'comment', draft: true }));
 		overall(w, 'Second draft.');
 		expect(describeReportError(failure(await post(w, { kind: 'comment', draft: true })))).toMatch(
-			/^You already have a draft review of acme\/shop#7 on GitHub/
+			/^You already have a draft review of acme\/shop#7 on GitHub, and while it is a draft GitHub takes no other review from you\. .* Submit or delete that draft on GitHub, then finish again\.$/
 		);
-		await w.github.setPull(SHOP_OWNER, SHOP_NAME, { ...DISCOUNT_PULL, author: 'reviewer' });
-		expect(describeReportError(failure(await post(w, { kind: 'approve', draft: false })))).toMatch(
-			/^GitHub does not let you approve your own pull request\. .* Choose Comment/
+		// Nor a published one.
+		expect(describeReportError(failure(await post(w, COMMENT)))).toMatch(
+			/^You already have a draft review of acme\/shop#7 on GitHub/
 		);
 		expect(value(w.service.overallReview(w.id)).body).toBe('Second draft.');
 		expect(value(w.service.reviews(w.id))).toHaveLength(1);
+
+		const own = await world();
+		overall(own, 'My own.');
+		await own.github.setPull(SHOP_OWNER, SHOP_NAME, { ...DISCOUNT_PULL, author: 'reviewer' });
+		expect(
+			describeReportError(failure(await post(own, { kind: 'approve', draft: false })))
+		).toMatch(/^GitHub does not let you approve your own pull request\. .* Choose Comment/);
 	});
 
 	it('does not post to a pull request that was merged or closed', async () => {
