@@ -5,7 +5,7 @@
  * one, whose history is never borrowed. Counted as the objects in the packs
  * the stand-in sent, which the store keeps as they came.
  */
-import { open as openFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, open as openFile, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
@@ -353,5 +353,21 @@ describe('the downloads of a pull request', () => {
 			'pack-moving.pack'
 		]);
 		expect([...(await downloads(data)).keys()]).toEqual(kept);
+	});
+
+	it('under way when the daemon stopped are removed by tidying once they are old', async () => {
+		const { upstream, github } = await shop();
+		const clone = await cloneShop(upstream, join(await tempDirectory(), 'shop'));
+		const { service, data } = await serviceFor(github);
+		created(value(await service.open(clone.dir, DISCOUNT)));
+		const store = await onlyStore(data);
+		const long = (Date.now() - 2 * GRACE_PERIOD) / 1000;
+		for (const name of ['diff-delver-incoming-stopped', 'diff-delver-incoming-now']) {
+			await mkdir(join(store, name, 'pack'), { recursive: true });
+		}
+		await utimes(join(store, 'diff-delver-incoming-stopped'), long, long);
+		value(await service.tidyStores());
+		const left = (await readdir(store)).filter((name) => name.startsWith('diff-delver-incoming-'));
+		expect(left).toEqual(['diff-delver-incoming-now']);
 	});
 });

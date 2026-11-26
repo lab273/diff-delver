@@ -1,8 +1,11 @@
 /**
  * Removing what a crash left behind: folders diff delver makes for a moment and
- * removes when it is done, such as a store being built (`stores/.new-*`) or a
- * private copy of an index (`diff-delver-index-*` in the temporary folder).
- * One untouched for `GRACE_PERIOD` belongs to no work still running.
+ * removes when it is done, such as a store being built (`stores/.new-*`, swept
+ * when a store is made), a private copy of an index (`diff-delver-index-*` in
+ * the temporary folder, swept when one is made) or a pull request's download
+ * under way (`diff-delver-incoming-*` in its store, swept when the next one
+ * starts and when the stores are tidied). One untouched for `GRACE_PERIOD`
+ * belongs to no work still running.
  */
 import { readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';

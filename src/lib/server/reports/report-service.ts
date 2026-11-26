@@ -310,6 +310,7 @@ import {
 	listStores,
 	openSnapshotRef,
 	openStore,
+	removeStaleFolders,
 	readBlobSizes,
 	readSnapshotDiff,
 	readSnapshotFile,
@@ -2654,6 +2655,8 @@ export class ReportService {
 		for (const store of stores.value) {
 			const live = new Set(this.#pullRequestsIn(store.id).map(fetchKey));
 			const stray = (kept: KeptFetch): boolean => !live.has(kept.key) && kept.writtenAt < before;
+			// A download under way that a stopped daemon left, in a folder of its own.
+			await removeStaleFolders(store.dir, 'diff-delver-incoming-');
 			// The half kept first, while their `.keep` files still name their packs.
 			await removeHalfKeptFetches(store, before);
 			if ((await forgetPullRequestFetches(store, stray)) > 0) this.#discarded.add(store.id);
