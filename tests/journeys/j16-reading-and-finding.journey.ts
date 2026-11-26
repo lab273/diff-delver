@@ -341,8 +341,8 @@ test.describe('J16 Reading and finding', () => {
 		await journey.expectState(tickOf('styles/site.css'), { checked: false });
 
 		// Moving while a file is being marked wins: r does not go on from where the
-		// reader went, and the press made after the move acts there, on a file
-		// already reviewed, which it says.
+		// reader went, and the press made after the move acts there at once, without
+		// waiting for the file being marked: on a file already reviewed, it only goes on.
 		await journey.press('k');
 		await journey.expectFocused(nameOf('src/marks.ts'));
 		const moving = await journey.holdTick();
@@ -353,10 +353,43 @@ test.describe('J16 Reading and finding', () => {
 		moving.release();
 		await journey.expectState(tickOf('src/marks.ts'), { checked: true });
 		await journey.expectVisible(
-			journey.byText('src/pairs.ts is already reviewed.', { exact: true })
+			journey.byText(/^src\/marks\.ts marked as reviewed\..* 25 of 41 changes reviewed\.$/)
 		);
 		await journey.expectFocused(nameOf('styles/site.css'));
 		await journey.expectState(tickOf('styles/site.css'), { checked: false });
 		await journey.step('Moved on while a file was being marked');
+
+		// Going back while a file is being marked drops the presses of r made before
+		// going back: the file is marked, and nothing is marked where they went.
+		await journey.press('k');
+		await journey.press('k');
+		await journey.press('k');
+		await journey.expectFocused(nameOf('src/main.rs'));
+		const goingBack = await journey.holdTick();
+		await journey.press('r');
+		await goingBack.requested;
+		await journey.press('r');
+		await journey.press('k');
+		goingBack.release();
+		await journey.expectState(tickOf('src/main.rs'), { checked: true });
+		await journey.expectFocused(nameOf('src/lexer.ts'));
+		await journey.expectState(tickOf('src/lexer.ts'), { checked: false });
+		await journey.step('Went back while a file was being marked');
+
+		// A file slow to be marked holds nothing up: once the reviewer has moved, r
+		// marks the file they moved to at once, and goes on to the next one waiting,
+		// here the file still being marked, which is marked when its answer comes.
+		const slow = await journey.holdTick();
+		await journey.press('r');
+		await slow.requested;
+		await journey.press('k');
+		await journey.expectFocused(nameOf('notes/words.md'));
+		await journey.press('r');
+		await journey.expectState(tickOf('notes/words.md'), { checked: true });
+		await journey.expectFocused(nameOf('src/lexer.ts'));
+		await journey.expectState(tickOf('src/lexer.ts'), { checked: false });
+		slow.release();
+		await journey.expectState(tickOf('src/lexer.ts'), { checked: true });
+		await journey.expectFocused(nameOf('src/lexer.ts'));
 	});
 });

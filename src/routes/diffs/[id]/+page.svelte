@@ -960,7 +960,7 @@
 		await goToPart(at, true, stillGoing === undefined ? {} : { stillGoing });
 	}
 
-	/** The presses of `r`, each taken once the one before it has finished. */
+	/** The presses of `r`, each taken once the one before it has finished, since they were last dropped. */
 	let marking: Promise<void> = Promise.resolve();
 	/** How many times the presses waiting were dropped: a press made before then is not taken. */
 	let marksDropped = 0;
@@ -969,10 +969,13 @@
 	 * Drops every press of `r` still waiting, and stops the one under way going
 	 * any further, when what they were pressed on is gone or no longer what the
 	 * person expects: a tick refused, the diff drawn again in another sorting, a
-	 * dialog opened over it, or the page left.
+	 * dialog opened over it, the person moving by their own input, or the page
+	 * left. A press made after it waits for none of them, not even a tick whose
+	 * answer never comes: that one may still finish, and goes no further.
 	 */
 	function dropMarks(): void {
 		marksDropped += 1;
+		marking = Promise.resolve();
 	}
 
 	$effect(() => {
@@ -983,28 +986,35 @@
 		};
 	});
 
+	/** Whether a key press is one of `r`'s, which is no moving away while `r` marks. */
+	function marksByKey(input: Event): boolean {
+		return input instanceof KeyboardEvent && shortcutOf(keyPress(input)) === 'mark-reviewed';
+	}
+
 	/**
 	 * `r`: marks the part the person is on reviewed and goes on to the next part
 	 * waiting, as `n` does, so pressing it again and again reviews the diff part
 	 * by part. On a part already reviewed, or ignored, it only goes on. A tick
 	 * refused stays where its refusal is said. Presses are taken one after
-	 * another, each from where the one before it left the person: when they move
-	 * by their own input meanwhile, the press under way does not go on, so the
-	 * next acts where they went. A refusal, the diff drawn again, a dialog or
-	 * leaving the page drops those still waiting.
+	 * another, each from where the one before it left the person. When they move
+	 * by their own input meanwhile, the press under way goes no further and those
+	 * still waiting are dropped, so only a press made after the move acts, where
+	 * they went. A refusal, the diff drawn again, a dialog or leaving the page
+	 * drops them too.
 	 */
 	function markReviewedByKey(): void {
 		const pressedOn = viewer;
 		const pressed = marksDropped;
+		const going = (): boolean => pressed === marksDropped && !dialogOpen();
 		const run = async (): Promise<void> => {
 			if (viewer !== pressedOn) dropMarks();
-			if (pressed !== marksDropped) return;
-			await markAndMoveOn(() => pressed === marksDropped && !dialogOpen());
+			if (!going()) return;
+			await markAndMoveOn(going);
 		};
 		// A press that fails in the page says so where the page speaks, and the
 		// next press is taken as if it had not happened.
 		marking = marking.then(run).catch((error: unknown) => {
-			dropMarks();
+			if (pressed === marksDropped) dropMarks();
 			console.error(error);
 			if (viewer !== undefined)
 				viewer.announcement =
@@ -1019,6 +1029,23 @@
 		const at = currentPart();
 		const state = at === undefined ? undefined : shown.parts[at];
 		if (at === undefined || state === undefined) return;
+		// Moving away by their own input, from now on, drops this press and those
+		// waiting; pressing r again, or holding it down, is no moving away.
+		const stop = whenReaderMoves(window, dropMarks, (input) => !marksByKey(input));
+		try {
+			await markPart(shown, at, state, stillGoing);
+		} finally {
+			stop();
+		}
+	}
+
+	/** Marks the part `r` was pressed on, as `markAndMoveOn` says. */
+	async function markPart(
+		shown: Viewer,
+		at: PartIndex,
+		state: PartState,
+		stillGoing: () => boolean
+	): Promise<void> {
 		// Said, so that nobody takes the move for a tick of the part moved to.
 		const name = shownPath(state.part.path);
 		if (state.part.group.kind === 'ignored') {
@@ -1044,23 +1071,7 @@
 			await goToPart(at, false, { stillGoing });
 		}
 		if (viewer !== shown || !stillGoing()) return;
-		// Pressing r again, or holding it down, is no moving away.
-		let moved = false;
-		const stop = whenReaderMoves(
-			window,
-			() => {
-				moved = true;
-			},
-			(input) =>
-				!(input instanceof KeyboardEvent && shortcutOf(keyPress(input)) === 'mark-reviewed')
-		);
-		try {
-			await tickTarget({ kind: 'part', at }, true, {
-				moveOn: () => stillGoing() && !moved
-			});
-		} finally {
-			stop();
-		}
+		await tickTarget({ kind: 'part', at }, true, { moveOn: stillGoing });
 	}
 
 	/** The next or previous part shown, from where the person is, even a part the filter has just hidden. */
