@@ -307,6 +307,28 @@ the line in its home section. Cross-references do not affect coverage or ticks.
 The agent may split a run of adjacent `-`/`+` lines between sections. The server
 allows it and reports it as a coverage warning, because it usually reads badly.
 
+### 4.3.1 Reading order within a section
+
+By default a section's slices are read in path order. The agent may instead give a
+section a **reading order**: a list of steps, each a file, or some of a file's
+change lines in that section, so the order follows the code rather than the
+alphabet: a class's definition before its first use, a type before the function
+that takes it, the change before its test. A file's lines in one section may be
+spread over several steps, as the reading needs; each step is drawn as a part of
+its own and ticked on its own, and the file's other lines in the section are shown
+muted, as another section's are, with a link to their step.
+
+Each step may carry a short note from the agent, a sentence or two that says what
+to look at in it and why it comes here. Notes are agent-written and shown as such,
+quieter than the section's summary; they guide the reading and never judge the
+code.
+
+Lines of the section that no step names follow the steps, in path order, so
+nothing is ever left out of the reading. A reading order is part of the sorting:
+it is set on the version the agent read and carried to the next version with the
+lines it names, as cross-references are; a step whose lines are all gone is
+dropped, and new lines go after the steps until the agent orders them.
+
 ### 4.4 Tests
 
 The server guesses `role: test` from path conventions and project patterns. The
@@ -545,6 +567,7 @@ Writing:
 | `set_overview(report, version, markdown)` | What the change does, in reading order. |
 | `upsert_sections(report, version, sections[], order?, remove?)` | Create, retitle, summarise and reorder sections, set each section's cross-references to lines that live elsewhere, and remove sections that hold nothing. A report has at most 50 sections. All or nothing. |
 | `assign(report, version, items[])` | Put change lines in a section or in `ignored` (with a reason), and optionally set a role. An item names a file, a glob, hunk ids or line ranges. Returns what each item took, what it moved out of another place, what was rejected and how many lines remain. |
+| `set_reading_order(report, version, section, steps[])` | A section's reading order (4.3.1): each step a file, or line ranges of a file, already in that section, with an optional short note. Replaces the section's order; an empty list goes back to path order. All or nothing. |
 | `get_coverage(report)` | What is still uncategorised, plus warnings: empty sections, oversized sections, split change runs, tests with no section. |
 | `add_notes(report, version, notes[], replace?)` | Labelled agent notes on changed line ranges, at most 50 a call and 100 a version. A note the version already holds is passed over, so a retry adds nothing and a dismissed note stays dismissed; `replace` removes the version's notes the reviewer has not dismissed or promoted. |
 
@@ -1082,6 +1105,7 @@ guidance says [how journeys are tested](DEVELOPING.md#testing).
 | J19 | Move between Delves | go from a Delve to another through the panel that lists the others, open the choose page for the Delve's repository from the panel and open a branch there, and reach the list from the header, where each repository offers the same way to open something new, with no terminal |
 | J20 | Have an agent sort this Delve | on a Delve no agent has sorted, open the steps under "Not sorted yet", copy the command for an agent, the folder and the sentence that names this Delve, see the page say an agent connected, and see the steps give way to the agent's sections |
 | J21 | The overall review | write an overall review in the bar pinned to the bottom of a Delve, put it away and see its first words and how many comments there are, change it, and find it at the top of the finished review |
+| J22 | Read a section in the agent's order | open a section the agent ordered, read its steps in order with the agent's note on each, a file split over two steps among them, tick each step and move on with `r`, and see lines no step names come last |
 
 The agent interface is also tried with real coding agents. Recorded sessions of
 Claude Code and Codex sorting fixture diffs through the MCP server are kept in the
