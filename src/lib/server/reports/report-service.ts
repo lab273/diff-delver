@@ -1160,6 +1160,15 @@ function surelyNotPosted(problem: ReviewPostProblem): boolean {
 	}
 }
 
+/** The refusal of a finish or a post while another of the same Delve's is under way. */
+function beingFinished(): Result<never, ReportError> {
+	return err({
+		kind: 'ReviewNotPosted',
+		pullRequest: undefined,
+		problem: { kind: 'being-posted' }
+	});
+}
+
 export class ReportService {
 	readonly #db: Database;
 	readonly #dataDirectory: AbsolutePath;
@@ -1195,8 +1204,11 @@ export class ReportService {
 	readonly #sorting = new SortingWrites();
 	readonly #frameVersions = new FrameVersions();
 	readonly #github: GitHubAccess;
-	/** Delves whose draft is being posted to GitHub now, so it is neither posted nor finished twice. */
-	readonly #posting = new Set<ReportId>();
+	/**
+	 * Delves whose draft is being finished or posted to GitHub now, by either
+	 * press, so it is neither posted nor finished twice.
+	 */
+	readonly #finishing = new Set<ReportId>();
 	/** What GitHub last said of each pull request, by its identity, and when. */
 	readonly #pullRequests = new Map<string, KeptPullRequest>();
 	/**
@@ -2278,13 +2290,20 @@ export class ReportService {
 		seen: RevisionNumber,
 		shown: ShownDraft
 	): Promise<Result<JustFinished, ReportError>> {
-		if (this.#posting.has(id)) {
-			return err({
-				kind: 'ReviewNotPosted',
-				pullRequest: undefined,
-				problem: { kind: 'being-posted' }
-			});
+		if (this.#finishing.has(id)) return beingFinished();
+		this.#finishing.add(id);
+		try {
+			return await this.#finish(id, seen, shown);
+		} finally {
+			this.#finishing.delete(id);
 		}
+	}
+
+	async #finish(
+		id: ReportId,
+		seen: RevisionNumber,
+		shown: ShownDraft
+	): Promise<Result<JustFinished, ReportError>> {
 		const prepared = await this.#prepareReview(id, seen, shown);
 		if (!prepared.ok) return prepared;
 		const { found, diff, draft, quoted } = prepared.value;
@@ -2352,18 +2371,12 @@ export class ReportService {
 		shown: ShownDraft,
 		posting: GitHubPosting
 	): Promise<Result<JustFinished, ReportError>> {
-		if (this.#posting.has(id)) {
-			return err({
-				kind: 'ReviewNotPosted',
-				pullRequest: undefined,
-				problem: { kind: 'being-posted' }
-			});
-		}
-		this.#posting.add(id);
+		if (this.#finishing.has(id)) return beingFinished();
+		this.#finishing.add(id);
 		try {
 			return await this.#post(id, seen, shown, posting);
 		} finally {
-			this.#posting.delete(id);
+			this.#finishing.delete(id);
 		}
 	}
 
@@ -2422,6 +2435,20 @@ export class ReportService {
 		const first = review(false);
 		const edits = new Map(draft.comments.map((c) => [c.id, c.edits]));
 		const note = this.#db.write((q): Result<undefined, ReportError> => {
+			// Checked again where it is noted: the draft as the page showed it, on its version,
+			// and no review finished since the text was made.
+			const still = andThen(currentAsSeen(q, id, seen), () =>
+				andThen(draftOf(q, id), (draftNow) =>
+					andThen(finishable(q, id, draftNow, shown), () =>
+						andThen(latestReviewNumber(q, id), (latest) =>
+							nextReviewNumber(latest) === number
+								? ok(undefined)
+								: err<ReportError>({ kind: 'DraftChanged' })
+						)
+					)
+				)
+			);
+			if (!still.ok) return still;
 			notePosting(
 				q,
 				id,

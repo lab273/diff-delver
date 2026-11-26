@@ -457,6 +457,34 @@ describe('posting a review to its pull request', () => {
 		expect(value(w.service.reviews(w.id))).toHaveLength(1);
 	});
 
+	it('never posts a draft being finished and copied only, nor finishes one being posted', async () => {
+		const w = await world();
+		overall(w, 'Finished first.');
+		const draft = shown(w);
+		const [copied, posted] = await Promise.all([
+			w.service.finishReview(w.id, FIRST, draft),
+			w.service.postReview(w.id, FIRST, draft, COMMENT)
+		]);
+		expect(value(copied).posted).toBeUndefined();
+		expect(failure(posted)).toMatchObject({ problem: { kind: 'being-posted' } });
+		expect(describeReportError(failure(posted))).toMatch(
+			/^This review is being finished or posted to GitHub already/
+		);
+		expect(posts(w)).toEqual([]);
+		expect(value(w.service.reviews(w.id))).toHaveLength(1);
+
+		overall(w, 'Posted first.');
+		const again = shown(w);
+		const [postedNow, copiedNow] = await Promise.all([
+			w.service.postReview(w.id, FIRST, again, COMMENT),
+			w.service.finishReview(w.id, FIRST, again)
+		]);
+		expect(value(postedNow).posted?.postedAs).toBe('comment');
+		expect(failure(copiedNow)).toMatchObject({ problem: { kind: 'being-posted' } });
+		expect(reviewsOnGitHub(w)).toHaveLength(1);
+		expect(value(w.service.reviews(w.id)).map((r) => r.number)).toEqual([1, 2]);
+	});
+
 	it('still finishes and copies a pull request’s review without posting it', async () => {
 		const w = await world();
 		overall(w, 'Just for my agent.');
