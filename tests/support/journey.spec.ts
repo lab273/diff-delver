@@ -130,6 +130,23 @@ test.describe('the journey helper acts with the keyboard', () => {
 		await journey.step('Filled in');
 	});
 
+	test('holds a key down, so that it repeats', async ({ planted }) => {
+		const journey = await planted(
+			pageWith(`<h1>Held</h1>
+<p id="presses">None</p>
+<script>
+const presses = [];
+addEventListener('keydown', (event) => {
+	presses.push(event.repeat ? 'repeat' : 'press');
+	document.getElementById('presses').textContent = presses.join(', ');
+});
+</script>`)
+		);
+		await journey.holdKey('r', 3);
+		await journey.expectText(journey.byText(/^press/), 'press, repeat, repeat');
+		await journey.step('Held');
+	});
+
 	test('lists the whole tab order, even when two controls share a name', async ({ planted }) => {
 		const journey = await planted(
 			pageWith(`<h1>Links</h1>

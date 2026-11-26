@@ -22,6 +22,22 @@ describe('telling the reader’s moving of the page from the page’s', () => {
 		}
 	});
 
+	it('passes over input that is no moving away, and hears what comes after it', () => {
+		const target = new EventTarget();
+		let heard = 0;
+		whenReaderMoves(
+			target,
+			() => {
+				heard += 1;
+			},
+			(input) => input.type !== 'keydown'
+		);
+		target.dispatchEvent(new Event('keydown'));
+		expect(heard).toBe(0);
+		target.dispatchEvent(new Event('wheel'));
+		expect(heard).toBe(1);
+	});
+
 	it('hears nothing once it stops listening', () => {
 		const target = new EventTarget();
 		let heard = 0;

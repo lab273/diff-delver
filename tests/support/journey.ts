@@ -286,6 +286,11 @@ export interface Journey extends Finder {
 	 * `PageDown` and `End` to scroll a long page.
 	 */
 	press(key: string): Promise<void>;
+	/**
+	 * Holds a key down for `presses` presses, as when it is held until it
+	 * repeats: every press after the first is a repeat. Then lets it go.
+	 */
+	holdKey(key: string, presses: number): Promise<void>;
 	/** Presses a scrolling key and waits until the page has stopped at its new position. */
 	scroll(key: 'PageDown' | 'PageUp'): Promise<void>;
 	/** Checks whether a disclosure’s content is animated when it is closed by an action. */
@@ -1058,6 +1063,12 @@ export async function startJourney(
 		async press(key) {
 			await ready();
 			await page.keyboard.press(key);
+		},
+		async holdKey(key, presses) {
+			await ready();
+			// Playwright marks each press of a key already down as a repeat.
+			for (let n = 0; n < presses; n += 1) await page.keyboard.down(key);
+			await page.keyboard.up(key);
 		},
 		async scroll(key) {
 			await ready();

@@ -61,7 +61,7 @@
 	import TickRefused from '#lib/ui/viewer/TickRefused.svelte';
 	import ProgressBar from '#lib/ui/viewer/ProgressBar.svelte';
 	import Shortcuts from '#lib/ui/viewer/Shortcuts.svelte';
-	import { isFindKey, shortcutOf } from '#lib/ui/viewer/keys.ts';
+	import { actsOnRepeat, isFindKey, shortcutOf, type KeyPress } from '#lib/ui/viewer/keys.ts';
 	import SearchBar from '#lib/ui/viewer/SearchBar.svelte';
 	import type { CurrentMatch } from '#lib/ui/viewer/search.svelte.ts';
 	import {
@@ -1013,7 +1013,24 @@
 		} else {
 			await goToPart(at, false);
 		}
-		if (viewer === shown) await tickTarget({ kind: 'part', at }, true, { moveOn: true });
+		if (viewer !== shown) return;
+		// Pressing r again, or holding it down, is no moving away.
+		let moved = false;
+		const stop = whenReaderMoves(
+			window,
+			() => {
+				moved = true;
+			},
+			(input) =>
+				!(input instanceof KeyboardEvent && shortcutOf(keyPress(input)) === 'mark-reviewed')
+		);
+		try {
+			await tickTarget({ kind: 'part', at }, true, {
+				moveOn: () => !moved || marksWaiting > 0
+			});
+		} finally {
+			stop();
+		}
 	}
 
 	/** The next or previous part shown, from where the person is, even a part the filter has just hidden. */
@@ -1042,7 +1059,7 @@
 		target: TickTarget,
 		outcome: Awaited<ReturnType<Viewer['tick']>>,
 		readerMoved: boolean,
-		moveOn: boolean
+		moveOn: (() => boolean) | undefined
 	): Promise<void> {
 		if (viewer === undefined) return;
 		switch (outcome.kind) {
@@ -1066,7 +1083,7 @@
 				if (viewer !== beforeRefresh) return;
 				// `r` goes on to the next part waiting, unless the reader moved away
 				// meanwhile; another `r` pressed while this one ticked is no moving away.
-				if (moveOn && (!readerMoved || marksWaiting > 0)) {
+				if (moveOn?.() === true) {
 					// On the last part the tick's own words say everything is reviewed, so
 					// they stay, and focus goes to the notice that says so.
 					if (outcome.allDone) document.getElementById(EVERYTHING_REVIEWED)?.focus();
@@ -1105,7 +1122,7 @@
 	async function tickTarget(
 		target: TickTarget,
 		reviewed: boolean,
-		{ moveOn = false }: { moveOn?: boolean } = {}
+		{ moveOn }: { moveOn?: () => boolean } = {}
 	): Promise<void> {
 		const shown = viewer;
 		if (shown === undefined) return;
@@ -1708,15 +1725,10 @@
 		await goToPart(fallback.index, true, { stillGoing });
 	}
 
-	function onKey(event: KeyboardEvent): void {
-		if (viewer === undefined || helpOpen || fileOpener || fileReaderOpen || switcher.open) return;
+	/** A key press as the shortcuts read it. */
+	function keyPress(event: KeyboardEvent): KeyPress {
 		const target = event.target instanceof HTMLElement ? event.target : null;
-		if (isFindKey(event, target?.id === SEARCH_INPUT)) {
-			event.preventDefault();
-			void openSearch();
-			return;
-		}
-		const action = shortcutOf({
+		return {
 			key: event.key,
 			ctrlKey: event.ctrlKey,
 			altKey: event.altKey,
@@ -1729,9 +1741,21 @@
 							...(target instanceof HTMLInputElement ? { type: target.type } : {}),
 							isContentEditable: target.isContentEditable
 						}
-		});
+		};
+	}
+
+	function onKey(event: KeyboardEvent): void {
+		if (viewer === undefined || helpOpen || fileOpener || fileReaderOpen || switcher.open) return;
+		const target = event.target instanceof HTMLElement ? event.target : null;
+		if (isFindKey(event, target?.id === SEARCH_INPUT)) {
+			event.preventDefault();
+			void openSearch();
+			return;
+		}
+		const action = shortcutOf(keyPress(event));
 		if (action === undefined) return;
 		event.preventDefault();
+		if (event.repeat && !actsOnRepeat(action)) return;
 		const at = action === 'toggle-open' || action === 'whole-file' ? currentPart() : undefined;
 		const state = at === undefined ? undefined : viewer.parts[at];
 		switch (action) {

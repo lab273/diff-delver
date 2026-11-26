@@ -11,14 +11,20 @@ export const READER_INPUT = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as
 
 /**
  * Calls `moved` once, the first time the reader moves the page by their own
- * input on `target` (the window); the function returned stops listening.
+ * input on `target` (the window), leaving out input `counts` says is no moving
+ * away; the function returned stops listening.
  */
-export function whenReaderMoves(target: EventTarget, moved: () => void): () => void {
+export function whenReaderMoves(
+	target: EventTarget,
+	moved: () => void,
+	counts: (input: Event) => boolean = () => true
+): () => void {
 	const options = { capture: true, passive: true } as const;
 	const stop = (): void => {
 		for (const type of READER_INPUT) target.removeEventListener(type, heard, options);
 	};
-	const heard = (): void => {
+	const heard = (input: Event): void => {
+		if (!counts(input)) return;
 		stop();
 		moved();
 	};

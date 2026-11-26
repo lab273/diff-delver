@@ -150,6 +150,19 @@ export function isFindKey(
 	return press.key === 'f' || press.key === 'F';
 }
 
+/** The shortcuts that move from file to file, which a key held down repeats. */
+const REPEATED: ReadonlySet<KeyAction> = new Set(['next-part', 'previous-part', 'next-unread']);
+
+/**
+ * Whether a shortcut acts again on the presses a key held down repeats. Only
+ * moving does: every other acts once however long its key is held, so holding
+ * `r` marks one file, not a file for each repeat, and holding `o` does not
+ * open and close a file over and over.
+ */
+export function actsOnRepeat(action: KeyAction): boolean {
+	return REPEATED.has(action);
+}
+
 /** The shortcut a key press asks for, or undefined when it is not one here. */
 export function shortcutOf(press: KeyPress): KeyAction | undefined {
 	if (press.ctrlKey || press.altKey || press.metaKey) return undefined;

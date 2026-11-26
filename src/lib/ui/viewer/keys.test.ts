@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isFindKey, SHORTCUTS, shortcutOf, type KeyPress } from './keys.ts';
+import { actsOnRepeat, isFindKey, SHORTCUTS, shortcutOf, type KeyPress } from './keys.ts';
 
 function press(
 	key: string,
@@ -10,6 +10,15 @@ function press(
 }
 
 describe('the diff page’s shortcuts', () => {
+	it('repeat only to move, while their key is held down', () => {
+		expect(actsOnRepeat('next-part')).toBe(true);
+		expect(actsOnRepeat('previous-part')).toBe(true);
+		expect(actsOnRepeat('next-unread')).toBe(true);
+		expect(actsOnRepeat('mark-reviewed')).toBe(false);
+		expect(actsOnRepeat('toggle-open')).toBe(false);
+		expect(actsOnRepeat('help')).toBe(false);
+	});
+
 	it('maps the keys people know to what the page does', () => {
 		expect(shortcutOf(press('n'))).toBe('next-unread');
 		expect(shortcutOf(press('j'))).toBe('next-part');
