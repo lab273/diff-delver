@@ -20,7 +20,11 @@
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { describeApiError } from '#lib/api/client.ts';
-	import type { FinishedReviewView, ReviewPreviewView } from '#lib/api/schemas.ts';
+	import type {
+		FinishedReviewView,
+		JustFinishedView,
+		ReviewPreviewView
+	} from '#lib/api/schemas.ts';
 	import { textToCopy } from '#lib/core/agent-setup/text-to-copy.tiny.ts';
 	import { NO_EDITS } from '#lib/core/edit-count.tiny.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
@@ -194,9 +198,15 @@
 	}
 
 	/** What finishing did, in words: finished, posted and copied. */
-	function finishedWords(review: FinishedReviewView, copied: boolean): string {
+	function finishedWords(review: JustFinishedView, copied: boolean): string {
 		const n = String(review.number);
 		const posted = review.posted;
+		if (review.earlier !== null) {
+			const kept = review.earlier.draftKept
+				? ` What you added or changed since is still in your draft, for review ${String(review.number + 1)}.`
+				: '';
+			return `Your earlier post of review ${n} had reached GitHub, so it was not posted again: review ${n} is finished as it was posted then${copied ? ', and copied' : ''}.${kept}`;
+		}
 		if (posted === null) {
 			return copied
 				? `Review ${n} is finished and copied. Paste it to your agent, or ask your agent to act on your review in diff delver.`

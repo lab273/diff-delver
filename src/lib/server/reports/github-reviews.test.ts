@@ -371,6 +371,64 @@ describe('posting a review to its pull request', () => {
 		expect(value(w.service.draftComments(w.id))).toEqual([]);
 	});
 
+	it('records an unanswered post as it was sent, and keeps what was added or changed since in the draft', async () => {
+		const w = await world();
+		await comment(w, 'src/discount.ts', 'new', 2, 2, 'Sent and kept.');
+		await comment(w, 'src/price.ts', 'new', 14, 14, 'Sent, then changed.');
+		overall(w, 'The overall review sent.');
+		w.github.refuseReviews({ kind: 'drop-answer' });
+		expect(failure(await post(w, { kind: 'approve', draft: false }))).toMatchObject({
+			problem: { kind: 'unreachable' }
+		});
+
+		// Meanwhile the reviewer adds a comment, changes one and the overall review, and picks another kind.
+		await comment(w, 'src/discount.ts', 'new', 3, 3, 'Added since.');
+		const [, changed] = value(w.service.draftComments(w.id));
+		if (changed === undefined) throw new Error('no comment');
+		value(w.service.editDraftComment(w.id, FIRST, changed.id, changed.edits, 'Changed since.'));
+		overall(w, 'The overall review changed since.');
+		const review = value(await post(w, COMMENT));
+
+		expect(posts(w)).toHaveLength(1);
+		// Recorded as GitHub has it: approved, with what was sent then.
+		expect(review.earlier).toEqual({ draftKept: true });
+		expect(review.posted).toMatchObject({ postedAs: 'approve', inText: 0 });
+		expect(review.comments).toBe(2);
+		expect(review.text).toContain('> Sent and kept.');
+		expect(review.text).toContain('> Sent, then changed.');
+		expect(review.text).toContain('The overall review sent.');
+		expect(review.text).not.toContain('since');
+		expect(value(w.service.review(w.id))?.text).toBe(review.text);
+		// What was added or changed since stays in the draft, for the next review; the
+		// comment changed since is a new one, since its earlier words are finished.
+		const left = value(w.service.draftComments(w.id));
+		expect(left.map((c) => c.body)).toEqual(['Added since.', 'Changed since.']);
+		expect(left.map((c) => c.id)).not.toContain(changed.id);
+		expect(value(w.service.overallReview(w.id)).body).toBe('The overall review changed since.');
+		const next = value(await post(w));
+		expect(next.number).toBe(2);
+		expect(next.earlier).toBeUndefined();
+		expect(reviewsOnGitHub(w).map((r) => r.state)).toEqual(['APPROVED', 'COMMENTED']);
+	});
+
+	it('records an unanswered fallback post with every comment in its text, as it was sent', async () => {
+		const w = await world();
+		await comment(w, 'src/discount.ts', 'new', 2, 2, 'One.');
+		w.github.refuseReviews(
+			{
+				kind: 'status',
+				status: 422,
+				message: 'pull_request_review_thread.line must be part of the diff'
+			},
+			{ kind: 'drop-answer' }
+		);
+		failure(await post(w, { kind: 'comment', draft: true }));
+		const review = value(await post(w));
+		expect(review.posted).toMatchObject({ postedAs: 'draft', inText: 1, address: `${PULL}/files` });
+		expect(review.earlier).toEqual({ draftKept: false });
+		expect(value(w.service.draftComments(w.id))).toEqual([]);
+	});
+
 	it('posts once when an unanswered post never reached GitHub, after looking for it there', async () => {
 		const w = await world();
 		overall(w, 'Once.');

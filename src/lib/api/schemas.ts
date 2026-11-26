@@ -1143,6 +1143,17 @@ export const FinishedReviewSchema = z.strictObject({
 });
 export type FinishedReviewView = z.infer<typeof FinishedReviewSchema>;
 
+/**
+ * POST /api/diffs/[id]/reviews's answer: the review just finished, and, when
+ * it is one an earlier post had put on GitHub whose answer never came, found
+ * there and finished as it was posted then, whether anything added or
+ * changed since is still in the draft.
+ */
+export const JustFinishedSchema = FinishedReviewSchema.extend({
+	earlier: z.strictObject({ draftKept: z.boolean() }).nullable()
+});
+export type JustFinishedView = z.infer<typeof JustFinishedSchema>;
+
 /** GET /api/diffs/[id]/reviews: every finished review, oldest first, with the daemon's time. */
 export const FinishedReviewsSchema = z.strictObject({
 	now: timestamp,

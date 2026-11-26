@@ -30,7 +30,9 @@ export type TableName =
 	| 'review_comments'
 	| 'review_marks'
 	| 'review_deliveries'
-	| 'github_review_posts';
+	| 'github_review_posts'
+	| 'github_review_post_comments'
+	| 'github_review_post_marks';
 
 /**
  * The file could not be opened or made (a missing folder, no permission, a full
@@ -206,6 +208,8 @@ function tableInWords(table: TableName): string {
 		case 'review_deliveries':
 			return 'where a finished review was posted';
 		case 'github_review_posts':
+		case 'github_review_post_comments':
+		case 'github_review_post_marks':
 			return 'a review being posted to GitHub';
 	}
 }
@@ -237,6 +241,8 @@ function storedRowAdvice(table: TableName): string {
 		case 'review_deliveries':
 			return 'Restore the database from a backup to recover the finished reviews.';
 		case 'github_review_posts':
+		case 'github_review_post_comments':
+		case 'github_review_post_marks':
 			return 'Look on the pull request on GitHub for the review, then restore the database from a backup or delete that Delve from the list of Delves.';
 		case 'settings':
 			return 'Change any setting on a Delve’s page, which stores it again.';

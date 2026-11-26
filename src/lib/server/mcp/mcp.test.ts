@@ -1159,7 +1159,9 @@ describe('/mcp over HTTP', () => {
 		const missing = await session.call('get_review', { report, review: 2 });
 		expect(missing.refused).toBe(true);
 		expect(missing.text).toMatch(/There is no review 2: the person has finished 1 review/);
-		expect(value(await browser.reviews(id)).reviews).toEqual([finished]);
+		const { earlier, ...review } = finished;
+		expect(earlier).toBeNull();
+		expect(value(await browser.reviews(id)).reviews).toEqual([review]);
 	});
 
 	it('is served only with the token in Authorization, never on the cookie', async () => {

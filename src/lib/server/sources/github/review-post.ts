@@ -12,7 +12,8 @@ import type { CommitId } from '#lib/core/commit-id.tiny.ts';
 import {
 	gitHubEvent,
 	type GitHubLineComment,
-	type GitHubReviewKind
+	type GitHubReviewKind,
+	type PostedAs
 } from '#lib/core/github/github-review.ts';
 import {
 	parseGitHubReviewId,
@@ -27,10 +28,30 @@ import type { GitHubAccess } from './github-access.ts';
 import { ask, refusal, repositoryPath, type Answer } from './github-api.ts';
 import type { GitHubApiError, GitHubRateLimited } from './github-error.ts';
 
-/** A review on GitHub: its id, and whether it is pending, a draft only its author sees. */
+/**
+ * A review on GitHub: its id, and what it is there, from its state: a draft
+ * (pending, which only its author sees) or published as one of the kinds;
+ * undefined for a state that is none of them, such as a dismissed review.
+ */
 export interface GitHubReviewFound {
 	readonly id: GitHubReviewId;
-	readonly pending: boolean;
+	readonly postedAs: PostedAs | undefined;
+}
+
+/** What a review's state on GitHub says it was posted as. */
+function postedAsOf(state: string): PostedAs | undefined {
+	switch (state) {
+		case 'PENDING':
+			return 'draft';
+		case 'COMMENTED':
+			return 'comment';
+		case 'APPROVED':
+			return 'approve';
+		case 'CHANGES_REQUESTED':
+			return 'request-changes';
+		default:
+			return undefined;
+	}
 }
 
 /** The review as it is posted: on which commit, published as which kind or left a draft. */
@@ -158,7 +179,7 @@ export async function postReview(
 	}
 	const read = reviewShape.safeParse(asked.value.body);
 	if (!read.success) return err({ kind: 'unreadable', status: asked.value.status });
-	return ok({ id: read.data.id, pending: read.data.state === 'PENDING' });
+	return ok({ id: read.data.id, postedAs: postedAsOf(read.data.state) });
 }
 
 /** At most this many pages of a pull request's reviews are looked through for one posted before. */
@@ -192,7 +213,7 @@ export async function findReview(
 		const read = z.array(reviewShape).safeParse(asked.value.body);
 		if (!read.success) return err({ kind: 'unreadable', status: asked.value.status });
 		const found = read.data.find((r) => (r.body ?? '').includes(marker));
-		if (found !== undefined) return ok({ id: found.id, pending: found.state === 'PENDING' });
+		if (found !== undefined) return ok({ id: found.id, postedAs: postedAsOf(found.state) });
 		if (!/rel="next"/.test(asked.value.headers.get('link') ?? '')) return ok(undefined);
 	}
 	return ok(undefined);

@@ -17,14 +17,14 @@ import {
 	ApiErrorBodySchema,
 	DraftCommentSchema,
 	DraftCommentsSchema,
-	FinishedReviewSchema,
+	JustFinishedSchema,
 	FinishedReviewsSchema,
 	ReviewPreviewSchema,
 	OverallReviewSchema,
 	type OverallReviewView,
 	type SaveOverallReview,
 	type FinishReview,
-	type FinishedReviewView,
+	type JustFinishedView,
 	type FinishedReviewsView,
 	type ReviewPreviewView,
 	type DraftCommentView,
@@ -474,8 +474,8 @@ export class ApiClient {
 	}
 
 	/** Finishes the draft the page showed as the Delve's next review. */
-	finishReview(id: ReportId, request: FinishReview): Promise<Result<FinishedReviewView, ApiError>> {
-		return this.#call('POST', `/api/diffs/${id}/reviews`, FinishedReviewSchema, request);
+	finishReview(id: ReportId, request: FinishReview): Promise<Result<JustFinishedView, ApiError>> {
+		return this.#call('POST', `/api/diffs/${id}/reviews`, JustFinishedSchema, request);
 	}
 
 	/** The Delve's finished reviews, oldest first. */

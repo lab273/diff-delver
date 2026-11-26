@@ -2,7 +2,7 @@ import { FinishReviewSchema, type FinishedReviewsView } from '#lib/api/schemas.t
 import { PRIVATE } from '#lib/server/api/comments.ts';
 import { serviceFailure } from '#lib/server/api/present.ts';
 import { diffId, readBody } from '#lib/server/api/request.ts';
-import { reviewsRefused, reviewView } from '#lib/server/api/reviews.ts';
+import { justFinishedView, reviewsRefused, reviewView } from '#lib/server/api/reviews.ts';
 import type { RequestHandler } from './$types';
 
 /** The Delve's finished reviews, oldest first, each with the text that was handed over. */
@@ -38,6 +38,6 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 			? await locals.daemon.service.finishReview(id.value, parsed.value.version, shown)
 			: await locals.daemon.service.postReview(id.value, parsed.value.version, shown, github);
 	return finished.ok
-		? Response.json(reviewView(finished.value), { status: 201, headers: PRIVATE })
+		? Response.json(justFinishedView(finished.value), { status: 201, headers: PRIVATE })
 		: serviceFailure(finished.error);
 };

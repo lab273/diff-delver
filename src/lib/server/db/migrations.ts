@@ -515,14 +515,63 @@ CREATE TABLE review_deliveries (
 ) STRICT;
 -- A review of the draft that is being posted to GitHub, written before it is
 -- sent and removed once it is recorded or GitHub refused it: the number it is
--- posted as. A row left by a daemon stopped while posting, or by GitHub not
--- answering, means it may be on GitHub already, so the next post of that
--- number looks for its mark there first and is never posted twice.
+-- posted as, and exactly what was sent, as the review would record it: the
+-- revision, the text handed over, how far the review had got, the overall
+-- review and how many times its words had been changed, how it was asked to
+-- be posted, whether every comment went in its text (as when GitHub refused
+-- their lines and it was sent again) and how many did. A row left by a daemon
+-- stopped while posting, or by GitHub not answering, means it may be on
+-- GitHub already, so the next finish of that number looks for its mark there
+-- first, never posts it twice, and records what was sent, not the draft as it
+-- is by then.
 CREATE TABLE github_review_posts (
 	report_id TEXT PRIMARY KEY REFERENCES reports (id) ON DELETE CASCADE,
 	review_number INTEGER NOT NULL CHECK (review_number >= 1),
-	started_at INTEGER NOT NULL CHECK (started_at >= 0)
+	started_at INTEGER NOT NULL CHECK (started_at >= 0),
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	export_text TEXT NOT NULL CHECK (export_text <> ''),
+	counted INTEGER NOT NULL CHECK (counted >= 0),
+	reviewed INTEGER NOT NULL CHECK (reviewed >= 0 AND reviewed <= counted),
+	ignored INTEGER NOT NULL CHECK (ignored >= 0),
+	uncategorised INTEGER NOT NULL CHECK (uncategorised >= 0 AND uncategorised <= counted),
+	summary TEXT NOT NULL,
+	summary_edits INTEGER NOT NULL CHECK (summary_edits >= 0),
+	posted_as TEXT NOT NULL CHECK (posted_as IN ('comment', 'approve', 'request-changes', 'draft')),
+	all_in_text INTEGER NOT NULL CHECK (all_in_text IN (0, 1)),
+	in_text INTEGER NOT NULL CHECK (in_text >= 0)
 ) STRICT;
+-- The comments of a review being posted, as review_comments will hold them,
+-- each with how many times its words had been changed when it was sent, so
+-- a comment changed since stays in the draft.
+CREATE TABLE github_review_post_comments (
+	report_id TEXT NOT NULL REFERENCES github_review_posts (report_id) ON DELETE CASCADE,
+	position INTEGER NOT NULL CHECK (position >= 1),
+	draft_comment_id INTEGER NOT NULL CHECK (draft_comment_id >= 1),
+	edits INTEGER NOT NULL CHECK (edits >= 0),
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new')),
+	first_line INTEGER NOT NULL CHECK (first_line >= 1),
+	last_line INTEGER NOT NULL CHECK (last_line >= first_line),
+	body TEXT NOT NULL CHECK (body <> ''),
+	written_at INTEGER NOT NULL CHECK (written_at >= 0),
+	quoted TEXT NOT NULL,
+	PRIMARY KEY (report_id, position)
+) STRICT;
+-- The reviewed marks of a review being posted, as they were when it was sent,
+-- shaped like review_marks.
+CREATE TABLE github_review_post_marks (
+	report_id TEXT NOT NULL REFERENCES github_review_posts (report_id) ON DELETE CASCADE,
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new', 'file')),
+	first_line INTEGER NOT NULL,
+	last_line INTEGER NOT NULL,
+	PRIMARY KEY (report_id, path, side, first_line),
+	CHECK ((side = 'file') = (first_line = 0 AND last_line = 0)),
+	CHECK (side = 'file' OR (first_line >= 1 AND last_line >= first_line))
+) STRICT, WITHOUT ROWID;
+CREATE INDEX github_review_posts_by_revision ON github_review_posts (revision_id);
+CREATE INDEX github_review_post_comments_by_revision ON github_review_post_comments (revision_id);
 `
 	}
 ];

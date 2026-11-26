@@ -120,6 +120,22 @@ export function updateDraftComment(
 	);
 }
 
+/**
+ * Gives a draft comment a new id, keeping all else: for one whose earlier
+ * words were finished as part of a review while its new words stay in the
+ * draft, since a finished comment's id is never in the draft again.
+ */
+export function renumberDraftComment(q: Queries, id: DraftCommentId): void {
+	q.run(
+		`INSERT INTO draft_comments (revision_id, path, side, first_line, last_line, body, written_at,
+			edited_at, edits)
+		 SELECT revision_id, path, side, first_line, last_line, body, written_at, edited_at, edits
+		 FROM draft_comments WHERE id = ?`,
+		id
+	);
+	deleteDraftComment(q, id);
+}
+
 export function deleteDraftComment(q: Queries, id: DraftCommentId): void {
 	q.run('DELETE FROM draft_comments WHERE id = ?', id);
 }

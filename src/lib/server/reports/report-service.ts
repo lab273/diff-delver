@@ -115,7 +115,7 @@ import type { AgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { overviewOf, setOverview as storeOverview } from '../db/tables/overviews.ts';
 import { referenceRowsFor, replaceReferenceRows } from '../db/tables/section-references.ts';
 import type { DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
-import type { EditCount } from '#lib/core/edit-count.tiny.ts';
+import { NO_EDITS, type EditCount } from '#lib/core/edit-count.tiny.ts';
 import {
 	isCommentBody,
 	type CommentAnchor,
@@ -129,6 +129,7 @@ import {
 } from '#lib/core/review/overall-review.ts';
 import {
 	deleteDraftComment,
+	renumberDraftComment,
 	draftCommentOf,
 	draftCommentsOf,
 	insertDraftComment,
@@ -143,7 +144,13 @@ import {
 import { copyReviewMarks } from '../db/tables/review-marks.ts';
 import { insertReview, latestReviewNumber, reviewOf, reviewsOf } from '../db/tables/reviews.ts';
 import { insertDelivery } from '../db/tables/review-deliveries.ts';
-import { forgetPosting, notePosting, reviewBeingPosted } from '../db/tables/github-review-posts.ts';
+import {
+	copyNotedReview,
+	forgetPosting,
+	noteAllInText,
+	notePosting,
+	reviewBeingPosted
+} from '../db/tables/github-review-posts.ts';
 import {
 	gitHubReview,
 	postedAs,
@@ -156,8 +163,7 @@ import {
 	MAX_QUOTED_LINES,
 	notReviewed,
 	renderReviewExport,
-	type FinishedReview,
-	type GitHubDelivery
+	type FinishedReview
 } from '#lib/core/review/review-export.ts';
 import { nextReviewNumber, type ReviewNumber } from '#lib/core/review-number.tiny.ts';
 import { markReviewed, type ReviewTarget } from '#lib/core/review/mark-reviewed.ts';
@@ -1005,6 +1011,15 @@ export interface ReviewPreview {
 	readonly comments: readonly DraftComment[];
 	/** The draft's overall review, as it is now. */
 	readonly overall: OverallReview;
+}
+
+/**
+ * A review just finished, and when it is one an earlier post had put on
+ * GitHub, whose answer never came, found there and recorded as it was sent:
+ * whether anything added or changed since stays in the draft.
+ */
+export interface JustFinished extends FinishedReview {
+	readonly earlier: { readonly draftKept: boolean } | undefined;
 }
 
 /** The draft as stored: its comments and its overall review. */
@@ -2262,7 +2277,7 @@ export class ReportService {
 		id: ReportId,
 		seen: RevisionNumber,
 		shown: ShownDraft
-	): Promise<Result<FinishedReview, ReportError>> {
+	): Promise<Result<JustFinished, ReportError>> {
 		if (this.#posting.has(id)) {
 			return err({
 				kind: 'ReviewNotPosted',
@@ -2274,16 +2289,16 @@ export class ReportService {
 		if (!prepared.ok) return prepared;
 		const { found, diff, draft, quoted } = prepared.value;
 		return this.#db.write((q) =>
-			andThen(currentAsSeen(q, id, seen), (now): Result<FinishedReview, ReportError> => {
+			andThen(currentAsSeen(q, id, seen), (now): Result<JustFinished, ReportError> => {
 				if (now.revision.id !== found.revision.id) {
 					return err({ kind: 'RevisionChangedWhileSaving', report: id });
 				}
-				return andThen(draftOf(q, id), (draftNow): Result<FinishedReview, ReportError> => {
+				return andThen(draftOf(q, id), (draftNow): Result<JustFinished, ReportError> => {
 					const may = finishable(q, id, draftNow, shown);
 					if (!may.ok) return may;
 					return andThen(
 						this.#reviewText(q, found, diff, draft, quoted),
-						({ number, text, progress, comments }): Result<FinishedReview, ReportError> => {
+						({ number, text, progress, comments }): Result<JustFinished, ReportError> => {
 							const at = this.#clock.now();
 							insertReview(
 								q,
@@ -2301,7 +2316,9 @@ export class ReportService {
 							if (draft.overall.body !== '') writeDraftSummary(q, id, '', at);
 							touchReport(q, id, at);
 							return andThen(reviewOf(q, id, number), (review) =>
-								review === undefined ? err({ kind: 'ReviewNotFound', number }) : ok(review)
+								review === undefined
+									? err({ kind: 'ReviewNotFound', number })
+									: ok({ ...review, earlier: undefined })
 							);
 						}
 					);
@@ -2334,7 +2351,7 @@ export class ReportService {
 		seen: RevisionNumber,
 		shown: ShownDraft,
 		posting: GitHubPosting
-	): Promise<Result<FinishedReview, ReportError>> {
+	): Promise<Result<JustFinished, ReportError>> {
 		if (this.#posting.has(id)) {
 			return err({
 				kind: 'ReviewNotPosted',
@@ -2355,7 +2372,7 @@ export class ReportService {
 		seen: RevisionNumber,
 		shown: ShownDraft,
 		posting: GitHubPosting
-	): Promise<Result<FinishedReview, ReportError>> {
+	): Promise<Result<JustFinished, ReportError>> {
 		const prepared = await this.#prepareReview(id, seen, shown);
 		if (!prepared.ok) return prepared;
 		const { found, diff, draft, quoted } = prepared.value;
@@ -2390,8 +2407,7 @@ export class ReportService {
 			});
 		const noted = this.#db.read((q) => reviewBeingPosted(q, id));
 		if (!noted.ok) return noted;
-		let made: { found: GitHubReviewFound; review: GitHubReviewDraft } | undefined;
-		if (noted.value === number) {
+		if (noted.value?.number === number) {
 			const before = await findReview(
 				this.#github,
 				pullRequest,
@@ -2399,64 +2415,109 @@ export class ReportService {
 				this.#clock.now()
 			);
 			if (!before.ok) return refused(before.error);
-			if (before.value !== undefined) made = { found: before.value, review: review(false) };
-		}
-		if (made === undefined) {
-			const note = this.#db.write((q): Result<undefined, ReportError> => {
-				notePosting(q, id, number, this.#clock.now());
-				return ok(undefined);
-			});
-			if (!note.ok) return note;
-			const sent = await this.#send(pullRequest, commit, posting, review);
-			if (!sent.ok) {
-				if (surelyNotPosted(sent.error)) {
-					this.#db.write((q): Result<undefined, ReportError> => {
-						forgetPosting(q, id);
-						return ok(undefined);
-					});
-				}
-				return refused(sent.error.kind === 'lines-refused' ? { kind: 'refused' } : sent.error);
+			if (before.value !== undefined) {
+				return this.#recordPosted(id, seen, pullRequest, before.value, true);
 			}
-			made = sent.value;
 		}
-		const posted = made;
-		const at = this.#clock.now();
-		const delivery: GitHubDelivery = {
-			postedAs: posted.found.pending ? 'draft' : postedAs(posting),
-			address: gitHubReviewAddress(pullRequest, posted.found.id, posted.found.pending),
-			inText: posted.review.inText,
-			at
-		};
-		return this.#db.write((q) =>
-			andThen(current(q, id), (): Result<FinishedReview, ReportError> =>
-				andThen(draftOf(q, id), (draftNow): Result<FinishedReview, ReportError> => {
-					const { progress, comments } = text.value;
-					insertReview(
-						q,
-						id,
-						number,
-						found.revision.id,
-						at,
-						progress,
-						text.value.text,
-						draft.overall.body
-					);
-					insertReviewComments(q, id, number, comments);
-					copyReviewMarks(q, id, number, found.revision.id);
-					insertDelivery(q, id, number, posted.found.id, delivery);
+		const first = review(false);
+		const edits = new Map(draft.comments.map((c) => [c.id, c.edits]));
+		const note = this.#db.write((q): Result<undefined, ReportError> => {
+			notePosting(
+				q,
+				id,
+				{
+					number,
+					revision: found.revision.id,
+					text: text.value.text,
+					progress: text.value.progress,
+					overall: draft.overall.body,
+					overallEdits: draft.overall.edits,
+					postedAs: postedAs(posting),
+					allInText: false,
+					inText: first.inText,
+					comments: text.value.comments.map((r) => ({
+						...r,
+						edits: edits.get(r.draft) ?? NO_EDITS
+					}))
+				},
+				this.#clock.now()
+			);
+			return ok(undefined);
+		});
+		if (!note.ok) return note;
+		const sent = await this.#send(id, pullRequest, commit, posting, first, () => review(true));
+		if (!sent.ok) {
+			if (surelyNotPosted(sent.error)) {
+				this.#db.write((q): Result<undefined, ReportError> => {
 					forgetPosting(q, id);
-					// What was posted leaves the draft; words changed since stay in it, not posted.
-					const postedEdits = new Map(draft.comments.map((c) => [c.id, c.edits]));
-					for (const comment of draftNow.comments) {
-						if (postedEdits.get(comment.id) === comment.edits) deleteDraftComment(q, comment.id);
+					return ok(undefined);
+				});
+			}
+			return refused(sent.error.kind === 'lines-refused' ? { kind: 'refused' } : sent.error);
+		}
+		return this.#recordPosted(id, seen, pullRequest, sent.value, false);
+	}
+
+	/**
+	 * Records the review noted as being posted, which GitHub made as `made`,
+	 * as the Delve's next review, exactly as it was sent: its text, its
+	 * comments and marks, and how many comments went in its text, with what
+	 * it is on GitHub taken from GitHub's own answer. What was sent leaves the
+	 * draft; a comment added since, or one or an overall review whose words
+	 * were changed since, stays in it, and the outcome says so.
+	 */
+	#recordPosted(
+		id: ReportId,
+		seen: RevisionNumber,
+		pullRequest: PullRequestRef,
+		made: GitHubReviewFound,
+		earlier: boolean
+	): Result<JustFinished, ReportError> {
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), (): Result<JustFinished, ReportError> =>
+				andThen(reviewBeingPosted(q, id), (note): Result<JustFinished, ReportError> => {
+					if (note === undefined) {
+						return err({
+							kind: 'StoredRowInvalid',
+							table: 'github_review_posts',
+							detail: 'the review being posted was not noted'
+						});
 					}
-					if (draftNow.overall.edits === draft.overall.edits && draft.overall.body !== '') {
-						writeDraftSummary(q, id, '', at);
-					}
-					touchReport(q, id, at);
-					return andThen(reviewOf(q, id, number), (finished) =>
-						finished === undefined ? err({ kind: 'ReviewNotFound', number }) : ok(finished)
-					);
+					return andThen(draftOf(q, id), (draftNow): Result<JustFinished, ReportError> => {
+						const at = this.#clock.now();
+						const { number } = note;
+						const as = made.postedAs ?? note.postedAs;
+						insertReview(q, id, number, note.revision, at, note.progress, note.text, note.overall);
+						copyNotedReview(q, id, number);
+						insertDelivery(q, id, number, made.id, {
+							postedAs: as,
+							address: gitHubReviewAddress(pullRequest, made.id, as === 'draft'),
+							inText: note.inText,
+							at
+						});
+						forgetPosting(q, id);
+						const sent = new Map(note.comments.map((c) => [c.draft, c.edits]));
+						let kept = false;
+						for (const comment of draftNow.comments) {
+							const edits = sent.get(comment.id);
+							if (edits === comment.edits) {
+								deleteDraftComment(q, comment.id);
+								continue;
+							}
+							kept = true;
+							// Its words were changed since they were sent: those stay, as a new comment.
+							if (edits !== undefined) renumberDraftComment(q, comment.id);
+						}
+						if (draftNow.overall.edits === note.overallEdits) {
+							if (note.overall !== '') writeDraftSummary(q, id, '', at);
+						} else if (isWritten(draftNow.overall.body)) kept = true;
+						touchReport(q, id, at);
+						return andThen(reviewOf(q, id, number), (finished) =>
+							finished === undefined
+								? err({ kind: 'ReviewNotFound', number })
+								: ok({ ...finished, earlier: earlier ? { draftKept: kept } : undefined })
+						);
+					});
 				})
 			)
 		);
@@ -2464,32 +2525,37 @@ export class ReportService {
 
 	/**
 	 * Sends the review to GitHub, its comments on their lines, and again with
-	 * every comment in its text when GitHub refuses the lines.
+	 * every comment in its text when GitHub refuses the lines, noting first
+	 * that the review sent then has them all in its text.
 	 */
 	async #send(
+		id: ReportId,
 		pullRequest: PullRequestRef,
 		commit: CommitId,
 		posting: GitHubPosting,
-		review: (allInText: boolean) => GitHubReviewDraft
-	): Promise<Result<{ found: GitHubReviewFound; review: GitHubReviewDraft }, ReviewPostProblem>> {
+		first: GitHubReviewDraft,
+		allInText: () => GitHubReviewDraft
+	): Promise<Result<GitHubReviewFound, ReviewPostProblem>> {
 		const kind = posting.draft ? undefined : posting.kind;
-		const first = review(false);
 		const sent = await postReview(
 			this.#github,
 			pullRequest,
 			{ commit, kind, body: first.body, comments: first.comments },
 			this.#clock.now()
 		);
-		if (sent.ok) return ok({ found: sent.value, review: first });
+		if (sent.ok) return sent;
 		if (sent.error.kind !== 'lines-refused' || first.comments.length === 0) return sent;
-		const again = review(true);
-		const resent = await postReview(
+		const again = allInText();
+		this.#db.write((q): Result<undefined, ReportError> => {
+			noteAllInText(q, id, again.inText);
+			return ok(undefined);
+		});
+		return postReview(
 			this.#github,
 			pullRequest,
 			{ commit, kind, body: again.body, comments: [] },
 			this.#clock.now()
 		);
-		return resent.ok ? ok({ found: resent.value, review: again }) : resent;
 	}
 
 	/** The report's finished reviews, oldest first. */

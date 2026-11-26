@@ -330,6 +330,8 @@ describe('the database', () => {
 			review_marks: [],
 			review_deliveries: [],
 			github_review_posts: [],
+			github_review_post_comments: [],
+			github_review_post_marks: [],
 			// SQLite's own, for the one table whose ids are never used again.
 			sqlite_sequence: [{ name: 'draft_comments', seq: 0 }],
 			revision_updates: [],
