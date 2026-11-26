@@ -959,23 +959,49 @@
 	/** The presses of `r` waiting for the one before them to finish. */
 	let marksWaiting = 0;
 	let marking: Promise<void> = Promise.resolve();
+	/** How many times the presses waiting were dropped: a press made before then is not taken. */
+	let marksDropped = 0;
+
+	/**
+	 * Drops every press of `r` still waiting, when what they were pressed on is
+	 * gone or no longer what the person expects: a tick refused, or the diff
+	 * drawn again in another sorting.
+	 */
+	function dropMarks(): void {
+		marksDropped += 1;
+		marksWaiting = 0;
+	}
+
+	$effect(() => {
+		// Drawn again in another sorting, or the page left: what was pressed on is gone.
+		const shown = viewer;
+		return () => {
+			if (shown !== undefined) dropMarks();
+		};
+	});
 
 	/**
 	 * `r`: marks the part the person is on reviewed and goes on to the next part
 	 * waiting, as `n` does, so pressing it again and again reviews the diff part
 	 * by part. On a part already reviewed, or ignored, it only goes on. A tick
 	 * refused stays where its refusal is said. Presses are taken one after
-	 * another, each from where the one before it left the person.
+	 * another, each from where the one before it left the person; a refusal, or
+	 * the diff drawn again, drops those still waiting.
 	 */
 	function markReviewedByKey(): void {
+		const pressedOn = viewer;
+		const pressed = marksDropped;
 		marksWaiting += 1;
 		const run = async (): Promise<void> => {
+			if (viewer !== pressedOn) dropMarks();
+			if (pressed !== marksDropped) return;
 			marksWaiting -= 1;
 			await markAndMoveOn();
 		};
 		// A press that fails in the page says so where the page speaks, and the
 		// next press is taken as if it had not happened.
 		marking = marking.then(run).catch((error: unknown) => {
+			dropMarks();
 			console.error(error);
 			if (viewer !== undefined)
 				viewer.announcement =
@@ -1062,6 +1088,7 @@
 		moveOn: (() => boolean) | undefined
 	): Promise<void> {
 		if (viewer === undefined) return;
+		if (outcome.kind !== 'marked') dropMarks();
 		switch (outcome.kind) {
 			case 'sorting-changed':
 				staleTick = {

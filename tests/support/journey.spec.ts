@@ -476,6 +476,15 @@ test.describe("the journey helper lets through only the API's refusals a step ex
 		).rejects.toThrow('which the step did not expect');
 	});
 
+	test('fails a refusal that came more times than the step expects', async ({ planted }) => {
+		const journey = await planted(REFUSED);
+		await journey.activate(journey.byRole('button', { name: 'Tick' }));
+		await journey.press('Enter');
+		await expect(
+			journey.step('Refused twice', { refusals: [{ ...expected, times: 1 }] })
+		).rejects.toThrow('with 409 once, and it did 2 times');
+	});
+
 	test('fails a step that expected a refusal that never came', async ({ planted }) => {
 		const journey = await planted(REFUSED);
 		await expect(journey.step('Not refused', { refusals: [expected] })).rejects.toThrow(

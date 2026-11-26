@@ -26,5 +26,32 @@ test.describe('Marking files reviewed with r', () => {
 		await journey.expectText(review, '6 of 14 changes reviewed');
 		await journey.expectState(tickOf('src/checkout.ts'), { checked: false });
 		await journey.step('Held down, r marks one file');
+
+		// The diff is updated while the page is left on the version before: r is
+		// refused, says so once, and the press made while it waited is dropped.
+		await journey.editFile(
+			shop,
+			'src/discount.ts',
+			'export const discount = (code?: string) => (code === undefined ? 0 : 10);\n'
+		);
+		await journey.command([], shop);
+		await journey.returnToPage();
+		await journey.expectVisible(
+			journey.byRole('region', { name: 'This Delve has a newer version' })
+		);
+		const held = await journey.holdTick();
+		await journey.press('r');
+		await held.requested;
+		await journey.press('r');
+		held.release();
+		await journey.expectText(
+			journey.within(checkout).byRole('alert'),
+			'Nothing was marked. This Delve was updated to version 2 after you last looked at it'
+		);
+		await journey.expectState(tickOf('src/checkout.ts'), { checked: false });
+		await journey.expectText(review, '6 of 14 changes reviewed');
+		await journey.step('r refused once', {
+			refusals: [{ route: '/api/diffs/[id]/reviewed', status: 409, times: 1 }]
+		});
 	});
 });

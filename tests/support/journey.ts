@@ -271,6 +271,8 @@ export interface Journey extends Finder {
 	openedWindow(): Promise<string>;
 	/** Delays the next lazy part request for a file until the journey lets it through. */
 	holdPartRead(path: string): Promise<{ requested: Promise<void>; release: () => void }>;
+	/** Delays the next tick the page sends, marking or unmarking, until the journey lets it through. */
+	holdTick(): Promise<{ requested: Promise<void>; release: () => void }>;
 	/** Opens a page of the app by its path, as a person does from a link: `/`, `/reports/1`. */
 	open(path: string): Promise<void>;
 	/** Returns to the previous entry, including an in-page history entry. */
@@ -721,6 +723,8 @@ async function checkScreenshot(
 export interface ExpectedRefusal {
 	readonly route: string;
 	readonly status: number;
+	/** How many times it must have come, when that matters; at least once otherwise. */
+	readonly times?: number;
 }
 
 /** What a step expects besides a screen that passes its checks. */
@@ -781,9 +785,16 @@ function refusalProblems(
 		}
 	}
 	for (const e of expected) {
-		if (!seen.some((r) => r.status === e.status && routeMatches(e.route, r.path))) {
+		const times = seen.filter((r) => r.status === e.status && routeMatches(e.route, r.path)).length;
+		if (times === 0) {
 			problems.push(
 				`The step expected the app's API to refuse ${e.route} with ${String(e.status)}, and it did not.`
+			);
+		} else if (e.times !== undefined && times !== e.times) {
+			const often = (n: number): string => (n === 1 ? 'once' : `${String(n)} times`);
+			problems.push(
+				`The step expected the app's API to refuse ${e.route} with ${String(e.status)} ` +
+					`${often(e.times)}, and it did ${often(times)}.`
 			);
 		}
 	}
@@ -996,6 +1007,25 @@ export async function startJourney(
 			const released = Promise.withResolvers<undefined>();
 			await page.route(
 				(url) => url.pathname.endsWith('/part') && url.searchParams.get('path') === path,
+				async (route) => {
+					requested.resolve(undefined);
+					await released.promise;
+					await route.continue();
+				},
+				{ times: 1 }
+			);
+			return {
+				requested: requested.promise,
+				release: () => {
+					released.resolve(undefined);
+				}
+			};
+		},
+		async holdTick() {
+			const requested = Promise.withResolvers<undefined>();
+			const released = Promise.withResolvers<undefined>();
+			await page.route(
+				(url) => url.pathname.endsWith('/reviewed'),
 				async (route) => {
 					requested.resolve(undefined);
 					await released.promise;
