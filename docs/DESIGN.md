@@ -130,7 +130,14 @@ Commands:
   so do a Delve's page and the list of Delves, for every repository a Delve was
   opened in (8.2).
 - `diff-delver setup` connects the MCP server and the skill to the coding agents
-  it finds on the machine and says what it did. One command, run once.
+  it finds on the machine and says what it did. One command, run once. Claude Code
+  is given the server through its own CLI, at user scope, and the skill as a user
+  skill; Codex a `[mcp_servers.diff-delver]` table in its `config.toml`, keeping
+  every other byte and any settings the person added to the table, and the skill
+  in its skills folder. An existing entry named `diff-delver` that runs something
+  else is replaced, and what it ran is printed in full; a skill file setup did not
+  write is never touched. `diff-delver setup --undo` takes out exactly what setup
+  put in.
 - `diff-delver mcp` is what agents launch. It starts the daemon if needed and
   proxies stdio MCP to `/mcp`, telling the daemon which folder it was started in.
   `/mcp` keeps no session, so when the daemon stops or is replaced the shim finds
@@ -711,7 +718,8 @@ prompt".
 
 `skills/diff-delver/SKILL.md`, in the Agent Skills format. Its one copy lives in
 the Claude Code plugin (`plugins/claude-code/`), which packages it together with the
-MCP configuration; `skills/diff-delver` is a link to it. It describes only the tools
+MCP configuration; `skills/diff-delver` is a link to it. It is shipped inside the
+build, and `diff-delver setup` installs it. It describes only the tools
 that exist, and grows with them. Outline:
 
 1. Work out the source from the user's request and call `create_report`. Give the
