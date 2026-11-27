@@ -12,6 +12,7 @@ import {
 import { describeEarlierNotes, type AgentNote } from '#lib/core/review/agent-note.ts';
 import {
 	describeRequestAnchor,
+	isOpenRequest,
 	requestPrompt,
 	type AgentRequest,
 	type DelveAsked
@@ -804,7 +805,7 @@ export function requestsView(
 			status: request.status,
 			promoted: request.promoted,
 			promotable: request.anchor.kind === 'lines' && request.answers.length > 0,
-			prompt: request.status === 'waiting' ? requestPrompt(delve, request, agentPath) : null,
+			prompt: isOpenRequest(request.status) ? requestPrompt(delve, request, agentPath) : null,
 			answers: request.answers.map((answer) => ({
 				body: answer.body,
 				excerpts: answer.excerpts.map((excerpt) => ({

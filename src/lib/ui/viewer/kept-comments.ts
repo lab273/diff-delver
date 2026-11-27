@@ -1,5 +1,5 @@
 /**
- * Each Delve's comments, and its overall review, kept by the tab and not by a page: a Delve's page is
+ * Each Delve's comments, its overall review and its questions for the agent being written, kept by the tab and not by a page: a Delve's page is
  * made again whenever the reviewer leaves it by one of diff delver's own links
  * and comes back, and what they were writing must still be there (DESIGN 1.1,
  * commitment 7). So the comments of every Delve this tab has shown live here
@@ -20,7 +20,11 @@ let asksBeforeLeaving = false;
 
 function unsaved(comments: Comments | undefined): boolean {
 	if (comments === undefined) return false;
-	return comments.overallUnsaved || comments.writing.some((writing) => writing.worthKeeping);
+	return (
+		comments.overallUnsaved ||
+		comments.writing.some((writing) => writing.worthKeeping) ||
+		comments.asks.some((ask) => ask.worthKeeping)
+	);
 }
 
 /** Whether something typed on a Delve's comments or overall review in this tab is not saved yet. */

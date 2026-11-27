@@ -449,7 +449,7 @@ export const AgentRequestSchema = z.strictObject({
 	promoted: z.boolean(),
 	/** Whether it can be promoted into the draft: answered, and about lines. */
 	promotable: z.boolean(),
-	/** While it waits, the prompt "Copy as prompt" gives; null otherwise. */
+	/** While no agent has answered it, the prompt "Copy as prompt" gives; null otherwise. */
 	prompt: toCopy.nullable(),
 	answers: z.array(
 		z.strictObject({

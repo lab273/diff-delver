@@ -86,6 +86,30 @@ export class Writing {
 }
 
 /**
+ * A question for the agent being written in the Ask box, kept by the tab as a
+ * comment being written is, so a regroup, an update or leaving the Delve and
+ * coming back never loses it. Asked or discarded, it goes.
+ */
+export class AskDraft {
+	readonly key: number;
+	/** The lines the box was opened under, in the version they are numbered in. */
+	place: CommentPlace;
+	/** What it is about: the lines, their whole file or their section. */
+	about = $state<'lines' | 'file' | 'section'>('lines');
+	text = $state('');
+
+	constructor(key: number, place: CommentPlace) {
+		this.key = key;
+		this.place = $state.raw(place);
+	}
+
+	/** Whether there is something here a careless press must not throw away. */
+	get worthKeeping(): boolean {
+		return this.text.trim() !== '';
+	}
+}
+
+/**
  * The draft's overall review as it is being written: what is typed, and the
  * saved words it started from. Its words are the saved ones until the
  * reviewer types, and the saved ones again once what was typed is saved or
@@ -133,6 +157,8 @@ export class Comments {
 	/** Why the draft could not be read. */
 	problem = $state('');
 	writing = $state.raw<readonly Writing[]>([]);
+	/** Questions for the agent being written. */
+	asks = $state.raw<readonly AskDraft[]>([]);
 	/** The overall review being written. */
 	readonly overallWriting = new OverallWriting();
 	/** What just happened, for a screen reader: "Comment saved." */
@@ -173,6 +199,37 @@ export class Comments {
 			saved: (this.saved ?? []).filter(there),
 			writing: this.writing.filter((w) => w.editing === undefined && there(w.place))
 		};
+	}
+
+	/** The questions being written under lines of a file of a version. */
+	asksOn(version: RevisionNumber, path: EscapedPath): readonly AskDraft[] {
+		return this.asks.filter(
+			(ask) => ask.place.version === version && ask.place.anchor.path === path
+		);
+	}
+
+	/**
+	 * Opens the Ask box under lines: the one there already, else one being
+	 * written on a version no longer shown, which moves here with its words,
+	 * else a new one.
+	 */
+	startAsk(place: CommentPlace): AskDraft {
+		const there = this.asks.find((ask) => samePlace(ask.place, place));
+		if (there !== undefined) return there;
+		const waiting = this.asks.find((ask) => ask.place.version !== place.version);
+		if (waiting !== undefined) {
+			waiting.place = place;
+			this.asks = [...this.asks];
+			return waiting;
+		}
+		const made = new AskDraft((this.#keys += 1), place);
+		this.asks = [...this.asks, made];
+		return made;
+	}
+
+	/** Puts a question away: asked, or discarded. */
+	dropAsk(ask: AskDraft): void {
+		this.asks = this.asks.filter((a) => a !== ask);
 	}
 
 	/** The new comments whose lines are in another version than the page shows: they wait for new lines. */

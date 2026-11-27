@@ -107,7 +107,7 @@
 			{/each}
 		</section>
 	{/each}
-	{#if request.status === 'waiting' && !connected && request.prompt !== null}
+	{#if !connected && request.prompt !== null}
 		<p class="alone">No agent connected. Copy this request and paste it into your agent.</p>
 		<CopyText
 			text={request.prompt}

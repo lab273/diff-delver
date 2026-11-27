@@ -10,16 +10,20 @@
 	import { onMount } from 'svelte';
 	import { MAX_QUESTION_LENGTH, READY_QUESTIONS } from '#lib/core/review/agent-request.ts';
 	import { formatCount } from '#lib/core/viewer/words.ts';
+	import type { AskDraft } from './comments.svelte.ts';
 
 	type About = 'lines' | 'file' | 'section';
 
 	let {
+		draft,
 		lines,
 		section,
 		connected,
 		onask,
 		onclose
 	}: {
+		/** What is being written, kept by the tab. */
+		draft: AskDraft;
 		/** The lines, in words: "After, lines 3–5". */
 		lines: string;
 		/** The title of the section the lines are read in, or undefined when they are in none. */
@@ -30,14 +34,12 @@
 		onclose: () => void;
 	} = $props();
 
-	let about = $state<About>('lines');
-	let question = $state('');
 	let asking = $state(false);
 	let problem = $state('');
 	let input = $state<HTMLTextAreaElement>();
 	let form = $state<HTMLFormElement>();
 	const ids = $props.id();
-	const over = $derived(Math.max(0, question.length - MAX_QUESTION_LENGTH));
+	const over = $derived(Math.max(0, draft.text.length - MAX_QUESTION_LENGTH));
 	const choices = $derived<readonly { value: About; label: string }[]>([
 		{ value: 'lines', label: lines },
 		{ value: 'file', label: 'The whole file' },
@@ -48,7 +50,10 @@
 
 	onMount(() => {
 		form?.scrollIntoView({ block: 'nearest' });
-		form?.querySelector<HTMLButtonElement>('button[data-ready]')?.focus({ preventScroll: true });
+		// Words kept from before go on where they were left; else the ready-made questions come first.
+		if (draft.worthKeeping) input?.focus({ preventScroll: true });
+		else
+			form?.querySelector<HTMLButtonElement>('button[data-ready]')?.focus({ preventScroll: true });
 	});
 
 	async function ask(text: string): Promise<void> {
@@ -62,12 +67,13 @@
 			return;
 		}
 		asking = true;
-		problem = (await onask(about, text)) ?? '';
+		problem = (await onask(draft.about, text)) ?? '';
 		asking = false;
 	}
 
 	function onKey(event: KeyboardEvent): void {
-		if (event.key === 'Escape') {
+		// With words written, only Discard throws them away.
+		if (event.key === 'Escape' && !draft.worthKeeping) {
 			event.preventDefault();
 			event.stopPropagation();
 			onclose();
@@ -84,7 +90,7 @@
 	onkeydown={onKey}
 	onsubmit={(event) => {
 		event.preventDefault();
-		void ask(question);
+		void ask(draft.text);
 	}}
 >
 	<p class="where"><strong>Ask the agent</strong></p>
@@ -92,7 +98,7 @@
 		<legend>About</legend>
 		{#each choices as choice (choice.value)}
 			<label class="choice">
-				<input type="radio" name="{ids}-about" value={choice.value} bind:group={about} />
+				<input type="radio" name="{ids}-about" value={choice.value} bind:group={draft.about} />
 				{choice.label}
 			</label>
 		{/each}
@@ -110,7 +116,7 @@
 			rows="2"
 			aria-describedby={over > 0 ? `${ids}-over` : undefined}
 			bind:this={input}
-			bind:value={question}
+			bind:value={draft.text}
 			readonly={asking}></textarea>
 	</label>
 	{#if over > 0}
@@ -129,7 +135,7 @@
 		<button type="submit" class="primary" aria-disabled={asking}>
 			{asking ? 'Asking…' : 'Ask'}
 		</button>
-		<button type="button" onclick={onclose}>Cancel</button>
+		<button type="button" onclick={onclose}>{draft.worthKeeping ? 'Discard' : 'Cancel'}</button>
 	</div>
 </form>
 

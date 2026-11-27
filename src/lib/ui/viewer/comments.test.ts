@@ -54,6 +54,21 @@ async function opened() {
 }
 
 describe('the comments a page holds', () => {
+	it('keeps a question for the agent being written, and moves one left on another version', async () => {
+		const { comments } = await opened();
+		const ask = comments.startAsk(place(1, 'src/a.ts', 2));
+		ask.text = 'Why upper case?';
+		expect(comments.startAsk(place(1, 'src/a.ts', 2))).toBe(ask);
+		expect(comments.asksOn(version(1), path('src/a.ts'))).toEqual([ask]);
+		// Opened under lines of a newer version, it moves there with its words.
+		const moved = comments.startAsk(place(2, 'src/b.ts', 2));
+		expect(moved).toBe(ask);
+		expect(moved.text).toBe('Why upper case?');
+		expect(comments.asksOn(version(1), path('src/a.ts'))).toEqual([]);
+		comments.dropAsk(moved);
+		expect(comments.asks).toEqual([]);
+	});
+
 	it('starts one box for each run of lines, and goes back to the one that is there', async () => {
 		const { comments } = await opened();
 		expect(comments.saved).toEqual([]);

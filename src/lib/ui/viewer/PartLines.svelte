@@ -48,7 +48,7 @@
 	import AgentNote from './AgentNote.svelte';
 	import AgentRequest from './AgentRequest.svelte';
 	import AskBox from './AskBox.svelte';
-	import type { Comments, Writing } from './comments.svelte.ts';
+	import type { AskDraft, Comments, Writing } from './comments.svelte.ts';
 	import { parseLineNumber, type LineNumber } from '#lib/core/line-number.tiny.ts';
 	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
 	import type { PartMarks } from './search.svelte.ts';
@@ -319,8 +319,8 @@
 	let asking = $state.raw<LineSelection>();
 	/** The lines whose menu, Comment, Flag or Ask, is open under them. */
 	let menu = $state.raw<LineSelection>();
-	/** The lines the Ask box is open under. */
-	let askAbout = $state.raw<LineSelection>();
+	/** The questions for the agent being written under lines of this file, kept by the tab. */
+	const asksHere = $derived(comments.asksOn(viewer.version, path));
 	let menuElement = $state<HTMLElement>();
 	let buildingGutter = $state(false);
 	const gutter = $derived(buildingGutter ? new GutterLines(gutterRows()) : undefined);
@@ -386,7 +386,12 @@
 		| { readonly kind: 'asking'; readonly key: string; readonly lines: LineSelection }
 		| { readonly kind: 'menu'; readonly key: string; readonly lines: LineSelection }
 		| { readonly kind: 'note'; readonly key: string; readonly note: AgentNoteView }
-		| { readonly kind: 'ask'; readonly key: string; readonly lines: LineSelection }
+		| {
+				readonly kind: 'ask';
+				readonly key: string;
+				readonly lines: LineSelection;
+				readonly draft: AskDraft;
+		  }
 		| {
 				readonly kind: 'request';
 				readonly key: string;
@@ -440,9 +445,14 @@
 					request,
 					lines
 				})),
-				...(askAbout === undefined || !canReview
-					? []
-					: [{ kind: 'ask', key: 'ask', lines: askAbout } satisfies Under])
+				...(canReview
+					? asksHere.map((draft): Under => ({
+							kind: 'ask',
+							key: `ask:${String(draft.key)}`,
+							lines: draft.place.anchor,
+							draft
+						}))
+					: [])
 			],
 			(item) =>
 				item.kind === 'saved'
@@ -493,10 +503,12 @@
 		if (
 			inSelection(taken, side, line) ||
 			inSelection(asking, side, line) ||
-			inSelection(menu, side, line) ||
-			inSelection(askAbout, side, line)
+			inSelection(menu, side, line)
 		)
 			return true;
+		for (const ask of asksHere) {
+			if (inSelection(ask.place.anchor, side, line)) return true;
+		}
 		for (const writing of here.writing) {
 			if (inSelection(writing.place.anchor, side, line)) return true;
 		}
@@ -600,7 +612,7 @@
 			return;
 		}
 		if (kind === 'ask') {
-			askAbout = lines;
+			comments.startAsk({ version: viewer.version, anchor: { path, ...lines } });
 			return;
 		}
 		const place = { version: viewer.version, anchor: { path, ...lines } };
@@ -795,22 +807,29 @@
 	 * the question, wherever it is drawn.
 	 */
 	async function askFrom(
-		lines: LineSelection,
+		draft: AskDraft,
 		about: 'lines' | 'file' | 'section',
 		question: string
 	): Promise<string | undefined> {
+		const lines = draft.place.anchor;
 		const problem = await viewer.changeRequests({
 			action: 'ask',
 			about:
 				about === 'section' && section !== undefined
 					? { kind: 'section', section: section.id }
 					: about === 'lines'
-						? { kind: 'lines', path, ...lines }
+						? {
+								kind: 'lines',
+								path,
+								side: lines.side,
+								first: lines.first,
+								last: lines.last
+							}
 						: { kind: 'file', path },
 			question
 		});
 		if (problem !== undefined) return problem;
-		askAbout = undefined;
+		comments.dropAsk(draft);
 		await tick();
 		const asked = viewer.lastAsked;
 		const shown =
@@ -917,14 +936,16 @@
 						/>
 					{:else if item.kind === 'ask'}
 						{@const lines = item.lines}
+						{@const draft = item.draft}
 						<AskBox
+							{draft}
 							lines={describeCommentLines(lines)}
 							section={section?.title}
 							connected={viewer.agentConnected}
 							onask={(about: 'lines' | 'file' | 'section', question: string) =>
-								askFrom(lines, about, question)}
+								askFrom(draft, about, question)}
 							onclose={async () => {
-								askAbout = undefined;
+								comments.dropAsk(draft);
 								await tick();
 								afterBox(lines);
 							}}

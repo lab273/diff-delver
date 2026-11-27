@@ -117,7 +117,9 @@ export function requestStatusWords(status: RequestStatus, connected: boolean): s
 		case 'waiting':
 			return connected ? 'Waiting for the agent' : 'Not sent yet: no agent is connected';
 		case 'delivered':
-			return 'The agent has it';
+			return connected
+				? 'The agent has it'
+				: 'Sent to an agent, which is not connected now: it is asked again when one is';
 		case 'answered':
 			return 'Answered';
 		case 'cancelled':
