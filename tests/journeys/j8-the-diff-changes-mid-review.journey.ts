@@ -210,7 +210,8 @@ test.describe('J8 The diff changes mid-review', () => {
 		await journey.expectFocused(box.byRole('textbox', { name: 'Comment', exact: true }));
 		await journey.type('Is this still needed?');
 		await journey.activate(box.byRole('button', { name: 'Save comment', exact: true }));
-		await journey.expectVisible(journey.byRole('button', { name: 'Draft comments (1)' }));
+		const bar = journey.within(journey.byRole('region', { name: 'Your draft review' }));
+		await journey.expectVisible(bar.byText('1 comment', { exact: true }));
 
 		// The changes are committed: the page keeps the diff and offers the commit.
 		await journey.commitAll(shop, 'Round prices and add discounts');
@@ -229,7 +230,14 @@ test.describe('J8 The diff changes mid-review', () => {
 		await journey.expectText(closed, 'You closed this Delve. You can still read it.');
 		// The button went with its notice: focus is on the notice that took its place.
 		await journey.expectFocused(journey.byRole('heading', { name: 'This Delve is closed' }));
-		// A closed Delve's draft cannot be finished: the page says to reopen it first.
+		await journey.step('The diff is closed');
+
+		// Nor can its overall review be written, nor its draft finished: `v` opens the
+		// draft to say so, with no box and no way to finish.
+		await journey.press('v');
+		await journey.expectState(bar.byRole('button', { name: 'Your draft review', exact: true }), {
+			expanded: true
+		});
 		const finish = journey.within(journey.byRole('region', { name: 'Finish your review' }));
 		await journey.expectVisible(
 			finish.byText(
@@ -238,14 +246,6 @@ test.describe('J8 The diff changes mid-review', () => {
 		);
 		await journey.expectHidden(finish.byRole('button', { name: 'Show what will be copied' }));
 		await journey.expectHidden(finish.byRole('button', { name: 'Finish and copy' }));
-		await journey.step('The diff is closed');
-
-		// Nor can its overall review be written: `v` opens the bar to say so, with no box.
-		const bar = journey.within(journey.byRole('region', { name: 'Overall review' }));
-		await journey.press('v');
-		await journey.expectState(bar.byRole('button', { name: 'Overall review', exact: true }), {
-			expanded: true
-		});
 		await journey.expectVisible(
 			bar.byText(
 				'This Delve is closed, so its overall review cannot be changed and the review cannot be finished. Reopen it, at the top of the page, to go on.'

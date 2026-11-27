@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	MAX_OVERALL_REVIEW_LENGTH,
 	TEASER_LENGTH,
+	describeDraft,
 	describeDraftComments,
 	describeReviewContents,
 	isOverallReviewBody,
@@ -66,6 +67,27 @@ describe('the draft’s comments in words', () => {
 		expect(describeDraftComments(1234)).toBe('1,234 comments');
 		expect(describeDraftComments(3, 1)).toBe('3 comments and 1 flag');
 		expect(describeDraftComments(0, 2)).toBe('2 flags');
+	});
+});
+
+describe('the draft on one line', () => {
+	const of = (counts: Partial<Parameters<typeof describeDraft>[0]>) =>
+		describeDraft({
+			comments: 0,
+			flags: 0,
+			replies: 0,
+			resolutions: 0,
+			beingWritten: 0,
+			...counts
+		});
+	it('says none, or what is saved, then what is being written', () => {
+		expect(of({})).toBe('No comments yet');
+		expect(of({ comments: 3, flags: 1, replies: 1 })).toBe('3 comments, 1 flag and 1 reply');
+		expect(of({ replies: 2, resolutions: 1 })).toBe(
+			'2 replies and 1 earlier comment resolved or reopened'
+		);
+		expect(of({ beingWritten: 1 })).toBe('1 comment being written');
+		expect(of({ comments: 1, beingWritten: 2 })).toBe('1 comment, 2 more being written');
 	});
 });
 

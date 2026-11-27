@@ -118,13 +118,14 @@ test.describe('J7 Ask for more context', () => {
 		await journey.step('A question about the whole file');
 
 		// A question being written is kept while its lines are not on the page, and listed
-		// above the diff, where it can be discarded.
+		// in the draft at the foot of the page, where it can be discarded.
 		await journey.activate(line(4), 'q');
 		await journey.press('Tab');
 		await journey.press('Tab');
 		await journey.expectFocused(box.byRole('textbox', { name: 'Or ask in your own words' }));
 		await journey.type('Is a code ever upper case?');
 		await journey.activate(journey.byRole('button', { name: 'By file' }));
+		await journey.activate(journey.byRole('button', { name: 'Your draft review', exact: true }));
 		const notAsked = journey.within(
 			journey.byRole('list', { name: 'Questions for the agent not asked yet' })
 		);

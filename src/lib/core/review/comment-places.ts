@@ -70,6 +70,6 @@ export function describeOtherVersion(
 ): string | undefined {
 	if (written === shown) return undefined;
 	return written < shown
-		? `Written on version ${String(written)}, an earlier version than the one shown here, so it is not among the lines below.`
-		: `Written on version ${String(written)}, a newer version than the one shown here, so it is not among the lines below.`;
+		? `Written on version ${String(written)}, an earlier version than the one shown here, so it is not among the lines of the diff.`
+		: `Written on version ${String(written)}, a newer version than the one shown here, so it is not among the lines of the diff.`;
 }

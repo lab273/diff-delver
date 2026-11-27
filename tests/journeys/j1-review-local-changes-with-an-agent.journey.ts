@@ -61,9 +61,11 @@ test.describe('J1 Review local changes with an agent', () => {
 		await journey.expectFocused(box.byRole('textbox', { name: 'Comment', exact: true }));
 		await journey.type('Read the codes from settings, not from the code.');
 		await journey.activate(box.byRole('button', { name: 'Save comment', exact: true }));
-		await journey.expectVisible(journey.byRole('button', { name: 'Draft comments (1)' }));
+		const bar = journey.within(journey.byRole('region', { name: 'Your draft review' }));
+		await journey.expectVisible(bar.byText('1 comment', { exact: true }));
 
-		// What finishing will hand over can be read first.
+		// What finishing will hand over can be read first, in the draft at the foot of the page.
+		await journey.activate(bar.byRole('button', { name: 'Finish your review', exact: true }));
 		const finish = journey.within(journey.byRole('region', { name: 'Finish your review' }));
 		await journey.expectVisible(
 			finish.byText('Finishing makes your 1 comment review 1.', { exact: false })
@@ -80,7 +82,7 @@ test.describe('J1 Review local changes with an agent', () => {
 			finish.byText('Review 1 is finished and copied.', { exact: false })
 		);
 		await journey.expectFocused(finish.byRole('button', { name: 'Copy review 1' }));
-		await journey.expectVisible(journey.byRole('button', { name: 'Draft comments (0)' }));
+		await journey.expectVisible(bar.byRole('heading', { name: 'Draft comments (0)' }));
 		await journey.expectVisible(
 			finish.byText(
 				'Your draft has no comments and no overall review. Your next comment or overall review starts review 2.'

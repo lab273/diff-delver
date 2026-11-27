@@ -14,22 +14,28 @@ test.describe('J18 Draft comments', () => {
 		await journey.expectVisible(
 			off.byText('you can read and tick here, but not comment yet', { exact: false })
 		);
-		await journey.expectHidden(journey.byRole('button', { name: /^Draft comments/ }));
+		await journey.expectHidden(journey.byRole('heading', { name: /^Draft comments/ }));
 		await journey.step('Comments are off after an agent’s link');
 
 		// One press: diff delver opens the Delve in a window of its own making.
 		await journey.activate(off.byRole('button', { name: 'Turn on comments in this browser' }));
 		await journey.expectVisible(off.byText('A new tab has opened with comments turned on.'));
 		await journey.inAnotherTab(await journey.openedWindow(), async (tab) => {
-			await tab.expectVisible(tab.byRole('button', { name: 'Draft comments (0)', exact: true }));
+			await tab.expectVisible(
+				tab
+					.within(tab.byRole('region', { name: 'Your draft review' }))
+					.byText('No comments yet', { exact: true })
+			);
 			await tab.step('The tab diff delver opened');
 		});
 		await journey.returnToPage();
 		await journey.expectVisible(journey.byText('Comments are on in this browser now.'));
-		await journey.expectFocused(journey.byRole('button', { name: 'Draft comments (0)' }));
+		const draft = journey.within(journey.byRole('region', { name: 'Your draft review' }));
+		const draftToggle = draft.byRole('button', { name: 'Your draft review', exact: true });
+		await journey.expectFocused(draftToggle);
 		await journey.step('Comments turned on with one press');
 
-		const lexer = journey.byRole('article', { name: 'src/lexer.ts' });
+		const lexer = journey.byRole('article', { name: 'src/lexer.ts', exact: true });
 		const file = journey.within(lexer);
 		const toggle = file.byRole('button', { name: 'src/lexer.ts', exact: true });
 		const expand = file.byRole('button', { name: 'Show all 8 unchanged lines above' });
@@ -69,9 +75,12 @@ test.describe('J18 Draft comments', () => {
 		await journey.type('Can we shorten this introduction?');
 		await journey.step('Writing a comment under its lines');
 
-		// Its lines put away, the box waits in the list of comments with what was typed.
+		// Its lines put away, the box waits in the draft at the foot of the page with what was typed.
 		await journey.activate(toggle);
 		await journey.expectState(toggle, { expanded: false });
+		await journey.expectVisible(draft.byText('1 comment being written', { exact: true }));
+		await journey.activate(draftToggle);
+		await journey.expectState(draftToggle, { expanded: true });
 		const waiting = box('New comment on src/lexer.ts, Before, lines 1–2');
 		await journey.expectVisible(waiting.form.byText('Its lines are not on the page now'));
 		await journey.activate(reviewed, 'Space');
@@ -79,7 +88,7 @@ test.describe('J18 Draft comments', () => {
 		await journey.expectState(unreadOnly, { pressed: true });
 		await journey.expectHidden(lexer);
 		await journey.activate(waiting.save);
-		await journey.expectVisible(journey.byRole('button', { name: 'Draft comments (1)' }));
+		await journey.expectVisible(draft.byRole('heading', { name: 'Draft comments (1)' }));
 
 		// Saved, it is shown at its lines.
 		await journey.activate(unreadOnly);
@@ -150,7 +159,7 @@ test.describe('J18 Draft comments', () => {
 		await journey.expectFocused(second.words);
 		await journey.expectState(second.words, { value: 'Keep the heading on the after side.' });
 		await journey.activate(second.save);
-		await journey.expectVisible(journey.byRole('button', { name: 'Draft comments (2)' }));
+		await journey.expectVisible(draft.byRole('heading', { name: 'Draft comments (2)' }));
 		await journey.expectVisible(
 			journey
 				.within(file.byRole('article', { name: 'Your comment on After, line 1' }))
@@ -158,11 +167,10 @@ test.describe('J18 Draft comments', () => {
 		);
 		await journey.step('Saved on the new version, side by side');
 
-		// Every comment is listed, with the version an earlier one was written on.
+		// Every comment is listed in the draft, still open, with the version an earlier one was written on.
 		await journey.open(newer.address);
-		const drafts = journey.byRole('button', { name: 'Draft comments (2)', exact: true });
-		await journey.activate(drafts);
-		const list = journey.within(journey.byRole('region', { name: 'Draft comments' }));
+		await journey.expectState(draftToggle, { expanded: true });
+		const list = journey.within(draft.byRole('region', { name: 'Draft comments (2)' }));
 		const earlier = journey.within(
 			list.byRole('article', { name: 'Your comment on src/lexer.ts, Before, lines 1–2' })
 		);
@@ -189,6 +197,21 @@ test.describe('J18 Draft comments', () => {
 		await journey.expectHidden(file.byText('One of your comments is on these lines'));
 		await journey.step('Gone from the list to a comment');
 
+		// Ticked reviewed and hidden by the filter, the file is opened and shown again
+		// when the reviewer goes to the comment from the draft, and the filter turned off.
+		await journey.activate(reviewed, 'Space');
+		await journey.expectState(toggle, { expanded: false });
+		await journey.activate(unreadOnly);
+		await journey.expectHidden(lexer);
+		await journey.activate(
+			list.byRole('button', { name: 'Go to its lines: src/lexer.ts, After, line 1', exact: true })
+		);
+		await journey.expectFocused(there);
+		await journey.expectInView(there);
+		await journey.expectState(unreadOnly, { pressed: false });
+		await journey.expectState(toggle, { expanded: true });
+		await journey.step('Gone from the draft to a comment the filter hid');
+
 		// A comment begun and not wanted is discarded, and the keyboard is back on its line.
 		await journey.press('c');
 		await journey.expectFocused(line(1, 'after'));
@@ -210,7 +233,7 @@ test.describe('J18 Draft comments', () => {
 		await journey.step('Asked before deleting a comment');
 		await journey.activate(asked.byRole('button', { name: 'Delete', exact: true }));
 		await journey.expectHidden(there);
-		await journey.expectVisible(journey.byRole('button', { name: 'Draft comments (1)' }));
+		await journey.expectVisible(draft.byRole('heading', { name: 'Draft comments (1)' }));
 		await journey.expectFocused(line(1, 'after'));
 		await journey.step('The comment deleted');
 	});

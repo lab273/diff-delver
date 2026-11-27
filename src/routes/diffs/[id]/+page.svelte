@@ -2193,23 +2193,18 @@
 		comments.overallWriting.focusAsked += 1;
 	}
 
-	/** From the overall review's bar to Finish and copy, which takes the keyboard. */
+	/**
+	 * To Finish and copy, in the draft's footer, which is opened if it is put
+	 * away: the button takes the keyboard and is scrolled into view within it.
+	 */
 	async function goToFinish(): Promise<void> {
+		if (!settings.overallReviewOpen) setOverallOpen(true);
 		await tick();
 		const target =
 			document.getElementById('finish-and-copy') ?? document.getElementById('finish-review');
 		if (target === null) return;
 		target.focus({ preventScroll: true });
-		mover.move(() => {
-			if (!target.isConnected) return undefined;
-			const box = target.getBoundingClientRect();
-			// The middle of the screen clear of what is pinned to its edges.
-			const { top, bottom: below } = scrollPadding();
-			const middle =
-				window.scrollY + box.top + box.height / 2 - (top + (window.innerHeight - top - below) / 2);
-			const bottom = document.documentElement.scrollHeight - window.innerHeight;
-			return Math.max(0, Math.min(middle, bottom));
-		});
+		target.scrollIntoView({ block: 'nearest' });
 	}
 
 	/** Which part has focus, so keys act on the part the person is in. */
@@ -2241,7 +2236,7 @@
 		if (reviewed === units) return `Everything reviewed: ${describeChanges(units)}`;
 		return `${formatCount(reviewed)} of ${describeChanges(units)} reviewed`;
 	}
-	let draftsControl = $state<HTMLButtonElement>();
+	let draftsControl = $state<HTMLElement>();
 
 	// A browser let in by a link is let write comments while the page is open
 	// (`ReviewAccess.svelte`): say so, and keep focus on the page, since the
@@ -2253,7 +2248,9 @@
 		if (can && !couldReview) {
 			reviewTurnedOn = true;
 			void tick().then(() => {
-				if (focusLost()) draftsControl?.focus();
+				if (!focusLost()) return;
+				const toggle = document.querySelector<HTMLElement>('[data-overall-review] [aria-expanded]');
+				(draftsControl ?? toggle)?.focus();
 			});
 		}
 		couldReview = can;
@@ -3128,25 +3125,6 @@
 				{#if reviewTurnedOn}
 					<p class="turned-on" role="status">Comments are on in this browser now.</p>
 				{/if}
-				{#key summary.id}
-					<CommentList
-						{comments}
-						version={summary.version}
-						open={summary.state.kind === 'open'}
-						diffHidden={byFile}
-						{showNewer}
-						ongo={goToListed}
-						bind:control={draftsControl}
-					/>
-					<FinishReview
-						id={summary.id}
-						pullRequest={pullRequestOf(page.source)}
-						{comments}
-						version={summary.version}
-						open={summary.state.kind === 'open'}
-						onfinished={() => void refreshReview(true)}
-					/>
-				{/key}
 			{:else}
 				<ReviewAccess diff={summary.id} what="comments" />
 			{/if}
@@ -3290,7 +3268,33 @@
 					onexpand={setOverallOpen}
 					onfinish={goToFinish}
 					bind:height={overallHeight}
-				/>
+				>
+					{#snippet drafts()}
+						{#key summary.id}
+							<CommentList
+								{comments}
+								version={summary.version}
+								open={summary.state.kind === 'open'}
+								diffHidden={byFile}
+								{showNewer}
+								ongo={goToListed}
+								bind:control={draftsControl}
+							/>
+						{/key}
+					{/snippet}
+					{#snippet finishing()}
+						{#key summary.id}
+							<FinishReview
+								id={summary.id}
+								pullRequest={pullRequestOf(page.source)}
+								{comments}
+								version={summary.version}
+								open={summary.state.kind === 'open'}
+								onfinished={() => void refreshReview(true)}
+							/>
+						{/key}
+					{/snippet}
+				</OverallReview>
 			{/if}
 		</div>
 	</div>

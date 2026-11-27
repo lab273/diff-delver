@@ -23,6 +23,8 @@ test.describe('J9 A second round', () => {
 		const opened = await journey.command([], shop);
 		await journey.open(opened.address);
 		const discount = journey.within(journey.byRole('article', { name: 'src/discount.ts' }));
+		const bar = journey.within(journey.byRole('region', { name: 'Your draft review' }));
+		const toFinish = bar.byRole('button', { name: 'Finish your review', exact: true });
 		const finish = journey.within(journey.byRole('region', { name: 'Finish your review' }));
 		const finishAndCopy = finish.byRole('button', { name: 'Finish and copy', exact: true });
 
@@ -52,6 +54,8 @@ test.describe('J9 A second round', () => {
 			await journey.press('Control+Enter');
 			await journey.expectVisible(discount.byText(words, { exact: true }));
 		}
+		// Finishing is in the draft at the foot of the page.
+		await journey.activate(toFinish);
 		await journey.activate(finishAndCopy);
 		await journey.expectVisible(
 			finish.byText('Review 1 is finished and copied.', { exact: false })
@@ -115,6 +119,8 @@ test.describe('J9 A second round', () => {
 		await journey.expectVisible(resolved);
 		await journey.step('A reply and a resolution in the draft');
 
+		// Finishing is in the draft at the foot of the page.
+		await journey.activate(toFinish);
 		await journey.activate(finishAndCopy);
 		await journey.expectVisible(
 			finish.byText('Review 2 is finished and copied.', { exact: false })

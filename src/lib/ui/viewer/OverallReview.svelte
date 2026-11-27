@@ -1,11 +1,16 @@
 <!--
-	The overall review's bar (DESIGN 6.3, the draft's summary), pinned to the
-	foot of an open Delve's page. Put away, it shows the first words of what is
-	written, or that nothing is, and says when something typed is not saved.
-	Open, it is the box the overall review is written in, saved as a comment's
-	words are: with Save or Control+Enter, exactly as typed, on the words the
-	page read, so another tab's change is never overwritten unseen. Either way
-	it counts the draft's comments, and offers the way to finish the review.
+	The draft's footer, "Your draft review", pinned to the foot of a Delve's
+	page: everything the reviewer has written in the draft, and finishing it.
+	Put away, it is one line: the first words of the overall review (DESIGN
+	6.3, the draft's summary), or that there is none, what the draft holds in
+	counts, whether something typed is not saved, and the way to finish. Open,
+	it holds, in this order and scrolling within itself, the box the overall
+	review is written in, saved as a comment's words are: with Save or
+	Control+Enter, exactly as typed, on the words the page read, so another
+	tab's change is never overwritten unseen; the draft's comments (`drafts`,
+	the page's `CommentList`), each a way to its lines; and finishing the
+	review (`finishing`, the page's `FinishReview`). Escape, on anything in it
+	that is not a box being written, puts it away.
 
 	On a closed Delve nothing is saved or finished: the bar shows the saved
 	words as text, and what was typed before it was closed with them, and says
@@ -16,11 +21,11 @@
 	is the person's setting, the same on every Delve.
 -->
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
+	import { tick, untrack, type Snippet } from 'svelte';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import {
 		MAX_OVERALL_REVIEW_LENGTH,
-		describeDraftComments,
+		describeDraft,
 		isWritten,
 		teaserOf
 	} from '#lib/core/review/overall-review.ts';
@@ -39,6 +44,8 @@
 		notesWaiting = 0,
 		onexpand,
 		onfinish,
+		drafts,
+		finishing,
 		height = $bindable(0)
 	}: {
 		id: ReportId;
@@ -55,6 +62,10 @@
 		onexpand: (expanded: boolean) => void;
 		/** The person asked to finish the review: the page takes them to Finish and copy. */
 		onfinish: () => void;
+		/** The draft's comments, drawn under the overall review while the footer is open. */
+		drafts?: Snippet;
+		/** Finishing the review, drawn last while the footer is open. */
+		finishing?: Snippet;
 		/** How tall the bar is, so the page keeps what has the keyboard clear of it. */
 		height?: number;
 	} = $props();
@@ -66,10 +77,15 @@
 	const loaded = $derived(comments.overall !== undefined);
 	const teaser = $derived(teaserOf(comments.overall?.body ?? ''));
 	const unsaved = $derived(comments.overallUnsaved);
-	const savedCount = $derived(comments.commentCount);
-	const flagCount = $derived(comments.flagCount);
-	const beingWritten = $derived(
-		comments.writing.filter((w) => w.editing === undefined && w.worthKeeping).length
+	const counted = $derived(
+		describeDraft({
+			comments: (comments.saved ?? []).filter((c) => c.kind === 'comment' && c.replyTo === null)
+				.length,
+			flags: comments.flagCount,
+			replies: (comments.saved ?? []).filter((c) => c.replyTo !== null).length,
+			resolutions: comments.resolutions.length,
+			beingWritten: comments.writing.filter((w) => w.editing === undefined && w.worthKeeping).length
+		})
 	);
 	const over = $derived(Math.max(0, comments.overallText.length - MAX_OVERALL_REVIEW_LENGTH));
 	const blocked = $derived(writing.saving || !open || over > 0 || !unsaved);
@@ -104,6 +120,20 @@
 		toggle?.focus();
 	}
 
+	/** Escape anywhere in the footer but a box with words in it, which keeps them, puts it away. */
+	function onFooterKey(event: KeyboardEvent): void {
+		if (event.key !== 'Escape' || event.defaultPrevented || !expanded) return;
+		const target = event.target;
+		if (
+			target instanceof HTMLTextAreaElement ||
+			target instanceof HTMLInputElement ||
+			target instanceof HTMLSelectElement
+		)
+			return;
+		event.preventDefault();
+		void putAway();
+	}
+
 	function onKey(event: KeyboardEvent): void {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
 			event.preventDefault();
@@ -124,145 +154,149 @@
 	aria-busy={canReview && !loaded && comments.problem === ''}
 	bind:offsetHeight={height}
 >
-	<div class="head">
-		<h2 id="{ids}-heading" class="visually-hidden">Overall review</h2>
-		<button
-			type="button"
-			class="toggle"
-			aria-expanded={expanded}
-			aria-controls="{ids}-body"
-			bind:this={toggle}
-			onclick={() => {
-				onexpand(!expanded);
-			}}
-		>
-			<span class="chevron" aria-hidden="true"></span>
-			Overall review
-			<kbd aria-hidden="true">v</kbd>
-		</button>
-		{#if !canReview}
-			<span class="teaser muted">Comments are off in this browser</span>
-		{:else if !expanded && loaded}
-			<span class="teaser" class:muted={teaser === undefined}>
-				{#if teaser === undefined}Nothing written yet{:else}<VisibleText text={teaser} />{/if}
-			</span>
-		{:else}
-			<span class="teaser"></span>
-		{/if}
-		{#if canReview && loaded}
-			{#if unsaved}<span class="unsaved">Not saved</span>{/if}
-			<span class="count">
-				{beingWritten === 0
-					? describeDraftComments(savedCount, flagCount)
-					: savedCount === 0 && flagCount === 0
-						? `${countOf(beingWritten, 'comment', 'comments')} being written`
-						: `${describeDraftComments(savedCount, flagCount)}, ${formatCount(beingWritten)} more being written`}
-			</span>
-			{#if notesWaiting > 0}
-				<span class="agent-count">
-					{countOf(notesWaiting, 'agent note', 'agent notes')} waiting
-				</span>
-			{/if}
-			{#if open && comments.finishable}
-				<button type="button" class="finish" onclick={onfinish}>Finish your review</button>
-			{/if}
-		{/if}
-	</div>
-	<div class="body" id="{ids}-body" hidden={!expanded}>
-		{#if expanded}
+	<div role="presentation" onkeydown={onFooterKey}>
+		<div class="head">
+			<h2 id="{ids}-heading" class="visually-hidden">Your draft review</h2>
+			<button
+				type="button"
+				class="toggle"
+				aria-expanded={expanded}
+				aria-controls="{ids}-body"
+				bind:this={toggle}
+				onclick={() => {
+					onexpand(!expanded);
+				}}
+			>
+				<span class="chevron" aria-hidden="true"></span>
+				Your draft review
+				<kbd aria-hidden="true">v</kbd>
+			</button>
 			{#if !canReview}
-				<ReviewAccess diff={id} what="comments" />
-			{:else if comments.problem !== '' && !loaded}
-				<p class="problem" role="alert">{comments.problem}</p>
-			{:else if loaded && !open}
-				<div class="closed">
-					<p class="note">
-						This Delve is closed, so its overall review cannot be changed and the review cannot be
-						finished. Reopen it, at the top of the page, to go on.
-					</p>
-					<div class="other">
-						{#if isWritten(comments.overall?.body ?? '')}<CommentWords
-								words={comments.overall?.body ?? ''}
-							/>{:else}<p>Nothing written yet.</p>{/if}
-					</div>
-					{#if unsaved}
-						<p class="note">
-							What you typed before it was closed, not saved. It can be saved once the Delve is
-							reopened:
-						</p>
-						<div class="other"><CommentWords words={comments.overallText} /></div>
-						<div class="actions">
-							<button
-								type="button"
-								onclick={() => {
-									comments.discardOverall();
-								}}
-							>
-								Discard changes
-							</button>
-						</div>
-					{/if}
-				</div>
-			{:else if loaded}
-				<form
-					aria-busy={writing.saving}
-					onsubmit={(event) => {
-						event.preventDefault();
-						void save();
-					}}
-				>
-					<label for="{ids}-words">
-						Your overall review of the change: what you think of it as a whole. It comes first in
-						the review you finish.
-					</label>
-					<!-- No limit on the field itself: it would cut a long paste short without a word. -->
-					<textarea
-						id="{ids}-words"
-						rows="4"
-						aria-describedby={over > 0 ? `${ids}-over` : undefined}
-						bind:this={input}
-						bind:value={() => comments.overallText, (text: string) => (comments.overallText = text)}
-						readonly={writing.saving}
-						onkeydown={onKey}></textarea>
-					{#if over > 0}
-						<p class="problem" id="{ids}-over" role="status">
-							{over === 1 ? '1 character' : `${formatCount(over)} characters`} too long: an overall review
-							holds up to {formatCount(MAX_OVERALL_REVIEW_LENGTH)}. Shorten it to save.
-						</p>
-					{/if}
-					{#if writing.changedElsewhere && writing.base !== undefined}
-						<div class="note">
-							<p>Its words now, as changed elsewhere. Saving again puts yours in their place:</p>
-							<div class="other">
-								{#if writing.base.body === ''}<p>Nothing: it was emptied.</p>{:else}<CommentWords
-										words={writing.base.body}
-									/>{/if}
-							</div>
-						</div>
-					{/if}
-					{#if writing.problem !== ''}
-						<p class="problem" role="alert">{writing.problem}</p>
-					{/if}
-					<div class="actions">
-						<button type="submit" class="primary" aria-disabled={blocked}>
-							{writing.saving ? 'Saving…' : 'Save overall review'}
-						</button>
-						{#if unsaved}
-							<button
-								type="button"
-								aria-disabled={writing.saving}
-								onclick={() => {
-									comments.discardOverall();
-								}}
-							>
-								Discard changes
-							</button>
-						{/if}
-						<span class="private">A private draft: only you see it.</span>
-					</div>
-				</form>
+				<span class="teaser muted">Comments are off in this browser</span>
+			{:else if !expanded && loaded}
+				<span class="teaser" class:muted={teaser === undefined}>
+					{#if teaser === undefined}No overall review yet{:else}<VisibleText text={teaser} />{/if}
+				</span>
+			{:else}
+				<span class="teaser"></span>
 			{/if}
-		{/if}
+			{#if canReview && loaded}
+				{#if unsaved}<span class="unsaved">Not saved</span>{/if}
+				<span class="count">{counted}</span>
+				{#if notesWaiting > 0}
+					<span class="agent-count">
+						{countOf(notesWaiting, 'agent note', 'agent notes')} waiting
+					</span>
+				{/if}
+				{#if open && comments.finishable}
+					<button type="button" class="finish" onclick={onfinish}>Finish your review</button>
+				{/if}
+			{/if}
+		</div>
+		<div class="body" id="{ids}-body" hidden={!expanded}>
+			{#if expanded}
+				{#if !canReview}
+					<ReviewAccess diff={id} what="comments" />
+				{:else if comments.problem !== '' && !loaded}
+					<p class="problem" role="alert">{comments.problem}</p>
+				{:else if loaded && !open}
+					<h3 class="part-heading">Overall review</h3>
+					<div class="closed">
+						<p class="note">
+							This Delve is closed, so its overall review cannot be changed and the review cannot be
+							finished. Reopen it, at the top of the page, to go on.
+						</p>
+						<div class="other">
+							{#if isWritten(comments.overall?.body ?? '')}<CommentWords
+									words={comments.overall?.body ?? ''}
+								/>{:else}<p>Nothing written yet.</p>{/if}
+						</div>
+						{#if unsaved}
+							<p class="note">
+								What you typed before it was closed, not saved. It can be saved once the Delve is
+								reopened:
+							</p>
+							<div class="other"><CommentWords words={comments.overallText} /></div>
+							<div class="actions">
+								<button
+									type="button"
+									onclick={() => {
+										comments.discardOverall();
+									}}
+								>
+									Discard changes
+								</button>
+							</div>
+						{/if}
+					</div>
+				{:else if loaded}
+					<h3 class="part-heading">Overall review</h3>
+					<form
+						aria-busy={writing.saving}
+						onsubmit={(event) => {
+							event.preventDefault();
+							void save();
+						}}
+					>
+						<label for="{ids}-words">
+							Your overall review of the change: what you think of it as a whole. It comes first in
+							the review you finish.
+						</label>
+						<!-- No limit on the field itself: it would cut a long paste short without a word. -->
+						<textarea
+							id="{ids}-words"
+							rows="4"
+							aria-describedby={over > 0 ? `${ids}-over` : undefined}
+							bind:this={input}
+							bind:value={
+								() => comments.overallText, (text: string) => (comments.overallText = text)
+							}
+							readonly={writing.saving}
+							onkeydown={onKey}></textarea>
+						{#if over > 0}
+							<p class="problem" id="{ids}-over" role="status">
+								{over === 1 ? '1 character' : `${formatCount(over)} characters`} too long: an overall
+								review holds up to {formatCount(MAX_OVERALL_REVIEW_LENGTH)}. Shorten it to save.
+							</p>
+						{/if}
+						{#if writing.changedElsewhere && writing.base !== undefined}
+							<div class="note">
+								<p>Its words now, as changed elsewhere. Saving again puts yours in their place:</p>
+								<div class="other">
+									{#if writing.base.body === ''}<p>Nothing: it was emptied.</p>{:else}<CommentWords
+											words={writing.base.body}
+										/>{/if}
+								</div>
+							</div>
+						{/if}
+						{#if writing.problem !== ''}
+							<p class="problem" role="alert">{writing.problem}</p>
+						{/if}
+						<div class="actions">
+							<button type="submit" class="primary" aria-disabled={blocked}>
+								{writing.saving ? 'Saving…' : 'Save overall review'}
+							</button>
+							{#if unsaved}
+								<button
+									type="button"
+									aria-disabled={writing.saving}
+									onclick={() => {
+										comments.discardOverall();
+									}}
+								>
+									Discard changes
+								</button>
+							{/if}
+							<span class="private">A private draft: only you see it.</span>
+						</div>
+					</form>
+				{/if}
+				{#if canReview && loaded}
+					{@render drafts?.()}
+					{@render finishing?.()}
+				{/if}
+			{/if}
+		</div>
 	</div>
 </section>
 
@@ -332,8 +366,9 @@
 		color: var(--color-accent);
 	}
 
+	/* The whole footer stays under about 60% of the window, so the diff is never swallowed. */
 	.body {
-		max-height: 45vh;
+		max-height: calc(60vh - 2.5rem);
 		overflow-y: auto;
 		padding: 0 0.75rem 0.6rem;
 	}
@@ -347,6 +382,11 @@
 
 	p {
 		margin: 0;
+	}
+
+	.part-heading {
+		margin: 0.25rem 0 0.4rem;
+		font-size: 0.9375rem;
 	}
 
 	textarea {

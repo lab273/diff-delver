@@ -7,7 +7,7 @@
  */
 import type { EditCount } from '../edit-count.tiny.ts';
 import type { Timestamp } from '../timestamp.tiny.ts';
-import { countOf } from '../viewer/words.ts';
+import { countOf, formatCount } from '../viewer/words.ts';
 
 /** The most characters an overall review holds. */
 export const MAX_OVERALL_REVIEW_LENGTH = 20_000;
@@ -69,6 +69,48 @@ export function describeDraftComments(count: number, flags = 0): string {
 		count === 0 ? undefined : countOf(count, 'comment', 'comments'),
 		flags === 0 ? undefined : countOf(flags, 'flag', 'flags')
 	]);
+}
+
+/** What the draft holds besides its overall review, as its footer counts it put away. */
+export interface DraftCounts {
+	/** Saved comments that are not replies to an earlier review's thread. */
+	readonly comments: number;
+	readonly flags: number;
+	/** Saved replies to threads of earlier reviews. */
+	readonly replies: number;
+	/** Threads of earlier reviews the draft resolves or opens again. */
+	readonly resolutions: number;
+	/** Comments being written and not saved yet, with words worth keeping. */
+	readonly beingWritten: number;
+}
+
+/**
+ * The draft in words, on one line: "No comments yet", "3 comments, 1 flag
+ * and 1 reply", "2 comments and 1 earlier comment resolved or reopened",
+ * "1 comment being written", "1 comment, 2 more being written".
+ */
+export function describeDraft({
+	comments,
+	flags,
+	replies,
+	resolutions,
+	beingWritten
+}: DraftCounts): string {
+	const saved = inWords([
+		comments === 0 ? undefined : countOf(comments, 'comment', 'comments'),
+		flags === 0 ? undefined : countOf(flags, 'flag', 'flags'),
+		replies === 0 ? undefined : countOf(replies, 'reply', 'replies'),
+		resolutions === 0
+			? undefined
+			: countOf(
+					resolutions,
+					'earlier comment resolved or reopened',
+					'earlier comments resolved or reopened'
+				)
+	]);
+	if (beingWritten === 0) return saved === '' ? 'No comments yet' : saved;
+	if (saved === '') return `${countOf(beingWritten, 'comment', 'comments')} being written`;
+	return `${saved}, ${formatCount(beingWritten)} more being written`;
 }
 
 /** What a review holds: how many comments and flags, and whether an overall review. */

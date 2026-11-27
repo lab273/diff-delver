@@ -90,7 +90,7 @@ describe('comments among a file’s lines', () => {
 	it('says in plain words when a comment’s lines are in another version', () => {
 		expect(describeOtherVersion(version(2), version(2))).toBeUndefined();
 		expect(describeOtherVersion(version(1), version(3))).toBe(
-			'Written on version 1, an earlier version than the one shown here, so it is not among the lines below.'
+			'Written on version 1, an earlier version than the one shown here, so it is not among the lines of the diff.'
 		);
 		expect(describeOtherVersion(version(3), version(2))).toMatch(/a newer version/);
 	});

@@ -18,8 +18,8 @@ test.describe('J6 Comment and flag', () => {
 				name: `Comment on, flag or ask about line ${String(number)}, after`,
 				exact: true
 			});
-		const list = journey.byRole('button', { name: /^Draft comments/ });
-		const bar = journey.within(journey.byRole('region', { name: 'Overall review' }));
+		const bar = journey.within(journey.byRole('region', { name: 'Your draft review' }));
+		const list = bar.byRole('button', { name: 'Your draft review', exact: true });
 
 		// `j` moves from file to file, to the lexer.
 		await journey.press('j');
@@ -59,16 +59,12 @@ test.describe('J6 Comment and flag', () => {
 			);
 		await journey.expectVisible(flagged(2).byText('Flagged to look at again'));
 		await journey.expectFocused(line(2));
-		await journey.expectVisible(
-			journey.byRole('button', { name: 'Draft comments: 1 flag', exact: true })
-		);
+		await journey.expectVisible(bar.byText('1 flag', { exact: true }));
 		await journey.step('A line flagged');
 
 		// `f` again on the same line makes no second flag.
 		await journey.press('f');
-		await journey.expectVisible(
-			journey.byRole('button', { name: 'Draft comments: 1 flag', exact: true })
-		);
+		await journey.expectVisible(bar.byText('1 flag', { exact: true }));
 
 		// A comment on a run of lines, with `c`; then `f` flags the first line.
 		await journey.press('Shift+ArrowDown');
@@ -118,7 +114,7 @@ test.describe('J6 Comment and flag', () => {
 		await journey.expectVisible(bar.byText('1 comment and 1 flag', { exact: true }));
 		await journey.step('A flag with words, the other cleared');
 
-		// `F` goes to the next flag; the list above the diff has it too.
+		// `F` goes to the next flag; the draft at the foot of the page lists it too.
 		await journey.press('F');
 		await journey.expectFocused(file.byRole('article', { name: 'Your flag on After, line 2' }));
 		await journey.activate(list);

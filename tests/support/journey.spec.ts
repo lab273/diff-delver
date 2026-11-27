@@ -416,8 +416,8 @@ test.describe('the journey helper plays an agent’s link and a window diff delv
 		await journey.expectVisible(
 			journey.byRole('heading', { level: 1, name: 'Uncommitted changes' })
 		);
-		const drafts = { name: 'Draft comments (0)', exact: true };
-		await journey.expectHidden(journey.byRole('button', drafts));
+		const drafts = { name: 'No comments yet', exact: true } as const;
+		await journey.expectHidden(journey.byText(drafts.name, { exact: true }));
 		await journey.activate(
 			journey.byRole('button', { name: 'Turn on comments in this browser', exact: true })
 		);
@@ -427,14 +427,16 @@ test.describe('the journey helper plays an agent’s link and a window diff delv
 		await expect(journey.openedWindow()).rejects.toThrow('opened no browser window');
 		expect(window).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/diffs\/r_1\?entry=[0-9a-f]{32}$/);
 		await journey.inAnotherTab(window, async (tab) => {
-			await tab.expectVisible(tab.byRole('button', drafts));
+			await tab.expectVisible(tab.byText(drafts.name, { exact: true }));
 			await tab.step('The window diff delver opened');
 		});
 		// The first tab is told nothing until the person comes back to it.
-		await journey.expectHidden(journey.byRole('button', drafts));
+		await journey.expectHidden(journey.byText(drafts.name, { exact: true }));
 		await journey.returnToPage();
 		await journey.expectVisible(journey.byText('Comments are on in this browser now.'));
-		await journey.expectFocused(journey.byRole('button', drafts));
+		await journey.expectFocused(
+			journey.byRole('button', { name: 'Your draft review', exact: true })
+		);
 		await journey.step('Comments turned on in the first tab');
 	});
 });

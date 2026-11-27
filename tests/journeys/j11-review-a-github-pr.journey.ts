@@ -102,7 +102,7 @@ test.describe('J11 Review a GitHub PR', () => {
 		await journey.expectFocused(box.byRole('textbox', { name: 'Comment', exact: true }));
 		await journey.type('Read the coupons from settings.');
 		await journey.activate(box.byRole('button', { name: 'Save comment', exact: true }));
-		const bar = journey.within(journey.byRole('region', { name: 'Overall review' }));
+		const bar = journey.within(journey.byRole('region', { name: 'Your draft review' }));
 		await journey.expectVisible(bar.byText('1 comment', { exact: true }));
 		await journey.press('v');
 		await journey.expectFocused(

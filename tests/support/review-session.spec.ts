@@ -55,7 +55,7 @@ test('a cross-site MCP link opens the Delve with or without review access in the
 			await expect(
 				notice.getByRole('button', { name: 'Turn on comments in this browser' })
 			).toBeVisible();
-			await expect(page.getByRole('button', { name: /^Draft comments/ })).toHaveCount(0);
+			await expect(page.getByText('No comments yet', { exact: true })).toHaveCount(0);
 			const delve = page.url();
 
 			// The list of Delves says the same of deleting, and offers no Delete until it may.
@@ -88,15 +88,15 @@ test('a cross-site MCP link opens the Delve with or without review access in the
 			await page.evaluate(() => window.dispatchEvent(new FocusEvent('focus')));
 			await expect(notice).toHaveCount(0);
 			await expect(page).toHaveURL(delve);
-			const drafts = page.getByRole('button', { name: 'Draft comments (0)', exact: true });
+			const drafts = page.getByRole('button', { name: 'Your draft review', exact: true });
 			await expect(drafts).toBeVisible();
 			await drafts.click();
 			await expect(page.getByText('No comments yet. To write one')).toBeVisible();
 
+			// The draft is open as it was left, its comments listed.
 			await followFromAnotherSite(page, await link());
 			await expect(page).toHaveURL(delve);
 			await expect(drafts).toBeVisible();
-			await drafts.click();
 			await expect(page.getByText('No comments yet. To write one')).toBeVisible();
 		} finally {
 			await mcp.close();

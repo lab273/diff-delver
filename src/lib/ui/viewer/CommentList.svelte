@@ -1,6 +1,6 @@
 <!--
-	Every comment and flag of the reviewer's draft, in one place above the
-	diff: how many there are, each with its file, its lines and when it was written, on
+	Every comment and flag of the reviewer's draft, in one place in the
+	draft's footer (`OverallReview.svelte`), drawn while it is open: how many there are, each with its file, its lines and when it was written, on
 	whichever version it was written; and whatever is being written whose lines
 	are not on the page, so it is never out of reach, questions for the agent
 	among them, which can be discarded here or moved by asking on a line.
@@ -36,11 +36,11 @@
 		showNewer: () => void;
 		/** Goes to lines of the version shown, in the diff: a saved comment's, or a box's. */
 		ongo: (place: CommentPlace, what: DraftCommentView | Writing) => void;
-		control?: HTMLButtonElement | undefined;
+		/** The list's heading, which takes the keyboard when what had it is gone. */
+		control?: HTMLElement | undefined;
 	} = $props();
 
-	let expanded = $state(false);
-	const panelId = $props.id();
+	const headingId = $props.id();
 	const saved = $derived(comments.saved);
 	/** What is being written and has no place among the lines on the page now. */
 	const waiting = $derived(
@@ -54,20 +54,14 @@
 	const underLines = $derived(comments.writing.filter((w) => !diffHidden && w.inDiff > 0));
 </script>
 
-<section class="comments" aria-label="Draft comments">
-	<button
-		type="button"
-		bind:this={control}
-		aria-expanded={expanded}
-		aria-controls={panelId}
-		onclick={() => (expanded = !expanded)}
-	>
+<section class="comments" aria-labelledby={headingId}>
+	<h3 id={headingId} tabindex="-1" bind:this={control}>
 		Draft comments{saved === undefined
 			? ''
 			: comments.flagCount === 0
 				? ` (${String(comments.commentCount)})`
 				: `: ${describeDraftComments(comments.commentCount, comments.flagCount)}`}
-	</button>
+	</h3>
 	{#if underLines.length > 0}
 		<ul class="unsaved" aria-label="Comments not saved yet">
 			{#each underLines as writing (writing.key)}
@@ -130,22 +124,15 @@
 			}}
 		/>
 	{/each}
-	<div
-		id={panelId}
-		class="panel"
-		aria-busy={comments.loading && saved === undefined}
-		hidden={!expanded}
-	>
-		<!-- Drawn only while open, so a box in it is one the reviewer can see. -->
-		{#if !expanded}
-			<!-- Closed. -->
-		{:else if comments.problem !== ''}
-			<p role="alert">{comments.problem} Close and open Draft comments to try again.</p>
+	<div class="panel" aria-busy={comments.loading && saved === undefined}>
+		{#if comments.problem !== ''}
+			<p role="alert">{comments.problem}</p>
+			<button type="button" onclick={() => void comments.load()}>Try again</button>
 		{:else if saved === undefined}
 			<p role="status">Loading your comments…</p>
 		{:else if saved.length === 0}
 			<p>
-				No comments yet. To write one, press the number of a line in a file below, or press
+				No comments yet. To write one, press the number of a line in a file, or press
 				<kbd>c</kbd> on a line. Drag over the numbers, or hold Shift with the arrow keys, to take
 				several lines. To flag lines to look at again, press <kbd>f</kbd> on one.
 			</p>
@@ -178,6 +165,11 @@
 <style>
 	.comments {
 		margin-block: 0.75rem;
+	}
+
+	h3 {
+		margin: 0.25rem 0 0.4rem;
+		font-size: 0.9375rem;
 	}
 
 	.panel p {

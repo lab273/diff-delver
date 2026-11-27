@@ -95,10 +95,14 @@ test('pressing a line number opens the menu under it, Comment or Flag, and dragg
 		});
 		await expect(unsaved).toBeVisible();
 
-		// A comment being written among the lines is listed above the diff, with the way back to it.
-		const list = page.getByRole('region', { name: 'Draft comments' });
+		// A comment being written among the lines is listed in the draft at the foot of the page,
+		// with the way back to it.
 		await page.getByRole('heading', { level: 1 }).scrollIntoViewIfNeeded();
-		await list.getByRole('button', { name: 'Draft comments: 1 comment and 1 flag' }).focus();
+		await page.getByRole('button', { name: 'Your draft review', exact: true }).click();
+		const list = page.getByRole('region', { name: 'Draft comments' });
+		await expect(
+			list.getByRole('heading', { name: 'Draft comments: 1 comment and 1 flag' })
+		).toBeVisible();
 		const waiting = list.getByRole('list', { name: 'Comments not saved yet' });
 		await expect(waiting).toContainText('Not saved yet: src/lexer.ts After, lines 6–8');
 		await waiting
@@ -144,6 +148,8 @@ test('words typed in a box are kept when the page is left by its own links and c
 			.getByRole('form', { name: 'New comment on After, line 2', exact: true })
 			.getByRole('textbox', { name: 'Comment' })
 			.fill(typed);
+		// The draft at the foot of the page is opened, and stays open on coming back.
+		await page.getByRole('button', { name: 'Your draft review', exact: true }).click();
 		// Back on the Delve its unchanged lines are folded again, so the box waits in the list.
 		const waiting = page.getByRole('form', {
 			name: 'New comment on src/lexer.ts, After, line 2',
@@ -175,7 +181,7 @@ test('words typed in a box are kept when the page is left by its own links and c
 
 		// Saved from where it waits, it is a comment, and nothing is left unsaved.
 		await waiting.getByRole('button', { name: 'Save comment', exact: true }).click();
-		await expect(page.getByRole('button', { name: 'Draft comments (1)' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Draft comments (1)' })).toBeVisible();
 		await page.getByRole('link', { name: 'See all your Delves' }).click();
 		await expect(page.getByRole('heading', { level: 1, name: 'Your Delves' })).toBeVisible();
 		await expect(page.getByText('Something you were writing here is not saved yet.')).toHaveCount(
@@ -229,7 +235,7 @@ test('a comment is changed in one box, holds what was typed exactly, and shows w
 		await expect(saved.locator('.escape')).toHaveText(['\\u202E', '\\u200B']);
 
 		// With the list open the comment is drawn twice, and changed in one box: where Edit was pressed.
-		await page.getByRole('button', { name: 'Draft comments (1)', exact: true }).click();
+		await page.getByRole('button', { name: 'Your draft review', exact: true }).click();
 		const listed = page
 			.getByRole('region', { name: 'Draft comments' })
 			.getByRole('article', { name: 'Your comment on src/lexer.ts, After, line 12' });
@@ -298,7 +304,7 @@ test('a browser let in by a link is told under the line how to turn comments on,
 		const tab = await page.context().newPage();
 		try {
 			await tab.goto(opened);
-			await expect(tab.getByRole('button', { name: 'Draft comments (0)' })).toBeVisible();
+			await expect(tab.getByText('No comments yet', { exact: true })).toBeVisible();
 		} finally {
 			await tab.close();
 		}

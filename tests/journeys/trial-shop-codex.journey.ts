@@ -170,10 +170,11 @@ test.describe('Trial shop sorted by Codex', () => {
 			)
 		);
 		await journey.activate(unsaved.byRole('button', { name: 'Save comment', exact: true }));
-		await journey.expectVisible(journey.byRole('button', { name: 'Draft comments (1)' }));
+		const draft = journey.within(journey.byRole('region', { name: 'Your draft review' }));
+		await journey.expectVisible(draft.byText('1 comment', { exact: true }));
 		await journey.returnToPage();
 		await journey.expectHidden(part);
-		await journey.activate(journey.byRole('button', { name: 'Draft comments (1)', exact: true }));
+		await journey.activate(draft.byRole('button', { name: 'Your draft review', exact: true }));
 		const listed = journey.within(
 			journey.byRole('article', { name: 'Your comment on src/pricing.ts, After, lines 6–7' })
 		);

@@ -24,6 +24,8 @@ test.describe('J10 Look back', () => {
 		const opened = await journey.command([], shop);
 		await journey.open(opened.address);
 		const discount = journey.within(journey.byRole('article', { name: 'src/discount.ts' }));
+		const bar = journey.within(journey.byRole('region', { name: 'Your draft review' }));
+		const toFinish = bar.byRole('button', { name: 'Finish your review', exact: true });
 		const finish = journey.within(journey.byRole('region', { name: 'Finish your review' }));
 		const finishAndCopy = finish.byRole('button', { name: 'Finish and copy', exact: true });
 		const cartTick = journey.byRole('checkbox', { name: 'Reviewed: src/cart.ts' });
@@ -51,6 +53,8 @@ test.describe('J10 Look back', () => {
 		await journey.expectVisible(
 			discount.byText('Should the codes come from settings?', { exact: true })
 		);
+		// Finishing is in the draft at the foot of the page.
+		await journey.activate(toFinish);
 		await journey.activate(finishAndCopy);
 		await journey.expectVisible(
 			finish.byText('Review 1 is finished and copied.', { exact: false })
@@ -80,6 +84,8 @@ test.describe('J10 Look back', () => {
 				exact: true
 			})
 		);
+		// Finishing is in the draft at the foot of the page.
+		await journey.activate(toFinish);
 		await journey.activate(finishAndCopy);
 		await journey.expectVisible(
 			finish.byText('Review 2 is finished and copied.', { exact: false })

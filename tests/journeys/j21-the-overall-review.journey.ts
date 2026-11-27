@@ -12,14 +12,14 @@ test.describe('J21 The overall review', () => {
 		const opened = await journey.command([], shop);
 		await journey.open(opened.address);
 
-		const bar = journey.within(journey.byRole('region', { name: 'Overall review' }));
-		const toggle = bar.byRole('button', { name: 'Overall review', exact: true });
+		const bar = journey.within(journey.byRole('region', { name: 'Your draft review' }));
+		const toggle = bar.byRole('button', { name: 'Your draft review', exact: true });
 		const words = bar.byRole('textbox', { name: /^Your overall review of the change/ });
 		const save = bar.byRole('button', { name: 'Save overall review', exact: true });
 
 		// Put away at first, it says nothing is written, and that there are no comments yet.
 		await journey.expectState(toggle, { expanded: false });
-		await journey.expectVisible(bar.byText('Nothing written yet', { exact: true }));
+		await journey.expectVisible(bar.byText('No overall review yet', { exact: true }));
 		await journey.expectVisible(bar.byText('No comments yet', { exact: true }));
 		await journey.expectInView(toggle);
 		await journey.step('The overall review put away, nothing written yet');
