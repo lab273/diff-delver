@@ -110,6 +110,13 @@ test.describe('J10 Look back', () => {
 			/Comment\s+src\/discount\.ts, After, line 1\s+on version 1\s+Today: Resolved/
 		);
 		await journey.step('Review 1 as it was handed over');
+		// Copied again from here, and the list of how it was handed over says so.
+		await journey.activate(journey.byRole('button', { name: 'Copy review 1 again' }));
+		expect(await journey.readClipboard()).toBe(first);
+		await journey.expectText(
+			journey.byRole('region', { name: 'How it was handed over' }),
+			'Copied 2 times, last just now'
+		);
 
 		// The Delve as of review 1: version 1, only the cart ticked, nothing to change.
 		await journey.activate(journey.byRole('link', { name: 'See the Delve as of review 1' }));

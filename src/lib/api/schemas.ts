@@ -1511,7 +1511,8 @@ export const DelveHistorySchema = z.strictObject({
 			}),
 			z.strictObject({
 				kind: z.literal('review'),
-				review: FinishedReviewSchema,
+				/** Without its text, which its own page gives. */
+				review: FinishedReviewSchema.omit({ text: true }),
 				/** What it held: "1 comment and 1 earlier comment resolved or reopened". */
 				held: message,
 				/** How it was handed over, one sentence for each way. */

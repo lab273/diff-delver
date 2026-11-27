@@ -16,6 +16,7 @@ import { unitCountOf } from '../unit-count.tiny.ts';
 import {
 	describeArrival,
 	describeDeliveries,
+	describeHeld,
 	describeItemKind,
 	describeToday,
 	reviewItems,
@@ -165,6 +166,25 @@ describe('the timeline', () => {
 			'Today: 1 code changed since, 1 resolved'
 		);
 		expect(describeToday(startedBy(threads, number(3)))).toBeUndefined();
+	});
+
+	it('says what a review held, and which earlier comments it resolved or reopened', () => {
+		const threads = [
+			thread(1, [[1, 1]], {
+				resolutions: [{ review: number(2), resolved: true, version: revision(2) }]
+			}),
+			thread(2, [[1, 1]], {
+				resolutions: [{ review: number(2), resolved: false, version: revision(2) }]
+			})
+		];
+		const two = review(2, 2, { comments: sure(parseCommentCount(0)) });
+		expect(describeHeld(two, threads)).toBe(
+			'1 earlier comment resolved and 1 earlier comment reopened'
+		);
+		expect(describeHeld(review(2, 2), threads)).toBe(
+			'1 comment, 1 earlier comment resolved and 1 earlier comment reopened'
+		);
+		expect(describeHeld(review(1, 1), threads)).toBe('1 comment');
 	});
 
 	it("lists a review's comments and replies against their versions, and what it resolved", () => {

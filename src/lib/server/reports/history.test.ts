@@ -119,9 +119,7 @@ describe("a Delve's history", () => {
 				read: { times: 1 }
 			});
 			expect(second).toMatchObject({ copied: undefined, read: undefined });
-			expect(second && describeHeld(second, history.threads)).toBe(
-				'1 earlier comment resolved or reopened'
-			);
+			expect(second && describeHeld(second, history.threads)).toBe('1 earlier comment resolved');
 			// Review 1's comment was resolved by review 2: so it stands today.
 			expect(describeToday(startedBy(history.threads, number(1)))).toBe('Today: 1 resolved');
 			const items = reviewItems(history.threads, number(2));

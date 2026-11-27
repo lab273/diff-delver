@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { invalidate } from '$app/navigation';
 	import { describeApiError } from '#lib/api/client.ts';
 	import { textToCopy } from '#lib/core/agent-setup/text-to-copy.tiny.ts';
 	import { describePostedAs } from '#lib/core/github/github-review.ts';
@@ -37,7 +38,9 @@
 			said = `This browser would not let diff delver copy review ${n}. Select the text below and copy it yourself.`;
 			return;
 		}
-		void pageClient().noteCopied(data.id, data.number);
+		// Noted, then read again, so the copy is in the list of how it was handed over.
+		const noted = await pageClient().noteCopied(data.id, data.number);
+		if (noted.ok) await invalidate('app:past-review');
 		said = `Review ${n} copied. Paste it to your agent, or ask your agent to act on your review in diff delver.`;
 	}
 </script>

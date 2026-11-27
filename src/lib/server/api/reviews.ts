@@ -71,6 +71,22 @@ function anchorView(anchor: CommentAnchor): PastReviewView['items'][number]['anc
 	return { ...anchor, path: escapedRepoPath(anchor.path) };
 }
 
+/** A finished review without the text it handed over, as the history lists it. */
+function withoutText(review: FinishedReviewView): Omit<FinishedReviewView, 'text'> {
+	return {
+		number: review.number,
+		version: review.version,
+		submittedAt: review.submittedAt,
+		comments: review.comments,
+		flags: review.flags,
+		overall: review.overall,
+		progress: review.progress,
+		posted: review.posted,
+		copied: review.copied,
+		read: review.read
+	};
+}
+
 /** The Delve's history as its page shows it: versions and reviews in order, in words. */
 export function historyView(history: DelveHistory, now: Timestamp): DelveHistoryView {
 	return {
@@ -87,7 +103,7 @@ export function historyView(history: DelveHistory, now: Timestamp): DelveHistory
 					}
 				: {
 						kind: 'review',
-						review: reviewView(entry.review),
+						review: withoutText(reviewView(entry.review)),
 						held: describeHeld(entry.review, history.threads),
 						deliveries: [...describeDeliveries(entry.review, now)],
 						today: describeToday(startedBy(history.threads, entry.review.number)) ?? null

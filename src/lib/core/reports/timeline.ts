@@ -208,10 +208,24 @@ export function describeHeld(
 	review: FinishedReview,
 	threads: readonly ThreadToday[]
 ): ReviewerMessage {
-	const resolutions = threads.filter((t) =>
-		t.resolutions.some((r) => r.review === review.number)
-	).length;
-	return reviewerMessage(describeReviewContents({ ...review, resolutions }, 'listed'));
+	const done = threads.flatMap((t) => t.resolutions.filter((r) => r.review === review.number));
+	const resolved = done.filter((r) => r.resolved).length;
+	const reopened = done.length - resolved;
+	const own =
+		review.comments > 0 || review.flags > 0 || review.overall || done.length === 0
+			? [describeReviewContents(review, 'listed')]
+			: [];
+	const earlier = [
+		...(resolved > 0
+			? [countOf(resolved, 'earlier comment resolved', 'earlier comments resolved')]
+			: []),
+		...(reopened > 0
+			? [countOf(reopened, 'earlier comment reopened', 'earlier comments reopened')]
+			: [])
+	];
+	const all = [...own, ...earlier];
+	const last = all.pop() ?? '';
+	return reviewerMessage(all.length === 0 ? last : `${all.join(', ')} and ${last}`);
 }
 
 /** What an item is, in words: "Comment", "Flag", "Reply to review 1". */

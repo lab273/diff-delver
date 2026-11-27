@@ -5,7 +5,8 @@ import { pageClient } from '#lib/ui/client.ts';
 import type { PageLoad } from './$types';
 
 /** One finished review of a Delve, read-only. */
-export const load: PageLoad = async ({ fetch, params }) => {
+export const load: PageLoad = async ({ fetch, params, depends }) => {
+	depends('app:past-review');
 	const id = parseReportId(params.id);
 	if (!id.ok) error(404, 'There is no Delve at this address.');
 	const number = parseReviewNumber(Number(params.review));
