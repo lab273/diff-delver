@@ -168,7 +168,7 @@ import {
 } from '../db/tables/threads.ts';
 import { threadStatus, type EarlierThread } from '#lib/core/review/threads.ts';
 import type { ThreadId } from '#lib/core/thread-id.tiny.ts';
-import { followThread, type VersionChanges } from '#lib/core/update/reanchor.ts';
+import { followThread, type Reanchored, type VersionChanges } from '#lib/core/update/reanchor.ts';
 import { touchedByReview, type ExportedThread } from '#lib/core/review/review-export.ts';
 import { draftSummaryOf, writeDraftSummary } from '../db/tables/draft-summaries.ts';
 import {
@@ -1431,6 +1431,14 @@ function exportedThreads(
  * A stored thread as version `version` shows it, or undefined when it was
  * started on a later version than that, or not yet followed to it.
  */
+/** Whether a thread was started before `version` and not yet followed to it. */
+function threadBehind(stored: StoredThread, version: Revision): boolean {
+	return (
+		!stored.places.some((p) => p.revision === version.id) &&
+		stored.places.some((p) => p.version < version.number)
+	);
+}
+
 function threadIn(stored: StoredThread, version: Revision): EarlierThread | undefined {
 	const here = stored.places.find((p) => p.revision === version.id);
 	const start = stored.messages[0];
@@ -1651,6 +1659,8 @@ export class ReportService {
 	 * press, so it is neither posted nor finished twice.
 	 */
 	readonly #finishing = new Set<ReportId>();
+	/** Threads being followed to a version, by Delve and version, so two runs are one. */
+	readonly #following = new Map<string, Promise<Result<void, ReportError>>>();
 	/** What GitHub last said of each pull request, by its identity, and when. */
 	readonly #pullRequests = new Map<string, KeptPullRequest>();
 	/**
@@ -1968,6 +1978,12 @@ export class ReportService {
 			);
 		});
 		if (!found.ok) return found;
+		// A thread not followed to this version yet, as one an older daemon made or an
+		// earlier version still shown, is followed in the background; the page has it
+		// on its next read.
+		if (threads.some((t) => threadBehind(t, revision))) {
+			void this.#followThreadsOrLog(found.value.shown.report, revision);
+		}
 		const { sections, rows, marked, summary } = found.value;
 		const state = assignmentStateFromRows(diff, rows);
 		if (!state.ok) return state;
@@ -2026,23 +2042,42 @@ export class ReportService {
 	 * yet followed there, from the latest earlier version it was followed to,
 	 * through git's diff between the two versions' trees of its side and the
 	 * two versions' diffs (`followThread`), kept in `thread_places`, so each
-	 * thread is followed to each version once and a page only reads. One whose
-	 * lines are gone stays gone. Run when an update makes a version (with the
-	 * trees' diffs it read, `known`), before the draft is replied to, resolved,
-	 * previewed or finished, and when the daemon starts, for threads an
-	 * earlier diff delver or a stopped daemon left behind.
+	 * thread is followed to each version once. One whose lines are gone stays
+	 * gone. Each thread is followed on its own: when the earlier version's diff
+	 * cannot be read, it is followed by its tree alone, and when the trees
+	 * cannot be compared, its lines are taken as gone, so it is still shown,
+	 * with the code it was on, and the failure is logged rather than tried
+	 * again for ever. Run when an update makes a version (with the trees' diffs
+	 * it read, `known`), before the draft is replied to, resolved, previewed or
+	 * finished, after a review is finished, when a page reads a version some
+	 * thread is not followed to yet, and when the daemon starts. Two runs for
+	 * one version are one.
 	 */
-	async #followThreads(
+	#followThreads(
 		report: Report,
 		to: Revision,
-		known?: KnownTreeChanges
+		known?: KnownTreeChanges,
+		stop?: AbortSignal
+	): Promise<Result<void, ReportError>> {
+		const key = `${report.id}:${to.id}`;
+		const running = this.#following.get(key);
+		if (running !== undefined) return running;
+		const run = this.#follow(report, to, known, stop).finally(() => {
+			this.#following.delete(key);
+		});
+		this.#following.set(key, run);
+		return run;
+	}
+
+	async #follow(
+		report: Report,
+		to: Revision,
+		known: KnownTreeChanges | undefined,
+		stop: AbortSignal | undefined
 	): Promise<Result<void, ReportError>> {
 		const stored = this.#db.read((q) => threadsOf(q, report.id));
 		if (!stored.ok) return stored;
-		const behind = stored.value.filter(
-			(t) =>
-				!t.places.some((p) => p.revision === to.id) && t.places.some((p) => p.version < to.number)
-		);
+		const behind = stored.value.filter((t) => threadBehind(t, to));
 		if (behind.length === 0) return ok(undefined);
 		const revisions = this.#db.read((q) => revisionsOf(q, report.id));
 		if (!revisions.ok) return revisions;
@@ -2050,7 +2085,7 @@ export class ReportService {
 		const target = await this.#contentOf(report, to);
 		if (!target.ok) return target;
 		const store = target.value.snapshot.store;
-		const read = new Map<RevisionId, VersionChanges>();
+		const read = new Map<RevisionId, VersionChanges | undefined>();
 		const trees = async (
 			from: Revision,
 			a: Revision['headTree'],
@@ -2060,28 +2095,37 @@ export class ReportService {
 			const files = await readTreeDiff(store, a, b);
 			return files.ok ? ok({ kind: 'diff', files: files.value }) : files;
 		};
-		const changesFrom = async (from: Revision): Promise<Result<VersionChanges, ReportError>> => {
-			const kept = read.get(from.id);
-			if (kept !== undefined) return ok(kept);
-			const earlier = await this.#contentOf(report, from);
-			if (!earlier.ok) return earlier;
+		const problem = (from: Revision, error: ReportError): void => {
+			this.#logOnce(
+				`diff delver could not compare version ${String(from.number)} of ${report.id} with version ${String(to.number)} to follow the comments of earlier reviews, so their lines are taken as gone: ${describeReportError(error)}`
+			);
+		};
+		/** The two versions' changes, or undefined when their trees cannot be compared. */
+		const changesFrom = async (from: Revision): Promise<VersionChanges | undefined> => {
+			if (read.has(from.id)) return read.get(from.id);
 			const heads =
 				known?.from === from.id ? ok(known.heads) : await trees(from, from.headTree, to.headTree);
-			if (!heads.ok) return heads;
 			const bases =
 				known?.from === from.id ? ok(known.bases) : await trees(from, from.baseTree, to.baseTree);
-			if (!bases.ok) return bases;
-			const changes: VersionChanges = {
-				heads: heads.value,
-				bases: bases.value,
-				before: earlier.value.diff,
-				after: target.value.diff
-			};
+			let changes: VersionChanges | undefined;
+			if (!heads.ok) problem(from, heads.error);
+			else if (!bases.ok) problem(from, bases.error);
+			else {
+				// Without the earlier diff, an old-side thread is followed by its tree alone.
+				const earlier = await this.#contentOf(report, from);
+				changes = {
+					heads: heads.value,
+					bases: bases.value,
+					before: earlier.ok ? earlier.value.diff : undefined,
+					after: target.value.diff
+				};
+			}
 			read.set(from.id, changes);
-			return ok(changes);
+			return changes;
 		};
 		const places: { thread: ThreadId; anchor: CommentAnchor | undefined; edited: boolean }[] = [];
 		for (const thread of behind) {
+			if (stop?.aborted === true) break;
 			const from = thread.places.filter((p) => p.version < to.number).at(-1);
 			const earlier = from === undefined ? undefined : byId.get(from.revision);
 			if (from?.anchor === undefined || earlier === undefined) {
@@ -2089,14 +2133,15 @@ export class ReportService {
 				continue;
 			}
 			const changes = await changesFrom(earlier);
-			if (!changes.ok) return changes;
-			const moved = followThread(from.anchor, changes.value);
+			const moved: Reanchored =
+				changes === undefined ? { kind: 'gone' } : followThread(from.anchor, changes);
 			places.push(
 				moved.kind === 'lines'
 					? { thread: thread.id, anchor: moved.anchor, edited: moved.edited }
 					: { thread: thread.id, anchor: undefined, edited: true }
 			);
 		}
+		if (places.length === 0) return ok(undefined);
 		const written = this.#db.write((q): Result<undefined, ReportError> => {
 			for (const p of places) insertThreadPlace(q, p.thread, to.id, p.anchor, p.edited);
 			return ok(undefined);
@@ -2108,8 +2153,21 @@ export class ReportService {
 	}
 
 	/** `#followThreads`, saying in the log when it could not: what it was run for goes on. */
-	async #followThreadsOrLog(report: Report, to: Revision, known?: KnownTreeChanges): Promise<void> {
-		const followed = await this.#followThreads(report, to, known);
+	async #followThreadsOrLog(
+		report: Report,
+		to: Revision,
+		known?: KnownTreeChanges,
+		stop?: AbortSignal
+	): Promise<void> {
+		let followed: Result<void, ReportError>;
+		try {
+			followed = await this.#followThreads(report, to, known, stop);
+		} catch (error) {
+			this.#log(
+				`diff delver stopped following the comments of earlier reviews of ${report.id}: ${error instanceof Error ? error.message : String(error)}`
+			);
+			return;
+		}
 		if (!followed.ok) {
 			this.#log(
 				`diff delver could not follow the comments of earlier reviews of ${report.id} to its version ${String(to.number)}: ${describeReportError(followed.error)}`
@@ -2118,22 +2176,32 @@ export class ReportService {
 	}
 
 	/** Follows a Delve's threads to its current version, saying in the log when it could not. */
-	async #catchUpThreads(id: ReportId): Promise<void> {
+	async #catchUpThreads(id: ReportId, stop?: AbortSignal): Promise<void> {
 		const found = this.#db.read((q) => current(q, id));
-		if (found.ok) await this.#followThreadsOrLog(found.value.report, found.value.revision);
+		if (found.ok) {
+			await this.#followThreadsOrLog(found.value.report, found.value.revision, undefined, stop);
+		}
 	}
 
 	/**
 	 * Follows every Delve's threads to its current version, one Delve at a
 	 * time, for the daemon once it is serving: threads an earlier diff delver
 	 * made of its finished reviews, or a daemon stopped before following them.
+	 * It stops between threads once `stop` fires, and never fails: what it
+	 * could not follow is in the log.
 	 */
 	async followAllThreads(stop?: AbortSignal): Promise<void> {
-		const listed = this.list();
-		if (!listed.ok) return;
-		for (const entry of listed.value) {
-			if (stop?.aborted === true) return;
-			if (entry.kind === 'report') await this.#catchUpThreads(entry.id);
+		try {
+			const listed = this.list();
+			if (!listed.ok) return;
+			for (const entry of listed.value) {
+				if (stop?.aborted === true) return;
+				if (entry.kind === 'report') await this.#catchUpThreads(entry.id, stop);
+			}
+		} catch (error) {
+			this.#log(
+				`diff delver stopped following the comments of earlier reviews: ${error instanceof Error ? error.message : String(error)}`
+			);
 		}
 	}
 

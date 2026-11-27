@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { settableClock } from '#lib/core/clock.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
@@ -11,6 +13,7 @@ import { emptyRepo, tempDirectory } from '../../../../tests/support/fixture-repo
 import { value } from '../../../../tests/support/git-source-helpers.ts';
 import { at } from '../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../tests/support/reviewer-git.ts';
+import { DATABASE_FILE } from '../db/index.ts';
 import { ReportService } from './index.ts';
 
 const path = (text: string): RepoPath => value(parseRepoPath(text));
@@ -196,6 +199,64 @@ describe('threads of earlier reviews', () => {
 			);
 			const done = value(await service.load(id));
 			expect(done.threads.map((t) => t.status)).toEqual(['resolved', 'resolved', 'open']);
+		} finally {
+			service.close();
+		}
+	});
+
+	it('follows threads left behind once the daemon starts following them', async () => {
+		const repo = await emptyRepo();
+		await repo.write('src/cart.ts', lines(10));
+		await repo.commit('first');
+		await repo.write(
+			'src/cart.ts',
+			lines(10, (i) => `cart ${String(i)}`)
+		);
+		const who = await reviewer();
+		const data = await tempDirectory();
+		const service = value(
+			await ReportService.open({
+				dataDirectory: data,
+				clock: settableClock(at(1_700_000_000_000)),
+				ids: sequentialIds(),
+				repository: { gitEnv: who.gitEnv }
+			})
+		);
+		try {
+			const opened = value(await service.open(repo.dir, value(parseGitSourceSpec('working-tree'))));
+			if (opened.kind !== 'created') throw new Error(opened.kind);
+			const id = opened.report.id;
+			const comment = value(
+				await service.addDraftComment(
+					id,
+					version(1),
+					{ path: path('src/cart.ts'), side: 'new', first: lineNumberOf(4), last: lineNumberOf(4) },
+					'Four?'
+				)
+			);
+			value(
+				await service.finishReview(id, version(1), {
+					comments: shown([comment]),
+					overall: NO_EDITS
+				})
+			);
+			await repo.write('src/cart.ts', `top\n${lines(10, (i) => `cart ${String(i)}`)}`);
+			expect(value(await service.update(id)).kind).toBe('updated');
+			// As a daemon stopped before following it, or an earlier diff delver, left it.
+			const raw = new DatabaseSync(join(data, DATABASE_FILE));
+			const places = () =>
+				raw
+					.prepare('SELECT first_line AS first FROM thread_places ORDER BY first_line')
+					.all()
+					.map((r) => r['first']);
+			raw.prepare('DELETE FROM thread_places WHERE first_line = 5').run();
+			expect(places()).toEqual([4]);
+			await service.followAllThreads();
+			expect(places()).toEqual([4, 5]);
+			raw.close();
+			expect(value(await service.load(id)).threads).toMatchObject([
+				{ status: 'open', at: { first: 5 } }
+			]);
 		} finally {
 			service.close();
 		}

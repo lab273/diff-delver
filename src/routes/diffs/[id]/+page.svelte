@@ -2263,7 +2263,6 @@
 	/** The thread of an earlier review last gone to with `p`, by id. */
 	let lastThread: number | undefined;
 
-	/** Goes to a thread of an earlier review among the lines of the version shown. */
 	/**
 	 * Goes to a thread of an earlier review: among the lines of the version
 	 * shown when it is drawn there, else to where the list above the diff
