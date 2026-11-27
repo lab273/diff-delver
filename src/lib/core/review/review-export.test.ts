@@ -335,4 +335,29 @@ describe('a finished review with an overall review', () => {
 		);
 		expect(text).not.toContain('Long settled.');
 	});
+
+	it('lists a reply to a thread resolved before apart, and leaves it resolved', () => {
+		const settled = comment({ version: version(1), body: 'Long settled.' });
+		const text = renderReviewExport(
+			input({
+				number: sure(parseReviewNumber(2)),
+				comments: [],
+				threads: [
+					{
+						start: settled,
+						from: sure(parseReviewNumber(1)),
+						replies: [],
+						at: settled.anchor,
+						status: 'resolved',
+						reply: 'Still fine.',
+						action: undefined
+					}
+				]
+			})
+		);
+		expect(text).not.toContain('## Still open from earlier reviews');
+		expect(text).toContain(
+			'## Replies on resolved comments\n\n### src/cart.ts:2-3 (new), from review 1, resolved before\n> Long settled.\nReply in this review:\n> Still fine.\n'
+		);
+	});
 });

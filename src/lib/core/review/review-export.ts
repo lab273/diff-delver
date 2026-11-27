@@ -199,7 +199,21 @@ export interface ReviewExportInput {
  */
 export function stillOpen(thread: ExportedThread): boolean {
 	if (thread.action === 'resolved') return false;
-	return thread.status !== 'resolved' || thread.action === 'reopened' || thread.reply !== undefined;
+	return thread.status !== 'resolved' || thread.action === 'reopened';
+}
+
+/** Whether this review replied to a thread resolved earlier, and left it resolved. */
+export function repliedWhileResolved(thread: ExportedThread): boolean {
+	return thread.status === 'resolved' && thread.action === undefined && thread.reply !== undefined;
+}
+
+/**
+ * Whether this review did something to a thread: replied to it, resolved it
+ * or opened it again. Only those go to GitHub, whose text would otherwise
+ * repeat every open thread in every review.
+ */
+export function touchedByReview(thread: ExportedThread): boolean {
+	return thread.reply !== undefined || thread.action !== undefined;
 }
 
 /** A finished review as Markdown written for a language model. */
@@ -210,6 +224,7 @@ export function renderReviewExport(input: ReviewExportInput): TextForAgent {
 	const threads = input.threads ?? [];
 	const open = threads.filter(stillOpen);
 	const resolved = threads.filter((t) => t.action === 'resolved');
+	const answered = threads.filter(repliedWhileResolved);
 	const out: string[] = [
 		`# Review ${String(input.number)} of ${visibleText(input.title)} in ${visibleText(input.repository)}`,
 		'',
@@ -225,6 +240,11 @@ export function renderReviewExport(input: ReviewExportInput): TextForAgent {
 	if (resolved.length > 0) {
 		out.push('## Resolved in this review');
 		for (const thread of resolved) out.push('', ...threadLines(thread, input.version));
+		out.push('');
+	}
+	if (answered.length > 0) {
+		out.push('## Replies on resolved comments');
+		for (const thread of answered) out.push('', ...threadLines(thread, input.version));
 		out.push('');
 	}
 	out.push('## Comments');
@@ -251,6 +271,7 @@ function placeOf(comment: SubmittedComment, version: RevisionNumber): string {
 /** How a thread's code stands, in a few words: "unchanged", "changed since", "its lines are gone". */
 export function threadStanding(thread: ExportedThread): string {
 	if (thread.at === undefined) return 'its lines are gone';
+	if (thread.status === 'resolved' && thread.action === undefined) return 'resolved before';
 	if (thread.status === 'changed') return 'changed since';
 	return thread.action === 'reopened' ? 'opened again' : 'unchanged';
 }

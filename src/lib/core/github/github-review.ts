@@ -47,6 +47,7 @@ import { isWritten } from '../review/overall-review.ts';
 import {
 	longestRun,
 	quotedLine,
+	repliedWhileResolved,
 	stillOpen,
 	threadStanding,
 	type ExportedThread,
@@ -212,9 +213,10 @@ export interface GitHubReviewInput {
 	/** Its comments and flags, in the order they were made. */
 	readonly comments: readonly SubmittedComment[];
 	/**
-	 * Threads from earlier reviews, with this review's replies and
-	 * resolutions. They are diff delver's, not GitHub's, so they all go in the
-	 * text, never on lines: a reply has no GitHub comment to answer.
+	 * The threads of earlier reviews this review replied to, resolved or
+	 * opened again (`touchedByReview`), with what it did. They are diff
+	 * delver's, not GitHub's, so they go in the text, never on lines: a reply
+	 * has no GitHub comment to answer.
 	 */
 	readonly threads?: readonly ExportedThread[];
 	/** Every comment in the text, as when GitHub refused to place them on their lines. */
@@ -282,6 +284,9 @@ export const STILL_OPEN_HEADING = '**Still open from earlier reviews**';
 /** The heading over the threads this review resolved, in the review's text. */
 export const RESOLVED_HEADING = '**Resolved in this review**';
 
+/** The heading over this review's replies to threads resolved earlier, in the review's text. */
+export const REPLIED_HEADING = '**Replies on resolved comments**';
+
 /** The heading over the flags in the review's text. */
 export const FLAGS_HEADING = '**Flagged for another look**';
 
@@ -313,6 +318,7 @@ export function gitHubReview(input: GitHubReviewInput): GitHubReviewDraft {
 	const threads = input.threads ?? [];
 	const open = threads.filter(stillOpen);
 	const resolved = threads.filter((t) => t.action === 'resolved');
+	const answered = threads.filter(repliedWhileResolved);
 	if (open.length > 0) {
 		parts.push(
 			[STILL_OPEN_HEADING, ...open.map((t) => inTextThread(t, input.version))].join('\n\n')
@@ -321,6 +327,11 @@ export function gitHubReview(input: GitHubReviewInput): GitHubReviewDraft {
 	if (resolved.length > 0) {
 		parts.push(
 			[RESOLVED_HEADING, ...resolved.map((t) => inTextThread(t, input.version))].join('\n\n')
+		);
+	}
+	if (answered.length > 0) {
+		parts.push(
+			[REPLIED_HEADING, ...answered.map((t) => inTextThread(t, input.version))].join('\n\n')
 		);
 	}
 	if (inText.length > 0) {

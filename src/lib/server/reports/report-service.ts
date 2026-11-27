@@ -169,7 +169,7 @@ import {
 import { threadStatus, type EarlierThread } from '#lib/core/review/threads.ts';
 import type { ThreadId } from '#lib/core/thread-id.tiny.ts';
 import { followThread, type VersionChanges } from '#lib/core/update/reanchor.ts';
-import type { ExportedThread } from '#lib/core/review/review-export.ts';
+import { touchedByReview, type ExportedThread } from '#lib/core/review/review-export.ts';
 import { draftSummaryOf, writeDraftSummary } from '../db/tables/draft-summaries.ts';
 import {
 	agentNoteOf,
@@ -3601,7 +3601,7 @@ export class ReportService {
 									version,
 									overall: draft.overall.body,
 									comments: comments.map((r) => r.comment),
-									threads: made.threads,
+									threads: made.threads.filter(touchedByReview),
 									allInText: false,
 									mark: undefined
 								}).body,
@@ -3871,7 +3871,7 @@ export class ReportService {
 				version: found.revision.number,
 				overall: draft.overall.body,
 				comments: text.value.comments.filter((r) => r.replyTo === undefined).map((r) => r.comment),
-				threads: text.value.threads,
+				threads: text.value.threads.filter(touchedByReview),
 				allInText,
 				mark
 			});

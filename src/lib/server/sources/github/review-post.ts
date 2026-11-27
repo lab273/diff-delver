@@ -351,7 +351,7 @@ export function describeReviewNotPosted(error: ReviewNotPosted): ReviewerMessage
 			case 'lines-refused':
 				return `GitHub refused to place the review's comments on their lines. ${NOTHING_FINISHED} Finish and copy only to hand it over, or try again later.`;
 			case 'too-long':
-				return `The review is too long for GitHub, which takes at most ${formatCount(GITHUB_TEXT_LIMIT)} characters in a review's text and in each comment${problem.length > GITHUB_TEXT_LIMIT + 1 ? `; this one has ${formatCount(problem.length)}` : ''}. ${NOTHING_FINISHED} Shorten the overall review or the comments that go in the review's text, or finish and copy only to hand it over without posting it.`;
+				return `The review is too long for GitHub, which takes at most ${formatCount(GITHUB_TEXT_LIMIT)} characters in a review's text and in each comment${problem.length > GITHUB_TEXT_LIMIT + 1 ? `; this one has ${formatCount(problem.length)}` : ''}. ${NOTHING_FINISHED} Shorten the overall review, the comments that go in the review's text, or your replies to comments of earlier reviews, which go in it too, or finish and copy only to hand it over without posting it.`;
 			case 'moved-on':
 				return `${pull} has moved on: the commit of the version you are reviewing is no longer part of it on GitHub, as after a force-push. ${NOTHING_FINISHED} Update this Delve to the pull request's newest version, then finish again, or finish and copy only.`;
 			case 'closed':

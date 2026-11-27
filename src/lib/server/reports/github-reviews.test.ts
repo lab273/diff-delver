@@ -133,7 +133,8 @@ function overall(w: World, body: string): void {
 function shown(w: World): ShownDraft {
 	return {
 		comments: value(w.service.draftComments(w.id)).map((c) => ({ id: c.id, edits: c.edits })),
-		overall: value(w.service.overallReview(w.id)).edits
+		overall: value(w.service.overallReview(w.id)).edits,
+		resolutions: value(w.service.draftResolutions(w.id))
 	};
 }
 
@@ -168,6 +169,42 @@ function nothingFinished(w: World, comments: number): void {
 }
 
 describe('posting a review to its pull request', () => {
+	it('starts threads, and sends GitHub only the earlier threads a review replied to or resolved', async () => {
+		const w = await world();
+		await comment(w, 'src/discount.ts', 'new', 2, 3, 'Round down?');
+		await comment(w, 'src/discount.ts', 'new', 1, 1, 'Name the rate.');
+		await comment(w, 'src/price.ts', 'new', 13, 14, 'Untouched in review 2.');
+		value(await post(w));
+		const [rounding, rate, untouched] = value(await w.service.load(w.id)).threads;
+		if (rounding === undefined || rate === undefined || untouched === undefined) {
+			throw new Error('three threads expected');
+		}
+		expect([rounding, rate, untouched].map((t) => t.status)).toEqual(['open', 'open', 'open']);
+
+		value(await w.service.replyToThread(w.id, FIRST, rounding.id, 'Down is right.'));
+		value(await w.service.resolveThread(w.id, FIRST, rate.id, true));
+		const second = value(await post(w));
+
+		expect(second.number).toBe(2);
+		// The copied text lists every thread still open; GitHub gets only those touched.
+		expect(second.text).toContain('> Untouched in review 2.');
+		const onGitHub = reviewsOnGitHub(w)[1];
+		expect(onGitHub?.comments).toEqual([]);
+		expect(onGitHub?.body).toContain(
+			'**Still open from earlier reviews**\n\n`src/discount.ts`, lines 2–3 (after the change), from review 1, unchanged\n\n> Round down?\n\nReply in this review:\n\n> Down is right.'
+		);
+		expect(onGitHub?.body).toContain(
+			'**Resolved in this review**\n\n`src/discount.ts`, line 1 (after the change), from review 1, unchanged\n\n> Name the rate.'
+		);
+		expect(onGitHub?.body).not.toContain('Untouched in review 2.');
+		expect(value(await w.service.load(w.id)).threads.map((t) => t.status)).toEqual([
+			'open',
+			'resolved',
+			'open'
+		]);
+		expect(value(w.service.draftResolutions(w.id))).toEqual([]);
+	});
+
 	it('publishes one review: comments GitHub shows on their lines, the rest and the overall review in its text', async () => {
 		const w = await world();
 		// src/discount.ts is new, all four lines; src/price.ts gains lines 13 and 14.
@@ -367,7 +404,7 @@ describe('posting a review to its pull request', () => {
 		}
 		const said = describeReportError(failure(await post(w)));
 		expect(said).toMatch(
-			/^The review is too long for GitHub, which takes at most 65,536 characters in a review's text and in each comment; this one has 70,\d{3}\. Nothing was finished, and your draft is as it was\. Shorten the overall review or the comments that go in the review's text, or finish and copy only/
+			/^The review is too long for GitHub, which takes at most 65,536 characters in a review's text and in each comment; this one has 70,\d{3}\. Nothing was finished, and your draft is as it was\. Shorten the overall review, the comments that go in the review's text, or your replies to comments of earlier reviews, which go in it too, or finish and copy only/
 		);
 		expect(posts(w)).toEqual([]);
 		nothingFinished(w, 7);
