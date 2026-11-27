@@ -2757,7 +2757,9 @@
 					<p>
 						This is the Delve as it stood when you finished review {pastView.review}
 						{describeTimeAgo(pastView.submittedAt, page.now)}: version {summary.version}, with what
-						you had marked as reviewed then. Nothing can be changed here.
+						you had marked as reviewed then, your comments and questions for the agent as they
+						stood, and the agent’s notes and answers written by then. Its overview, section
+						summaries and sorting are as they are today. Nothing can be changed here.
 					</p>
 					{#snippet actions()}
 						<a href={resolve('/diffs/[id]', { id: summary.id })}> Back to the current version </a>

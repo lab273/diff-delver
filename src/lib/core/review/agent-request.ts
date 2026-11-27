@@ -106,6 +106,30 @@ export interface AgentRequest {
 	readonly answers: readonly RequestAnswer[];
 }
 
+/**
+ * The requests as they stood at `at`, as the Delve as of a finished review
+ * shows them: those asked by then, with only the answers given by then; one
+ * answered only later is shown as handed to the agent, since whether it had
+ * reached one by then is not kept.
+ */
+export function requestsAsOf(
+	requests: readonly AgentRequest[],
+	at: Timestamp
+): readonly AgentRequest[] {
+	return requests
+		.filter((r) => r.askedAt <= at)
+		.map((r) => {
+			const answers = r.answers.filter((a) => a.answeredAt <= at);
+			if (answers.length === r.answers.length) return r;
+			return {
+				...r,
+				answers,
+				status: answers.length > 0 ? r.status : 'delivered',
+				promoted: answers.length > 0 && r.promoted
+			};
+		});
+}
+
 /** Whether `text` can be asked: something written, and not too long. */
 export function isQuestion(text: string): boolean {
 	return text.trim() !== '' && text.length <= MAX_QUESTION_LENGTH;

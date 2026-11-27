@@ -20,7 +20,7 @@ import {
 } from '#lib/core/review/agent-note.ts';
 import { ok, type Result } from '#lib/core/result.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
-import { parseRow, parseRows, repoPath, text, whole } from '../columns.ts';
+import { parseRow, parseRows, repoPath, text, timestamp, whole } from '../columns.ts';
 import type { Queries } from '../database.ts';
 import type { StoredRowInvalid } from '../database-error.ts';
 
@@ -34,20 +34,24 @@ const row = z
 		first: whole(parseLineNumber),
 		last: whole(parseLineNumber),
 		body: text(parseAgentMarkdown),
-		state: z.enum(['waiting', 'dismissed', 'promoted'])
+		state: z.enum(['waiting', 'dismissed', 'promoted']),
+		writtenAt: timestamp
 	})
 	.refine(({ first, last }) => last >= first)
-	.transform(({ id, version, label, path, side, first, last, body, state }): AgentNote => ({
-		id,
-		version,
-		label,
-		anchor: { path, side, first, last },
-		text: body,
-		state
-	}));
+	.transform(
+		({ id, version, label, path, side, first, last, body, state, writtenAt }): AgentNote => ({
+			id,
+			version,
+			label,
+			anchor: { path, side, first, last },
+			text: body,
+			state,
+			writtenAt
+		})
+	);
 
 const COLUMNS = `n.id, r.number AS version, n.label, n.path, n.side, n.first_line AS first,
-	n.last_line AS last, n.body, n.state`;
+	n.last_line AS last, n.body, n.state, n.written_at AS writtenAt`;
 
 /** A revision's notes, in the order they were added. */
 export function agentNotesOf(

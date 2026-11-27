@@ -11,6 +11,7 @@
  * drawn at its lines only on that version: it is the agent's reading of that
  * code, which a later version may have changed.
  */
+import type { Timestamp } from '../timestamp.tiny.ts';
 import { parseAgentMarkdown, type AgentMarkdown } from '../agent-markdown.tiny.ts';
 import type { AgentNoteId } from '../agent-note-id.tiny.ts';
 import { describeRejection, resolveUnits, type AssignRejection } from '../diff/assign.ts';
@@ -54,6 +55,8 @@ export interface AgentNote {
 	readonly anchor: CommentAnchor;
 	readonly text: AgentMarkdown;
 	readonly state: NoteState;
+	/** When the agent wrote it. */
+	readonly writtenAt: Timestamp;
 }
 
 /** The notes still waiting on an earlier version than the one shown, which notes are not carried to. */

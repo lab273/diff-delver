@@ -244,6 +244,7 @@ import {
 	MAX_REPLY_LENGTH,
 	MAX_REQUESTS_PER_WAIT,
 	promotedRequestBody,
+	requestsAsOf,
 	type AgentRequest,
 	type RequestAnchor,
 	type RequestExcerpt
@@ -2079,9 +2080,16 @@ export class ReportService {
 			readingOrders,
 			overview: found.value.overview,
 			read: summariesReadIn(found.value.readCheck, found.value.overview, sections),
-			notes: found.value.notes,
+			// As of a review: the agent's notes and the questions asked by then, with the answers given by then.
+			notes:
+				finished === undefined
+					? found.value.notes
+					: found.value.notes.filter((n) => n.writtenAt <= finished.submittedAt),
 			earlierNotes: found.value.earlierNotes,
-			requests: found.value.requests,
+			requests:
+				finished === undefined
+					? found.value.requests
+					: requestsAsOf(found.value.requests, finished.submittedAt),
 			threads:
 				finished === undefined
 					? this.#shownThreads(threads, revision)

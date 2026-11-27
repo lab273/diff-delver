@@ -66,6 +66,19 @@ describe("a Delve's history", () => {
 					overall: NO_EDITS
 				})
 			);
+			// The agent's note and a question written after it are not of it.
+			clock.set(at(1_700_000_030_000));
+			value(
+				await service.addNotes(
+					id,
+					version(1),
+					[{ label: 'risk', file: 'src/b.ts', lines: '+1', text: 'Later.' }],
+					false
+				)
+			);
+			value(
+				await service.askAgent(id, version(1), { kind: 'file', path: path('src/b.ts') }, 'Why?')
+			);
 			// Ticks after it change the version, not the review's copy.
 			value(
 				await service.markReviewed(id, version(1), { kind: 'file', path: path('src/b.ts') }, true)
@@ -102,7 +115,7 @@ describe("a Delve's history", () => {
 			expect(history.versions[1]?.update).toMatchObject({ filesChanged: 1, reviewedBefore: 4 });
 			const [first, second] = history.reviews;
 			expect(first).toMatchObject({
-				copied: { times: 2, first: at(1_700_000_000_000), last: at(1_700_000_060_000) },
+				copied: { times: 2, first: at(1_700_000_030_000), last: at(1_700_000_060_000) },
 				read: { times: 1 }
 			});
 			expect(second).toMatchObject({ copied: undefined, read: undefined });
@@ -122,6 +135,9 @@ describe("a Delve's history", () => {
 			const then = value(await service.load(id, undefined, number(1)));
 			expect(then.asOf).toEqual({ number: 1, submittedAt: at(1_700_000_000_000) });
 			expect(then.revision.number).toBe(1);
+			expect(then.notes).toEqual([]);
+			expect(then.requests).toEqual([]);
+			expect(value(await service.load(id, version(1))).notes).toHaveLength(1);
 			expect(then.summary.progress).toMatchObject({ reviewed: 2, counted: 4 });
 			// Its own comment at its lines, open as it was then; as of review 2, resolved.
 			expect(then.threads).toMatchObject([{ status: 'open', messages: [{ review: 1 }] }]);

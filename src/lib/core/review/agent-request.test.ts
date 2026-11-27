@@ -21,6 +21,7 @@ import {
 	CUT_SHORT,
 	requestPrompt,
 	requestStatusWords,
+	requestsAsOf,
 	type AgentRequest,
 	type RequestAnchor
 } from './agent-request.ts';
@@ -173,5 +174,21 @@ describe('requests to the agent', () => {
 		expect(finished).toContain(
 			'Delivered earlier and still waiting for your answer (answer these too):\n- Request 7, about src/cart.ts, lines +3..+5 (the new side), asked on version 1:\n  "Why?"'
 		);
+	});
+
+	it('stands as it did at a moment: asked by then, with the answers given by then', () => {
+		const at = (ms: number) => v(parseTimestamp(ms));
+		const answer = {
+			body: v(parseAgentMarkdown('Because.')),
+			answeredAt: at(20),
+			version: one,
+			excerpts: []
+		};
+		const answered = request({ status: 'answered', promoted: true, answers: [answer] });
+		const later = request({ id: v(parseAgentRequestId(8)), askedAt: at(30) });
+		expect(requestsAsOf([answered, later], at(25))).toEqual([answered]);
+		expect(requestsAsOf([answered, later], at(10))).toEqual([
+			{ ...answered, status: 'delivered', promoted: false, answers: [] }
+		]);
 	});
 });
