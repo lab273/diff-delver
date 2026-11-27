@@ -16,6 +16,7 @@ import { describeSectionProblem, type SectionProblem } from '#lib/core/reports/s
 import { describeStepProblem, type StepProblem } from '#lib/core/reports/reading-order.ts';
 import type { SectionId } from '#lib/core/section-id.tiny.ts';
 import { describeNoteProblem, type NoteProblem } from '#lib/core/review/agent-note.ts';
+import { MAX_QUESTION_LENGTH } from '#lib/core/review/agent-request.ts';
 import { describeMarkError, type MarkError } from '#lib/core/review/mark-reviewed.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import {
@@ -200,6 +201,16 @@ export type ReportError =
 	| NotesRefused
 	/** The Delve has no agent note with that id on any version. */
 	| { readonly kind: 'NoteNotFound' }
+	/** There is no request to the agent with that id, in this Delve or any. */
+	| { readonly kind: 'RequestNotFound' }
+	/** A question that is blank or too long, or about lines, a file or a section the version does not have. */
+	| { readonly kind: 'InvalidRequest'; readonly reason: 'question' | 'anchor' }
+	/** The reviewer cancelled the request, so it takes no answer. */
+	| { readonly kind: 'RequestCancelled' }
+	/** An answer that is blank, too long, points at code that is not there, or is one too many. */
+	| { readonly kind: 'AnswerRefused'; readonly problems: readonly string[] }
+	/** Only an answered request about lines can be promoted into the draft. */
+	| { readonly kind: 'RequestNotPromotable'; readonly reason: 'unanswered' | 'not-on-lines' }
 	| PartNotFound
 	| { readonly kind: 'InvalidCommentRange' }
 	| { readonly kind: 'InvalidCommentBody' }
@@ -303,6 +314,26 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'NotesRefused':
 			return reviewerMessage(
 				`The notes were not added: ${error.problems.map(describeNoteProblem).join(' ')}`
+			);
+		case 'RequestNotFound':
+			return reviewerMessage(
+				'This question for the agent is no longer in this Delve. Reload the page to see the questions there are now.'
+			);
+		case 'InvalidRequest':
+			return reviewerMessage(
+				error.reason === 'question'
+					? `Write a question of at most ${String(MAX_QUESTION_LENGTH)} characters, or choose one of the ready-made ones.`
+					: 'What this question is about is not in this version of the Delve. Ask about lines, a file or a section the page shows.'
+			);
+		case 'RequestCancelled':
+			return reviewerMessage('This question was cancelled, so it takes no answer.');
+		case 'AnswerRefused':
+			return reviewerMessage(`The answer was not saved: ${error.problems.join(' ')}`);
+		case 'RequestNotPromotable':
+			return reviewerMessage(
+				error.reason === 'unanswered'
+					? 'This question has no answer yet, so there is nothing to add to your review.'
+					: 'Only a question about lines can go into your review, since a comment is on lines.'
 			);
 		case 'NoteNotFound':
 			return reviewerMessage(

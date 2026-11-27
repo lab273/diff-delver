@@ -36,7 +36,8 @@ export type TableName =
 	| 'github_review_post_comments'
 	| 'github_review_post_marks'
 	| 'agent_notes'
-	| 'summaries_read';
+	| 'summaries_read'
+	| 'agent_requests';
 
 /**
  * The file could not be opened or made (a missing folder, no permission, a full
@@ -222,6 +223,8 @@ function tableInWords(table: TableName): string {
 			return 'the agent’s notes on a Delve';
 		case 'summaries_read':
 			return 'which of the agent’s summaries you have read';
+		case 'agent_requests':
+			return 'your questions to the agent and its answers';
 	}
 }
 
@@ -240,6 +243,7 @@ function storedRowAdvice(table: TableName): string {
 		case 'overviews':
 		case 'agent_notes':
 		case 'summaries_read':
+		case 'agent_requests':
 		case 'section_references':
 		case 'reading_steps':
 		case 'reading_step_units':

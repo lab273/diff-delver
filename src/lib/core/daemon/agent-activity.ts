@@ -120,3 +120,44 @@ export function describeAgentHeard(
 export function describeAgentWorked(at: Timestamp, now: Timestamp): ReviewerMessage {
 	return reviewerMessage(`An agent last worked on this Delve ${when(at, now)}.`);
 }
+
+/**
+ * How long after its last `wait_for_requests` call ended an agent still counts
+ * as connected to a Delve: long enough to answer a request and call again.
+ */
+export const LISTENING_LINGERS_MS = 2 * 60_000;
+
+/**
+ * Which Delves an agent is listening to (DESIGN 7.2): one whose
+ * `wait_for_requests` call is open, or ended less than `LISTENING_LINGERS_MS`
+ * ago, by the daemon's clock. In memory only and bounded, as the rest is.
+ */
+export interface AgentListening {
+	/** A `wait_for_requests` call on `report` began. */
+	began(report: ReportId): void;
+	/** It ended, answered or timed out. */
+	ended(report: ReportId): void;
+	/** Whether an agent counts as connected to `report` now. */
+	listening(report: ReportId): boolean;
+}
+
+export function agentListening(clock: Clock): AgentListening {
+	const open = new Map<ReportId, number>();
+	const lastEnded = new Map<ReportId, Timestamp>();
+	return {
+		began(report) {
+			remember(open, report, (open.get(report) ?? 0) + 1);
+		},
+		ended(report) {
+			const left = (open.get(report) ?? 1) - 1;
+			if (left > 0) open.set(report, left);
+			else open.delete(report);
+			remember(lastEnded, report, clock.now());
+		},
+		listening(report) {
+			if ((open.get(report) ?? 0) > 0) return true;
+			const ended = lastEnded.get(report);
+			return ended !== undefined && clock.now() - ended < LISTENING_LINGERS_MS;
+		}
+	};
+}

@@ -734,6 +734,60 @@ CREATE TABLE summaries_read (
 	PRIMARY KEY (report_id, section_id, text_hash)
 ) STRICT, WITHOUT ROWID;
 `
+	},
+	{
+		version: schemaVersionOf(20),
+		name: "the reviewer's requests to the agent and its answers",
+		sql: `
+-- The reviewer's questions to the agent (DESIGN 5 request, 7.2): conversation,
+-- not feedback, so nothing that reads the draft or a finished review reads
+-- them. Each belongs to the version it was asked on and is about lines of a
+-- file (by the diff's path for it), a whole file, or a section.
+CREATE TABLE agent_requests (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	about TEXT NOT NULL CHECK (about IN ('lines', 'file', 'section')),
+	path BLOB,
+	side TEXT CHECK (side IN ('old', 'new')),
+	first_line INTEGER CHECK (first_line >= 1),
+	last_line INTEGER CHECK (last_line >= first_line),
+	section_id TEXT,
+	section_title TEXT,
+	question TEXT NOT NULL CHECK (question <> ''),
+	asked_at INTEGER NOT NULL CHECK (asked_at >= 0),
+	status TEXT NOT NULL CHECK (status IN ('waiting', 'delivered', 'answered', 'cancelled')),
+	promoted INTEGER NOT NULL DEFAULT 0 CHECK (promoted IN (0, 1)),
+	CHECK ((about = 'section') = (section_id IS NOT NULL AND section_title IS NOT NULL)),
+	CHECK ((about = 'section') = (path IS NULL)),
+	CHECK ((about = 'lines') = (side IS NOT NULL AND first_line IS NOT NULL AND last_line IS NOT NULL))
+) STRICT;
+CREATE INDEX agent_requests_by_revision ON agent_requests (revision_id);
+
+-- The agent's answers, its words as given, sanitised when a page shows them,
+-- each on the revision it was written on.
+CREATE TABLE request_answers (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	request_id INTEGER NOT NULL REFERENCES agent_requests (id) ON DELETE CASCADE,
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	body TEXT NOT NULL CHECK (body <> ''),
+	answered_at INTEGER NOT NULL CHECK (answered_at >= 0)
+) STRICT;
+CREATE INDEX request_answers_by_request ON request_answers (request_id);
+
+-- The code each answer pointed at: the agent gave only a path and lines, and
+-- the lines are read from the answer's snapshot, a JSON array of at most the
+-- lines drawn, as review_comments keeps the code a comment is on.
+CREATE TABLE request_answer_excerpts (
+	answer_id INTEGER NOT NULL REFERENCES request_answers (id) ON DELETE CASCADE,
+	position INTEGER NOT NULL CHECK (position >= 0),
+	path BLOB NOT NULL,
+	side TEXT NOT NULL CHECK (side IN ('old', 'new')),
+	first_line INTEGER NOT NULL CHECK (first_line >= 1),
+	last_line INTEGER NOT NULL CHECK (last_line >= first_line),
+	lines TEXT NOT NULL,
+	PRIMARY KEY (answer_id, position)
+) STRICT, WITHOUT ROWID;
+`
 	}
 ];
 

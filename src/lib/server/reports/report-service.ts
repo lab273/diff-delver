@@ -133,6 +133,7 @@ import type { DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 import { NO_EDITS, type EditCount } from '#lib/core/edit-count.tiny.ts';
 import {
 	isThreadBody,
+	MAX_COMMENT_LENGTH,
 	storedThreadBody,
 	type CommentAnchor,
 	type DraftComment,
@@ -210,6 +211,28 @@ import { markReviewed, type ReviewTarget } from '#lib/core/review/mark-reviewed.
 import { reviewProgress, unitProgressOf, type Progress } from '#lib/core/review/progress.ts';
 import { NO_MARKS, type ReviewedMarks } from '#lib/core/review/reviewed-marks.ts';
 import { andThen, err, map, ok, type Result } from '#lib/core/result.ts';
+import {
+	agentRequestOf,
+	agentRequestsOf,
+	insertAgentRequest,
+	insertRequestAnswer,
+	setRequestPromoted,
+	setRequestStatus,
+	waitingRequestIds
+} from '../db/tables/agent-requests.ts';
+import {
+	isOpenRequest,
+	isQuestion,
+	MAX_ANSWERS,
+	MAX_REPLY_LENGTH,
+	MAX_REQUESTS_PER_WAIT,
+	promotedRequestBody,
+	type AgentRequest,
+	type RequestAnchor,
+	type RequestExcerpt
+} from '#lib/core/review/agent-request.ts';
+import type { AgentRequestId } from '#lib/core/agent-request-id.tiny.ts';
+import { agentListening } from '#lib/core/daemon/agent-activity.ts';
 import { repositoryNameOf } from '#lib/core/repository-name.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import {
@@ -587,6 +610,10 @@ export interface LoadedReport {
 	readonly notes: readonly AgentNote[];
 	/** When this version has no notes, the newest earlier one with notes waiting; else undefined. */
 	readonly earlierNotes: EarlierNotes | undefined;
+	/** The reviewer's requests to the agent, on every version, in the order asked, with the answers. */
+	readonly requests: readonly AgentRequest[];
+	/** Whether an agent is listening for this Delve's requests now (DESIGN 7.2). */
+	readonly agentListening: boolean;
 	readonly frame: string;
 	readonly sorting: string;
 	readonly assignments: string;
@@ -801,6 +828,7 @@ interface StoredFrame extends Stored {
 	readonly readCheck: ReadCheck;
 	readonly notes: readonly AgentNote[];
 	readonly earlierNotes: EarlierNotes | undefined;
+	readonly requests: readonly AgentRequest[];
 	readonly shown: Current;
 	readonly sorting: string;
 	readonly assignments: string;
@@ -1162,6 +1190,55 @@ function carryOverInput(
 	};
 }
 
+/** What a request to the agent is about, as the page names it: the diff's path, or a section by its id. */
+export type RequestAbout =
+	| Extract<RequestAnchor, { kind: 'lines' | 'file' }>
+	| { readonly kind: 'section'; readonly section: SectionId };
+
+/** What a `waitForRequests` found. */
+export interface Waited {
+	readonly report: ReportId;
+	readonly requests: readonly AgentRequest[];
+	readonly more: number;
+	readonly unanswered: readonly AgentRequestId[];
+	readonly updated: RevisionNumber | undefined;
+	readonly finished: ReviewNumber | undefined;
+	readonly closed: boolean;
+}
+
+/** What an answer stored, or that it was passed over as the same as the last. */
+export interface Answered {
+	readonly stored: boolean;
+	readonly answers: number;
+}
+
+/** A request to promote, with the version it was asked on. */
+interface PromoteFrom {
+	readonly report: Report;
+	readonly revision: Revision;
+	readonly request: AgentRequest;
+}
+
+/** Whether two answers point at the same code. */
+function sameExcerpts(a: readonly RequestExcerpt[], b: readonly RequestExcerpt[]): boolean {
+	return (
+		a.length === b.length &&
+		a.every((x, i) => {
+			const y = b[i];
+			return (
+				y !== undefined &&
+				x.path === y.path &&
+				x.side === y.side &&
+				x.first === y.first &&
+				x.last === y.last
+			);
+		})
+	);
+}
+
+/** How often a wait looks again for what it is not woken for: an update, a finished review, a close. */
+const WAIT_CHECK_EVERY_MS = 5_000;
+
 /** A note promoted: the version's notes now, and the comment it became; none when it was promoted already. */
 export interface Promoted {
 	readonly notes: readonly AgentNote[];
@@ -1430,6 +1507,15 @@ export class ReportService {
 	 */
 	readonly #sorting = new SortingWrites();
 	readonly #frameVersions = new FrameVersions();
+	/** Which Delves an agent waits on for requests, by the service's clock. */
+	readonly #listening: ReturnType<typeof agentListening>;
+	/** The waits to wake, by Delve, when a request is asked. */
+	readonly #waiters = new Map<ReportId, Set<() => void>>();
+	/** What the last wait on each Delve saw, so the next says what happened since. */
+	readonly #waitSeen = new Map<
+		ReportId,
+		{ readonly version: RevisionNumber; readonly review: ReviewNumber | undefined }
+	>();
 	readonly #github: GitHubAccess;
 	/**
 	 * Delves whose draft is being finished or posted to GitHub now, by either
@@ -1462,6 +1548,7 @@ export class ReportService {
 		this.#db = db;
 		this.#dataDirectory = options.dataDirectory;
 		this.#clock = options.clock;
+		this.#listening = agentListening(options.clock);
 		this.#ids = options.ids;
 		this.#repository = options.repository ?? {};
 		this.#github = options.github ?? machineGitHubAccess();
@@ -1705,28 +1792,31 @@ export class ReportService {
 												andThen(overviewOf(q, revision.id), (overview) =>
 													andThen(summariesReadOf(q, id), (readCheck) =>
 														andThen(agentNotesOf(q, revision.id), (notes) =>
-															andThen(
-																notes.length > 0
-																	? ok(undefined)
-																	: earlierWaitingNotes(q, id, revision.number),
-																(earlierNotes) =>
-																	ok({
-																		sections,
-																		rows,
-																		marked,
-																		fresh,
-																		unmarked,
-																		summary,
-																		referenceRows,
-																		readingSteps,
-																		overview,
-																		readCheck,
-																		notes,
-																		earlierNotes,
-																		sorting,
-																		assignments,
-																		shown: shownNow
-																	})
+															andThen(agentRequestsOf(q, id), (requests) =>
+																andThen(
+																	notes.length > 0
+																		? ok(undefined)
+																		: earlierWaitingNotes(q, id, revision.number),
+																	(earlierNotes) =>
+																		ok({
+																			sections,
+																			rows,
+																			marked,
+																			fresh,
+																			unmarked,
+																			summary,
+																			referenceRows,
+																			readingSteps,
+																			overview,
+																			readCheck,
+																			notes,
+																			earlierNotes,
+																			requests,
+																			sorting,
+																			assignments,
+																			shown: shownNow
+																		})
+																)
 															)
 														)
 													)
@@ -1770,7 +1860,9 @@ export class ReportService {
 			read: summariesReadIn(found.value.readCheck, found.value.overview, sections),
 			notes: found.value.notes,
 			earlierNotes: found.value.earlierNotes,
-			frame: this.#frameVersions.frame(found.value.shown.report, revision.id, found.value.sorting),
+			requests: found.value.requests,
+			agentListening: this.#listening.listening(id),
+			frame: this.#frameOf(found.value.shown.report, revision.id, found.value.sorting),
 			sorting: found.value.sorting,
 			assignments: found.value.assignments,
 			state: state.value,
@@ -1803,13 +1895,15 @@ export class ReportService {
 			return map(
 				asOf(q, id, version),
 				({ report, revision }) =>
-					this.#frameVersions.frame(
-						report,
-						revision.id,
-						this.#sortingOf(revision.id, elsewhere)
-					) === frame
+					this.#frameOf(report, revision.id, this.#sortingOf(revision.id, elsewhere)) === frame
 			);
 		});
+	}
+
+	/** The frame's stamp, which changes too when an agent starts or stops listening. */
+	#frameOf(report: Report, revision: RevisionId, sorting: string): string {
+		const listening = this.#listening.listening(report.id) ? 'listening' : 'alone';
+		return `${this.#frameVersions.frame(report, revision, sorting)}:${listening}`;
 	}
 
 	#sortingOf(revision: RevisionId, elsewhere: number | undefined): string {
@@ -2145,6 +2239,316 @@ export class ReportService {
 					);
 				});
 			})
+		);
+	}
+
+	// --- Requests to the agent (DESIGN 7.2) -----------------------------------
+
+	/** Every request of a Delve to the agent, with their answers. */
+	requests(id: ReportId): Result<readonly AgentRequest[], ReportError> {
+		return this.#db.read((q) => andThen(current(q, id), () => agentRequestsOf(q, id)));
+	}
+
+	/**
+	 * The reviewer asks the agent something about lines, a file or a section
+	 * of the version they see, the current one, while the Delve is open. It
+	 * waits for an agent's `wait_for_requests`, which is woken at once.
+	 */
+	async askAgent(
+		id: ReportId,
+		seen: RevisionNumber,
+		about: RequestAbout,
+		question: string
+	): Promise<Result<AgentRequest, ReportError>> {
+		if (!isQuestion(question)) return err({ kind: 'InvalidRequest', reason: 'question' });
+		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
+		if (!found.ok) return found;
+		const content = await this.#contentOf(found.value.report, found.value.revision);
+		if (!content.ok) return content;
+		const { snapshot, diff, revision } = content.value;
+		if (about.kind !== 'section') {
+			const file = diff.byPath.get(about.path);
+			if (file === undefined) return err({ kind: 'InvalidRequest', reason: 'anchor' });
+			if (about.kind === 'lines') {
+				const side = file.file[about.side];
+				if (file.file.content.kind !== 'text' || side === undefined || about.last < about.first) {
+					return err({ kind: 'InvalidRequest', reason: 'anchor' });
+				}
+				const read = await readSnapshotLines(
+					snapshot,
+					about.side,
+					side.path,
+					FIRST_LINE,
+					FIRST_LINE
+				);
+				if (!read.ok) return read;
+				if (about.last > read.value.lineCount)
+					return err({ kind: 'InvalidRequest', reason: 'anchor' });
+			}
+		}
+		const asked = this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), (now): Result<AgentRequest, ReportError> => {
+				if (now.revision.id !== revision.id) {
+					return err({ kind: 'RevisionChangedWhileSaving', report: id });
+				}
+				return andThen(
+					about.kind === 'section' ? sectionsOf(q, revision.id) : ok([]),
+					(sections): Result<AgentRequest, ReportError> => {
+						let anchor: RequestAnchor;
+						if (about.kind === 'section') {
+							const section = sections.find((s) => s.id === about.section);
+							if (section === undefined) return err({ kind: 'InvalidRequest', reason: 'anchor' });
+							anchor = { kind: 'section', section: section.id, title: section.title };
+						} else {
+							anchor = about;
+						}
+						const at = this.#clock.now();
+						const saved = insertAgentRequest(q, revision.id, anchor, question, at);
+						if (saved === undefined) return err({ kind: 'RequestNotFound' });
+						touchReport(q, id, at);
+						this.#frameVersions.edited(revision.id);
+						return andThen(agentRequestOf(q, saved), (held) =>
+							held === undefined ? err({ kind: 'RequestNotFound' }) : ok(held.request)
+						);
+					}
+				);
+			})
+		);
+		if (asked.ok) this.#wake(id);
+		return asked;
+	}
+
+	/** The reviewer cancels a request no agent has answered, from a page of the current version. */
+	cancelRequest(
+		id: ReportId,
+		seen: RevisionNumber,
+		request: AgentRequestId
+	): Result<AgentRequest, ReportError> {
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), ({ revision }) =>
+				andThen(agentRequestOf(q, request), (held): Result<AgentRequest, ReportError> => {
+					if (held === undefined || held.report !== id) return err({ kind: 'RequestNotFound' });
+					if (!isOpenRequest(held.request.status)) return ok(held.request);
+					setRequestStatus(q, request, 'cancelled');
+					touchReport(q, id, this.#clock.now());
+					this.#frameVersions.edited(revision.id);
+					return ok({ ...held.request, status: 'cancelled' });
+				})
+			)
+		);
+	}
+
+	/**
+	 * Promotes an answered request about lines into the draft (DESIGN 6.3): a
+	 * comment of the reviewer's own on its lines, in the version it was asked
+	 * on, that quotes the question and the agent's answers and says whose they
+	 * are. One promoted already gives back nothing new.
+	 */
+	async promoteRequest(
+		id: ReportId,
+		seen: RevisionNumber,
+		request: AgentRequestId
+	): Promise<Result<DraftComment | undefined, ReportError>> {
+		const found = this.#db.read((q) =>
+			andThen(currentAsSeen(q, id, seen), (now) =>
+				andThen(agentRequestOf(q, request), (held): Result<PromoteFrom, ReportError> => {
+					if (held === undefined || held.report !== id) return err({ kind: 'RequestNotFound' });
+					return map(asOf(q, id, held.request.version), (asked) => ({
+						report: now.report,
+						revision: asked.revision,
+						request: held.request
+					}));
+				})
+			)
+		);
+		if (!found.ok) return found;
+		const { request: held } = found.value;
+		if (held.promoted) return ok(undefined);
+		if (held.anchor.kind !== 'lines') {
+			return err({ kind: 'RequestNotPromotable', reason: 'not-on-lines' });
+		}
+		if (held.answers.length === 0)
+			return err({ kind: 'RequestNotPromotable', reason: 'unanswered' });
+		const content = await this.#contentOf(found.value.report, found.value.revision);
+		if (!content.ok) return content;
+		const { diff, revision } = content.value;
+		const anchor = held.anchor;
+		const side = diff.byPath.get(anchor.path)?.file[anchor.side];
+		if (side === undefined) return err({ kind: 'InvalidCommentRange' });
+		const body = promotedRequestBody(held).slice(0, MAX_COMMENT_LENGTH);
+		if (!isThreadBody('comment', body)) return err({ kind: 'InvalidCommentBody' });
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), (now) =>
+				andThen(
+					agentRequestOf(q, request),
+					(again): Result<DraftComment | undefined, ReportError> => {
+						if (again === undefined) return err({ kind: 'RequestNotFound' });
+						if (again.request.promoted) return ok(undefined);
+						const at = this.#clock.now();
+						const lines = {
+							path: side.path,
+							side: anchor.side,
+							first: anchor.first,
+							last: anchor.last
+						};
+						return andThen(
+							insertDraftComment(q, revision.id, 'comment', lines, body, at),
+							(comment) => {
+								setRequestPromoted(q, request);
+								touchReport(q, id, at);
+								this.#frameVersions.edited(now.revision.id);
+								return ok(comment);
+							}
+						);
+					}
+				)
+			)
+		);
+	}
+
+	/** The Delve a request belongs to, for `answer_request`, which names only the request. */
+	requestOwner(request: AgentRequestId): Result<ReportId, ReportError> {
+		return this.#db.read((q) =>
+			andThen(agentRequestOf(q, request), (held) =>
+				held === undefined ? err({ kind: 'RequestNotFound' }) : ok(held.report)
+			)
+		);
+	}
+
+	/**
+	 * The agent's `answer_request` (DESIGN 7.1): its words, and the code it
+	 * pointed at as read from the snapshot of `revision`, the version it read.
+	 * An answer the same as the request's last is passed over, so a call sent
+	 * again adds nothing.
+	 */
+	answerRequest(
+		request: AgentRequestId,
+		revision: RevisionId,
+		body: AgentMarkdown,
+		excerpts: readonly RequestExcerpt[]
+	): Result<Answered, ReportError> {
+		if (body.trim() === '' || body.length > MAX_REPLY_LENGTH) {
+			return err({
+				kind: 'AnswerRefused',
+				problems: [
+					`"body" must be a few sentences of Markdown, at most ${String(MAX_REPLY_LENGTH)} characters.`
+				]
+			});
+		}
+		return this.#db.write((q) =>
+			andThen(agentRequestOf(q, request), (held): Result<Answered, ReportError> => {
+				if (held === undefined) return err({ kind: 'RequestNotFound' });
+				const { request: asked, report } = held;
+				if (asked.status === 'cancelled') return err({ kind: 'RequestCancelled' });
+				const last = asked.answers.at(-1);
+				if (last !== undefined && last.body === body && sameExcerpts(last.excerpts, excerpts)) {
+					return ok({ stored: false, answers: asked.answers.length });
+				}
+				if (asked.answers.length >= MAX_ANSWERS) {
+					return err({
+						kind: 'AnswerRefused',
+						problems: [
+							`Request ${String(request)} has ${String(MAX_ANSWERS)} answers already, the most it takes. Call wait_for_requests for the next request.`
+						]
+					});
+				}
+				return andThen(current(q, report), (now) => {
+					const at = this.#clock.now();
+					insertRequestAnswer(q, request, revision, body, excerpts, at);
+					touchReport(q, report, at);
+					this.#frameVersions.edited(now.revision.id);
+					return ok({ stored: true, answers: asked.answers.length + 1 });
+				});
+			})
+		);
+	}
+
+	/**
+	 * The agent's `wait_for_requests` (DESIGN 7.1): hands over the requests
+	 * waiting, marked delivered, as soon as there are any, or waits up to
+	 * `timeout` milliseconds for one, looking now and then for an update, a
+	 * finished review or the Delve closed, which it says too. While it waits,
+	 * and for a while after, the Delve's page says an agent is connected.
+	 */
+	async waitForRequests(id: ReportId, timeout: number): Promise<Result<Waited, ReportError>> {
+		this.#listening.began(id);
+		try {
+			let left = timeout;
+			for (;;) {
+				const taken = this.#takeRequests(id);
+				if (!taken.ok) return taken;
+				const found = taken.value;
+				const anything =
+					found.requests.length > 0 ||
+					found.updated !== undefined ||
+					found.finished !== undefined ||
+					found.closed;
+				if (anything || left <= 0) return taken;
+				const step = Math.min(left, WAIT_CHECK_EVERY_MS);
+				await this.#nextWake(id, step);
+				left -= step;
+			}
+		} finally {
+			this.#listening.ended(id);
+		}
+	}
+
+	/** Waits until a request is asked of `id`, or `ms` pass. */
+	#nextWake(id: ReportId, ms: number): Promise<void> {
+		return new Promise((resolve) => {
+			const waiters = this.#waiters.get(id) ?? new Set<() => void>();
+			this.#waiters.set(id, waiters);
+			const done = (): void => {
+				clearTimeout(timer);
+				waiters.delete(done);
+				if (waiters.size === 0) this.#waiters.delete(id);
+				resolve();
+			};
+			const timer = setTimeout(done, ms);
+			waiters.add(done);
+		});
+	}
+
+	#wake(id: ReportId): void {
+		for (const wake of [...(this.#waiters.get(id) ?? [])]) wake();
+	}
+
+	/** One look for a wait: the requests waiting, handed over, and what happened since the last look. */
+	#takeRequests(id: ReportId): Result<Waited, ReportError> {
+		return this.#db.write((q) =>
+			andThen(current(q, id), ({ report, revision }) =>
+				andThen(latestReviewNumber(q, id), (review) =>
+					andThen(waitingRequestIds(q, id), (waiting) =>
+						andThen(agentRequestsOf(q, id), (all): Result<Waited, ReportError> => {
+							const handed = new Set(waiting.slice(0, MAX_REQUESTS_PER_WAIT));
+							for (const request of handed) setRequestStatus(q, request, 'delivered');
+							if (handed.size > 0) this.#frameVersions.edited(revision.id);
+							const seen = this.#waitSeen.get(id);
+							this.#waitSeen.set(id, { version: revision.number, review });
+							const finished =
+								seen !== undefined && review !== undefined && review !== seen.review
+									? review
+									: undefined;
+							return ok({
+								report: id,
+								requests: all
+									.filter((r) => handed.has(r.id))
+									.map((r) => ({ ...r, status: 'delivered' as const })),
+								more: waiting.length - handed.size,
+								unanswered: all
+									.filter((r) => r.status === 'delivered' && !handed.has(r.id))
+									.map((r) => r.id),
+								updated:
+									seen !== undefined && seen.version !== revision.number
+										? revision.number
+										: undefined,
+								finished,
+								closed: report.state.kind !== 'open'
+							});
+						})
+					)
+				)
+			)
 		);
 	}
 

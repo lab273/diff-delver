@@ -6,6 +6,8 @@ import { parseTimestamp, type Timestamp } from '../timestamp.tiny.ts';
 import {
 	AGENT_ACTIVITY_KEPT,
 	agentActivity,
+	agentListening,
+	LISTENING_LINGERS_MS,
 	describeAgentHeard,
 	describeAgentWorked,
 	isInFolder
@@ -153,5 +155,26 @@ describe('what the page says of an agent', () => {
 		expect(describeAgentWorked(time(1_000), time(1_000 + 2 * MINUTE))).toBe(
 			'An agent last worked on this Delve 2 minutes ago.'
 		);
+	});
+});
+
+describe('which Delves an agent is listening to', () => {
+	it('counts an open wait, and one that ended a moment ago, as connected', () => {
+		const clock = settableClock(time(1_000));
+		const listening = agentListening(clock);
+		const shop = report('r_1');
+		expect(listening.listening(shop)).toBe(false);
+		listening.began(shop);
+		listening.began(shop);
+		clock.advance(10 * MINUTE);
+		expect(listening.listening(shop)).toBe(true);
+		listening.ended(shop);
+		expect(listening.listening(shop)).toBe(true);
+		listening.ended(shop);
+		clock.advance(LISTENING_LINGERS_MS - 1);
+		expect(listening.listening(shop)).toBe(true);
+		expect(listening.listening(report('r_2'))).toBe(false);
+		clock.advance(1);
+		expect(listening.listening(shop)).toBe(false);
 	});
 });

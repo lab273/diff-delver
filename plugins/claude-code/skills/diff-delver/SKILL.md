@@ -84,12 +84,26 @@ nothing can be skipped unseen.
    reading: most diffs need none, and a note never summarises or praises code.
    If you sort the same version again, send `"replace": true` so your earlier
    notes do not pile up.
-8. **Tell the person where to look**, and stop (see the end).
+8. **Tell the person where to look** (see the end).
+9. **Stay with them while they review.** Call `wait_for_requests` with the
+   report's id: it returns the person's questions as they ask them ("Explain
+   this", "Show me related code", or their own words), each about lines, a
+   file or a section, or says none came after up to 45 seconds. Call it again
+   each time it returns: while you do, their page says an agent is connected.
+   For each request, read the code it is about (`get_file`, `get_diff`), then
+   call `answer_request` with a plain answer to what was asked, and point at
+   code with `references` (a file and lines), which diff delver shows under
+   your answer; never paste code into the answer. Answer the question only:
+   do not review the code for them, and do not change it unless they ask you
+   to in the conversation. When `wait_for_requests` says the person finished
+   a review, read it with `get_review` and act on it as they ask (see the
+   last part). Stop waiting when it says the Delve is closed, or when the
+   person tells you to.
 
 ## Do not
 
-- Do not paste code or diff text into titles, summaries or the overview. Point to
-  it by path and line instead.
+- Do not paste code or diff text into titles, summaries, the overview or an
+  answer. Point to it by path and line instead (`references`, in an answer).
 - Do not invent line numbers or hunk ids. Use only the labels `get_diff` printed.
 - Do not describe code you have not read. If you only skimmed a file, say less.
 - Do not fix, change, format or commit the code while sorting it, even when you
@@ -114,7 +128,8 @@ When `get_coverage` says nothing is left and the overview is written, tell the
 person in a few lines: the address of the report (call `create_report` again for
 the same source to get a fresh one; it changes nothing), the sections in reading order
 (titles only), what you ignored and why, and anything you were unsure about or
-think they should look at first. Do not repeat the summaries.
+think they should look at first. Do not repeat the summaries. Say that you are
+listening for their questions on the page, then call `wait_for_requests` (step 9).
 
 ## Acting on the person's review
 

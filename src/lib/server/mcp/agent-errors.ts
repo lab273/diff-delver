@@ -68,6 +68,23 @@ export function describeForAgent(error: ReportError): TextForAgent {
 						'\n'
 					)}${error.problems.length > 20 ? `\n- and ${String(error.problems.length - 20)} more problems.` : ''}`
 			);
+		case 'RequestNotFound':
+			return textForAgent(
+				'There is no request with that id. Use the id wait_for_requests gave, such as "request": 3.'
+			);
+		case 'RequestCancelled':
+			return textForAgent(
+				'The person cancelled that request, so it takes no answer. Call wait_for_requests for the next one.'
+			);
+		case 'AnswerRefused':
+			return textForAgent(
+				`The answer was not saved; nothing in this call was applied:\n${error.problems
+					.slice(0, 20)
+					.map((p) => `- ${p}`)
+					.join('\n')}`
+			);
+		case 'InvalidRequest':
+		case 'RequestNotPromotable':
 		case 'NoteNotFound':
 		case 'AnotherReportOpen':
 		case 'ReportHasNoRevision':

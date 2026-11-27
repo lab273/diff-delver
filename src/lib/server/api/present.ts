@@ -651,6 +651,7 @@ export function statusOf(error: ReportError): number {
 		case 'PathNotFound':
 		case 'CommentNotFound':
 		case 'NoteNotFound':
+		case 'RequestNotFound':
 		case 'ReviewNotFound':
 		case 'PullRequestNotFound':
 			return 404;
@@ -666,6 +667,7 @@ export function statusOf(error: ReportError): number {
 		case 'AnotherReportOpen':
 		case 'RevisionChangedWhileSaving':
 		case 'CommentChanged':
+		case 'RequestCancelled':
 		case 'OverallReviewChanged':
 		case 'DraftChanged':
 		case 'CommentsFinished':
@@ -680,6 +682,9 @@ export function statusOf(error: ReportError): number {
 		case 'ReadingOrderRefused':
 		case 'ReadingOrderSectionUnknown':
 		case 'NotesRefused':
+		case 'InvalidRequest':
+		case 'AnswerRefused':
+		case 'RequestNotPromotable':
 		case 'InvalidCommentRange':
 		case 'InvalidCommentBody':
 		case 'InvalidOverallReview':
