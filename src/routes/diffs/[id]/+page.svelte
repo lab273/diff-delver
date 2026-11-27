@@ -875,8 +875,15 @@
 				);
 				const busy = diff.querySelector('[aria-busy="true"]') !== null;
 				const moved = again();
-				// A page too short to put it at the top may still grow, as parts after it are drawn.
-				const short = unclampedTopOf(element) > window.scrollY + 1;
+				// A page too short to put it at the top may still grow while parts after it
+				// are drawn or fetch their lines; once they are, it is as long as it gets.
+				const last = shown.parts.at(-1);
+				const growing =
+					(last !== undefined && !shown.drawn(last.index)) ||
+					shown.parts.some(
+						(p) => p.open && (p.lines.kind === 'waiting' || p.lines.kind === 'loading')
+					);
+				const short = growing && unclampedTopOf(element) > window.scrollY + 1;
 				settledFrames = since.resized || waiting || busy || moved || short ? 0 : settledFrames + 1;
 				if (settledFrames === 2) return;
 				since.resized = false;
