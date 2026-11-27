@@ -44,7 +44,7 @@
 	import { countOf, describeChanges, describeTally, formatCount } from '#lib/core/viewer/words.ts';
 	import { nextShown, previousShown } from '#lib/core/viewer/reading-order.ts';
 	import { describeLeftToRead, type WritingPlace } from '#lib/core/viewer/reading-places.ts';
-	import { PageMover, revealNearest, type Move } from '#lib/ui/viewer/page-mover.ts';
+	import { PageMover, type Move } from '#lib/ui/viewer/page-mover.ts';
 	import { parsePartIndex, type PartIndex } from '#lib/core/part-index.tiny.ts';
 	import type { OrderStep } from '#lib/core/order-step.tiny.ts';
 	import FileList from '#lib/ui/viewer/FileList.svelte';
@@ -781,13 +781,34 @@
 			const overview = document.getElementById(AGENT_OVERVIEW);
 			if (overview instanceof HTMLDetailsElement) overview.open = true;
 			overview?.focus({ preventScroll: true });
-			if (overview !== null) revealNearest(overview);
+			if (overview !== null) mover.reveal(overview);
 			return;
 		}
 		const summary = document.getElementById(`${group.anchor}-summary`);
 		summary?.focus({ preventScroll: true });
 		const heading = document.getElementById(`${group.anchor}-heading`);
 		if (heading !== null) scrollToTop(heading);
+	}
+
+	/**
+	 * Gives an element the keyboard and, unless `show` is false, moves the page
+	 * to it as focusing would, only when it is not wholly on the screen, and
+	 * then to the middle, but eased.
+	 */
+	function focusAndShow(element: HTMLElement | null, show = true): void {
+		if (element === null) return;
+		element.focus({ preventScroll: true });
+		if (!show) return;
+		mover.move(() => {
+			if (!element.isConnected) return undefined;
+			const box = element.getBoundingClientRect();
+			const { top, bottom: below } = scrollPadding();
+			const bottom = window.innerHeight - below;
+			if (box.top >= top && box.bottom <= bottom) return window.scrollY;
+			const middle = window.scrollY + box.top + box.height / 2 - (top + (bottom - top) / 2);
+			const end = document.documentElement.scrollHeight - window.innerHeight;
+			return Math.max(0, Math.min(middle, end));
+		});
 	}
 
 	/** What is kept at the top of the screen while the diff settles, if anything: stopped by the next. */
@@ -1054,7 +1075,7 @@
 			viewer.announcement = said === undefined ? nothingLeft : `${said} ${nothingLeft}`;
 			await tick();
 			if (stillGoing?.() === false) return;
-			document.getElementById(EVERYTHING_REVIEWED)?.focus();
+			focusAndShow(document.getElementById(EVERYTHING_REVIEWED));
 			return;
 		}
 		if (said !== undefined) viewer.announcement = said;
@@ -1242,14 +1263,14 @@
 				if (moveOn?.() === true) {
 					// On the last part the tick's own words say everything is reviewed, so
 					// they stay, and focus goes to the notice that says so.
-					if (outcome.allDone) document.getElementById(EVERYTHING_REVIEWED)?.focus();
+					if (outcome.allDone) focusAndShow(document.getElementById(EVERYTHING_REVIEWED));
 					// The tick's own words come first, then where it went.
 					else await nextUnread(viewer.announcement || undefined, moveOn);
 					return;
 				}
 				if (readerMoved && !focusLost()) return;
 				if (outcome.allDone) {
-					document.getElementById(EVERYTHING_REVIEWED)?.focus({ preventScroll: readerMoved });
+					focusAndShow(document.getElementById(EVERYTHING_REVIEWED), !readerMoved);
 					return;
 				}
 				// Finishing a group moves on to the next one that still waits.
@@ -1267,7 +1288,7 @@
 						);
 						return;
 					}
-					if (next !== undefined) document.getElementById(`${next.anchor}-heading`)?.focus();
+					if (next !== undefined) focusAndShow(document.getElementById(`${next.anchor}-heading`));
 				}
 				if (byFile || !focusLost()) return;
 				// What had focus went from the page with "Only what I have not reviewed": on
@@ -1277,7 +1298,7 @@
 				const reading = readerMoved ? partAtElement(viewer, viewportPart(undefined)) : undefined;
 				const next = reading?.index ?? nextShown(shown, place) ?? previousShown(shown, place);
 				if (next !== undefined) await goToPart(next, false, { scroll: !readerMoved });
-				else document.getElementById(EVERYTHING_REVIEWED)?.focus({ preventScroll: readerMoved });
+				else focusAndShow(document.getElementById(EVERYTHING_REVIEWED), !readerMoved);
 			}
 		}
 	}
@@ -1293,6 +1314,9 @@
 		if (shown === undefined) return;
 		staleTick = undefined;
 		stopKeepingAtTop();
+		// A move under way to the part ticked arrives first, so what the tick
+		// keeps in place is measured where the reader is going.
+		mover.settle();
 		const animations: { part: PartState; animation: Animation }[] = [];
 		let inputAt: number | undefined;
 		let scrolled = false;
