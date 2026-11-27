@@ -76,7 +76,7 @@ test.describe('J0 First run', () => {
 		await journey.press('?');
 		const shortcuts = journey.byRole('dialog', { name: 'Keyboard shortcuts' });
 		await journey.expectVisible(shortcuts);
-		await journey.expectText(shortcuts, 'Go to the next file you have not reviewed');
+		await journey.expectText(shortcuts, 'Go to the next thing you have not read');
 		await journey.step('The keyboard shortcuts');
 		await journey.press('Escape');
 		await journey.expectHidden(shortcuts);

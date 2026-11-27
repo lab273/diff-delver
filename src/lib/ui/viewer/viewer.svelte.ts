@@ -56,10 +56,19 @@ import {
 	shownParts
 } from '#lib/core/viewer/reading-order.ts';
 import { partIndexOf, type PartIndex } from '#lib/core/part-index.tiny.ts';
+import {
+	nextUnreadPlace,
+	summariesLeft,
+	type ReadingPlace,
+	type ToRead,
+	type WritingPlace
+} from '#lib/core/viewer/reading-places.ts';
+import type { AgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
+import type { SummaryPlace } from '#lib/core/review/summary-read.ts';
 import type { OrderStep } from '#lib/core/order-step.tiny.ts';
 import { countOf, describeChanges, formatCount } from '#lib/core/viewer/words.ts';
 import { pageClient } from '#lib/ui/client.ts';
-import { SvelteMap } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { ColourRun } from '#lib/core/highlight/colour-run.ts';
 import type { Layout, ViewSettings } from '#lib/core/settings.ts';
 import { spansOf } from '#lib/core/viewer/line-spans.ts';
@@ -250,6 +259,18 @@ function keyOf(group: GroupKeyView, path: EscapedPath, step: OrderStep | null): 
 	return `${placeKey(group, step)}\u0000${path}`;
 }
 
+/** The section whose summary a group shows, if it is a section's or its Tests group. */
+function sectionOf(key: GroupKeyView): SummaryPlace | undefined {
+	return key.kind === 'section' || key.kind === 'tests'
+		? { kind: 'section', section: key.section }
+		: undefined;
+}
+
+/** A text of the agent's, as the page keeps it read: what it is and the words read. */
+function readKey(place: SummaryPlace, text: AgentMarkdown): string {
+	return `${place.kind === 'overview' ? '' : place.section}\u0000${text}`;
+}
+
 /** Whether a part still waits for the reviewer. */
 export function waits(part: PartView): boolean {
 	return part.group.kind !== 'ignored' && part.tally.reviewed < part.tally.units;
@@ -379,6 +400,13 @@ export class Viewer {
 	/** The part the person is on: the last moved to, or the one holding focus. */
 	current = $state<PartIndex>();
 	/**
+	 * The agent's overview or a group's summary, when the page took the person
+	 * there and they have not moved since: moving on from it marks it read.
+	 */
+	atSummary = $state<WritingPlace>();
+	/** The agent's texts the reviewer has read, by what each is and its words (`readKey`). */
+	readonly #read = new SvelteSet<string>();
+	/**
 	 * How many parts, in reading order, are drawn. A large diff is drawn a
 	 * batch at a time after its first screen, so the first file is readable at
 	 * once and the page stays responsive while the rest are drawn.
@@ -447,6 +475,9 @@ export class Viewer {
 		this.overview = page.overview;
 		this.notes = page.notes;
 		this.earlierNotes = page.earlierNotes;
+		this.#takeRead(page);
+		// Read on the page before a regroup, whether or not it has been saved yet.
+		if (previous !== undefined) for (const key of previous.#read) this.#read.add(key);
 		const groups: GroupInfo[] = [];
 		const parts: PartState[] = [];
 		const byKey = new SvelteMap<string, PartIndex>();
@@ -588,6 +619,83 @@ export class Viewer {
 	/** The next part that waits after the one the person is on, or the first. */
 	nextUnread(): PartIndex | undefined {
 		return nextWaiting(this.waiting, this.current);
+	}
+
+	/** What is left to read, the agent's unread overview and summaries among it. */
+	get toRead(): ToRead {
+		return {
+			overviewUnread: this.overview !== null && !this.#isRead({ kind: 'overview' }, this.overview),
+			groups: this.groups.map((group) => {
+				const place = sectionOf(group.key);
+				return {
+					first: group.first,
+					count: group.count,
+					unreadSummary:
+						place?.kind === 'section' &&
+						group.summary !== null &&
+						!this.#isRead(place, group.summary)
+							? place.section
+							: undefined
+				};
+			}),
+			waiting: this.waiting
+		};
+	}
+
+	/**
+	 * The next unread thing after where the person is, the agent's overview and
+	 * summaries among it (DESIGN 8.1), or undefined when nothing is left.
+	 */
+	nextUnreadPlace(): ReadingPlace | undefined {
+		const from: ReadingPlace | undefined =
+			this.atSummary ??
+			(this.current === undefined ? undefined : { kind: 'part', at: this.current });
+		return nextUnreadPlace(this.toRead, from);
+	}
+
+	/** How much of the agent's writing is left to read. */
+	get summariesLeft(): { overview: boolean; summaries: number } {
+		return summariesLeft(this.toRead);
+	}
+
+	/** Whether a group's summary is unread. */
+	summaryUnread(group: GroupInfo): boolean {
+		const place = sectionOf(group.key);
+		return place !== undefined && group.summary !== null && !this.#isRead(place, group.summary);
+	}
+
+	/**
+	 * The person moves on from the overview or a summary the page took them to:
+	 * it is read, kept at once on the page and saved for the Delve. A save that
+	 * fails leaves it read on this page only, so it is read again next time.
+	 */
+	moveOnFromSummary(): void {
+		const at = this.atSummary;
+		this.atSummary = undefined;
+		if (at === undefined) return;
+		const group = at.kind === 'summary' ? this.groups[at.group] : undefined;
+		const place = group === undefined ? { kind: 'overview' as const } : sectionOf(group.key);
+		const text = group === undefined ? this.overview : group.summary;
+		if (place === undefined || text === null || this.#isRead(place, text)) return;
+		this.#read.add(readKey(place, text));
+		void this.client.markSummaryRead(this.id, { version: this.version, place });
+	}
+
+	#isRead(place: SummaryPlace, text: AgentMarkdown): boolean {
+		return this.#read.has(readKey(place, text));
+	}
+
+	/** What a frame says was read, kept beside what this page has read since. */
+	#takeRead(page: DiffPage): void {
+		if (page.overview !== null && page.overviewRead) {
+			this.#read.add(readKey({ kind: 'overview' }, page.overview));
+		}
+		for (const group of page.groups) {
+			const place = sectionOf(group.key);
+			if (place !== undefined && group.summary !== null && group.summaryRead) {
+				this.#read.add(readKey(place, group.summary));
+			}
+		}
 	}
 
 	/** Which parts the page shows, with the filter as it is. */
@@ -1006,6 +1114,7 @@ export class Viewer {
 		this.#frame = frame.frame;
 		this.#sorting = frame.sorting;
 		this.overview = frame.overview;
+		this.#takeRead(frame);
 		this.notes = frame.notes;
 		this.earlierNotes = frame.earlierNotes;
 		this.summary = frame.summary;

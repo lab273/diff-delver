@@ -6,7 +6,10 @@ import { test } from '../support/journey.ts';
 // one. The reviewer reads the steps in that order, each a part of its own with
 // the agent's note above its lines and the file's other lines in the section
 // shown muted with a link to their step, ticks each step and moves on with `r`,
-// and finds the lines no step names after the steps. Keyboard only.
+// and finds the lines no step names after the steps. The agent's summaries
+// are read too: `n` goes to a section's summary before its first step, and
+// ticking a section's last part with `r` goes to the next section's summary
+// before its files. Keyboard only.
 test.describe("J22 Read a section in the agent's order", () => {
 	test('the reviewer reads and ticks a section step by step, in the order the agent gave', async ({
 		journey
@@ -26,7 +29,11 @@ test.describe("J22 Read a section in the agent's order", () => {
 							title: 'A cart total can take a discount',
 							summary: 'discount() applies a code’s rate, and total() takes a code.'
 						},
-						{ id: 'checkout', title: 'Checkout asks for a code' }
+						{
+							id: 'checkout',
+							title: 'Checkout asks for a code',
+							summary: 'checkout() asks for a discount code and passes it on.'
+						}
 					]
 				}
 			},
@@ -79,8 +86,19 @@ test.describe("J22 Read a section in the agent's order", () => {
 		await journey.expectVisible(
 			journey.byText('Read discount() first: total() below calls it.', { exact: true })
 		);
+		// The section's summary is the first thing to read, then its first step.
+		await journey.expectVisible(
+			journey.byText('Left to read: 14 changes and 2 section summaries', { exact: true })
+		);
+		await journey.press('n');
+		await journey.expectFocused(
+			journey.byRole('region', { name: 'Agent summary: A cart total can take a discount' })
+		);
 		await journey.press('n');
 		await journey.expectFocused(first);
+		await journey.expectVisible(
+			journey.byText('Left to read: 14 changes and 1 section summary', { exact: true })
+		);
 		await journey.step("The first step, with the agent's note");
 
 		// r ticks the step and goes on to the next, a part of cart.ts whose other
@@ -111,6 +129,8 @@ test.describe("J22 Read a section in the agent's order", () => {
 		);
 		await journey.step('What no step names comes last');
 
+		// Ticking the section's last part goes to the next section's summary
+		// before its file, and r on the summary only goes on from it.
 		await journey.press('r');
 		await journey.expectState(
 			tick('Reviewed: src/discount.ts in A cart total can take a discount'),
@@ -120,6 +140,15 @@ test.describe("J22 Read a section in the agent's order", () => {
 			tick('Reviewed: src/cart.ts in A cart total can take a discount, step 3'),
 			{ checked: true }
 		);
-		await journey.step('Every step ticked');
+		await journey.expectFocused(
+			journey.byRole('region', { name: 'Agent summary: Checkout asks for a code' })
+		);
+		await journey.step("Every step ticked, and the next section's summary");
+
+		await journey.press('r');
+		await journey.expectFocused(toggle('src/checkout.ts'));
+		await journey.expectState(tick('Reviewed: src/checkout.ts'), { checked: false });
+		await journey.expectHidden(journey.byText('section summary', { exact: false }));
+		await journey.step("The next section's file, its summary read");
 	});
 });

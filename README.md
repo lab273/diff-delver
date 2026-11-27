@@ -55,7 +55,8 @@ On the page you can:
 - **Tick** a file as reviewed, or a whole section at once. `r` ticks the file you
   are on and moves to the next you have not reviewed, so pressing it again and again
   works through the diff. The bar on the left shows how far you have got.
-- **Move on** to the next file you have not reviewed (`n`).
+- **Move on** to the next thing you have not read (`n`): a file you have not
+  reviewed, or the agent's overview or a section's summary, which come first.
 - **Comment** on a line, or **flag** it to look at again: press its number and
   choose, or press `c` or `f` on it. Drag over the numbers, or hold Shift, to take
   several lines. Comments and flags are private drafts on your machine, shown at
@@ -217,7 +218,8 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 - Updating a Delve when the code changes, keeping sections and ticks.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex
   have both done it in the project's [recorded trials](tests/agent-trials/README.md).
-- The agent's overview and section summaries appear while the Delve is open.
+- The agent's overview and section summaries appear while the Delve is open. They
+  count as unread until you move on from them, and are read again when rewritten.
 - Agent notes: the agent can point at lines with a label (possible bug, risk,
   question, info). They are shown at their lines as the agent's, after your own
   comments; `a` hides them all, Dismiss puts one away, and **Promote to review**

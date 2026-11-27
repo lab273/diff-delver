@@ -43,6 +43,7 @@
 	import type { FileView, GroupKeyView, TallyView } from '#lib/api/schemas.ts';
 	import { countOf, describeChanges, describeTally, formatCount } from '#lib/core/viewer/words.ts';
 	import { nextShown, previousShown } from '#lib/core/viewer/reading-order.ts';
+	import { describeLeftToRead, type WritingPlace } from '#lib/core/viewer/reading-places.ts';
 	import { parsePartIndex, type PartIndex } from '#lib/core/part-index.tiny.ts';
 	import type { OrderStep } from '#lib/core/order-step.tiny.ts';
 	import FileList from '#lib/ui/viewer/FileList.svelte';
@@ -294,6 +295,7 @@
 	});
 
 	const EVERYTHING_REVIEWED = 'everything-reviewed';
+	const AGENT_OVERVIEW = 'agent-overview';
 
 	/** Read from the address once, when the page opens: by file, and only what waits. */
 	const startByFile = untrack(() => shownPage.url.searchParams.get('view') === 'files');
@@ -729,6 +731,7 @@
 		}
 		if (!viewer.shows(at)) setOnlyWaiting(false);
 		viewer.current = at;
+		viewer.atSummary = undefined;
 		viewer.drawUpTo(at);
 		if (open) state.open = true;
 		if (state.open && !viewer.isLarge(state)) void viewer.load(at);
@@ -738,6 +741,48 @@
 		toggle?.focus({ preventScroll: true });
 		const part = document.getElementById(`part-${String(at)}`);
 		if (part !== null && scroll) scrollToTop(part);
+	}
+
+	/**
+	 * Takes the reader to the agent's overview, or a group's summary, as the
+	 * next thing to read (DESIGN 8.1): at the top of the screen with its
+	 * group's heading, focused, and said. Moving on from it, with `n` or `r`,
+	 * marks it read.
+	 */
+	async function goToSummary(place: WritingPlace, stillGoing?: () => boolean): Promise<void> {
+		const shown = viewer;
+		if (shown === undefined) return;
+		const group = place.kind === 'summary' ? shown.groups[place.group] : undefined;
+		if (place.kind === 'summary' && group === undefined) return;
+		if (byFile) {
+			byFile = false;
+			remember();
+		}
+		if (group !== undefined) shown.drawUpTo(group.first);
+		shown.atSummary = place;
+		await tick();
+		if (stillGoing?.() === false || viewer !== shown) return;
+		const said =
+			group === undefined
+				? 'The agent’s overview of the change. Press n to go on.'
+				: `The agent’s summary of ${group.name}. Press n to go on to its files.`;
+		shown.announcement = shown.announcement === '' ? said : `${shown.announcement} ${said}`;
+		if (group === undefined) {
+			const overview = document.getElementById(AGENT_OVERVIEW);
+			if (overview instanceof HTMLDetailsElement) overview.open = true;
+			overview?.focus({ preventScroll: true });
+			if (overview !== null) revealNearest(overview);
+			return;
+		}
+		const summary = document.getElementById(`${group.anchor}-summary`);
+		summary?.focus({ preventScroll: true });
+		const heading = document.getElementById(`${group.anchor}-heading`);
+		if (heading !== null) scrollToTop(heading);
+	}
+
+	/** Scrolls what holds an element, the rail or the page, only as far as it takes to show it. */
+	function revealNearest(element: HTMLElement): void {
+		element.scrollIntoView({ block: 'nearest' });
 	}
 
 	/** What is kept at the top of the screen while the diff settles, if anything: stopped by the next. */
@@ -985,7 +1030,15 @@
 	 */
 	async function nextUnread(said?: string, stillGoing?: () => boolean): Promise<void> {
 		if (viewer === undefined) return;
-		const at = viewer.nextUnread();
+		// Moving on from the agent's writing the page took the reader to reads it.
+		viewer.moveOnFromSummary();
+		const next = viewer.nextUnreadPlace();
+		if (next?.kind === 'overview' || next?.kind === 'summary') {
+			if (said !== undefined) viewer.announcement = said;
+			await goToSummary(next, stillGoing);
+			return;
+		}
+		const at = next?.at;
 		if (at === undefined) {
 			const nothingLeft = 'Everything is reviewed: there is nothing left to read.';
 			viewer.announcement = said === undefined ? nothingLeft : `${said} ${nothingLeft}`;
@@ -1067,6 +1120,11 @@
 		if (byFile) {
 			shown.announcement =
 				'In By file, mark a file reviewed with its tick box, or choose By section to use r.';
+			return;
+		}
+		if (shown.atSummary !== undefined) {
+			// The agent's writing has nothing to tick: r goes on from it, as n does.
+			await nextUnread(undefined, stillGoing);
 			return;
 		}
 		const at = currentPart();
@@ -1190,6 +1248,11 @@
 						(g) =>
 							g.first > finished.first && g.key.kind !== 'ignored' && !done(viewer.groupTally(g))
 					);
+					if (next !== undefined && viewer.summaryUnread(next)) {
+						// Its summary is the next thing to read, before its files.
+						await goToSummary({ kind: 'summary', group: viewer.groups.indexOf(next) });
+						return;
+					}
 					if (next !== undefined) document.getElementById(`${next.anchor}-heading`)?.focus();
 				}
 				if (byFile || !focusLost()) return;
@@ -1366,6 +1429,11 @@
 		if (heading === null) return;
 		scrollToTop(heading);
 		heading.focus({ preventScroll: true });
+		// Its summary is where they are, so moving on from it reads it.
+		const group = viewer?.groups.findIndex((g) => g.anchor === anchor) ?? -1;
+		if (viewer !== undefined && group >= 0 && viewer.groups[group]?.summary !== null) {
+			viewer.atSummary = { kind: 'summary', group };
+		}
 	}
 
 	/**
@@ -2030,6 +2098,7 @@
 		const part = partAtElement(viewer, target);
 		if (part === undefined) return;
 		viewer.current = part.index;
+		viewer.atSummary = undefined;
 		if (target.closest('.body') === null) return;
 		const header = target.closest('article.part')?.querySelector('header');
 		const pinned = header?.getBoundingClientRect();
@@ -2452,6 +2521,7 @@
 	{@const updated = page.update}
 	{@const overall = viewer.overall}
 	{@const allDone = overall.units > 0 && overall.reviewed === overall.units}
+	{@const leftToRead = describeLeftToRead(overall.units - overall.reviewed, viewer.summariesLeft)}
 	{@const previousVersion = previousRevisionNumber(summary.version)}
 	{@const ignoredUnits = summary.progress.ignored}
 	{@const stale =
@@ -2592,6 +2662,9 @@
 		<aside class="rail" aria-label="Your review">
 			<h2 class="rail-heading">Your review</h2>
 			<p class="progress-text">{progressText(overall.reviewed, overall.units)}</p>
+			{#if leftToRead !== undefined}
+				<p class="left-to-read">{leftToRead}</p>
+			{/if}
 			<ProgressBar
 				tally={overall}
 				label="Your review"
@@ -2628,7 +2701,7 @@
 			</div>
 			<div aria-live="polite" class="bookmark-message desktop-message">{bookmarkMessage}</div>
 			{#if viewer.overview !== null}
-				<details class="agent-overview" open>
+				<details class="agent-overview" id={AGENT_OVERVIEW} tabindex="-1" open>
 					<summary>Agent overview</summary>
 					<AgentMarkdown markdown={viewer.overview} />
 				</details>
@@ -2867,7 +2940,15 @@
 									/>
 								{/if}
 								{#if group.summary !== null}
-									<AgentMarkdown markdown={group.summary} label="Agent summary" />
+									<div
+										id="{group.anchor}-summary"
+										class="group-summary"
+										role="region"
+										aria-label="Agent summary: {group.name}"
+										tabindex="-1"
+									>
+										<AgentMarkdown markdown={group.summary} label="Agent summary" />
+									</div>
 								{:else if group.key.kind === 'uncategorised'}
 									<p class="explain">
 										{viewer.sorted
@@ -3103,6 +3184,10 @@
 	.progress-text {
 		margin: 0 0 0.35rem;
 		font-weight: 700;
+	}
+
+	.left-to-read {
+		margin: 0 0 0.35rem;
 	}
 
 	.ignored-text,

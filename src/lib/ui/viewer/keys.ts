@@ -45,12 +45,16 @@ export const SHORTCUTS: readonly {
 	readonly does: string;
 	readonly action: KeyAction;
 }[] = [
-	{ keys: ['n'], does: 'Go to the next file you have not reviewed', action: 'next-unread' },
+	{
+		keys: ['n'],
+		does: 'Go to the next thing you have not read: a file you have not reviewed, or the agent’s summary before it',
+		action: 'next-unread'
+	},
 	{ keys: ['j', ']'], does: 'Go to the next file', action: 'next-part' },
 	{ keys: ['k', '['], does: 'Go to the previous file', action: 'previous-part' },
 	{
 		keys: ['r'],
-		does: 'Mark the file you are on as reviewed and go to the next you have not reviewed. To take the mark off, use the file’s tick box',
+		does: 'Mark the file you are on as reviewed and go to the next thing you have not read; on the agent’s summary, only go on. To take the mark off, use the file’s tick box',
 		action: 'mark-reviewed'
 	},
 	{ keys: ['o'], does: 'Show or hide the changes of the file you are on', action: 'toggle-open' },

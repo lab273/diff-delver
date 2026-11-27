@@ -185,8 +185,9 @@ test.describe('Trial shop sorted by Codex', () => {
 			.byRole('checkbox', { name: `All reviewed: ${split}` });
 		const cart = journey.within(section).byRole('button', { name: 'src/cart.ts', exact: true });
 		await journey.expectCollapse(cart, 'no-preference', () => journey.activate(groupTick, 'Space'));
+		// Finishing a section goes on to the next one's summary, the next thing to read.
 		await journey.expectFocused(
-			journey.byRole('heading', { name: /Make the deploy script executable/ })
+			journey.byRole('region', { name: /Agent summary: Make the deploy script executable/ })
 		);
 
 		// The list counts the lines that are tests apart: the test file, and the
