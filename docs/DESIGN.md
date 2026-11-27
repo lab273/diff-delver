@@ -514,9 +514,28 @@ review an earlier thread is **open**, **changed since** (its lines changed in a
 newer revision, so it may have been addressed) or **resolved**. The reviewer
 resolves it or replies, and that action is part of the current review.
 
+**Threads, as built.** A finished review's comments and flags become threads of
+the Delve. Each is followed to every later version when that version is made,
+through git's diff of its side: unchanged lines move to their new numbers, a
+rewritten line moves to the line that replaced it and counts as changed, lines
+inserted inside its range join it, and a thread whose lines are all gone, or whose
+file is, or that cannot be followed, is kept and shows the code it was on; a
+thread is never hidden. A thread on removed lines also
+counts as changed when the later version no longer removes them. In a later
+version a thread is **Resolved** if the last review to resolve or reopen it
+resolved it, else **Code changed since** if its lines changed after anything was
+last said or done on it, else **Open**. Replies and resolutions count from the
+version they were made on. A reply is a draft comment on its thread, one per
+thread; resolving, reopening and taking either back belong to the draft and are
+checked at finish as comments are. Threads are drawn at their lines, apart from
+the draft's comments; the list above the diff counts them ("From earlier reviews:
+1 open, 1 code changed since"), goes to each, and draws in full those whose lines
+or whole file are no longer in the version shown, with Reply and Resolve; `p` goes
+to the next open one. Only a browser that may read reviews is shown them.
+
 Drafts are private. No MCP tool returns an unsubmitted review, so an agent never
-acts on half-written comments. For now, saved comments stay at their original
-file, side and line range when a Delve is updated. The draft lists them with
+acts on half-written comments. For now, draft comments stay at their original
+file, side and line range when a Delve is updated, until they are finished. The draft lists them with
 the version they were written on. A saved comment's lines never change; its words
 can be edited, and it can be deleted, from a page that shows the current version.
 A comment's id is never given to another, and a change or deletion says which
@@ -939,7 +958,12 @@ This drops the grace period. Was that intended?
 The quoted code is inserted by the server from the snapshot.
 
 **What is built.** Finish and copy, the preview and the list of finished
-reviews, with comments and flags, and `get_review`. Flags are listed under
+reviews, with comments and flags, threads from earlier reviews, and `get_review`.
+The text lists every earlier thread still open or changed under "Still open from
+earlier reviews", each headed as in `src/discount.ts:4 (new), from review 1,
+changed since` with this review's reply under it, then "Resolved in this review"
+and "Replies on resolved comments". A review posted to a pull request carries only
+the threads it replied to, resolved or reopened, in its text, never on lines. Flags are listed under
 "Flagged for another look" with their words quoted, and no code; on a pull
 request they go in the review's text, never on lines. The panel sits under the draft
 comments on a Delve's page and finishing needs the same review access as
