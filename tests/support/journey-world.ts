@@ -789,6 +789,8 @@ export async function makeJourneyWorld(): Promise<JourneyWorld> {
 		repository: { gitEnv: await reviewerGitEnv() },
 		// The journey's person is signed in to it, so a review can be posted.
 		github: github.access(STAND_IN_TOKEN),
+		// Sizes on disk are not the same on every machine, nor when they come.
+		measureDiskUsage: false,
 		machine: {
 			home: absolutePath(dir),
 			defaultDataDirectory: absolutePath(join(dir, 'data'))

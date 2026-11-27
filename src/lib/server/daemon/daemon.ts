@@ -30,7 +30,10 @@
  * With the same check, once at least `TIDY_STORES_EVERY_MS` has passed by its
  * clock since it last did, it tidies the stores (`ReportService.tidyStores`),
  * so the objects of snapshots it took and did not keep do not pile up until it
- * next starts.
+ * next starts; and, once the catch-ups at its start are done, it measures
+ * what each Delve takes on disk in the stores that changed since it last did
+ * (`ReportService.measureDiskUsage`), so the list of Delves says it a few
+ * seconds after a snapshot is added or removed.
  */
 import type { GitHubAccess } from '../sources/github/index.ts';
 import { randomBytes } from 'node:crypto';
@@ -130,6 +133,13 @@ export interface DaemonOptions {
 	 * release its version names, if any, and no commit.
 	 */
 	readonly build?: BuildIdentity;
+	/**
+	 * Whether it measures what each Delve takes on disk in the background
+	 * (`ReportService.measureDiskUsage`), so the list of Delves can say it: yes
+	 * by default. Journeys say no, since how long it takes and what git's
+	 * compression makes of a file are not the same on every machine.
+	 */
+	readonly measureDiskUsage?: boolean;
 	/** Called once the daemon has stopped, however it was asked to. */
 	readonly onStopped?: () => void;
 	/**
@@ -481,9 +491,20 @@ export async function startDaemon(
 		}
 	});
 	const stopCounting = new AbortController();
+	let measuring: Promise<unknown> | undefined;
+	const measureDiskUsage = (): void => {
+		if (options.measureDiskUsage === false || measuring !== undefined) return;
+		measuring = service.measureDiskUsage(stopCounting.signal).finally(() => {
+			measuring = undefined;
+		});
+	};
+	// Measuring starts after the catch-ups, and goes on from the repeating check.
+	let caughtUp = false;
 	const binaryCounted = service.countBinaryFiles(stopCounting.signal).then(async (counted) => {
 		// Then the threads of earlier reviews not yet followed to their Delve's version.
 		await service.followAllThreads(stopCounting.signal);
+		caughtUp = true;
+		measureDiskUsage();
 		return counted;
 	});
 	let stopChecking = (): void => undefined;
@@ -510,6 +531,7 @@ export async function startDaemon(
 			await close(server);
 			await cleaned;
 			await binaryCounted;
+			await measuring;
 			await tidying;
 			service.close();
 			await removeLockfileIf(options.dataDirectory, lockText(lock));
@@ -564,6 +586,7 @@ export async function startDaemon(
 			return;
 		}
 		await tidyIfDue();
+		if (caughtUp) measureDiskUsage();
 	});
 	gate.settings = {
 		port: lock.port,

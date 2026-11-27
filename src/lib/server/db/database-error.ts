@@ -42,7 +42,8 @@ export type TableName =
 	| 'thread_places'
 	| 'draft_resolutions'
 	| 'review_resolutions'
-	| 'github_review_post_resolutions';
+	| 'github_review_post_resolutions'
+	| 'delve_sizes';
 
 /**
  * The file could not be opened or made (a missing folder, no permission, a full
@@ -238,6 +239,8 @@ function tableInWords(table: TableName): string {
 			return 'which comments of earlier reviews the draft resolves';
 		case 'github_review_post_resolutions':
 			return 'a review being posted to GitHub';
+		case 'delve_sizes':
+			return 'what a Delve takes on disk';
 	}
 }
 
@@ -283,6 +286,8 @@ function storedRowAdvice(table: TableName): string {
 			return 'Look on the pull request on GitHub for the review, then restore the database from a backup or delete that Delve from the list of Delves.';
 		case 'settings':
 			return 'Change any setting on a Delve’s page, which stores it again.';
+		case 'delve_sizes':
+			return 'Nothing needs doing: diff delver measures it again.';
 		case 'schema_migrations':
 		case 'unreferenced_snapshots':
 			return 'Restore the database from a backup, or move it out of the way to start again with no Delves; the saved changes in the data folder are not affected.';

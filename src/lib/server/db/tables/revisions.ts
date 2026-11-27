@@ -340,3 +340,28 @@ export function snapshotsInUse(q: Queries): Result<readonly SnapshotUse[], Store
 		(rows) => rows.map((r) => ({ store: r.store_id, snapshot: r.snapshot_id }))
 	);
 }
+
+/** A snapshot a revision of a report refers to, in one store. */
+export interface ReportSnapshot {
+	readonly report: ReportId;
+	readonly snapshot: SnapshotId;
+}
+
+const reportSnapshot = z.object({
+	report_id: text(parseReportId),
+	snapshot_id: text(parseSnapshotId)
+});
+
+/**
+ * The snapshots every report's revisions refer to in the store, for measuring
+ * what each Delve takes there. A row whose two columns cannot be read is left
+ * out, as `snapshotsOfReport` leaves it out.
+ */
+export function snapshotsInStore(q: Queries, store: StoreId): readonly ReportSnapshot[] {
+	return q
+		.all('SELECT DISTINCT report_id, snapshot_id FROM revisions WHERE store_id = ?', store)
+		.flatMap((raw) => {
+			const row = parseRow('revisions', reportSnapshot, raw);
+			return row.ok ? [{ report: row.value.report_id, snapshot: row.value.snapshot_id }] : [];
+		});
+}

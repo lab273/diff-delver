@@ -282,6 +282,11 @@ describe('the database', () => {
 				version: 22,
 				name: 'the delivery log of each finished review: copied, posted to GitHub and read by an agent',
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 23,
+				name: 'what each Delve takes on disk in each store, measured in the background',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -380,6 +385,7 @@ describe('the database', () => {
 			draft_resolutions: [],
 			review_resolutions: [],
 			github_review_post_resolutions: [],
+			delve_sizes: [],
 			// SQLite's own, for the tables whose ids are never used again, touched by their migrations.
 			sqlite_sequence: [
 				{ name: 'draft_comments', seq: 0 },

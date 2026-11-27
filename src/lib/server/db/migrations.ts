@@ -905,6 +905,25 @@ INSERT INTO review_deliveries_rebuilt (report_id, review_number, destination, po
 DROP TABLE review_deliveries;
 ALTER TABLE review_deliveries_rebuilt RENAME TO review_deliveries;
 `
+	},
+	{
+		version: schemaVersionOf(23),
+		name: 'what each Delve takes on disk in each store, measured in the background',
+		sql: `
+-- What a Delve's snapshots take in a store (DESIGN 9.1), as last measured:
+-- own_bytes, what only this Delve's snapshots and downloads reach, which
+-- deleting it frees, and shared_bytes, what they reach that another Delve of
+-- the store also does. Estimates from git's size of each object on disk.
+-- A Delve with no row has not been measured yet, and shows no figure.
+CREATE TABLE delve_sizes (
+	report_id TEXT NOT NULL REFERENCES reports (id) ON DELETE CASCADE,
+	store_id TEXT NOT NULL,
+	own_bytes INTEGER NOT NULL CHECK (own_bytes >= 0),
+	shared_bytes INTEGER NOT NULL CHECK (shared_bytes >= 0),
+	measured_at INTEGER NOT NULL CHECK (measured_at >= 0),
+	PRIMARY KEY (report_id, store_id)
+) STRICT, WITHOUT ROWID;
+`
 	}
 ];
 

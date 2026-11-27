@@ -33,7 +33,7 @@ import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import { FILE_MATCHES, MOST_FILE_BYTES, fileMatchScore } from '#lib/core/viewer/file-reader.ts';
 import { MOST_BYTES_TO_COLOUR } from '#lib/core/highlight/limits.ts';
 import type { FileMatch, FileReaderView } from '#lib/api/schemas.ts';
-import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
+import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import type { Clock } from '#lib/core/clock.ts';
 import type { CommitId } from '#lib/core/commit-id.tiny.ts';
 import type { BranchRef } from '#lib/core/history/branch-ref.tiny.ts';
@@ -251,7 +251,7 @@ import {
 } from '#lib/core/review/agent-request.ts';
 import type { AgentRequestId } from '#lib/core/agent-request-id.tiny.ts';
 import { agentListening } from '#lib/core/daemon/agent-activity.ts';
-import { repositoryNameOf } from '#lib/core/repository-name.tiny.ts';
+import { repositoryNameOf, type RepositoryName } from '#lib/core/repository-name.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '#lib/core/reviewer-message.tiny.ts';
 import {
 	FIRST_REVISION,
@@ -411,6 +411,7 @@ import {
 	listSnapshotPaths,
 	snapshotEntry,
 	listStores,
+	storeSizeOnDisk,
 	openSnapshotRef,
 	openStore,
 	removeStaleFolders,
@@ -424,6 +425,9 @@ import {
 	type SnapshotLines,
 	type StoreError
 } from '../store/index.ts';
+import { databaseSize, DiskUsage } from './disk-usage.ts';
+import { delveSizesOf, everyDelveSize, type StoredDelveSize } from '../db/tables/delve-sizes.ts';
+import { totalDiskUsage, type DelveDiskUsage } from '#lib/core/disk-usage/delve-sizes.ts';
 import { describeReportError, type ReportError } from './report-error.ts';
 
 export interface ReportServiceOptions {
@@ -513,6 +517,46 @@ export interface ReportSummary {
 	readonly progress: Revision['progress'];
 	/** How many files could not be included; the report page lists them. */
 	readonly leftOut: FileCount;
+	/**
+	 * What it takes on disk (DESIGN 9.1), once measured; only the list and the
+	 * Storage page say it, and undefined elsewhere.
+	 */
+	readonly disk: DelveDisk | undefined;
+}
+
+/** What diff delver takes on disk, for the Storage page (DESIGN 9.1). */
+export interface Storage {
+	/** The database's size on disk, exactly. */
+	readonly database: ByteSize;
+	/** Every store, by its repository's name. */
+	readonly stores: readonly StoreStorage[];
+}
+
+/** One repository's store and the Delves in it. */
+export interface StoreStorage {
+	readonly store: StoreId;
+	/** The repository it holds snapshots of, by its folder's name: "shop". */
+	readonly repository: ReviewerMessage;
+	/** Its size on disk, exactly. */
+	readonly onDisk: ByteSize;
+	/** Its Delves, those that free the most first, then those not measured yet. */
+	readonly delves: readonly StoredDelve[];
+}
+
+/** A Delve in a store, with what it takes there once measured. */
+export interface StoredDelve {
+	readonly summary: ReportSummary;
+	readonly usage: DelveDiskUsage | undefined;
+}
+
+/** What a Delve takes on disk, as last measured. */
+export interface DelveDisk {
+	readonly usage: DelveDiskUsage;
+	/**
+	 * Whether its newest snapshot was taken within the store's grace period,
+	 * so that deleting it now frees its space only within an hour.
+	 */
+	readonly freedWithinAnHour: boolean;
 }
 
 /**
@@ -973,7 +1017,7 @@ async function cloneOf(
 	});
 }
 
-function summaryOf(report: Report, revision: Revision): ReportSummary {
+function summaryOf(report: Report, revision: Revision, disk?: DelveDisk): ReportSummary {
 	return {
 		id: report.id,
 		title: reportTitle(report.source),
@@ -986,7 +1030,29 @@ function summaryOf(report: Report, revision: Revision): ReportSummary {
 		size: revision.size,
 		binary: revision.binary,
 		progress: revision.progress,
-		leftOut: fileCountOf(revision.leftOut.length)
+		leftOut: fileCountOf(revision.leftOut.length),
+		disk
+	};
+}
+
+/** A store with no Delve, named by the repository it was made for, if that was kept. */
+function storeName(name: RepositoryName | undefined): ReviewerMessage {
+	const path = parseAbsolutePath(name ?? '');
+	return path.ok
+		? repositoryLabel(path.value)
+		: reviewerMessage('A repository whose name was not kept');
+}
+
+/** A Delve's figures over the stores it is in, or undefined while it has none. */
+function diskOf(
+	sizes: readonly StoredDelveSize[],
+	revision: Revision,
+	now: Timestamp
+): DelveDisk | undefined {
+	if (sizes.length === 0) return undefined;
+	return {
+		usage: totalDiskUsage(sizes.map((s) => s.usage)),
+		freedWithinAnHour: timeBetween(revision.takenAt, now) < GRACE_PERIOD
 	};
 }
 
@@ -1668,6 +1734,8 @@ export class ReportService {
 	readonly #logged = new Set<string>();
 	/** Files' colours, kept by blob and language for the daemon's life. */
 	readonly #colours: ColourCache;
+	/** What each Delve takes on disk, measured in the background (`measureDiskUsage`). */
+	readonly #disk: DiskUsage;
 	/**
 	 * Search indexes of the diffs searched last, by revision, view and how the
 	 * revision's lines are sorted, so sorting them again makes a new one.
@@ -1734,6 +1802,7 @@ export class ReportService {
 				console.error(line);
 			});
 		this.#colours = new ColourCache(this.#log);
+		this.#disk = new DiskUsage(db, options.dataDirectory, options.clock, this.#log);
 	}
 
 	/** Opens the service on a data directory, making its database if there is none. */
@@ -2343,8 +2412,10 @@ export class ReportService {
 	 * never hides the others.
 	 */
 	list(): Result<readonly ListedReport[], ReportError> {
+		const now = this.#clock.now();
 		return this.#db.read((q): Result<readonly ListedReport[], ReportError> => {
 			const revisions = currentRevisions(q);
+			const sizes = Map.groupBy(everyDelveSize(q), (s) => s.report);
 			const damaged = (id: ReportId | undefined, error: ReportError): ListedReport => {
 				this.#logOnce(
 					`A saved diff (${id ?? 'its id cannot be read'}) is damaged: ${JSON.stringify(error)}`
@@ -2360,7 +2431,8 @@ export class ReportService {
 						return damaged(report.id, { kind: 'ReportHasNoRevision', report: report.id });
 					}
 					if (!revision.ok) return damaged(report.id, revision.error);
-					return { kind: 'report', ...summaryOf(report, revision.value) };
+					const disk = diskOf(sizes.get(report.id) ?? [], revision.value, now);
+					return { kind: 'report', ...summaryOf(report, revision.value, disk) };
 				})
 			);
 		});
@@ -2368,8 +2440,11 @@ export class ReportService {
 
 	/** One report as the list gives it, without reading the others. */
 	summary(id: ReportId): Result<ReportSummary, ReportError> {
+		const now = this.#clock.now();
 		return this.#db.read((q) =>
-			andThen(current(q, id), ({ report, revision }) => ok(summaryOf(report, revision)))
+			andThen(current(q, id), ({ report, revision }) =>
+				ok(summaryOf(report, revision, diskOf(delveSizesOf(q, id), revision, now)))
+			)
 		);
 	}
 
@@ -4550,6 +4625,8 @@ export class ReportService {
 			if (store.ok) await forgetPullRequestFetches(store.value, (kept) => kept.key === key);
 		}
 		const removedSnapshots = await this.#removeSnapshots(removed.value);
+		// What the other Delves of its stores share with it is theirs alone now.
+		for (const store of stores) this.#disk.storeChanged(store);
 		return ok(removedSnapshots);
 	}
 
@@ -4660,6 +4737,61 @@ export class ReportService {
 			}
 		}
 		return ok(removed);
+	}
+
+	/**
+	 * What diff delver takes on disk (DESIGN 9.1): the database's size, and
+	 * each store's with its Delves, by what each would free. A store's size and
+	 * the database's are read now and exact; the Delves' are as last measured.
+	 * A Delve that cannot be read is left out; the list of Delves shows it.
+	 */
+	async storage(): Promise<Result<Storage, ReportError>> {
+		const stores = await listStores(this.#dataDirectory);
+		if (!stores.ok) return stores;
+		const listed = this.list();
+		if (!listed.ok) return listed;
+		const found = this.#db.read((q) =>
+			ok({
+				sizes: everyDelveSize(q),
+				storeOf: new Map(
+					everyReport(q).flatMap((row) => (row.ok ? [[row.value.id, row.value.store]] : []))
+				)
+			})
+		);
+		if (!found.ok) return found;
+		const { sizes, storeOf } = found.value;
+		const shown: StoreStorage[] = [];
+		for (const store of stores.value) {
+			const delves = listed.value
+				.flatMap((r) => (r.kind === 'report' && storeOf.get(r.id) === store.id ? [r] : []))
+				.map((summary): StoredDelve => {
+					const own = sizes.filter((s) => s.report === summary.id && s.store === store.id);
+					return {
+						summary,
+						usage: own.length === 0 ? undefined : totalDiskUsage(own.map((s) => s.usage))
+					};
+				})
+				.toSorted((a, b) => (b.usage?.own ?? -1) - (a.usage?.own ?? -1));
+			shown.push({
+				store: store.id,
+				repository: delves[0]?.summary.repository ?? storeName(store.repository),
+				onDisk: await storeSizeOnDisk(store),
+				delves
+			});
+		}
+		return ok({ database: await databaseSize(this.#db.file), stores: shown });
+	}
+
+	/**
+	 * Measures what each Delve takes on disk (DESIGN 9.1) in every store a
+	 * snapshot was added to or removed from since it last did, and, the first
+	 * time, in every store with a Delve not measured yet; one store at a time,
+	 * stopping before the next once `stop` fires. The daemon calls it in the
+	 * background; nothing waits for it, and until a Delve is measured the list
+	 * says nothing of its size. Returns the stores it measured.
+	 */
+	measureDiskUsage(stop?: AbortSignal): Promise<readonly StoreId[]> {
+		return this.#disk.measure(stop);
 	}
 
 	/**
@@ -5100,6 +5232,7 @@ export class ReportService {
 				if (raced !== undefined) return ok(raced.id);
 				insertReport(q, report);
 				insertRevision(q, revision);
+				this.#disk.storeChanged(revision.store);
 				this.#sorting.replaceAssignmentRows(
 					q,
 					revision.id,
@@ -5450,6 +5583,7 @@ export class ReportService {
 							)
 						};
 						insertRevision(q, revision);
+						this.#disk.storeChanged(revision.store);
 						this.#sorting.replaceSections(q, revision.id, sections);
 						replaceReferenceRows(
 							q,
