@@ -10,7 +10,8 @@ import type { AgentSorting } from '#lib/api/schemas.ts';
 import {
 	claudeCodeCommand,
 	codexConfigEntry,
-	plainServerCommand
+	plainServerCommand,
+	setupCommand
 } from '#lib/core/agent-setup/agent-server.ts';
 import { folderInWords } from '#lib/core/agent-setup/shell-words.ts';
 import { goToFolderCommand, sortRequest } from '#lib/core/agent-setup/sort-request.ts';
@@ -45,6 +46,7 @@ export async function agentSortingView(
 	const worked = daemon.agents.lastWorked(report.id);
 	return {
 		connect: {
+			setup: setupCommand(setup),
 			claudeCode: claudeCodeCommand(setup),
 			codex: codexConfigEntry(setup),
 			other: plainServerCommand(setup)

@@ -139,6 +139,16 @@
 								</p>
 							{/if}
 						</div>
+						<p>
+							Run this in a terminal, in any folder. It connects Claude Code and Codex, whichever
+							you have, with the project’s skill, and says what it did:
+						</p>
+						<CopyText
+							text={found.connect.setup}
+							label="Copy the setup command"
+							copied="Copied. Paste it into a terminal, in any folder."
+						/>
+						<p>Or connect your agent by hand:</p>
 						<fieldset>
 							<legend>Your agent</legend>
 							{#each AGENTS as choice (choice.agent)}
@@ -208,9 +218,9 @@
 				</ol>
 				<p class="more">
 					The sections appear here as the agent makes them. It sorts better with the project’s
-					skill, which
+					skill, which setup gives Claude Code and Codex; for another agent,
 					<a href={README_ADDRESS} target="_blank" rel="noopener noreferrer">
-						the README explains
+						the README explains it
 					</a>.
 				</p>
 			{:else}

@@ -1577,6 +1577,8 @@ export type HandoverNoted = z.infer<typeof HandoverNotedSchema>;
 export const AgentSortingSchema = z.strictObject({
 	/** Step 1: what gives an agent this diff delver as its MCP server. */
 	connect: z.strictObject({
+		/** For a terminal: `diff-delver setup` for this copy, which connects every agent it finds. */
+		setup: toCopy,
 		/** For a terminal: Claude Code's command that adds it. */
 		claudeCode: toCopy,
 		/** For Codex's `config.toml`: its entry. */

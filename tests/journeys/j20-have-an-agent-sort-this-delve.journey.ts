@@ -33,6 +33,10 @@ test.describe('J20 Have an agent sort this Delve', () => {
 			steps,
 			'claude mcp add --scope user diff-delver -- npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz mcp'
 		);
+		await journey.expectText(
+			steps,
+			'npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz setup'
+		);
 		await journey.expectText(steps, 'cd ~/src/shop');
 		await journey.expectText(steps, sentence);
 		await journey.step('How to have an agent sort this Delve');
@@ -44,6 +48,11 @@ test.describe('J20 Have an agent sort this Delve', () => {
 		await journey.expectVisible(inSteps.byText('Copied. Paste it to your agent.'));
 		await journey.activate(inSteps.byRole('button', { name: 'Copy the folder' }));
 		expect(await journey.readClipboard()).toBe('cd ~/src/shop');
+		// The simplest way to connect an agent comes first: setup, for this copy.
+		await journey.activate(inSteps.byRole('button', { name: 'Copy the setup command' }));
+		expect(await journey.readClipboard()).toBe(
+			'npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz setup'
+		);
 
 		// For Codex, the entry its settings file takes instead of a command.
 		const agents = inSteps.byRole('group', { name: 'Your agent' });

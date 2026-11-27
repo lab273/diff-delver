@@ -54,6 +54,7 @@ describe('what a Delve’s page gives to copy', () => {
 			`claude mcp add --scope user diff-delver -- npx --yes ${RELEASE} mcp`
 		);
 		expect(found.connect.other).toBe(`npx --yes ${RELEASE} mcp`);
+		expect(found.connect.setup).toBe(`npx --yes ${RELEASE} setup`);
 		expect(found.connect.codex).toBe(
 			`[mcp_servers.diff-delver]\ncommand = "npx"\nargs = ["--yes", "${RELEASE}", "mcp"]`
 		);
@@ -88,6 +89,9 @@ describe('what a Delve’s page gives to copy', () => {
 		);
 		expect(found.connect.codex).toContain(
 			`args = ["/home/reviewer/my clones/diff-delver/bin/diff-delver.js", "mcp", "--data-directory", "${data}"]`
+		);
+		expect(found.connect.setup).toBe(
+			`/usr/local/bin/node ~/'my clones/diff-delver/bin/diff-delver.js' setup --data-directory ${data}`
 		);
 	});
 
