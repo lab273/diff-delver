@@ -134,6 +134,8 @@
 	 * no longer shows is dropped (`change-checks.ts`).
 	 */
 	async function checkForChanges(quietly = false): Promise<void> {
+		// As of a finished review the page shows the past: nothing is checked, GitHub included.
+		if (data.requestedReview !== null) return;
 		const ticket = checks.start(shown(), quietly);
 		if (ticket === undefined) return;
 		const checked = await pageClient().checkForChanges(ticket.shown.id, ticket.shown.version);
@@ -2531,7 +2533,8 @@
 	async function nextFlag(): Promise<void> {
 		const shown = viewer;
 		if (shown === undefined) return;
-		const comments = commentsFor(shown.id);
+		// As of a finished review, today's draft is not shown, so its flags are not walked.
+		const comments = shown.asOf === undefined ? commentsFor(shown.id) : noComments(shown.id);
 		if (byFile) {
 			shown.announcement = 'Flags are drawn at their lines. Choose By section to see them.';
 			return;

@@ -713,7 +713,10 @@ export class Viewer {
 		const text = group === undefined ? this.overview : group.summary;
 		if (place === undefined || text === null || this.#isRead(place, text)) return from;
 		this.#read.add(readKey(place, text));
-		void this.client.markSummaryRead(this.id, { version: this.version, place });
+		// As of a finished review nothing is saved: it is read on this page only.
+		if (this.asOf === undefined) {
+			void this.client.markSummaryRead(this.id, { version: this.version, place });
+		}
 		return from;
 	}
 
