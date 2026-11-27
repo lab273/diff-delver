@@ -11,6 +11,11 @@
  * `command` and `args` need. An entry for diff delver in any other form, such
  * as a dotted key under `[mcp_servers]` or an inline table, cannot be changed
  * without parsing the file, so it is left alone and said so (`elsewhere`).
+ *
+ * A table of ours that runs something else keeps everything but its `command`
+ * and `args`: the person's other settings, such as `startup_timeout_sec`,
+ * `enabled` or an `[mcp_servers.diff-delver.env]` table, stay. What setup
+ * writes takes the file's own line ending, so a file written with CRLF stays so.
  */
 import { SERVER_NAME } from './agent-server.ts';
 
@@ -24,6 +29,14 @@ interface ScannedLine {
 	readonly key: readonly string[] | undefined;
 	/** Only white space or a comment. */
 	readonly blank: boolean;
+	/** Inside a value that an earlier line opened: a multi-line string, array or inline table. */
+	readonly continued: boolean;
+}
+
+/** The line ending a file uses: CRLF when its first line ends so, else LF. */
+export function lineEndingOf(text: string): '\n' | '\r\n' {
+	const newline = text.indexOf('\n');
+	return newline > 0 && text[newline - 1] === '\r' ? '\r\n' : '\n';
 }
 
 /** Reads a key path, `a.b."c d".'e'`, from `text`; undefined when it is not one. */
@@ -115,7 +128,9 @@ function scan(text: string): ScannedLine[] {
 		const start = i;
 		const newline = text.indexOf('\n', i);
 		const end = newline < 0 ? text.length : newline + 1;
-		const line = text.slice(start, newline < 0 ? text.length : newline);
+		const whole = text.slice(start, newline < 0 ? text.length : newline);
+		// A CRLF file's lines end in a carriage return, which is no part of them.
+		const line = whole.endsWith('\r') ? whole.slice(0, -1) : whole;
 		const wasInValue = inside !== undefined || depth > 0;
 		let header: string[] | undefined;
 		let key: string[] | undefined;
@@ -173,7 +188,8 @@ function scan(text: string): ScannedLine[] {
 			end,
 			header: wasInValue ? undefined : header,
 			key: wasInValue ? undefined : key,
-			blank: !wasInValue && /^\s*(#.*)?$/.test(line)
+			blank: !wasInValue && /^\s*(#.*)?$/.test(line),
+			continued: wasInValue
 		});
 		i = end;
 	}
@@ -237,16 +253,28 @@ export interface ServerCommand {
 	readonly args: readonly string[];
 }
 
+/** Where something is in the file, from its first byte to just after its last. */
+interface Span {
+	readonly start: number;
+	readonly end: number;
+}
+
 /** What the file holds for diff delver. */
 export type CodexEntry =
 	| { readonly kind: 'none' }
-	/** Our table: its text, exactly as in the file, and what it runs when that could be read. */
+	/**
+	 * Our table: its text, exactly as in the file, what it runs when that could
+	 * be read, the end of its header line, and its `command` and `args` lines.
+	 */
 	| {
 			readonly kind: 'table';
 			readonly text: string;
 			readonly runs: ServerCommand | undefined;
 			readonly start: number;
 			readonly end: number;
+			readonly headerEnd: number;
+			readonly command: Span | undefined;
+			readonly args: Span | undefined;
 	  }
 	/** An entry for diff delver in a form this cannot change: a dotted key, an inline table. */
 	| { readonly kind: 'elsewhere' };
@@ -264,7 +292,13 @@ export function findCodexEntry(text: string): CodexEntry {
 	let last: number | undefined;
 	let elsewhere = false;
 	let ended = false;
+	const fields = new Map<string, { start: number; end: number }>();
+	/** The key line of our own table that the lines continuing a value belong to. */
+	let lastKey: { start: number; end: number } | undefined;
 	for (const [index, line] of lines.entries()) {
+		if (line.continued) {
+			if (lastKey !== undefined) lastKey.end = line.end;
+		} else lastKey = undefined;
 		if (line.header !== undefined) {
 			table = line.header;
 			const ours = startsWith(table, OUR_TABLE);
@@ -277,6 +311,12 @@ export function findCodexEntry(text: string): CodexEntry {
 		if (line.key !== undefined) {
 			const full = [...table, ...line.key];
 			const inOurs = startsWith(table, OUR_TABLE);
+			const own = inOurs && table.length === OUR_TABLE.length && first !== undefined && !ended;
+			const name = line.key.length === 1 ? line.key[0] : undefined;
+			if (own && name !== undefined && !fields.has(name)) {
+				lastKey = { start: line.start, end: line.end };
+				fields.set(name, lastKey);
+			}
 			if (inOurs && first !== undefined && !ended) last = index;
 			else if (startsWith(full, OUR_TABLE)) elsewhere = true;
 			// `mcp_servers = { … }` at the top: a table of ours added after it would be no TOML.
@@ -291,7 +331,16 @@ export function findCodexEntry(text: string): CodexEntry {
 	const start = lines[first]?.start ?? 0;
 	const end = lines[last]?.end ?? text.length;
 	const own = text.slice(start, end);
-	return { kind: 'table', text: own, runs: readCommand(own), start, end };
+	return {
+		kind: 'table',
+		text: own,
+		runs: readCommand(own),
+		start,
+		end,
+		headerEnd: lines[first]?.end ?? end,
+		command: fields.get('command'),
+		args: fields.get('args')
+	};
 }
 
 /** What a table of ours runs: its `command` and `args`, when both are plain strings. */
@@ -354,31 +403,59 @@ export function sameCommand(a: ServerCommand, b: ServerCommand): boolean {
 export type CodexChange =
 	| { readonly kind: 'added'; readonly text: string }
 	| { readonly kind: 'unchanged' }
-	/** Our table ran something else: `before` is its text, as it was. */
+	/**
+	 * Our table ran something else: its `command` and `args` are ours now and
+	 * the rest is kept. `before` is the whole table as it was.
+	 */
 	| { readonly kind: 'replaced'; readonly text: string; readonly before: string }
 	| { readonly kind: 'elsewhere' };
 
+/** Text of the file as a person reads it in a message: LF line endings, nothing trailing. */
+function shown(text: string): string {
+	return text.replaceAll('\r\n', '\n').trimEnd();
+}
+
 /**
  * The file with diff delver's table, `entry` (as `codexConfigEntry` writes
- * it, without a line break at its end), in it: added at the end, after a blank
- * line, or in place of a table of ours that runs something else.
+ * it: header, `command` and `args` lines, without a line break at its end), in
+ * it: added at the end, after a blank line, or, where a table of ours runs
+ * something else, its `command` and `args` put in place of that table's, so
+ * its other settings stay.
  */
 export function addCodexEntry(text: string, entry: string, runs: ServerCommand): CodexChange {
 	const found = findCodexEntry(text);
+	const eol = lineEndingOf(text);
 	switch (found.kind) {
 		case 'elsewhere':
 			return found;
-		case 'table':
+		case 'table': {
 			if (found.runs !== undefined && sameCommand(found.runs, runs)) return { kind: 'unchanged' };
-			return {
-				kind: 'replaced',
-				text: `${text.slice(0, found.start)}${entry}\n${text.slice(found.end)}`,
-				before: found.text.trimEnd()
-			};
+			const [, commandLine = '', argsLine = ''] = entry.split('\n');
+			const edits: { start: number; end: number; text: string }[] = [];
+			const both = `${commandLine}${eol}${argsLine}${eol}`;
+			if (found.command !== undefined && found.args !== undefined) {
+				edits.push({ ...found.command, text: `${commandLine}${eol}` });
+				edits.push({ ...found.args, text: `${argsLine}${eol}` });
+			} else if (found.command !== undefined || found.args !== undefined) {
+				const span = found.command ?? found.args ?? { start: 0, end: 0 };
+				edits.push({ ...span, text: both });
+			} else {
+				const header = text.slice(found.start, found.headerEnd);
+				// A header on the file's last line, with no line break after it yet.
+				const lead = header.endsWith('\n') ? '' : eol;
+				edits.push({ start: found.headerEnd, end: found.headerEnd, text: `${lead}${both}` });
+			}
+			let changed = text;
+			for (const edit of edits.toSorted((a, b) => b.start - a.start)) {
+				changed = `${changed.slice(0, edit.start)}${edit.text}${changed.slice(edit.end)}`;
+			}
+			return { kind: 'replaced', text: changed, before: shown(found.text) };
+		}
 		case 'none': {
-			if (text === '') return { kind: 'added', text: `${entry}\n` };
-			const ended = text.endsWith('\n') ? text : `${text}\n`;
-			return { kind: 'added', text: `${ended}\n${entry}\n` };
+			const lines = entry.split('\n').join(eol);
+			if (text === '') return { kind: 'added', text: `${lines}${eol}` };
+			const ended = text.endsWith('\n') ? text : `${text}${eol}`;
+			return { kind: 'added', text: `${ended}${eol}${lines}${eol}` };
 		}
 	}
 }
@@ -404,16 +481,18 @@ export function removeCodexEntry(text: string, runs: ServerCommand): CodexRemova
 			return found;
 		case 'table': {
 			if (found.runs === undefined || !sameCommand(found.runs, runs)) {
-				return { kind: 'other', before: found.text.trimEnd() };
+				return { kind: 'other', before: shown(found.text) };
 			}
+			const eol = lineEndingOf(text);
 			let start = found.start;
 			let end = found.end;
 			const after = text.slice(end);
+			const blankBefore = text.slice(0, start).endsWith(`${eol}${eol}`);
 			if (/^\s*$/.test(after)) {
 				end = text.length;
-				if (text.slice(0, start).endsWith('\n\n')) start -= 1;
-			} else if (text.slice(0, start).endsWith('\n\n') && after.startsWith('\n')) {
-				end += 1;
+				if (blankBefore) start -= eol.length;
+			} else if (blankBefore && after.startsWith(eol)) {
+				end += eol.length;
 			}
 			return { kind: 'removed', text: `${text.slice(0, start)}${text.slice(end)}` };
 		}

@@ -31,11 +31,15 @@ export const AGENT_NAMES: Readonly<Record<AgentKind, string>> = {
 export type ServerSetUp =
 	| { readonly kind: 'added' }
 	| { readonly kind: 'unchanged' }
-	/** It ran something else: `before` is what, a command line or the table as it was. */
+	/**
+	 * It ran something else: `before` is the whole entry as it was. Claude Code's
+	 * is replaced whole; Codex's keeps every setting but what it runs.
+	 */
 	| { readonly kind: 'replaced'; readonly before: string }
 	/** Codex's file names diff delver in a form setup cannot change safely. */
 	| { readonly kind: 'elsewhere' }
-	| { readonly kind: 'failed'; readonly detail: string };
+	/** With `before` when an entry that ran something else was removed and ours could not be added. */
+	| { readonly kind: 'failed'; readonly detail: string; readonly before?: string };
 
 export type SkillSetUp =
 	| { readonly kind: 'added' | 'unchanged' | 'updated' | 'theirs' }
@@ -54,7 +58,8 @@ export type SkillUndone =
 
 /** One agent, as setup or its undo found it. */
 export type AgentResult<Server, Skill> =
-	| { readonly agent: AgentKind; readonly found: false }
+	/** Not found: `configFile` is where its MCP servers would be. */
+	| { readonly agent: AgentKind; readonly found: false; readonly configFile: AbsolutePath }
 	| {
 			readonly agent: AgentKind;
 			readonly found: true;
@@ -69,12 +74,16 @@ export type SetupResult = AgentResult<ServerSetUp, SkillSetUp>;
 export type UndoResult = AgentResult<ServerUndone, SkillUndone>;
 
 /** Where each agent is looked for, said when it was not found. */
-function lookedFor(agent: AgentKind): string {
-	switch (agent) {
+function lookedFor(result: SetupResult | UndoResult, setup: AgentServerSetup): string {
+	switch (result.agent) {
 		case 'claudeCode':
 			return 'there is no claude command';
-		case 'codex':
-			return 'there is no codex command and no ~/.codex folder';
+		case 'codex': {
+			const file = folderInWords(result.configFile, setup.home);
+			// Codex's folder: its config file is always config.toml in it.
+			const folder = file.slice(0, file.length - '/config.toml'.length);
+			return `there is no codex command and no ${folder} folder`;
+		}
 	}
 }
 
@@ -102,10 +111,19 @@ function serverSetUpLines(
 		case 'unchanged':
 			return ['  - The MCP server diff-delver was already set up the same way. Nothing changed.'];
 		case 'replaced':
-			return [
-				`  - Replaced the MCP server diff-delver, in ${file}, which ran something else. It was:`,
-				...indented(server.before)
-			];
+			switch (result.agent) {
+				case 'claudeCode':
+					return [
+						`  - Replaced the MCP server diff-delver, in ${file}, which ran something else. It was:`,
+						...indented(server.before)
+					];
+				case 'codex':
+					return [
+						`  - Changed what the MCP server diff-delver runs, in ${file}, to this copy of diff delver; its other settings are kept. It was:`,
+						...indented(server.before)
+					];
+			}
+			break;
 		case 'elsewhere':
 			return [
 				`  - ${file} already names diff-delver, in a form setup does not change, so it is left as it is. To have setup's, take diff-delver out of it and run setup again, or make its entry this:`,
@@ -114,6 +132,12 @@ function serverSetUpLines(
 		case 'failed':
 			return [
 				`  - The MCP server could not be added: ${server.detail}`,
+				...(server.before === undefined
+					? []
+					: [
+							'    The MCP server diff-delver that ran something else was removed first. It was:',
+							...indented(server.before)
+						]),
 				...(result.agent === 'claudeCode'
 					? [
 							'    To add it yourself, run this in a terminal:',
@@ -143,8 +167,9 @@ function skillSetUpLines(result: SetupResult & { found: true }, setup: AgentServ
 }
 
 /** By hand, for an agent setup did not find. */
-function byHand(agent: AgentKind, setup: AgentServerSetup): string[] {
-	switch (agent) {
+function byHand(result: SetupResult, setup: AgentServerSetup): string[] {
+	const file = folderInWords(result.configFile, setup.home);
+	switch (result.agent) {
 		case 'claudeCode':
 			return [
 				'  To set it up by hand once it is installed, run setup again, or run this in a terminal:',
@@ -152,7 +177,7 @@ function byHand(agent: AgentKind, setup: AgentServerSetup): string[] {
 			];
 		case 'codex':
 			return [
-				'  To set it up by hand once it is installed, run setup again, or add this to ~/.codex/config.toml:',
+				`  To set it up by hand once it is installed, run setup again, or add this to ${file}:`,
 				...indented(codexConfigEntry(setup))
 			];
 	}
@@ -164,7 +189,7 @@ export function describeSetup(results: readonly SetupResult[], setup: AgentServe
 	const found = results.filter((r) => r.found);
 	if (found.length === 0) {
 		return [
-			'diff delver found no coding agent to set up on this machine: neither Claude Code (no claude command) nor Codex (no codex command and no ~/.codex folder). Nothing was changed.',
+			`diff delver found no coding agent to set up on this machine: ${results.map((r) => `${AGENT_NAMES[r.agent]} not found, since ${lookedFor(r, setup)}`).join('; ')}. Nothing was changed.`,
 			'Install one and run setup again. For any other agent, add an MCP server that runs this command:',
 			...indented(plainServerCommand(setup), 2)
 		];
@@ -173,9 +198,9 @@ export function describeSetup(results: readonly SetupResult[], setup: AgentServe
 		const name = AGENT_NAMES[result.agent];
 		if (!result.found) {
 			lines.push(
-				`${name}: not found, since ${lookedFor(result.agent)}. Nothing was changed for it.`
+				`${name}: not found, since ${lookedFor(result, setup)}. Nothing was changed for it.`
 			);
-			lines.push(...byHand(result.agent, setup));
+			lines.push(...byHand(result, setup));
 			continue;
 		}
 		lines.push(`${name}:`);

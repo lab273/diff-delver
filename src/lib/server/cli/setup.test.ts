@@ -43,6 +43,10 @@ const settings = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
 settings.mcpServers ??= {};
 const [mcp, verb, scope, user, name, dashes, command, ...rest] = args;
 if (mcp !== 'mcp' || scope !== '--scope' || user !== 'user') process.exit(3);
+if (verb === 'add' && existsSync(join(__dirname, 'fail-add'))) {
+	process.stderr.write('could not reach the settings\\n');
+	process.exit(1);
+}
 if (verb === 'add' && dashes === '--') {
 	if (name in settings.mcpServers) {
 		process.stderr.write('MCP server ' + name + ' already exists in user config\\n');
@@ -207,21 +211,41 @@ describe('diff-delver setup', () => {
 		expect(await text(join(on.bin, 'codex.log'))).toBeUndefined();
 	});
 
-	it('replaces an entry that runs something else, saying what it ran, and leaves a skill saved by hand', async () => {
+	it('replaces an entry that runs something else, saying what it ran, keeps Codex’s other settings and CRLF, and leaves a skill saved by hand', async () => {
 		const on = await machine(['claude', 'codex']);
 		await writeFile(
 			join(on.home, '.claude.json'),
 			JSON.stringify({
 				mcpServers: {
-					'diff-delver': { type: 'stdio', command: 'node', args: ['/old/diff-delver.js', 'mcp'] }
+					'diff-delver': {
+						type: 'stdio',
+						command: 'node',
+						args: ['/old/diff-delver.js', 'mcp'],
+						env: { A: '1' }
+					}
 				}
 			})
 		);
 		const codexHome = join(on.home, 'elsewhere');
 		await mkdir(codexHome);
-		const old =
-			'[mcp_servers.diff-delver]\ncommand = "node"\nargs = ["/old/diff-delver.js", "mcp"]';
-		const config = `model = "o3"\n\n${old}\n\n# next\n[profiles.fast]\nmodel = "mini"\n`;
+		const crlf = (lines: readonly string[]): string => lines.join('\r\n');
+		const settings = ['startup_timeout_sec = 30', '', '[mcp_servers.diff-delver.env]', 'A = "1"'];
+		const old = crlf([
+			'[mcp_servers.diff-delver]',
+			'command = "node"',
+			'args = ["/old/diff-delver.js", "mcp"]',
+			...settings
+		]);
+		const config = crlf([
+			'model = "o3"',
+			'',
+			old,
+			'',
+			'# next',
+			'[profiles.fast]',
+			'model = "mini"',
+			''
+		]);
 		await writeFile(join(codexHome, 'config.toml'), config);
 		await mkdir(join(on.home, '.claude', 'skills', 'diff-delver'), { recursive: true });
 		await writeFile(
@@ -232,12 +256,12 @@ describe('diff-delver setup', () => {
 		const ran = await setup({ ...on, env: { ...on.env, CODEX_HOME: codexHome } });
 		expect(ran.code).toBe(0);
 		expect(ran.stdout).toContain(
-			'which ran something else. It was:\n      node /old/diff-delver.js mcp'
+			'which ran something else. It was:\n      node /old/diff-delver.js mcp\n      env: {"A":"1"}'
 		);
 		expect(ran.stdout).toContain(
-			`It was:\n${old
-				.split('\n')
-				.map((line) => `      ${line}`)
+			`its other settings are kept. It was:\n${old
+				.split('\r\n')
+				.map((line) => (line === '' ? '      ' : `      ${line}`))
 				.join('\n')}`
 		);
 		expect(ran.stdout).toContain(
@@ -248,11 +272,15 @@ describe('diff-delver setup', () => {
 			['mcp', 'remove', '--scope', 'user', 'diff-delver'],
 			['mcp', 'add', '--scope', 'user', 'diff-delver', '--', process.execPath, BUILT_COMMAND, 'mcp']
 		]);
-		const written = await text(join(codexHome, 'config.toml'));
-		expect(written).toBe(
+		expect(await text(join(codexHome, 'config.toml'))).toBe(
 			config.replace(
 				old,
-				`[mcp_servers.diff-delver]\ncommand = ${JSON.stringify(process.execPath)}\nargs = [${JSON.stringify(BUILT_COMMAND)}, "mcp"]`
+				crlf([
+					'[mcp_servers.diff-delver]',
+					`command = ${JSON.stringify(process.execPath)}`,
+					`args = [${JSON.stringify(BUILT_COMMAND)}, "mcp"]`,
+					...settings
+				])
 			)
 		);
 		expect(await text(join(on.home, '.claude', 'skills', 'diff-delver', 'SKILL.md'))).toBe(
@@ -267,8 +295,37 @@ describe('diff-delver setup', () => {
 			'# My own notes\n'
 		);
 		expect(await text(join(codexHome, 'config.toml'))).toBe(
-			`model = "o3"\n\n# next\n[profiles.fast]\nmodel = "mini"\n`
+			crlf(['model = "o3"', '', '# next', '[profiles.fast]', 'model = "mini"', ''])
 		);
+	});
+
+	it('shows an entry it removed when Claude Code would not add ours, and touches nothing when its settings cannot be read', async () => {
+		const on = await machine(['claude']);
+		const entry = { type: 'stdio', command: 'node', args: ['/old.js', 'mcp'], env: { A: '1' } };
+		await writeFile(
+			join(on.home, '.claude.json'),
+			JSON.stringify({ mcpServers: { 'diff-delver': entry } })
+		);
+		await writeFile(join(on.bin, 'fail-add'), '');
+		const failed = await setup(on);
+		expect(failed.code).toBe(1);
+		expect(failed.stdout).toContain(
+			`could not be added: ${join(on.bin, 'claude')} mcp add --scope user diff-delver -- `
+		);
+		expect(failed.stdout).toContain('could not reach the settings');
+		expect(failed.stdout).toContain(
+			'was removed first. It was:\n      node /old.js mcp\n      env: {"A":"1"}'
+		);
+		expect(failed.stdout).toContain('To add it yourself, run this in a terminal:');
+
+		const calls = (await claudeCalls(on)).length;
+		await writeFile(join(on.home, '.claude.json'), '{"mcpServers": {');
+		const halfWritten = await setup(on);
+		expect(halfWritten.code).toBe(1);
+		expect(halfWritten.stdout).toContain(
+			"Claude Code's settings, ~/.claude.json, could not be read just now, perhaps because Claude Code was writing them. Nothing was changed; run setup again."
+		);
+		expect(await claudeCalls(on)).toHaveLength(calls);
 	});
 
 	it('says when it finds no agent, with the command for another, and writes nothing', async () => {

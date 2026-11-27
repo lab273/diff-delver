@@ -76,11 +76,15 @@ describe("Codex's config.toml", () => {
 		expect(addCodexEntry(file, ENTRY, RUNS)).toEqual({ kind: 'unchanged' });
 	});
 
-	it('replaces a table that runs something else, with the tables under it, keeping every other byte', () => {
+	it('replaces only what a table that runs something else runs, keeping its other settings and every other byte', () => {
 		const before = [
 			'[mcp_servers.diff-delver]',
-			'command = "node"',
-			'args = ["/old/bin/diff-delver.js", "mcp"]',
+			'command = "node"  # an old clone',
+			'args = [',
+			'  "/old/bin/diff-delver.js",',
+			'  "mcp",',
+			']',
+			'startup_timeout_sec = 30',
 			'',
 			'[mcp_servers.diff-delver.env]',
 			'A = "1"'
@@ -98,12 +102,72 @@ describe("Codex's config.toml", () => {
 			'model = "mini"',
 			''
 		].join('\n');
-		const change = addCodexEntry(file, ENTRY, RUNS);
-		expect(change).toEqual({
+		const [, commandLine = '', argsLine = ''] = ENTRY.split('\n');
+		const after = [
+			'[mcp_servers.diff-delver]',
+			commandLine,
+			argsLine,
+			'startup_timeout_sec = 30',
+			'',
+			'[mcp_servers.diff-delver.env]',
+			'A = "1"'
+		].join('\n');
+		expect(addCodexEntry(file, ENTRY, RUNS)).toEqual({
 			kind: 'replaced',
 			before,
-			text: file.replace(before, ENTRY)
+			text: file.replace(before, after)
 		});
+		// A table with neither gets both, after its header.
+		expect(addCodexEntry('[mcp_servers.diff-delver]\nenabled = false\n', ENTRY, RUNS)).toEqual({
+			kind: 'replaced',
+			before: '[mcp_servers.diff-delver]\nenabled = false',
+			text: `${ENTRY}\nenabled = false\n`
+		});
+	});
+
+	it('keeps a CRLF file CRLF, and its comments where they were, through setup and undo', () => {
+		const crlf = (lines: readonly string[]): string => lines.join('\r\n');
+		const file = crlf([
+			'model = "o3"',
+			'',
+			'[mcp_servers.diff-delver]',
+			'command = "node"',
+			'args = ["/old.js", "mcp"]',
+			'',
+			'# about the next one',
+			'[profiles.fast]',
+			'model = "mini"',
+			''
+		]);
+		const replaced = addCodexEntry(file, ENTRY, RUNS);
+		expect(replaced).toEqual({
+			kind: 'replaced',
+			before: '[mcp_servers.diff-delver]\ncommand = "node"\nargs = ["/old.js", "mcp"]',
+			text: file.replace(
+				'command = "node"\r\nargs = ["/old.js", "mcp"]',
+				ENTRY.split('\n').slice(1).join('\r\n')
+			)
+		});
+		if (replaced.kind !== 'replaced') throw new Error('not replaced');
+		expect(removeCodexEntry(replaced.text, RUNS)).toEqual({
+			kind: 'removed',
+			text: crlf([
+				'model = "o3"',
+				'',
+				'# about the next one',
+				'[profiles.fast]',
+				'model = "mini"',
+				''
+			])
+		});
+		const plain = crlf(['model = "o3"', '# last', '']);
+		const added = addCodexEntry(plain, ENTRY, RUNS);
+		expect(added).toEqual({
+			kind: 'added',
+			text: `${plain}\r\n${ENTRY.split('\n').join('\r\n')}\r\n`
+		});
+		if (added.kind !== 'added') throw new Error('not added');
+		expect(removeCodexEntry(added.text, RUNS)).toEqual({ kind: 'removed', text: plain });
 	});
 
 	it('takes no line inside a string or a value that spans lines for a table header', () => {
@@ -221,7 +285,7 @@ describe('what setup says', () => {
 	it('says what it did for each agent, how to undo it, and how to set up one it did not find', () => {
 		const results: SetupResult[] = [
 			{ ...claude, server: { kind: 'added' }, skill: { kind: 'added' } },
-			{ agent: 'codex', found: false }
+			{ agent: 'codex', found: false, configFile: path('/home/r/.codex/config.toml') }
 		];
 		const text = describeSetup(results, release).join('\n');
 		expect(text).toContain('Claude Code:\n  - Added the MCP server diff-delver, in ~/.claude.json');
@@ -265,14 +329,56 @@ describe('what setup says', () => {
 	it('says plainly when it found no agent', () => {
 		const text = describeSetup(
 			[
-				{ agent: 'claudeCode', found: false },
-				{ agent: 'codex', found: false }
+				{ agent: 'claudeCode', found: false, configFile: path('/home/r/.claude.json') },
+				{ agent: 'codex', found: false, configFile: path('/home/r/.codex/config.toml') }
 			],
 			release
 		).join('\n');
 		expect(text).toContain('found no coding agent');
 		expect(text).toContain(
 			'npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz mcp'
+		);
+	});
+
+	it('names the Codex folder it looked in, and shows an entry it removed when ours could not be added', () => {
+		const text = describeSetup(
+			[
+				{
+					...claude,
+					server: {
+						kind: 'failed',
+						detail: 'claude mcp add failed: no',
+						before: 'node /old.js mcp\nenv: {"A":"1"}'
+					},
+					skill: { kind: 'added' }
+				},
+				{ agent: 'codex', found: false, configFile: path('/srv/codex/config.toml') }
+			],
+			release
+		).join('\n');
+		expect(text).toContain('could not be added: claude mcp add failed: no');
+		expect(text).toContain(
+			'was removed first. It was:\n      node /old.js mcp\n      env: {"A":"1"}'
+		);
+		expect(text).toContain(
+			'Codex: not found, since there is no codex command and no /srv/codex folder.'
+		);
+		expect(text).toContain('add this to /srv/codex/config.toml:');
+		const codex = describeSetup(
+			[
+				{
+					agent: 'codex',
+					found: true,
+					configFile: path('/home/r/.codex/config.toml'),
+					skillFile: path('/home/r/.codex/skills/diff-delver/SKILL.md'),
+					server: { kind: 'replaced', before: '[mcp_servers.diff-delver]\ncommand = "node"' },
+					skill: { kind: 'unchanged' }
+				}
+			],
+			release
+		).join('\n');
+		expect(codex).toContain(
+			'its other settings are kept. It was:\n      [mcp_servers.diff-delver]'
 		);
 	});
 
@@ -284,7 +390,7 @@ describe('what setup says', () => {
 					server: { kind: 'other', before: 'node /x.js mcp' },
 					skill: { kind: 'removed' }
 				},
-				{ agent: 'codex', found: false }
+				{ agent: 'codex', found: false, configFile: path('/home/r/.codex/config.toml') }
 			],
 			release
 		).join('\n');

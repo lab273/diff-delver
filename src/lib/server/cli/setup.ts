@@ -44,7 +44,7 @@ import {
 	type ServerCommand
 } from '#lib/core/agent-setup/codex-config.ts';
 import { codexConfigEntry } from '#lib/core/agent-setup/agent-server.ts';
-import { shellCommand } from '#lib/core/agent-setup/shell-words.ts';
+import { folderInWords, shellCommand } from '#lib/core/agent-setup/shell-words.ts';
 import { installedSkill, isSetupSkill, skillChange } from '#lib/core/agent-setup/skill-file.ts';
 import type {
 	ServerSetUp,
@@ -175,7 +175,11 @@ async function replaceFile(file: string, text: string): Promise<void> {
 }
 
 /** What runs `claude` itself says when it fails, or how it failed. */
-function runAgent(program: AbsolutePath, args: readonly string[]): Promise<string | undefined> {
+function runAgent(
+	program: AbsolutePath,
+	args: readonly string[],
+	home: AbsolutePath | undefined
+): Promise<string | undefined> {
 	return new Promise((resolve) => {
 		execFile(
 			program,
@@ -188,7 +192,7 @@ function runAgent(program: AbsolutePath, args: readonly string[]): Promise<strin
 				}
 				const said = stderr.trim();
 				resolve(
-					`${program} ${args.slice(0, 3).join(' ')} failed${said === '' ? ` (${error.message})` : `: ${said}`}`
+					`${shellCommand([program, ...args], home)} failed${said === '' ? ` (${error.message})` : `: ${said}`}`
 				);
 			}
 		).stdin?.end();
@@ -208,40 +212,63 @@ const ClaudeSettingsSchema = z
 
 type ClaudeEntry =
 	| { readonly kind: 'none' }
-	| { readonly kind: 'command'; readonly runs: ServerCommand }
-	| { readonly kind: 'other'; readonly shown: string };
+	/** A command it runs, with how the whole entry reads, its other settings among it. */
+	| { readonly kind: 'command'; readonly runs: ServerCommand; readonly shown: string }
+	| { readonly kind: 'other'; readonly shown: string }
+	/** Its settings file is there but is not JSON just now, as while Claude Code writes it. */
+	| { readonly kind: 'unreadable' };
 
-/** The server Claude Code has for the person under our name, read from its settings. */
-async function claudeEntry(settings: AbsolutePath): Promise<ClaudeEntry> {
+/**
+ * The server Claude Code has for the person under our name, read from its
+ * settings, with how it reads: its command line, and any other settings it has
+ * (`env` and the like) after it as JSON, so nothing of it is lost from sight.
+ */
+async function claudeEntry(
+	settings: AbsolutePath,
+	home: AbsolutePath | undefined
+): Promise<ClaudeEntry> {
 	let text: string | undefined;
 	try {
 		text = await readIfThere(settings);
 	} catch {
-		return { kind: 'none' };
+		return { kind: 'unreadable' };
 	}
 	if (text === undefined) return { kind: 'none' };
 	let json: unknown;
 	try {
 		json = JSON.parse(text);
 	} catch {
-		// Claude Code's own command says what is wrong with its file.
-		return { kind: 'none' };
+		return { kind: 'unreadable' };
 	}
 	const parsed = ClaudeSettingsSchema.safeParse(json);
 	const entry = parsed.success ? parsed.data.mcpServers?.[SERVER_NAME] : undefined;
 	if (entry === undefined) return { kind: 'none' };
 	const command = ClaudeEntrySchema.safeParse(entry);
 	if (command.success && (command.data.type === undefined || command.data.type === 'stdio')) {
+		const runs = { command: command.data.command, args: command.data.args ?? [] };
+		const rest = Object.entries(command.data).filter(
+			([key, value]) =>
+				!['type', 'command', 'args'].includes(key) && !(key === 'env' && isEmptyObject(value))
+		);
 		return {
 			kind: 'command',
-			runs: { command: command.data.command, args: command.data.args ?? [] }
+			runs,
+			shown: [
+				shellCommand([runs.command, ...runs.args], home),
+				...rest.map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+			].join('\n')
 		};
 	}
-	return { kind: 'other', shown: JSON.stringify(entry) };
+	return { kind: 'other', shown: JSON.stringify(entry, null, 2) };
 }
 
-function shownCommand(runs: ServerCommand, home: AbsolutePath | undefined): string {
-	return shellCommand([runs.command, ...runs.args], home);
+function isEmptyObject(value: unknown): boolean {
+	return typeof value === 'object' && value !== null && Object.keys(value).length === 0;
+}
+
+/** What setup says when Claude Code's settings could not be read. */
+function unreadable(settings: AbsolutePath, home: AbsolutePath | undefined): string {
+	return `Claude Code's settings, ${folderInWords(settings, home)}, could not be read just now, perhaps because Claude Code was writing them. Nothing was changed; run setup again.`;
 }
 
 const ADD = (setup: AgentServerSetup): string[] => [
@@ -260,22 +287,22 @@ async function claudeServer(
 	settings: AbsolutePath,
 	setup: AgentServerSetup
 ): Promise<ServerSetUp> {
-	const now = await claudeEntry(settings);
+	const now = await claudeEntry(settings, setup.home);
+	if (now.kind === 'unreadable')
+		return { kind: 'failed', detail: unreadable(settings, setup.home) };
 	if (now.kind === 'command' && sameCommand(now.runs, ours(setup))) return { kind: 'unchanged' };
 	if (now.kind !== 'none') {
-		const removed = await runAgent(claude, REMOVE);
+		const removed = await runAgent(claude, REMOVE, setup.home);
 		if (removed !== undefined) return { kind: 'failed', detail: removed };
 	}
-	const added = await runAgent(claude, ADD(setup));
-	if (added !== undefined) return { kind: 'failed', detail: added };
-	switch (now.kind) {
-		case 'none':
-			return { kind: 'added' };
-		case 'command':
-			return { kind: 'replaced', before: shownCommand(now.runs, setup.home) };
-		case 'other':
-			return { kind: 'replaced', before: now.shown };
+	const added = await runAgent(claude, ADD(setup), setup.home);
+	if (now.kind === 'none') {
+		return added === undefined ? { kind: 'added' } : { kind: 'failed', detail: added };
 	}
+	// The entry that was there is gone: say what it was, whether or not ours took its place.
+	return added === undefined
+		? { kind: 'replaced', before: now.shown }
+		: { kind: 'failed', detail: added, before: now.shown };
 }
 
 async function claudeServerUndo(
@@ -283,17 +310,17 @@ async function claudeServerUndo(
 	settings: AbsolutePath,
 	setup: AgentServerSetup
 ): Promise<ServerUndone> {
-	const now = await claudeEntry(settings);
+	const now = await claudeEntry(settings, setup.home);
 	switch (now.kind) {
 		case 'none':
 			return { kind: 'none' };
+		case 'unreadable':
+			return { kind: 'failed', detail: unreadable(settings, setup.home) };
 		case 'other':
 			return { kind: 'other', before: now.shown };
 		case 'command': {
-			if (!sameCommand(now.runs, ours(setup))) {
-				return { kind: 'other', before: shownCommand(now.runs, setup.home) };
-			}
-			const removed = await runAgent(claude, REMOVE);
+			if (!sameCommand(now.runs, ours(setup))) return { kind: 'other', before: now.shown };
+			const removed = await runAgent(claude, REMOVE, setup.home);
 			return removed === undefined ? { kind: 'removed' } : { kind: 'failed', detail: removed };
 		}
 	}
@@ -388,7 +415,7 @@ export async function setUpAgents(
 	const codexSkill = path(join(places.codexHome, 'skills', SERVER_NAME, 'SKILL.md'));
 	return [
 		places.claude === undefined
-			? { agent: 'claudeCode', found: false }
+			? { agent: 'claudeCode', found: false, configFile: places.claudeSettings }
 			: {
 					agent: 'claudeCode',
 					found: true,
@@ -398,7 +425,7 @@ export async function setUpAgents(
 					skill: await saveSkill(places.claudeSkill)
 				},
 		!places.codexFound
-			? { agent: 'codex', found: false }
+			? { agent: 'codex', found: false, configFile: path(join(places.codexHome, 'config.toml')) }
 			: {
 					agent: 'codex',
 					found: true,
@@ -420,7 +447,7 @@ export async function undoAgents(
 	const codexSkill = path(join(places.codexHome, 'skills', SERVER_NAME, 'SKILL.md'));
 	return [
 		places.claude === undefined
-			? { agent: 'claudeCode', found: false }
+			? { agent: 'claudeCode', found: false, configFile: places.claudeSettings }
 			: {
 					agent: 'claudeCode',
 					found: true,
@@ -430,7 +457,7 @@ export async function undoAgents(
 					skill: await removeSkill(places.claudeSkill)
 				},
 		!places.codexFound
-			? { agent: 'codex', found: false }
+			? { agent: 'codex', found: false, configFile: path(join(places.codexHome, 'config.toml')) }
 			: {
 					agent: 'codex',
 					found: true,
