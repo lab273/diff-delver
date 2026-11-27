@@ -139,7 +139,14 @@
 				{:else if found.length > 0}
 					<ul class="delves" aria-labelledby="their-heading">
 						{#each found as diff (diff.id)}
-							<li><DelveEntry {diff} {now} folder={folderToShow(diff, known)} /></li>
+							<li>
+								<DelveEntry
+									{diff}
+									{now}
+									folder={folderToShow(diff, known)}
+									pullRequestLink={false}
+								/>
+							</li>
 						{/each}
 					</ul>
 				{/if}

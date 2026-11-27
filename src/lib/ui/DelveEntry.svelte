@@ -1,7 +1,8 @@
 <!--
 	One Delve as a list shows it: its title, a link to it, whether it is open,
 	its repository (with its folder, when another repository has the same name),
-	for a pull request's Delve a link to the pull request on GitHub,
+	for a pull request's Delve a link to the pull request on GitHub (not in the
+	panel, whose links are all to other Delves),
 	when it was last active, its size with its tests apart and its binary
 	files, what it takes on disk once measured, with what it shares on hover,
 	how far its review has
@@ -23,12 +24,15 @@
 	let {
 		diff,
 		now,
-		folder
+		folder,
+		pullRequestLink = true
 	}: {
 		diff: DiffSummary;
 		now: Timestamp;
 		/** Its repository's folder, when its name alone does not say which repository it is. */
 		folder: AbsolutePath | undefined;
+		/** Whether a pull request's Delve shows its link to GitHub. */
+		pullRequestLink?: boolean;
 	} = $props();
 </script>
 
@@ -45,7 +49,7 @@
 			<span class="folder">(<VisibleText text={folder} />)</span>
 		{/if}
 	</span>
-	{#if diff.pullRequest !== null}
+	{#if pullRequestLink && diff.pullRequest !== null}
 		<span>
 			<a href={diff.pullRequest.address} target="_blank" rel="external noopener noreferrer">
 				{diff.pullRequest.text}

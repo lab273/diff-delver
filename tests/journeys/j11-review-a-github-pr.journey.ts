@@ -12,8 +12,8 @@ import { expect, test } from '../support/journey.ts';
 // review, and finishing posts them to the pull request as one GitHub review,
 // published as a comment, with a link to it on GitHub, after showing what
 // will be posted; and a second review, with the tick box, as a draft on
-// GitHub. The links are
-// never followed: they lead to github.com.
+// GitHub; and the list of Delves links to the pull request on GitHub. The
+// links are never followed: they lead to github.com.
 test.describe('J11 Review a GitHub PR', () => {
 	test('the reviewer opens a pull request from the list, follows it to its next version, and posts the review to it', async ({
 		journey
@@ -194,5 +194,16 @@ test.describe('J11 Review a GitHub PR', () => {
 			finish.byRole('link', { name: 'open review 2 on GitHub', exact: true })
 		);
 		await journey.step('Posted as a draft on GitHub');
+
+		// The list of Delves links to the pull request on GitHub too.
+		await journey.activate(
+			journey.within(journey.byRole('banner')).byRole('link', { name: 'Your Delves', exact: true })
+		);
+		await journey.expectVisible(journey.byRole('heading', { level: 1, name: 'Your Delves' }));
+		await journey.expectVisible(journey.byRole('link', { name: title, exact: true }));
+		const listed = journey.byRole('link', { name: 'Pull request #7 on GitHub', exact: true });
+		await journey.tabTo(listed);
+		expect(await journey.destinationOf(listed)).toBe('https://github.com/acme/shop/pull/7');
+		await journey.step('The list of Delves links to it on GitHub');
 	});
 });
