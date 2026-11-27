@@ -28,6 +28,7 @@ import {
 	DraftCommentsSchema,
 	JustFinishedSchema,
 	FinishedReviewsSchema,
+	HandoverNotedSchema,
 	ReviewPreviewSchema,
 	OverallReviewSchema,
 	type OverallReviewView,
@@ -35,6 +36,7 @@ import {
 	type FinishReview,
 	type JustFinishedView,
 	type FinishedReviewsView,
+	type HandoverNoted,
 	type ReviewPreviewView,
 	type DraftCommentView,
 	type DraftCommentsView,
@@ -118,6 +120,7 @@ import {
 } from './schemas.ts';
 import type { DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import type { ReviewNumber } from '#lib/core/review-number.tiny.ts';
 import { groupKeyId } from '#lib/core/group-key-id.tiny.ts';
 import { writeSpans } from '#lib/core/viewer/line-spans.ts';
 
@@ -513,6 +516,16 @@ export class ApiClient {
 	/** The Delve's finished reviews, oldest first. */
 	reviews(id: ReportId): Promise<Result<FinishedReviewsView, ApiError>> {
 		return this.#call('GET', `/api/diffs/${id}/reviews`, FinishedReviewsSchema);
+	}
+
+	/** Notes that the page copied a finished review, for its delivery log. */
+	noteCopied(id: ReportId, review: ReviewNumber): Promise<Result<HandoverNoted, ApiError>> {
+		return this.#call(
+			'POST',
+			`/api/diffs/${id}/reviews/${String(review)}/copied`,
+			HandoverNotedSchema,
+			{}
+		);
 	}
 
 	/** Records that the reviewer read the agent's overview or a section's summary, as `version` has it. */

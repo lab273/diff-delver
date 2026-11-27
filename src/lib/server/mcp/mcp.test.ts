@@ -1226,7 +1226,10 @@ describe('/mcp over HTTP', () => {
 		expect(missing.text).toMatch(/There is no review 2: the person has finished 1 review/);
 		const { earlier, ...review } = finished;
 		expect(earlier).toBeNull();
-		expect(value(await browser.reviews(id)).reviews).toEqual([review]);
+		// Its delivery log counts each read from its start, never the one refused.
+		const listed = value(await browser.reviews(id)).reviews;
+		expect(listed).toEqual([{ ...review, read: listed[0]?.read }]);
+		expect(listed[0]?.read?.times).toBe(2);
 	});
 
 	it('is served only with the token in Authorization, never on the cookie', async () => {

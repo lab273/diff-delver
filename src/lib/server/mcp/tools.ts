@@ -1590,7 +1590,13 @@ function reviewAnswer(
 				: describeForAgent(review.error)
 		);
 	}
-	return renderReviewAnswer(heading, review.value ?? latest.value, latest.value.number, input.part);
+	const read = review.value ?? latest.value;
+	const answer = renderReviewAnswer(heading, read, latest.value.number, input.part);
+	// Its delivery log counts a read from its start, not each further part of a long one.
+	if (answer.ok && (input.part ?? 1) === 1) {
+		context.service.noteHandover(id.value, read.number, 'agent');
+	}
+	return answer;
 }
 
 /** Every tool, in the order an agent uses them. */

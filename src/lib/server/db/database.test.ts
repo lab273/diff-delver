@@ -277,6 +277,11 @@ describe('the database', () => {
 				version: 21,
 				name: "threads: finished reviews' comments followed through later versions, replied to and resolved",
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 22,
+				name: 'the delivery log of each finished review: copied, posted to GitHub and read by an agent',
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });

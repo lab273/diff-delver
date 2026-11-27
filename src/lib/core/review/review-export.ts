@@ -24,6 +24,7 @@
  * kept as they are, since they are the review, and given as a blockquote, so
  * nothing in them can pass for the review's own lines either.
  */
+import type { HandoverCount } from '../handover-count.tiny.ts';
 import type { CommitId } from '../commit-id.tiny.ts';
 import type { Diff } from '../diff/diff.ts';
 import { jsonQuoted } from '../json-quoted.ts';
@@ -406,8 +407,22 @@ export interface FinishedReview {
 	/** Whether the reviewer wrote an overall review in it. */
 	readonly overall: boolean;
 	readonly text: TextForAgent;
-	/** Where it was posted on GitHub, when it was: its delivery log (DESIGN 6.3), so far. */
+	/** Where it was posted on GitHub, when it was. */
 	readonly posted: GitHubDelivery | undefined;
+	/** When it was copied from the page, when it was: at its finish, or later. */
+	readonly copied: Handover | undefined;
+	/** When an agent read it with get_review, from its start, when one did. */
+	readonly read: Handover | undefined;
+}
+
+/**
+ * One way a finished review was handed over again and again, as its delivery
+ * log (DESIGN 6.3) keeps it: how many times, the first and the latest.
+ */
+export interface Handover {
+	readonly times: HandoverCount;
+	readonly first: Timestamp;
+	readonly last: Timestamp;
 }
 
 /** A finished review posted to its pull request as one GitHub review. */

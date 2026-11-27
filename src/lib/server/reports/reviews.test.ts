@@ -124,6 +124,17 @@ describe('finishing a review', () => {
 			expect(second.number).toBe(2);
 			expect(value(service.review(id))?.number).toBe(2);
 			expect(value(service.reviews(id)).map((r) => r.number)).toEqual([1, 2]);
+
+			// Its delivery log: each copy noted, the first and the latest, and a review it never had not.
+			const one = value(parseReviewNumber(1));
+			value(service.noteHandover(id, one, 'clipboard'));
+			clock.set(at(1_700_000_120_000));
+			value(service.noteHandover(id, one, 'clipboard'));
+			value(service.noteHandover(id, value(parseReviewNumber(9)), 'clipboard'));
+			expect(value(service.reviews(id)).map((r) => [r.copied, r.read])).toEqual([
+				[{ times: 2, first: 1_700_000_060_000, last: 1_700_000_120_000 }, undefined],
+				[undefined, undefined]
+			]);
 		} finally {
 			service.close();
 		}

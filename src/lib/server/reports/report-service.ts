@@ -197,7 +197,7 @@ import {
 } from '../db/tables/review-comments.ts';
 import { copyReviewMarks } from '../db/tables/review-marks.ts';
 import { insertReview, latestReviewNumber, reviewOf, reviewsOf } from '../db/tables/reviews.ts';
-import { insertDelivery } from '../db/tables/review-deliveries.ts';
+import { insertDelivery, noteHandover } from '../db/tables/review-deliveries.ts';
 import {
 	copyNotedReview,
 	forgetPosting,
@@ -4123,6 +4123,24 @@ export class ReportService {
 		);
 		if (resent.ok || resent.error.kind !== 'lines-refused') return resent;
 		return err({ kind: 'refused', allInText: true });
+	}
+
+	/**
+	 * Notes that a finished review was handed over once more (DESIGN 6.3's
+	 * delivery log): copied from its page, or read by an agent. Nothing for a
+	 * review the Delve does not have.
+	 */
+	noteHandover(
+		id: ReportId,
+		number: ReviewNumber,
+		destination: 'clipboard' | 'agent'
+	): Result<void, ReportError> {
+		return this.#db.write((q) =>
+			andThen(current(q, id), () => {
+				noteHandover(q, id, number, destination, this.#clock.now());
+				return ok(undefined);
+			})
+		);
 	}
 
 	/** The report's finished reviews, oldest first. */

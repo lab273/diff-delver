@@ -243,6 +243,7 @@
 		}
 		const review = finished.value;
 		const copied = await copying;
+		if (copied) noteCopied(review.number);
 		reviews = [...(reviews ?? []), review];
 		now = review.submittedAt;
 		previewOpen = false;
@@ -307,8 +308,15 @@
 			: `Your ${String(count)} flags go in the review’s text, under “Flagged for another look”, not on their lines.`;
 	}
 
+	/** Notes a copy in the review's delivery log; a copy not noted is still a copy. */
+	function noteCopied(number: FinishedReviewView['number']): void {
+		void pageClient().noteCopied(id, number);
+	}
+
 	async function copyAgain(review: FinishedReviewView): Promise<void> {
-		said = (await copy(review.text))
+		const copied = await copy(review.text);
+		if (copied) noteCopied(review.number);
+		said = copied
 			? `Review ${String(review.number)} copied.`
 			: `This browser would not let diff delver copy review ${String(review.number)}. Show it and copy the text yourself.`;
 	}

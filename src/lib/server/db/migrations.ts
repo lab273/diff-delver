@@ -868,6 +868,43 @@ INSERT INTO thread_places (thread_id, revision_id, path, side, first_line, last_
 	FROM threads t JOIN review_comments c
 		ON c.report_id = t.report_id AND c.review_number = t.review_number AND c.position = t.position;
 `
+	},
+	{
+		version: schemaVersionOf(22),
+		name: 'the delivery log of each finished review: copied, posted to GitHub and read by an agent',
+		rebuildsTables: true,
+		sql: `
+-- The delivery log of a finished review (DESIGN 6.3): one row for each way it
+-- was handed over. 'github' as before, the review GitHub made of it, with its
+-- columns; 'clipboard', copied from the page, when it was finished or later;
+-- 'agent', read from its start by an agent with get_review. delivered_at is
+-- the first time, last_at the latest and times how many.
+CREATE TABLE review_deliveries_rebuilt (
+	report_id TEXT NOT NULL,
+	review_number INTEGER NOT NULL,
+	destination TEXT NOT NULL CHECK (destination IN ('github', 'clipboard', 'agent')),
+	posted_as TEXT CHECK (posted_as IN ('comment', 'approve', 'request-changes', 'draft')),
+	github_review_id INTEGER CHECK (github_review_id >= 1),
+	address TEXT CHECK (address LIKE 'https://%'),
+	in_text INTEGER CHECK (in_text >= 0),
+	delivered_at INTEGER NOT NULL CHECK (delivered_at >= 0),
+	last_at INTEGER NOT NULL CHECK (last_at >= delivered_at),
+	times INTEGER NOT NULL CHECK (times >= 1),
+	PRIMARY KEY (report_id, review_number, destination),
+	FOREIGN KEY (report_id, review_number) REFERENCES reviews (report_id, number) ON DELETE CASCADE,
+	CHECK ((destination = 'github') = (posted_as IS NOT NULL AND github_review_id IS NOT NULL
+		AND address IS NOT NULL AND in_text IS NOT NULL)),
+	CHECK (destination = 'github' OR (posted_as IS NULL AND github_review_id IS NULL
+		AND address IS NULL AND in_text IS NULL))
+) STRICT;
+INSERT INTO review_deliveries_rebuilt (report_id, review_number, destination, posted_as,
+		github_review_id, address, in_text, delivered_at, last_at, times)
+	SELECT report_id, review_number, destination, posted_as, github_review_id, address, in_text,
+		delivered_at, delivered_at, 1
+	FROM review_deliveries;
+DROP TABLE review_deliveries;
+ALTER TABLE review_deliveries_rebuilt RENAME TO review_deliveries;
+`
 	}
 ];
 

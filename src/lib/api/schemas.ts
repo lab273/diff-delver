@@ -37,6 +37,7 @@ import { parseThreadId } from '#lib/core/thread-id.tiny.ts';
 import { textForAgent } from '#lib/core/text-for-agent.tiny.ts';
 import { parseCommentCount } from '#lib/core/comment-count.tiny.ts';
 import { parseReviewNumber } from '#lib/core/review-number.tiny.ts';
+import { parseHandoverCount } from '#lib/core/handover-count.tiny.ts';
 import { parseEditCount } from '#lib/core/edit-count.tiny.ts';
 import { parseEntryCode } from '#lib/core/entry-code.tiny.ts';
 import { parseByteSize } from '#lib/core/byte-size.tiny.ts';
@@ -1357,6 +1358,11 @@ export const DraftCommentIdInAddressSchema = parsed(
 	(text) => parseDraftCommentId(Number(text))
 );
 
+/** A finished review's number in an address, where it is text. */
+export const ReviewNumberInAddressSchema = parsed(z.string().regex(/^[1-9][0-9]{0,8}$/), (text) =>
+	parseReviewNumber(Number(text))
+);
+
 // ── Finishing a review ───────────────────────────────────────────────────────
 
 const reviewNumber = parsed(z.number(), parseReviewNumber);
@@ -1409,6 +1415,13 @@ export const FinishReviewSchema = z.strictObject({
 });
 export type FinishReview = z.infer<typeof FinishReviewSchema>;
 
+/** One way a review was handed over, again and again: how many times, the first and the latest. */
+const handover = z.strictObject({
+	times: parsed(z.number(), parseHandoverCount),
+	first: timestamp,
+	last: timestamp
+});
+
 /** A finished review: its number, the version it was finished on, and the text handed over. */
 export const FinishedReviewSchema = z.strictObject({
 	number: reviewNumber,
@@ -1433,9 +1446,14 @@ export const FinishedReviewSchema = z.strictObject({
 			/** The review on GitHub, or for a draft, the pull request's changes, where it is submitted. */
 			address: parsed(z.string(), parseGitHubReviewAddress),
 			/** How many comments went in the review's text, since GitHub shows no lines for them. */
-			inText: parsed(z.number(), parseCommentCount)
+			inText: parsed(z.number(), parseCommentCount),
+			at: timestamp
 		})
-		.nullable()
+		.nullable(),
+	/** When it was copied from a page: at its finish or later; null when that was never noted. */
+	copied: handover.nullable(),
+	/** When an agent read it from its start with get_review; null when none has. */
+	read: handover.nullable()
 });
 export type FinishedReviewView = z.infer<typeof FinishedReviewSchema>;
 
@@ -1456,6 +1474,10 @@ export const FinishedReviewsSchema = z.strictObject({
 	reviews: z.array(FinishedReviewSchema)
 });
 export type FinishedReviewsView = z.infer<typeof FinishedReviewsSchema>;
+
+/** POST /api/diffs/[id]/reviews/[review]/copied's answer: noted. */
+export const HandoverNotedSchema = z.strictObject({ noted: z.literal(true) });
+export type HandoverNoted = z.infer<typeof HandoverNotedSchema>;
 
 // ── Having an agent sort a Delve ─────────────────────────────────────────────
 

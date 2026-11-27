@@ -45,7 +45,9 @@ function review(text: string): FinishedReview {
 		flags: sure(parseCommentCount(0)),
 		overall: false,
 		text: textForAgent(text),
-		posted: undefined
+		posted: undefined,
+		copied: undefined,
+		read: undefined
 	};
 }
 

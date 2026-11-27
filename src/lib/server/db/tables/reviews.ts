@@ -65,18 +65,29 @@ const row = z
 				flags,
 				overall,
 				text
-			}) satisfies Omit<FinishedReview, 'posted'>
+			}) satisfies Omit<FinishedReview, Logged>
 	);
 
-/** A review read with where it was posted, from `review_deliveries`. */
+/** What `review_deliveries` keeps of a review. */
+type Logged = 'posted' | 'copied' | 'read';
+
+/** A review read with its delivery log, from `review_deliveries`. */
 function withDeliveries(
 	q: Queries,
 	report: ReportId,
-	reviews: readonly Omit<FinishedReview, 'posted'>[]
+	reviews: readonly Omit<FinishedReview, Logged>[]
 ): Result<readonly FinishedReview[], StoredRowInvalid> {
 	if (reviews.length === 0) return ok([]);
-	return map(deliveriesOf(q, report), (posted) =>
-		reviews.map((r) => ({ ...r, posted: posted.get(r.number) }))
+	return map(deliveriesOf(q, report), (log) =>
+		reviews.map((r) => {
+			const kept = log.get(r.number);
+			return {
+				...r,
+				posted: kept?.posted,
+				copied: kept?.copied,
+				read: kept?.read
+			};
+		})
 	);
 }
 
