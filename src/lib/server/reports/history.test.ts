@@ -123,8 +123,8 @@ describe("a Delve's history", () => {
 			expect(then.asOf).toEqual({ number: 1, submittedAt: at(1_700_000_000_000) });
 			expect(then.revision.number).toBe(1);
 			expect(then.summary.progress).toMatchObject({ reviewed: 2, counted: 4 });
-			// Its own comment is no earlier review's then; as of review 2 it is, and resolved.
-			expect(then.threads).toEqual([]);
+			// Its own comment at its lines, open as it was then; as of review 2, resolved.
+			expect(then.threads).toMatchObject([{ status: 'open', messages: [{ review: 1 }] }]);
 			expect(value(await service.load(id, undefined, number(2))).threads).toMatchObject([
 				{ status: 'resolved' }
 			]);

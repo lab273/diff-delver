@@ -3088,6 +3088,7 @@
 					{comments}
 					shown={viewer.version}
 					act={writable}
+					asOf={pastView?.review}
 					ongo={goToThread}
 					{showNewer}
 				/>

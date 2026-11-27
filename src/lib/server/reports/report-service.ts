@@ -1461,12 +1461,12 @@ function threadBehind(stored: StoredThread, version: Revision): boolean {
 }
 
 /**
- * A thread of an earlier review as it stood when review `number` was
- * finished: started before it, with only the messages and resolutions of that
- * review and earlier ones; undefined for one that review or a later one started.
+ * A thread as it stood when review `number` was finished: started by it or
+ * an earlier review, with only the messages and resolutions of that review
+ * and earlier ones; undefined for one a later review started.
  */
 function threadAsOf(stored: StoredThread, number: ReviewNumber): StoredThread | undefined {
-	if ((stored.messages[0]?.review ?? number) >= number) return undefined;
+	if ((stored.messages[0]?.review ?? number) > number) return undefined;
 	const messages = stored.messages.filter((m) => m.review <= number);
 	return {
 		...stored,

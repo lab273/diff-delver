@@ -117,6 +117,13 @@ test.describe('J10 Look back', () => {
 		await journey.expectVisible(asOf);
 		await journey.expectState(cartTick, { checked: true, disabled: true });
 		await journey.expectState(checkoutTick, { checked: false, disabled: true });
+		// Review 1's own comment at its lines, as it stood then: open.
+		await journey.expectVisible(
+			journey.byRole('article', { name: 'Comment from review 1, Open, on After, line 1' })
+		);
+		await journey.expectVisible(
+			journey.byRole('heading', { name: 'Comments up to review 1: 1 open' })
+		);
 		await journey.expectHidden(journey.byRole('region', { name: 'Finish your review' }));
 		await journey.step('The Delve as of review 1');
 

@@ -18,6 +18,7 @@
 		threadStatusWords
 	} from '#lib/core/review/threads.ts';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
+	import type { ReviewNumber } from '#lib/core/review-number.tiny.ts';
 	import { shownPath } from '#lib/core/shown-path.tiny.ts';
 	import PathText from '#lib/ui/PathText.svelte';
 	import EarlierThread from './EarlierThread.svelte';
@@ -29,6 +30,7 @@
 		comments,
 		shown,
 		act,
+		asOf,
 		ongo,
 		showNewer
 	}: {
@@ -39,12 +41,21 @@
 		shown: RevisionNumber;
 		/** Whether they can be replied to or resolved here. */
 		act: boolean;
+		/** The finished review the page shows the Delve as of, whose own comments are among these. */
+		asOf?: ReviewNumber | undefined;
 		/** Goes to a thread among the lines of the version shown. */
 		ongo: (thread: EarlierThreadView) => void;
 		showNewer: () => void;
 	} = $props();
 
-	const heading = $derived(describeEarlierThreads(threads));
+	const heading = $derived(
+		asOf === undefined
+			? describeEarlierThreads(threads)
+			: describeEarlierThreads(threads).replace(
+					/^From earlier reviews/,
+					`Comments up to review ${String(asOf)}`
+				)
+	);
 	/** Whether a thread is drawn among the lines: open, with lines in a file the version shows. */
 	const atLines = (t: EarlierThreadView): boolean =>
 		t.at !== null && t.status !== 'resolved' && drawn.has(t.at.path);
@@ -66,7 +77,9 @@
 <section class="earlier" aria-labelledby="earlier-threads-heading">
 	<h2 id="earlier-threads-heading">{heading}</h2>
 	<p class="muted">
-		What you said in earlier reviews, at its lines in this version.{act
+		{asOf === undefined
+			? 'What you said in earlier reviews, at its lines in this version.'
+			: `What you had said by the end of review ${String(asOf)}, at its lines in this version, as it stood then.`}{act
 			? ' A reply, and what you resolve, go in this review.'
 			: ''}
 		<kbd aria-hidden="true">p</kbd> goes to the next one open.
