@@ -53,5 +53,5 @@
 	onconfirm={confirmDelete}
 >
 	Deleting this Delve removes its draft comments and reviewed marks. Your repository stays as it is.
-	{target?.disk?.deleting ?? describeWhatDeletingFrees(undefined, false)}
+	{target?.disk?.deleting ?? describeWhatDeletingFrees(undefined)}
 </ConfirmDialog>

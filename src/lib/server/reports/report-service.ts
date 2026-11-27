@@ -423,6 +423,7 @@ import {
 	readTreeDiff,
 	type Snapshot,
 	type SnapshotLines,
+	type Store,
 	type StoreError
 } from '../store/index.ts';
 import { databaseSize, DiskUsage } from './disk-usage.ts';
@@ -459,6 +460,12 @@ export interface ReportServiceOptions {
  * person asks for, always ask again.
  */
 export const PULL_REQUEST_CHECK_EVERY_MS = 60_000;
+
+/**
+ * How long after the grace period a store a Delve was deleted from is
+ * collected again, so that what it kept is old enough by then.
+ */
+const COLLECT_FREED_MARGIN_MS = 60_000;
 
 /**
  * How often a page's check asks GitHub when the person is not signed in:
@@ -521,7 +528,7 @@ export interface ReportSummary {
 	 * What it takes on disk (DESIGN 9.1), once measured; only the list and the
 	 * Storage page say it, and undefined elsewhere.
 	 */
-	readonly disk: DelveDisk | undefined;
+	readonly disk: DelveDiskUsage | undefined;
 }
 
 /** What diff delver takes on disk, for the Storage page (DESIGN 9.1). */
@@ -547,16 +554,6 @@ export interface StoreStorage {
 export interface StoredDelve {
 	readonly summary: ReportSummary;
 	readonly usage: DelveDiskUsage | undefined;
-}
-
-/** What a Delve takes on disk, as last measured. */
-export interface DelveDisk {
-	readonly usage: DelveDiskUsage;
-	/**
-	 * Whether its newest snapshot was taken within the store's grace period,
-	 * so that deleting it now frees its space only within an hour.
-	 */
-	readonly freedWithinAnHour: boolean;
 }
 
 /**
@@ -1017,7 +1014,7 @@ async function cloneOf(
 	});
 }
 
-function summaryOf(report: Report, revision: Revision, disk?: DelveDisk): ReportSummary {
+function summaryOf(report: Report, revision: Revision, disk?: DelveDiskUsage): ReportSummary {
 	return {
 		id: report.id,
 		title: reportTitle(report.source),
@@ -1044,16 +1041,8 @@ function storeName(name: RepositoryName | undefined): ReviewerMessage {
 }
 
 /** A Delve's figures over the stores it is in, or undefined while it has none. */
-function diskOf(
-	sizes: readonly StoredDelveSize[],
-	revision: Revision,
-	now: Timestamp
-): DelveDisk | undefined {
-	if (sizes.length === 0) return undefined;
-	return {
-		usage: totalDiskUsage(sizes.map((s) => s.usage)),
-		freedWithinAnHour: timeBetween(revision.takenAt, now) < GRACE_PERIOD
-	};
+function diskOf(sizes: readonly StoredDelveSize[]): DelveDiskUsage | undefined {
+	return sizes.length === 0 ? undefined : totalDiskUsage(sizes.map((s) => s.usage));
 }
 
 /** The report and its current revision, or why there are none. */
@@ -1727,6 +1716,11 @@ export class ReportService {
 	readonly #held = new Set<string>();
 	/** Stores snapshots were discarded from since they were last collected. */
 	readonly #discarded = new Set<StoreId>();
+	/**
+	 * Stores a Delve was deleted from, with when, by the service's clock, to
+	 * collect them again (`collectFreedStores`).
+	 */
+	readonly #collectAfter = new Map<StoreId, number>();
 	/** Checks under way, by report and revision, so callers at the same time share one. */
 	readonly #checking = new Map<string, Promise<Result<SourceCheck, ReportError>>>();
 	readonly #log: (line: string) => void;
@@ -2412,7 +2406,6 @@ export class ReportService {
 	 * never hides the others.
 	 */
 	list(): Result<readonly ListedReport[], ReportError> {
-		const now = this.#clock.now();
 		return this.#db.read((q): Result<readonly ListedReport[], ReportError> => {
 			const revisions = currentRevisions(q);
 			const sizes = Map.groupBy(everyDelveSize(q), (s) => s.report);
@@ -2431,7 +2424,7 @@ export class ReportService {
 						return damaged(report.id, { kind: 'ReportHasNoRevision', report: report.id });
 					}
 					if (!revision.ok) return damaged(report.id, revision.error);
-					const disk = diskOf(sizes.get(report.id) ?? [], revision.value, now);
+					const disk = diskOf(sizes.get(report.id) ?? []);
 					return { kind: 'report', ...summaryOf(report, revision.value, disk) };
 				})
 			);
@@ -2440,10 +2433,9 @@ export class ReportService {
 
 	/** One report as the list gives it, without reading the others. */
 	summary(id: ReportId): Result<ReportSummary, ReportError> {
-		const now = this.#clock.now();
 		return this.#db.read((q) =>
 			andThen(current(q, id), ({ report, revision }) =>
-				ok(summaryOf(report, revision, diskOf(delveSizesOf(q, id), revision, now)))
+				ok(summaryOf(report, revision, diskOf(delveSizesOf(q, id))))
 			)
 		);
 	}
@@ -4627,6 +4619,10 @@ export class ReportService {
 		const removedSnapshots = await this.#removeSnapshots(removed.value);
 		// What the other Delves of its stores share with it is theirs alone now.
 		for (const store of stores) this.#disk.storeChanged(store);
+		// The collection just made kept what was written within the grace
+		// period, so its stores are collected again once that has passed.
+		const freedBy = this.#clock.now() + GRACE_PERIOD + COLLECT_FREED_MARGIN_MS;
+		for (const store of stores) this.#collectAfter.set(store, freedBy);
 		return ok(removedSnapshots);
 	}
 
@@ -4732,7 +4728,7 @@ export class ReportService {
 				removed.push({ store: store.id, snapshot });
 			}
 			if (due.value.length > 0) {
-				const collected = await collectGarbage(store);
+				const collected = await this.#collect(store);
 				if (!collected.ok) return collected;
 			}
 		}
@@ -4827,7 +4823,7 @@ export class ReportService {
 		for (const [i, id] of due.entries()) {
 			const store = await openStore(this.#dataDirectory, id);
 			const done = store.ok
-				? await collectGarbage(store.value)
+				? await this.#collect(store.value)
 				: store.error.kind === 'StoreNotFound'
 					? ok(undefined)
 					: store;
@@ -4840,7 +4836,43 @@ export class ReportService {
 		return ok([...collected]);
 	}
 
+	/**
+	 * Collects the stores Delves were deleted from once the store's grace
+	 * period has passed since, by the service's clock, so that the objects the
+	 * collection at deleting kept, as git keeps anything younger than that,
+	 * are freed then, and "frees it within an hour" is true. The daemon calls
+	 * it from its repeating check; it returns the stores it collected. A store
+	 * that could not be collected is tried again next time.
+	 */
+	async collectFreedStores(): Promise<Result<readonly StoreId[], ReportError>> {
+		const now = this.#clock.now();
+		const due = [...this.#collectAfter].filter(([, at]) => at <= now).map(([id]) => id);
+		const collected: StoreId[] = [];
+		for (const id of due) {
+			this.#collectAfter.delete(id);
+			const store = await openStore(this.#dataDirectory, id);
+			if (!store.ok && store.error.kind === 'StoreNotFound') continue;
+			const done = store.ok ? await this.#collect(store.value) : store;
+			if (!done.ok) {
+				this.#collectAfter.set(id, now);
+				return done;
+			}
+			collected.push(id);
+		}
+		return ok(collected);
+	}
+
 	// --- Inside -------------------------------------------------------------------
+
+	/**
+	 * Collects the store (`collectGarbage`), which changes its size on disk, so
+	 * its figures are measured again.
+	 */
+	async #collect(store: Store): Promise<Result<void, StoreError>> {
+		const collected = await collectGarbage(store);
+		this.#disk.storeChanged(store.id);
+		return collected;
+	}
 
 	/**
 	 * The pull requests of the Delves whose snapshots are in `store`, whose
@@ -5928,7 +5960,7 @@ export class ReportService {
 				}
 				count += 1;
 			}
-			const collected = await collectGarbage(store.value);
+			const collected = await this.#collect(store.value);
 			if (!collected.ok)
 				return {
 					snapshots: snapshotCountOf(count),

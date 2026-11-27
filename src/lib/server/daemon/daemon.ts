@@ -522,6 +522,20 @@ export async function startDaemon(
 		});
 		await tidying;
 	};
+	// The stores Delves were deleted from, once what they kept is old enough to free.
+	let collecting: Promise<void> | undefined;
+	const collectFreed = async (): Promise<void> => {
+		if (collecting !== undefined) return;
+		collecting = service.collectFreedStores().then((collected) => {
+			collecting = undefined;
+			if (!collected.ok) {
+				log(
+					`diff delver could not free the space of a deleted Delve yet: ${describeReportError(collected.error)}`
+				);
+			}
+		});
+		await collecting;
+	};
 	const stop = (reason?: StopReason): Promise<void> => {
 		stopping ??= (async () => {
 			if (reason !== undefined) log(describeStop(reason));
@@ -533,6 +547,7 @@ export async function startDaemon(
 			await binaryCounted;
 			await measuring;
 			await tidying;
+			await collecting;
 			service.close();
 			await removeLockfileIf(options.dataDirectory, lockText(lock));
 			markStopped();
@@ -586,6 +601,7 @@ export async function startDaemon(
 			return;
 		}
 		await tidyIfDue();
+		await collectFreed();
 		if (caughtUp) measureDiskUsage();
 	});
 	gate.settings = {

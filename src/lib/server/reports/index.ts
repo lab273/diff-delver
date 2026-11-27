@@ -43,7 +43,6 @@ export type {
 	RepositoryBranches,
 	RepositoryPullRequests,
 	ReportSummary,
-	DelveDisk,
 	Storage,
 	StoreStorage,
 	StoredDelve,

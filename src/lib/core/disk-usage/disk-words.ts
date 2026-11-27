@@ -43,14 +43,11 @@ export function describeDiskUsageInFull(usage: DelveDiskUsage): ReviewerMessage 
 
 /**
  * What deleting a Delve frees, for the confirmation: "Deleting it frees about
- * 40 MB on disk.", with "within an hour" when some of it was written within
- * the store's grace period, which keeps it through a collection. Not yet
- * measured, only when.
+ * 40 MB on disk within an hour." The store keeps what nothing uses for an
+ * hour through a collection, so the space comes back then; not yet measured,
+ * only when.
  */
-export function describeWhatDeletingFrees(
-	usage: DelveDiskUsage | undefined,
-	freedWithinAnHour: boolean
-): ReviewerMessage {
+export function describeWhatDeletingFrees(usage: DelveDiskUsage | undefined): ReviewerMessage {
 	if (usage === undefined) {
 		return reviewerMessage('The space it takes on disk is freed within an hour.');
 	}
@@ -61,6 +58,5 @@ export function describeWhatDeletingFrees(
 				: 'It frees almost no space on disk: what it holds is shared with other Delves of this repository.'
 		);
 	}
-	const when = freedWithinAnHour ? ' within an hour' : '';
-	return reviewerMessage(`Deleting it frees ${about(usage.own)} on disk${when}.`);
+	return reviewerMessage(`Deleting it frees ${about(usage.own)} on disk within an hour.`);
 }

@@ -14,7 +14,7 @@ import type { DelveDiskUsage } from '#lib/core/disk-usage/delve-sizes.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import { parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
-import { folderSize, listStores } from '#lib/server/store/index.ts';
+import { folderSize, GRACE_PERIOD, listStores } from '#lib/server/store/index.ts';
 import { emptyRepo, tempDirectory } from '../../../../tests/support/fixture-repos.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
 import { at } from '../../../../tests/support/report-rows.ts';
@@ -43,7 +43,7 @@ function created(outcome: OpenOutcome): ReportId {
 /** The Delve's figures as the list gives them, or undefined while it has none. */
 function listed(service: ReportService, id: ReportId): DelveDiskUsage | undefined {
 	const found = value(service.list()).find((r) => r.kind === 'report' && r.id === id);
-	return found?.kind === 'report' ? found.disk?.usage : undefined;
+	return found?.kind === 'report' ? found.disk : undefined;
 }
 
 /** That `size` is `kb` kilobytes, give or take what git's trees and headers add. */
@@ -87,11 +87,7 @@ describe('what each Delve takes on disk', () => {
 		about(both?.shared ?? 0, 70);
 		expect(commit?.own ?? Infinity).toBeLessThan(KB);
 		about(commit?.shared ?? 0, 70);
-		// Deleting a Delve whose snapshot was just taken frees its space only after the grace period.
-		const summary = value(service.summary(uncommitted));
-		expect(summary.disk?.freedWithinAnHour).toBe(true);
-		clock.advance(2 * 60 * 60 * 1000);
-		expect(value(service.summary(uncommitted)).disk?.freedWithinAnHour).toBe(false);
+		expect(value(service.summary(uncommitted)).disk).toEqual(both);
 
 		// Measured again only once something changed.
 		expect(await service.measureDiskUsage()).toEqual([]);
@@ -105,6 +101,11 @@ describe('what each Delve takes on disk', () => {
 
 		// Deleting the last commit's Delve leaves the other alone with a and c.
 		value(await service.deleteReport(last));
+		// What the collection at deleting kept is collected again once the grace period has passed.
+		expect(value(await service.collectFreedStores())).toEqual([]);
+		clock.advance(GRACE_PERIOD + 60_000);
+		expect(value(await service.collectFreedStores())).toHaveLength(1);
+		expect(value(await service.collectFreedStores())).toEqual([]);
 		await service.measureDiskUsage();
 		about(listed(service, uncommitted)?.own ?? 0, 140);
 		expect(listed(service, uncommitted)?.shared).toBe(0);

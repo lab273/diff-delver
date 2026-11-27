@@ -157,11 +157,11 @@ export function summaryView(summary: ReportSummary): DiffSummary {
 			summary.disk === undefined
 				? null
 				: {
-						own: summary.disk.usage.own,
-						shared: summary.disk.usage.shared,
-						text: describeDiskUsage(summary.disk.usage),
-						inFull: describeDiskUsageInFull(summary.disk.usage),
-						deleting: describeWhatDeletingFrees(summary.disk.usage, summary.disk.freedWithinAnHour)
+						own: summary.disk.own,
+						shared: summary.disk.shared,
+						text: describeDiskUsage(summary.disk),
+						inFull: describeDiskUsageInFull(summary.disk),
+						deleting: describeWhatDeletingFrees(summary.disk)
 					}
 	};
 }
@@ -176,10 +176,7 @@ export function storageView(storage: Storage): StorageView {
 			delves: store.delves.map(({ summary, usage }) =>
 				summaryView({
 					...summary,
-					disk:
-						usage === undefined
-							? undefined
-							: { usage, freedWithinAnHour: summary.disk?.freedWithinAnHour ?? false }
+					disk: usage
 				})
 			)
 		}))
