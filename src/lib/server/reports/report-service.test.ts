@@ -13,6 +13,7 @@ import { parseReportId, type ReportId } from '#lib/core/report-id.tiny.ts';
 import { parseRepoPath, type RepoPath } from '#lib/core/repo-path.tiny.ts';
 import { ok, type Result } from '#lib/core/result.ts';
 import { parseSectionId } from '#lib/core/section-id.tiny.ts';
+import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { parseGitSourceSpec, type GitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
 import { deleteSnapshot, listSnapshots, listStores } from '#lib/server/store/index.ts';
 import { snapshotGitSource } from '#lib/server/sources/git/index.ts';
@@ -317,6 +318,56 @@ describe('the report service', () => {
 			'section',
 			'ignored'
 		]);
+	});
+
+	it("keeps which of the agent's summaries were read by their text, through an update, until one is rewritten", async () => {
+		const { repo, service } = await setUp();
+		const id = created(value(await service.open(repo.dir, spec('working-tree'))));
+		const app = value(parseSectionId('app'));
+		value(
+			await service.upsertSections(id, FIRST, [
+				{ id: 'app', title: 'App', summary: 'The app counts to four.' },
+				{ id: 'docs', title: 'Docs', summary: 'The readme.' }
+			])
+		);
+		value(service.setOverview(id, FIRST, value(parseAgentMarkdown('Counting, and a test.'))));
+		const read = async (): Promise<readonly unknown[]> => {
+			const loaded = value(await service.load(id));
+			return [loaded.read.overview, [...loaded.read.sections].sort()];
+		};
+		expect(await read()).toEqual([false, []]);
+
+		expect(value(service.markSummaryRead(id, FIRST, { kind: 'overview' }))).toBe(true);
+		expect(value(service.markSummaryRead(id, FIRST, { kind: 'section', section: app }))).toBe(true);
+		// Reading it again changes nothing; a section with no summary has nothing to read.
+		expect(value(service.markSummaryRead(id, FIRST, { kind: 'overview' }))).toBe(true);
+		value(await service.upsertSections(id, FIRST, [{ id: 'empty', title: 'Empty' }]));
+		const empty = value(parseSectionId('empty'));
+		expect(value(service.markSummaryRead(id, FIRST, { kind: 'section', section: empty }))).toBe(
+			false
+		);
+		expect(await read()).toEqual([true, ['app']]);
+
+		// The next version carries the same texts, so they are still read.
+		await repo.write('README.md', '# App, again\n');
+		const updated = value(await service.update(id));
+		if (updated.kind !== 'updated') throw new Error(updated.kind);
+		const second = value(await service.load(id)).revision.number;
+		expect(second).not.toBe(FIRST);
+		expect(await read()).toEqual([true, ['app']]);
+
+		// A rewritten summary is unread again; the same overview sent again stays read.
+		value(
+			await service.upsertSections(id, second, [
+				{ id: 'app', title: 'App', summary: 'The app now counts to four, in words.' }
+			])
+		);
+		value(service.setOverview(id, second, value(parseAgentMarkdown('Counting, and a test.'))));
+		expect(await read()).toEqual([true, []]);
+		// The first version's page still reads its own texts as read.
+		const first = value(await service.load(id, FIRST));
+		expect([first.read.overview, [...first.read.sections]]).toEqual([true, ['app']]);
+		service.close();
 	});
 
 	it('changes nothing when a change is refused', async () => {

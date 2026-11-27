@@ -63,6 +63,7 @@ import {
 	type FileMatch,
 	type FileReaderView,
 	MarkedSchema,
+	SummaryReadSchema,
 	PartLinesSchema,
 	ColoursSchema,
 	DiffSearchSchema,
@@ -92,6 +93,8 @@ import {
 	type LinesView,
 	type Marked,
 	type MarkReviewedRequest,
+	type SummaryRead,
+	type SummaryReadRequest,
 	type PartLines,
 	type PartQuery,
 	type ReviewWindow,
@@ -491,6 +494,14 @@ export class ApiClient {
 	/** The Delve's finished reviews, oldest first. */
 	reviews(id: ReportId): Promise<Result<FinishedReviewsView, ApiError>> {
 		return this.#call('GET', `/api/diffs/${id}/reviews`, FinishedReviewsSchema);
+	}
+
+	/** Records that the reviewer read the agent's overview or a section's summary, as `version` has it. */
+	markSummaryRead(
+		id: ReportId,
+		request: SummaryReadRequest
+	): Promise<Result<SummaryRead, ApiError>> {
+		return this.#call('POST', `/api/diffs/${id}/read`, SummaryReadSchema, request);
 	}
 
 	/** Marks a part, a file or a group of the version the page shows as reviewed, or not. */

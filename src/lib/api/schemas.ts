@@ -419,6 +419,8 @@ export const DiffPageSchema = z.object({
 	now: timestamp,
 	summary: DiffSummarySchema,
 	overview: parsed(z.string(), parseAgentMarkdown).nullable(),
+	/** Whether the reviewer has read the overview, as this version has it; false when there is none. */
+	overviewRead: z.boolean(),
 	/** The agent's notes on this version, in the order they were added. */
 	notes: z.array(AgentNoteSchema),
 	/** On a version with no notes, what to say of the notes an earlier version has; null otherwise. */
@@ -441,6 +443,8 @@ export const DiffPageSchema = z.object({
 			/** A section's title, as the agent wrote it; null for the other groups. */
 			title: parsed(z.string(), parseSectionTitle).nullable(),
 			summary: parsed(z.string(), parseAgentMarkdown).nullable(),
+			/** Whether the reviewer has read its section's summary, as this version has it. */
+			summaryRead: z.boolean(),
 			parts: z.array(PartSchema)
 		})
 	),
@@ -804,6 +808,23 @@ export const MarkReviewedRequestSchema = z.object({
 	view: ViewSchema
 });
 export type MarkReviewedRequest = z.input<typeof MarkReviewedRequestSchema>;
+
+/**
+ * POST /api/diffs/:id/read: the reviewer has read the agent's overview, or a
+ * section's summary, as the version the page shows has it (DESIGN 8.1).
+ */
+export const SummaryReadRequestSchema = z.object({
+	version,
+	place: z.discriminatedUnion('kind', [
+		z.object({ kind: z.literal('overview') }),
+		z.object({ kind: z.literal('section'), section: sectionId })
+	])
+});
+export type SummaryReadRequest = z.input<typeof SummaryReadRequestSchema>;
+
+/** Whether the version had that text to read. */
+export const SummaryReadSchema = z.object({ read: z.boolean() });
+export type SummaryRead = z.output<typeof SummaryReadSchema>;
 
 /**
  * What marking changed: the diff's summary with its progress, and the parts

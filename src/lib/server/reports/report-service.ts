@@ -113,6 +113,8 @@ import {
 } from '#lib/core/reports/section-requests.ts';
 import type { AgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { overviewOf, setOverview as storeOverview } from '../db/tables/overviews.ts';
+import { markSummaryRead, summariesReadOf, type ReadCheck } from '../db/tables/summaries-read.ts';
+import type { SummariesRead, SummaryPlace } from '#lib/core/review/summary-read.ts';
 import { referenceRowsFor, replaceReferenceRows } from '../db/tables/section-references.ts';
 import { readingStepsFor, type StoredStep } from '../db/tables/reading-steps.ts';
 import type { OrderStep } from '#lib/core/order-step.tiny.ts';
@@ -579,6 +581,8 @@ export interface LoadedReport {
 	readonly readingOrders: ReadingOrders;
 	/** What the change does, as the agent wrote it; undefined until it has. */
 	readonly overview: AgentMarkdown | undefined;
+	/** Which of the overview and the sections' summaries, as this version has them, the reviewer has read. */
+	readonly read: SummariesRead;
 	/** The agent's notes on this version, in the order they were added, promoted ones too. */
 	readonly notes: readonly AgentNote[];
 	/** When this version has no notes, the newest earlier one with notes waiting; else undefined. */
@@ -794,6 +798,7 @@ interface StoredFrame extends Stored {
 	readonly referenceRows: ReadonlyMap<SectionId, readonly UnitRow[]>;
 	readonly readingSteps: ReadonlyMap<SectionId, readonly StoredStep[]>;
 	readonly overview: AgentMarkdown | undefined;
+	readonly readCheck: ReadCheck;
 	readonly notes: readonly AgentNote[];
 	readonly earlierNotes: EarlierNotes | undefined;
 	readonly shown: Current;
@@ -941,6 +946,24 @@ function asOf(
 				: ok({ report: found.report, revision });
 		});
 	});
+}
+
+/** Which of a version's overview and section summaries were read, by the texts read. */
+function summariesReadIn(
+	read: ReadCheck,
+	overview: AgentMarkdown | undefined,
+	sections: readonly Section[]
+): SummariesRead {
+	return {
+		overview: overview !== undefined && read({ kind: 'overview' }, overview),
+		sections: new Set(
+			sections
+				.filter(
+					(s) => s.summary !== undefined && read({ kind: 'section', section: s.id }, s.summary)
+				)
+				.map((s) => s.id)
+		)
+	};
 }
 
 /** Like `current`, for a change: the report must be open. */
@@ -1680,28 +1703,31 @@ export class ReportService {
 										andThen(referenceRowsFor(q, revision.id), (referenceRows) =>
 											andThen(readingStepsFor(q, revision.id), (readingSteps) =>
 												andThen(overviewOf(q, revision.id), (overview) =>
-													andThen(agentNotesOf(q, revision.id), (notes) =>
-														andThen(
-															notes.length > 0
-																? ok(undefined)
-																: earlierWaitingNotes(q, id, revision.number),
-															(earlierNotes) =>
-																ok({
-																	sections,
-																	rows,
-																	marked,
-																	fresh,
-																	unmarked,
-																	summary,
-																	referenceRows,
-																	readingSteps,
-																	overview,
-																	notes,
-																	earlierNotes,
-																	sorting,
-																	assignments,
-																	shown: shownNow
-																})
+													andThen(summariesReadOf(q, id), (readCheck) =>
+														andThen(agentNotesOf(q, revision.id), (notes) =>
+															andThen(
+																notes.length > 0
+																	? ok(undefined)
+																	: earlierWaitingNotes(q, id, revision.number),
+																(earlierNotes) =>
+																	ok({
+																		sections,
+																		rows,
+																		marked,
+																		fresh,
+																		unmarked,
+																		summary,
+																		referenceRows,
+																		readingSteps,
+																		overview,
+																		readCheck,
+																		notes,
+																		earlierNotes,
+																		sorting,
+																		assignments,
+																		shown: shownNow
+																	})
+															)
 														)
 													)
 												)
@@ -1741,6 +1767,7 @@ export class ReportService {
 			references: references.value,
 			readingOrders,
 			overview: found.value.overview,
+			read: summariesReadIn(found.value.readCheck, found.value.overview, sections),
 			notes: found.value.notes,
 			earlierNotes: found.value.earlierNotes,
 			frame: this.#frameVersions.frame(found.value.shown.report, revision.id, found.value.sorting),
@@ -1932,6 +1959,36 @@ export class ReportService {
 				touchReport(q, id, this.#clock.now());
 				this.#frameVersions.edited(revision.id);
 				return ok(markdown);
+			})
+		);
+	}
+
+	/**
+	 * The reviewer has read the agent's overview, or a section's summary, as
+	 * version `seen` has it (DESIGN 8.1): that text is read in every version of
+	 * the Delve that has it, and a rewritten one is unread again. Never the
+	 * agent's to say. False when the version has no such text, so nothing was
+	 * read.
+	 */
+	markSummaryRead(
+		id: ReportId,
+		seen: RevisionNumber,
+		place: SummaryPlace
+	): Result<boolean, ReportError> {
+		return this.#db.write((q) =>
+			andThen(asOf(q, id, seen), ({ revision }): Result<boolean, ReportError> => {
+				const text =
+					place.kind === 'overview'
+						? overviewOf(q, revision.id)
+						: map(
+								sectionsOf(q, revision.id),
+								(sections) => sections.find((s) => s.id === place.section)?.summary
+							);
+				if (!text.ok) return text;
+				if (text.value === undefined) return ok(false);
+				markSummaryRead(q, id, place, text.value);
+				this.#frameVersions.edited(revision.id);
+				return ok(true);
 			})
 		);
 	}

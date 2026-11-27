@@ -718,6 +718,22 @@ CREATE TABLE reading_step_units (
 	CHECK (side = 'file' OR (first_line >= 1 AND last_line >= first_line))
 ) STRICT, WITHOUT ROWID;
 `
+	},
+	{
+		version: schemaVersionOf(19),
+		name: "which of the agent's overview and section summaries the reviewer has read",
+		sql: `
+-- The reviewer's, never the agent's (DESIGN 8.1): one row for each text of the
+-- agent's overview (an empty section id) or of a section's summary that the
+-- reviewer has read in a Delve, by a hash of the text. A text read is read in
+-- every version that has the same one, and a rewritten one is unread again.
+CREATE TABLE summaries_read (
+	report_id TEXT NOT NULL REFERENCES reports (id) ON DELETE CASCADE,
+	section_id TEXT NOT NULL,
+	text_hash TEXT NOT NULL CHECK (length(text_hash) = 64),
+	PRIMARY KEY (report_id, section_id, text_hash)
+) STRICT, WITHOUT ROWID;
+`
 	}
 ];
 

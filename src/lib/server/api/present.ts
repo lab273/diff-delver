@@ -406,6 +406,7 @@ export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): 
 		now,
 		summary: summaryView(loaded.summary),
 		overview: loaded.overview ?? null,
+		overviewRead: loaded.read.overview,
 		notes: notesView(loaded.notes),
 		earlierNotes:
 			loaded.earlierNotes === undefined ? null : describeEarlierNotes(loaded.earlierNotes),
@@ -422,6 +423,7 @@ export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): 
 				key,
 				title: sectionId === undefined ? null : (section?.title ?? sectionTitleOf(sectionId)),
 				summary: section?.summary ?? null,
+				summaryRead: sectionId !== undefined && loaded.read.sections.has(sectionId),
 				parts: parts.map(partView)
 			};
 		}),
