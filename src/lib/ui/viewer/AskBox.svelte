@@ -129,7 +129,7 @@
 	<p class="note">
 		{connected
 			? 'Agent connected: it gets your question at once, and its answer appears here.'
-			: 'No agent connected: your question waits here, and you can copy it as a prompt for your agent.'}
+			: 'No agent connected: your question waits here. Copy it as a prompt and paste it to your agent, or ask your agent to listen for your questions in diff delver and it gets them here.'}
 	</p>
 	<div class="actions">
 		<button type="submit" class="primary" aria-disabled={asking}>

@@ -85,20 +85,8 @@ nothing can be skipped unseen.
    If you sort the same version again, send `"replace": true` so your earlier
    notes do not pile up.
 8. **Tell the person where to look** (see the end).
-9. **Stay with them while they review.** Call `wait_for_requests` with the
-   report's id: it returns the person's questions as they ask them ("Explain
-   this", "Show me related code", or their own words), each about lines, a
-   file or a section, or says none came after up to 45 seconds. Call it again
-   each time it returns: while you do, their page says an agent is connected.
-   For each request, read the code it is about (`get_file`, `get_diff`), then
-   call `answer_request` with a plain answer to what was asked, and point at
-   code with `references` (a file and lines), which diff delver shows under
-   your answer; never paste code into the answer. Answer the question only:
-   do not review the code for them, and do not change it unless they ask you
-   to in the conversation. When `wait_for_requests` says the person finished
-   a review, read it with `get_review` and act on it as they ask (see the
-   last part). Stop waiting when it says the Delve is closed, or when the
-   person tells you to.
+   Do not call `wait_for_requests` now: you listen for questions only when the
+   person asks you to (see "Answering the person's questions").
 
 ## Do not
 
@@ -128,8 +116,32 @@ When `get_coverage` says nothing is left and the overview is written, tell the
 person in a few lines: the address of the report (call `create_report` again for
 the same source to get a fresh one; it changes nothing), the sections in reading order
 (titles only), what you ignored and why, and anything you were unsure about or
-think they should look at first. Do not repeat the summaries. Say that you are
-listening for their questions on the page, then call `wait_for_requests` (step 9).
+think they should look at first. Do not repeat the summaries. Then say, in one
+line, that the person can ask questions about the code from the page (**Ask** on a
+line): to have them answered live, they can ask you to listen, for example "listen
+for my questions in diff delver"; otherwise each question offers **Copy as
+prompt**, to paste to you.
+
+## Answering the person's questions
+
+Only when the person asks you to listen for their questions, call
+`wait_for_requests` with the report's id. It returns their questions as they ask
+them ("Explain this", "Show me related code", or their own words), each about
+lines, a file or a section, or says none came after up to 45 seconds. Call it
+again each time it returns, and keep calling it until the person tells you to
+stop, it says they finished a review, or it says the Delve is closed: while you
+do, their page says an agent is connected.
+
+When the person pastes a prompt that names a diff delver request, answer that
+request the same way, without waiting.
+
+For each request, read the code it is about (`get_file`, `get_diff`), then call
+`answer_request` with a plain answer to what was asked, and point at code with
+`references` (a file and lines), which diff delver shows under your answer; never
+paste code into the answer. Answer the question only: do not review the code for
+them, and do not change it unless they ask you to in the conversation. When a
+wait says the person finished a review, read it with `get_review` and act on it
+as they ask (see the next part).
 
 ## Acting on the person's review
 

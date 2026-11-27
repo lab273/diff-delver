@@ -105,7 +105,7 @@ export function renderAnswered(heading: ReportHeading, outcome: AnsweredOutcome)
 		outcome.stored
 			? `Your answer to request ${String(outcome.request)} is on the person's page, beside what they asked about${outcome.excerpts > 0 ? `, with ${counted(outcome.excerpts, 'excerpt', 'excerpts')} of code` : ''}.`
 			: `Request ${String(outcome.request)} has that answer already, so it was passed over: sending a call again adds nothing more.`,
-		`The request has ${counted(outcome.answers, 'answer', 'answers')}. Call wait_for_requests again for the next request.`
+		`The request has ${counted(outcome.answers, 'answer', 'answers')}. If you are listening for the person's questions, call wait_for_requests again for the next one.`
 	].join('\n');
 }
 

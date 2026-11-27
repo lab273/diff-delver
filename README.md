@@ -114,12 +114,14 @@ A link the agent gives you opens the Delve to read and tick. To write comments
 there, press **Turn on comments in this browser** on the page: diff delver opens
 the Delve in a tab of its own, and comments work in both.
 
-Once it has sorted the diff, the agent with the skill stays to answer your
-questions. From a line's menu choose **Ask** (or press `q` on the line): ask about
+You can also ask the agent about the code. From a line's menu choose **Ask** (or
+press `q` on the line): ask about
 the lines, their whole file or their section, with **Explain this**, **Show me
 related code** or your own words. The answer appears beside what you asked about,
 with the code it points at. With no agent connected, the question says so and
-offers **Copy as prompt**, to paste into any agent that has the MCP server.
+offers **Copy as prompt**, to paste into any agent that has the MCP server. To
+have questions answered as you ask them, tell the agent to listen, for example
+"listen for my questions in diff delver".
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="tests/journeys/screenshots/j7-ask-for-more-context.03.the-agent-s-answer-with-its-code.dark.png">
