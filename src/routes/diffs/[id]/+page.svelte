@@ -2742,6 +2742,17 @@
 			</div>
 			<p class="details">
 				<span>{summary.repository}</span>
+				{#if summary.pullRequest !== null}
+					<span>
+						<a
+							href={summary.pullRequest.address}
+							target="_blank"
+							rel="external noopener noreferrer"
+						>
+							{summary.pullRequest.text}
+						</a>
+					</span>
+				{/if}
 				<span>{summary.sizeText}</span>
 				{#if summary.binaryText !== null}
 					<span>{summary.binaryText}</span>

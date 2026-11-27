@@ -10,6 +10,8 @@ import {
 	describeWhatDeletingFrees
 } from '#lib/core/disk-usage/disk-words.ts';
 import { gitHubRepositoryText } from '#lib/core/github/github-repository.ts';
+import { pullRequestAddress } from '#lib/core/github/pull-request-address.tiny.ts';
+import { describePullRequestOnGitHub } from '#lib/core/github/pull-request.ts';
 import {
 	describeListedDetails,
 	describeListedTitle,
@@ -153,6 +155,13 @@ export function summaryView(summary: ReportSummary): DiffSummary {
 		progressText: describeUnitProgress(summary.progress),
 		leftOut: summary.leftOut,
 		version: summary.revision,
+		pullRequest:
+			summary.pullRequest === undefined
+				? null
+				: {
+						address: pullRequestAddress(summary.pullRequest),
+						text: describePullRequestOnGitHub(summary.pullRequest)
+					},
 		disk:
 			summary.disk === undefined
 				? null

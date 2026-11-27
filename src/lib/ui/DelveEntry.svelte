@@ -1,6 +1,7 @@
 <!--
 	One Delve as a list shows it: its title, a link to it, whether it is open,
 	its repository (with its folder, when another repository has the same name),
+	for a pull request's Delve a link to the pull request on GitHub,
 	when it was last active, its size with its tests apart and its binary
 	files, what it takes on disk once measured, with what it shares on hover,
 	how far its review has
@@ -44,6 +45,13 @@
 			<span class="folder">(<VisibleText text={folder} />)</span>
 		{/if}
 	</span>
+	{#if diff.pullRequest !== null}
+		<span>
+			<a href={diff.pullRequest.address} target="_blank" rel="external noopener noreferrer">
+				{diff.pullRequest.text}
+			</a>
+		</span>
+	{/if}
 	<span>Last active {describeTimeAgo(diff.lastActivityAt, now)}</span>
 	<span>
 		{diff.size.files === 1 ? '1 file' : `${String(diff.size.files)} files`}

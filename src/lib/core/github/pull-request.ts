@@ -114,6 +114,11 @@ export function describePullRequest(
 	return reviewerMessage(title === undefined ? named : `${named}: ${quotedTitle(title)}`);
 }
 
+/** The words of the link to the pull request on GitHub: `Pull request #123 on GitHub`. */
+export function describePullRequestOnGitHub(ref: PullRequestRef): ReviewerMessage {
+	return reviewerMessage(`Pull request #${String(ref.number)} on GitHub`);
+}
+
 /** The pull request as GitHub writes it in text: `owner/name#123`. */
 export function pullRequestShortName(ref: PullRequestRef): string {
 	return `${ref.repository.owner}/${ref.repository.name}#${String(ref.number)}`;

@@ -10,6 +10,7 @@
  */
 import { GITHUB_REVIEW_KINDS } from '#lib/core/github/github-review.ts';
 import { parseGitHubReviewAddress } from '#lib/core/github/github-review-address.tiny.ts';
+import { parsePullRequestAddress } from '#lib/core/github/pull-request-address.tiny.ts';
 import { z } from 'zod';
 import { IMAGE_FORMATS, NOT_IMAGE_KINDS } from '#lib/core/image/image-format.ts';
 import { FILE_PAGE_LINES, FILE_QUERY_LENGTH } from '#lib/core/viewer/file-reader.ts';
@@ -152,6 +153,15 @@ export const DiffSummarySchema = z.object({
 	leftOut: fileCount,
 	/** Which version of its files it shows. */
 	version,
+	/** For a Delve of a pull request, the link to it on GitHub; null for any other source. */
+	pullRequest: z
+		.object({
+			/** Made from the pull request's identity, never taken from GitHub. */
+			address: parsed(z.string(), parsePullRequestAddress),
+			/** "Pull request #12 on GitHub". */
+			text: message
+		})
+		.nullable(),
 	/**
 	 * What it takes on disk (DESIGN 9.1), estimates, once measured, on the list
 	 * of Delves and the Storage page; null until then and everywhere else.

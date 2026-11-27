@@ -526,6 +526,8 @@ export interface ReportSummary {
 	readonly progress: Revision['progress'];
 	/** How many files could not be included; the report page lists them. */
 	readonly leftOut: FileCount;
+	/** The pull request it follows, for a Delve of one; undefined for a git source. */
+	readonly pullRequest: PullRequestRef | undefined;
 	/**
 	 * What it takes on disk (DESIGN 9.1), once measured; only the list and the
 	 * Storage page say it, and undefined elsewhere.
@@ -1036,6 +1038,7 @@ function summaryOf(report: Report, revision: Revision, disk?: DelveDiskUsage): R
 		binary: revision.binary,
 		progress: revision.progress,
 		leftOut: fileCountOf(revision.leftOut.length),
+		pullRequest: report.source.kind === 'github' ? report.source.pullRequest : undefined,
 		disk
 	};
 }

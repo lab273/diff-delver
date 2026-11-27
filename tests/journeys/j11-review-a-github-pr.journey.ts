@@ -4,7 +4,8 @@ import { expect, test } from '../support/journey.ts';
 // of a clone of a repository on GitHub offers its pull requests without asking
 // GitHub until the reviewer presses the button; the list shows each open one
 // with who opened it, its branches, when it was updated and whether it is a
-// draft; one is opened as a Delve with the keyboard; someone pushes a commit
+// draft; one is opened as a Delve with the keyboard, with a link to it on
+// GitHub by its title; someone pushes a commit
 // to it on GitHub, the command is run again for it, and the Delve becomes its
 // next version, with the tick on what did not change kept and what is new
 // marked new. Then the reviewer comments on a line and writes an overall
@@ -49,6 +50,9 @@ test.describe('J11 Review a GitHub PR', () => {
 			journey.byRole('status'),
 			'No changes to the pull request since you opened it.'
 		);
+		const onGitHub = journey.byRole('link', { name: 'Pull request #7 on GitHub', exact: true });
+		await journey.tabTo(onGitHub);
+		expect(await journey.destinationOf(onGitHub)).toBe('https://github.com/acme/shop/pull/7');
 		await journey.step('The pull request as a Delve');
 
 		const discountTick = journey.byRole('checkbox', { name: 'Reviewed: src/discount.ts' });

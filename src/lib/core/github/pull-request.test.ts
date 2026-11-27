@@ -4,6 +4,7 @@ import {
 	describePullRequestChange,
 	describeInvalidPullRequestUrl,
 	describePullRequest,
+	describePullRequestOnGitHub,
 	parsePullRequestUrl,
 	pullRequestIdentityParts,
 	pullRequestNothingLeft,
@@ -12,6 +13,7 @@ import {
 	type PullRequestRef
 } from './pull-request.ts';
 import { pullRequestTitleOf } from './pull-request-title.tiny.ts';
+import { parsePullRequestAddress, pullRequestAddress } from './pull-request-address.tiny.ts';
 
 function parsed(text: string): PullRequestRef {
 	const result = parsePullRequestUrl(text);
@@ -72,6 +74,28 @@ describe('the identity of a pull request', () => {
 		expect(pullRequestIdentityParts(a)).toEqual(['github.com', 'acme', 'shop', '12']);
 		expect(samePullRequest(a, b)).toBe(true);
 		expect(samePullRequest(a, parsed('https://github.com/acme/shop/pull/13'))).toBe(false);
+	});
+});
+
+describe('the link to a pull request on GitHub', () => {
+	it('is its address in one form, which reads back, and says where it goes', () => {
+		const ref = parsed('https://github.com/Acme/Shop/pull/12/files');
+		const address = pullRequestAddress(ref);
+		expect(address).toBe('https://github.com/Acme/Shop/pull/12');
+		expect(parsePullRequestAddress(address)).toEqual({ ok: true, value: address });
+		expect(describePullRequestOnGitHub(ref)).toBe('Pull request #12 on GitHub');
+	});
+
+	it('reads back no other address', () => {
+		for (const text of [
+			'https://github.com/acme/shop/pull/12/files',
+			'https://github.com/acme/shop/pull/12#x',
+			'http://github.com/acme/shop/pull/12',
+			'https://example.com/acme/shop/pull/12',
+			'javascript:alert(1)'
+		]) {
+			expect(parsePullRequestAddress(text).ok, text).toBe(false);
+		}
 	});
 });
 
