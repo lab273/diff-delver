@@ -234,6 +234,9 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 - A diff's size with the lines of tests counted apart (`+40 −12 tests +20 −4`), and
   its binary files with their sizes in bytes.
 - Ticking files and sections as reviewed, with progress, across restarts.
+- What each Delve takes on disk, an estimate measured in the background, on the list
+  of Delves and in the question before deleting one ("Deleting it frees about
+  40 MB"), and a Storage page with each repository's store and its Delves.
 - Updating a Delve when the code changes, keeping sections and ticks.
 - Comments of earlier reviews followed to their lines in later versions, as open,
   with their code changed since, or resolved; replied to and resolved in the next
@@ -268,6 +271,7 @@ Not built yet:
 - A pull request with no clone of its repository on this machine, and GitHub
   Enterprise.
 - Snapshot-test images shown beside their tests.
+- Each version's size on disk in a Delve's history.
 - An installable Claude Code plugin. `diff-delver setup` gives Claude Code the MCP
   server and the skill instead.
 - macOS and Windows have not been tried.

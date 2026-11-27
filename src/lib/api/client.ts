@@ -67,6 +67,8 @@ import {
 	DeletedSchema,
 	EntryCodeSchema,
 	DiffListSchema,
+	StorageSchema,
+	type Storage,
 	DiffPageSchema,
 	DiffRefreshSchema,
 	LinesSchema,
@@ -268,6 +270,11 @@ export class ApiClient {
 
 	listDiffs(): Promise<Result<DiffList, ApiError>> {
 		return this.#call('GET', '/api/diffs', DiffListSchema);
+	}
+
+	/** What diff delver takes on disk, for the Storage page. */
+	storage(): Promise<Result<Storage, ApiError>> {
+		return this.#call('GET', '/api/storage', StorageSchema);
 	}
 
 	start(request: StartRequest): Promise<Result<StartResponse, ApiError>> {

@@ -3,31 +3,25 @@
 	newcomer, the one command that opens one.
 -->
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { invalidate } from '$app/navigation';
 	import { describeApiError } from '#lib/api/client.ts';
 	import type { ListedDiff } from '#lib/api/schemas.ts';
-	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import { folderToShow } from '#lib/core/reports/switch-delves.ts';
 	import ChooseLink from '#lib/ui/ChooseLink.svelte';
-	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import CopyCommand from '#lib/ui/CopyCommand.svelte';
+	import DeleteDelve from '#lib/ui/DeleteDelve.svelte';
+	import type { DeleteTarget } from '#lib/ui/delete-target.ts';
 	import DelveEntry from '#lib/ui/DelveEntry.svelte';
 	import Notice from '#lib/ui/Notice.svelte';
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
-	import { pageClient } from '#lib/ui/client.ts';
 	import { RUN_COMMAND } from '#lib/ui/run-command.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
-	interface Deleting {
-		readonly id: ReportId;
-		readonly name: string;
-	}
-
-	let asking = $state(false);
 	let heading: HTMLHeadingElement | undefined = $state();
-	let deleting: Deleting | undefined = $state();
+	let deleting: DeleteTarget | undefined = $state();
 	let status = $state('');
 	let problem = $state('');
 
@@ -35,26 +29,8 @@
 		return diff.kind === 'diff' ? `${diff.title} in ${diff.repository}` : 'this damaged entry';
 	}
 
-	function askToDelete(id: ReportId, name: string): void {
-		deleting = { id, name };
-		problem = '';
-		asking = true;
-	}
-
-	async function confirmDelete(): Promise<void> {
-		if (deleting === undefined) return;
-		const { id, name } = deleting;
-		const deleted = await pageClient().deleteDiff(id);
-		asking = false;
-		deleting = undefined;
-		if (!deleted.ok) {
-			problem = describeApiError(deleted.error);
-			return;
-		}
-		status =
-			deleted.value.problem === null
-				? `Deleted ${name}. Its space on disk is freed within an hour.`
-				: `Deleted ${name}. ${deleted.value.problem}`;
+	async function deleted(said: string): Promise<void> {
+		status = said;
 		await invalidate('app:diffs');
 		// The row that had focus is gone: start again from the top of the list.
 		heading?.focus();
@@ -111,7 +87,8 @@
 						class="delete"
 						aria-label="Delete {nameOf(diff)}"
 						onclick={() => {
-							askToDelete(id, nameOf(diff));
+							problem = '';
+							deleting = { id, name: nameOf(diff), disk: diff.kind === 'diff' ? diff.disk : null };
 						}}
 					>
 						Delete
@@ -123,6 +100,9 @@
 	{#if !data.canReview}
 		<ReviewAccess diff={null} what="deleting" />
 	{/if}
+	<p class="storage">
+		<a href={resolve('/storage')}>What your Delves take on disk</a>
+	</p>
 	<section class="open-more" aria-labelledby="open-more-heading">
 		<h2 id="open-more-heading">Open something else</h2>
 		<ul>
@@ -136,15 +116,13 @@
 	</section>
 {/if}
 
-<ConfirmDialog
-	bind:open={asking}
-	heading="Delete {deleting?.name ?? 'this Delve'}?"
-	confirm="Delete"
-	onconfirm={confirmDelete}
->
-	Deleting this Delve removes its draft comments and reviewed marks. Your repository stays as it is.
-	The space it takes on disk is freed within an hour.
-</ConfirmDialog>
+<DeleteDelve
+	bind:target={deleting}
+	ondeleted={deleted}
+	onfailed={(said: string) => {
+		problem = said;
+	}}
+/>
 
 <style>
 	h1 {
@@ -162,6 +140,11 @@
 
 	.status:not(:empty) {
 		margin-bottom: 1rem;
+	}
+
+	.storage {
+		margin: 0.75rem 0 0;
+		font-size: 0.875rem;
 	}
 
 	.open-more h2 {

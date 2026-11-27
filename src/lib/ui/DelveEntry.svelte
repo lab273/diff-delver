@@ -2,7 +2,8 @@
 	One Delve as a list shows it: its title, a link to it, whether it is open,
 	its repository (with its folder, when another repository has the same name),
 	when it was last active, its size with its tests apart and its binary
-	files, how far its review has
+	files, what it takes on disk once measured, with what it shares on hover,
+	how far its review has
 	got, and whether something being written on it in this tab, a comment or the
 	overall review, is not saved yet.
 	The list of Delves and the panel on a Delve's page both draw this, so a Delve
@@ -50,6 +51,9 @@
 	</span>
 	{#if diff.binaryText !== null}
 		<span>{diff.binaryText}</span>
+	{/if}
+	{#if diff.disk !== null}
+		<span title={diff.disk.inFull}>{diff.disk.text}</span>
 	{/if}
 </p>
 <p class="progress">{diff.progressText}</p>

@@ -151,7 +151,25 @@ export const DiffSummarySchema = z.object({
 	/** How many files could not be included. */
 	leftOut: fileCount,
 	/** Which version of its files it shows. */
-	version
+	version,
+	/**
+	 * What it takes on disk (DESIGN 9.1), estimates, once measured, on the list
+	 * of Delves and the Storage page; null until then and everywhere else.
+	 */
+	disk: z
+		.object({
+			/** What deleting it frees. */
+			own: byteSize,
+			/** What it shares with other Delves of its repository. */
+			shared: byteSize,
+			/** "About 40 MB on disk". */
+			text: message,
+			/** Both figures in a sentence, for hovering over `text`. */
+			inFull: message,
+			/** What deleting it frees, and when: "Deleting it frees about 40 MB on disk within an hour." */
+			deleting: message
+		})
+		.nullable()
 });
 export type DiffSummary = z.output<typeof DiffSummarySchema>;
 
@@ -240,6 +258,24 @@ export const DiffListSchema = z.object({
 	)
 });
 export type DiffList = z.output<typeof DiffListSchema>;
+
+/** GET /api/storage: what diff delver takes on disk (DESIGN 9.1). */
+export const StorageSchema = z.object({
+	/** The database's size on disk, exactly, in words: "1.2 MB". */
+	databaseText: message,
+	/** Each repository's store, the largest first. */
+	stores: z.array(
+		z.object({
+			/** The repository it holds, by its folder name. */
+			repository: message,
+			/** Its size on disk, exactly, in words. */
+			onDiskText: message,
+			/** Its Delves, with what each takes in it; those that free most first. */
+			delves: z.array(DiffSummarySchema)
+		})
+	)
+});
+export type Storage = z.output<typeof StorageSchema>;
 export type ListedDiff = DiffList['diffs'][number];
 export type ListedRepository = DiffList['repositories'][number];
 

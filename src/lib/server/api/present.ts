@@ -3,6 +3,12 @@
  * and its errors as HTTP answers. The routes call these; nothing else turns a
  * service value into JSON.
  */
+import {
+	describeDiskUsage,
+	describeDiskUsageInFull,
+	describeWhatDeletingFrees
+} from '#lib/core/disk-usage/disk-words.ts';
+import { describeByteSize } from '#lib/core/viewer/words.ts';
 import { gitHubRepositoryText } from '#lib/core/github/github-repository.ts';
 import {
 	describeListedDetails,
@@ -33,6 +39,7 @@ import type {
 	ChangeCheckResponse,
 	DiffPage,
 	DiffSummary,
+	Storage as StorageView,
 	FileView,
 	Marked,
 	PartBlockView,
@@ -103,6 +110,7 @@ import type {
 	ReportError,
 	ReportSummary,
 	StartOutcome,
+	Storage,
 	UpdateOutcome
 } from '../reports/index.ts';
 import type {
@@ -144,7 +152,37 @@ export function summaryView(summary: ReportSummary): DiffSummary {
 		progress: summary.progress,
 		progressText: describeUnitProgress(summary.progress),
 		leftOut: summary.leftOut,
-		version: summary.revision
+		version: summary.revision,
+		disk:
+			summary.disk === undefined
+				? null
+				: {
+						own: summary.disk.usage.own,
+						shared: summary.disk.usage.shared,
+						text: describeDiskUsage(summary.disk.usage),
+						inFull: describeDiskUsageInFull(summary.disk.usage),
+						deleting: describeWhatDeletingFrees(summary.disk.usage, summary.disk.freedWithinAnHour)
+					}
+	};
+}
+
+/** What diff delver takes on disk, for the Storage page. */
+export function storageView(storage: Storage): StorageView {
+	return {
+		databaseText: describeByteSize(storage.database),
+		stores: storage.stores.map((store) => ({
+			repository: store.repository,
+			onDiskText: describeByteSize(store.onDisk),
+			delves: store.delves.map(({ summary, usage }) =>
+				summaryView({
+					...summary,
+					disk:
+						usage === undefined
+							? undefined
+							: { usage, freedWithinAnHour: summary.disk?.freedWithinAnHour ?? false }
+				})
+			)
+		}))
 	};
 }
 
