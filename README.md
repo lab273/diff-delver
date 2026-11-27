@@ -61,6 +61,9 @@ On the page you can:
   choose, or press `c` or `f` on it. Drag over the numbers, or hold Shift, to take
   several lines. Comments and flags are private drafts on your machine, shown at
   their lines; a flag needs no words, and `F` goes from flag to flag.
+- **Answer earlier reviews**: after an update, what you said in earlier reviews is
+  shown at its lines, as open or with its code changed since. Reply to it or resolve
+  it (`p` goes to the next one open); both go in your next review.
 - **Finish and copy** your comments and flags as a review: it goes on the clipboard,
   written for an agent, with the code each comment is on. Paste it to your agent, or ask your
   agent to act on your review in diff delver, and it reads the same review.
@@ -230,6 +233,9 @@ To take comment access away from every browser, run `diff-delver stop`, delete
   its binary files with their sizes in bytes.
 - Ticking files and sections as reviewed, with progress, across restarts.
 - Updating a Delve when the code changes, keeping sections and ticks.
+- Comments of earlier reviews followed to their lines in later versions, as open,
+  with their code changed since, or resolved; replied to and resolved in the next
+  review, which lists those still open first.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex
   have both done it in the project's [recorded trials](tests/agent-trials/README.md).
 - The agent's overview and section summaries appear while the Delve is open. They
@@ -249,7 +255,6 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 Not built yet:
 
 - The agent’s cross-references between sections.
-- Replies to earlier reviews.
 - Saving a review to a file.
 - A pull request with no clone of its repository on this machine, and GitHub
   Enterprise.
