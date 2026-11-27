@@ -94,7 +94,7 @@ Three rules shape the data model and the agent interface:
 | SQLite | Node's built-in `node:sqlite`. No native dependency. |
 | Node | Reviewers need the current LTS line (Node 26 at the time of writing). The built-in SQLite module was checked on 26.13.1. |
 | User experience | The first principle. Ease of use wins over features, convenience and model purity (1.1). |
-| Disk usage | The UI shows roughly how much space each report and each snapshot takes. |
+| Disk usage | The UI shows roughly how much space each report takes, and what deleting it frees. |
 
 ## 3. Architecture
 
@@ -934,7 +934,7 @@ the starting vocabulary, to be adjusted by watching people use it.
 | agent attached | "Agent connected" |
 | thread status | "Open", "Code changed since", "Resolved" |
 | submit | "Finish review" |
-| own size | "Frees about 40 MB" |
+| own size | "About 40 MB on disk"; before deleting, "Deleting it frees about 40 MB on disk within about an hour" |
 
 ### 8.6 Finishing a review
 
@@ -1119,35 +1119,47 @@ Reports are kept indefinitely and each repository's store holds whole trees, so
 the UI has to show where the space goes.
 
 Snapshots of one repository share objects, so sizes do not simply add up. Each
-snapshot and each report therefore gets two figures:
+report therefore gets two figures:
 
 - **Own**: what deleting it would free. These are the objects nothing else in the
   store refers to.
-- **Shared**: what it uses in common with other snapshots or reports of the same
-  repository.
+- **Shared**: what it uses in common with other reports of the same repository.
 
-A report's figure also includes its rows in SQLite, which are small.
+A pull request's report counts the downloads kept for it (3.1) as its own, by the
+size of the pack each one is. Its rows in SQLite are small and are not
+counted.
 
 Where it is shown:
 
-- the reports list, one figure per report (own, with shared on hover)
-- the report timeline, one figure per snapshot
-- a **Storage** page: each repository's store with its real size on disk, the
-  database size, the reports inside each store sorted by size, and delete
-- the delete confirmation, as "frees about 40 MB"
+- the reports list, one figure per report ("About 40 MB on disk", own, with shared on
+  hover)
+- a **Storage** page, linked from the reports list: each repository's store with
+  its size on disk, the database's size, each with when it was measured, the
+  reports inside each store, largest first, and delete
+- the delete confirmation, as "Deleting it frees about 40 MB on disk within about an hour"
+
+A report not measured yet says so, or nothing in the list. Per-snapshot figures on
+the report's history are not built: a snapshot is not deleted on its own.
 
 How it is measured:
 
-- A store's total is its real size on disk.
-- Per-snapshot figures come from git's own per-object disk sizes, summed over the
-  objects reachable from the snapshot's two trees. Git compresses objects against
-  each other, so these are estimates and are labelled "about".
-- Figures are computed in the background when a snapshot is added or removed and
-  cached. They never block opening a report.
-- Space is returned to the disk when the store is next collected, which deleting a
+- Git adds the sizes up itself (`git rev-list --disk-usage`), over the objects
+  reachable from what each report holds: what all of a store's reports reach, what
+  each reaches, and what the others reach without it, the difference being its own.
+  Git compresses objects against each other, and a delta counts by its own size,
+  so these are estimates and are labelled "about".
+- A store's size comes from git's count of its objects, and the database's from
+  its file, at the same time.
+- A store is measured in the background a minute after it last changed (a report
+  opened, updated or deleted, or the store collected), and its figures are kept in
+  the database. They never block opening a report, and the Storage page only reads
+  them. Measuring stops when the daemon stops, and what it did not finish is
+  measured next time.
+- Space is returned to the disk when the store is collected, which deleting a
   report triggers. Objects written within the last hour are kept through a
-  collection, so deleting a fresh report frees its space up to an hour later. The
-  confirmation says "frees about 40 MB", and says "within an hour" when that applies.
+  collection, so the store is collected again once that hour has passed, and a
+  daemon that starts collects again any store with a pack younger than that, once
+  it is old enough. The confirmation therefore always says "within about an hour".
 
 ## 10. User journeys
 
@@ -1171,7 +1183,7 @@ guidance says [how journeys are tested](DEVELOPING.md#testing).
 | J12 | Review a jj change | open a change, amend it, and continue in the same report |
 | J13 | Visual changes | compare a changed image in each mode and see a snapshot image beside its test |
 | J14 | Agent notes | hide all notes, dismiss one, promote one into the review |
-| J15 | Disk space | see what each report and snapshot takes, delete a report and see the space freed |
+| J15 | Disk space | see what each report takes and what the Storage page holds, delete a report and be told when its space is freed |
 | J16 | Reading and finding | read code coloured by language or plain, in one column or side by side, with white-space changes hidden, search the whole diff, move from match to match, and open changed and unchanged files by name |
 | J17 | Choose commits to review | open the choose page for a repository, see its branches and commits with their times and sizes, pick a run of commits or a whole branch with the keyboard, open it, and see when the repository last fetched and whether origin has moved on |
 | J18 | Draft comments | open a Delve from an agent's link and turn comments on in one press, comment on a line or a run of lines from the line itself, see each comment at its lines and in a list that goes to it, edit and delete one, and keep what was typed through a refused save and an update |
