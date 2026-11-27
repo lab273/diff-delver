@@ -88,6 +88,10 @@ describe('the draft on one line', () => {
 		);
 		expect(of({ beingWritten: 1 })).toBe('1 comment being written');
 		expect(of({ comments: 1, beingWritten: 2 })).toBe('1 comment, 2 more being written');
+		expect(of({ flags: 1, beingWritten: 2 })).toBe('1 flag, 2 comments being written');
+		expect(of({ comments: 1, replies: 1, beingWritten: 1 })).toBe(
+			'1 comment and 1 reply, 1 comment being written'
+		);
 	});
 });
 

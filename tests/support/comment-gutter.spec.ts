@@ -245,7 +245,7 @@ test('a comment is changed in one box, holds what was typed exactly, and shows w
 		await expect(file.getByRole('form', { name: /^Editing your comment/ })).toHaveCount(1);
 		// The words kept are exactly the ones typed.
 		await expect(editing.getByRole('textbox', { name: 'Comment' })).toHaveValue(typed);
-		await expect(listed).toContainText('You are changing its words under its lines, below.');
+		await expect(listed).toContainText('You are changing its words under its lines, in the diff.');
 		// Edit pressed in the list brings the same box, with what it holds, there.
 		await editing.getByRole('textbox', { name: 'Comment' }).fill('Half changed.');
 		await listed
@@ -254,7 +254,9 @@ test('a comment is changed in one box, holds what was typed exactly, and shows w
 		await expect(editing).toHaveCount(1);
 		await expect(listed.getByRole('form', { name: /^Editing your comment/ })).toHaveCount(1);
 		await expect(editing.getByRole('textbox', { name: 'Comment' })).toHaveValue('Half changed.');
-		await expect(saved).toContainText('You are changing its words in the list of comments, above.');
+		await expect(saved).toContainText(
+			'You are changing its words in the list of comments, in your draft review at the foot of the page.'
+		);
 		await editing.getByRole('button', { name: 'Save changes', exact: true }).click();
 		await expect(editing).toHaveCount(0);
 		await expect(saved.locator('.words')).toHaveText('Half changed.');

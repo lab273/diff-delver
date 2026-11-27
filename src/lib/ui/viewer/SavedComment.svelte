@@ -138,8 +138,8 @@
 		{#if changing !== undefined}
 			<p class="elsewhere">
 				You are changing its words {listed
-					? 'under its lines, below'
-					: 'in the list of comments, above'}.
+					? 'under its lines, in the diff'
+					: 'in the list of comments, in your draft review at the foot of the page'}.
 			</p>
 		{/if}
 		{#if notDeleted !== undefined}

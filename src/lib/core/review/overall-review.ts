@@ -87,7 +87,8 @@ export interface DraftCounts {
 /**
  * The draft in words, on one line: "No comments yet", "3 comments, 1 flag
  * and 1 reply", "2 comments and 1 earlier comment resolved or reopened",
- * "1 comment being written", "1 comment, 2 more being written".
+ * "1 comment being written", "1 comment, 2 more being written", "1 flag, 2
+ * comments being written".
  */
 export function describeDraft({
 	comments,
@@ -109,8 +110,13 @@ export function describeDraft({
 				)
 	]);
 	if (beingWritten === 0) return saved === '' ? 'No comments yet' : saved;
-	if (saved === '') return `${countOf(beingWritten, 'comment', 'comments')} being written`;
-	return `${saved}, ${formatCount(beingWritten)} more being written`;
+	const writing = `${countOf(beingWritten, 'comment', 'comments')} being written`;
+	if (saved === '') return writing;
+	// "More" only after comments alone, so it never reads as more flags or replies.
+	const onlyComments = flags === 0 && replies === 0 && resolutions === 0;
+	return onlyComments
+		? `${saved}, ${formatCount(beingWritten)} more being written`
+		: `${saved}, ${writing}`;
 }
 
 /** What a review holds: how many comments and flags, and whether an overall review. */
