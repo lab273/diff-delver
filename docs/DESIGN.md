@@ -783,12 +783,13 @@ the line or the lines taken at once. A saved comment is drawn under the last of 
 lines, as plain text, with **Edit** and **Delete**. A flag is drawn there too,
 "Flagged to look at again", with **Add words** and **Clear**: its words are
 optional, flagging the same lines again makes no second flag, and Clear takes it
-off in one press, since raising it again is one press too. A list above the diff
-counts every comment and flag and goes to each, and `F` goes to the next flag. A
+off in one press, since raising it again is one press too. The draft review at the
+foot of the page lists every comment and flag and goes to each, and `F` goes to the
+next flag. A
 flag is stored as a comment of kind `flag`, so it carries over to a new version as
 comments do. The agent's notes are drawn at their lines after the reviewer's own,
 labelled "Agent note" with their kind, with **Dismiss** and **Promote to review**;
-they are counted above the diff and in the overall review's bar apart from the
+they are counted above the diff and in the draft review apart from the
 reviewer's comments, and `a` hides or shows them all.
 
 **States explained in place.** Wherever something could puzzle a newcomer, the
@@ -817,7 +818,9 @@ needed for a first review.
   Open a section’s file list to jump straight to its part of a file.
 - **Main pane**: the section summary, then its slices. Each slice has a tick, the
   file path, chips for the file's other sections, and the diff.
-- **Side panel**: threads, agent notes, the request queue and the draft review.
+- **Side panel**: progress, threads, agent notes and the request queue.
+- **Draft review**: pinned to the foot of the page, everything the reviewer has
+  written in the draft and finishing it (8.6).
 - **History**: the report's timeline of revisions and reviews (6.4).
 - **File tree view**: an alternative to the guided view that lists every file once
   with chips showing where its parts live. This is the direct answer to "is every
@@ -1033,13 +1036,25 @@ finished review shows where it was posted, with a link to it; that, and only
 that, is kept of the delivery log (6.3) so far. A finished review cannot be
 posted again from the list yet. "Finish and copy only" posts nothing.
 
-**The overall review.** The reviewer writes the review's summary (6.3) in a bar
-pinned to the foot of a Delve's page, so it is at hand wherever they are in the
-diff. Put away, the bar shows the first words written, or that nothing is written
-yet, whether something typed is not saved, how many comments the draft holds and
-the way to finish; opened, it is a box that saves as a comment's does, and `v`
-opens it. It starts put away, and stays open once opened, for every Delve, until it
-is put away again. It is part of the draft: it needs review access, a review can be
+**The draft review.** Everything the reviewer has written in the draft, and
+finishing it, is in one place: "Your draft review", pinned to the foot of a
+Delve's page, so it is at hand wherever they are in the diff. Put away, it is one
+line: the overall review's first words, or that there is none, whether something
+typed there is not saved, what the draft holds ("3 comments, 1 flag and 1 reply",
+and any being written), the agent notes waiting, and "Finish your review". Open,
+never more than about 60% of the window and scrolling within itself, it holds the
+overall review's box, then the draft's comments, flags, replies and questions not
+yet asked, each a way back to its lines, then finishing: Finish and copy, and for
+a pull request posting it, with what will be handed over and the reviews finished
+before. Putting it away keeps everything in it as it was, a post under way too.
+`v` opens it at the overall review and Escape puts it away; whether it is open is
+the person's setting, for every Delve. Going to a comment from it shows the
+comment whatever hid it: its part is opened, unchanged lines around it unfolded,
+"By file" goes back to sections and "Only what I have not reviewed" is turned off;
+nothing else the person chose is changed.
+
+**The overall review.** The reviewer writes the review's summary (6.3) in the
+draft review's box, which saves as a comment's does. It is part of the draft: it needs review access, a review can be
 finished with it and no comments, finishing empties it, and a finish is refused
 when it changed since the page showed it, as for comments. It belongs to the whole
 Delve, not to a version, so it can be saved on any version while the Delve is open.
@@ -1192,7 +1207,7 @@ guidance says [how journeys are tested](DEVELOPING.md#testing).
 | J18 | Draft comments | open a Delve from an agent's link and turn comments on in one press, comment on a line or a run of lines from the line itself, see each comment at its lines and in a list that goes to it, edit and delete one, and keep what was typed through a refused save and an update |
 | J19 | Move between Delves | go from a Delve to another through the panel that lists the others, open the choose page for the Delve's repository from the panel and open a branch there, and reach the list from the header, where each repository offers the same way to open something new, with no terminal |
 | J20 | Have an agent sort this Delve | on a Delve no agent has sorted, open the steps under "Not sorted yet", copy the command for an agent, the folder and the sentence that names this Delve, see the page say an agent connected, and see the steps give way to the agent's sections |
-| J21 | The overall review | write an overall review in the bar pinned to the bottom of a Delve, put it away and see its first words and how many comments there are, change it, and find it at the top of the finished review |
+| J21 | The overall review | write an overall review in the draft review pinned to the bottom of a Delve, put it away and see its first words and how many comments there are, change it, and find it at the top of the finished review |
 | J22 | Read a section in the agent's order | open a section the agent ordered, read its steps in order with the agent's note on each, a file split over two steps among them, tick each step and move on with `r`, and see lines no step names come last |
 
 The agent interface is also tried with real coding agents. Recorded sessions of
