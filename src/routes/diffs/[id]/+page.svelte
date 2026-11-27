@@ -875,7 +875,9 @@
 				);
 				const busy = diff.querySelector('[aria-busy="true"]') !== null;
 				const moved = again();
-				settledFrames = since.resized || waiting || busy || moved ? 0 : settledFrames + 1;
+				// A page too short to put it at the top may still grow, as parts after it are drawn.
+				const short = unclampedTopOf(element) > window.scrollY + 1;
+				settledFrames = since.resized || waiting || busy || moved || short ? 0 : settledFrames + 1;
 				if (settledFrames === 2) return;
 				since.resized = false;
 			}
@@ -1509,6 +1511,12 @@
 	 * part's sticky header when it is inside a part; as far as the page goes.
 	 */
 	function topOf(element: HTMLElement): number {
+		const bottom = document.documentElement.scrollHeight - window.innerHeight;
+		return Math.max(0, Math.min(unclampedTopOf(element), bottom));
+	}
+
+	/** Where the window's scroll would put an element at the top of the screen, were the page long enough. */
+	function unclampedTopOf(element: HTMLElement): number {
 		const part = element.closest('article.part');
 		const header = part === element ? null : part?.querySelector('header');
 		const clearance = header?.getBoundingClientRect().height ?? 0;
@@ -1520,8 +1528,7 @@
 			scrollPadding().top -
 			stickyTop -
 			clearance;
-		const bottom = document.documentElement.scrollHeight - window.innerHeight;
-		return Math.max(0, Math.min(top, bottom));
+		return Math.max(0, top);
 	}
 
 	/**
