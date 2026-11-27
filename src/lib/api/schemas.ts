@@ -259,17 +259,17 @@ export const DiffListSchema = z.object({
 });
 export type DiffList = z.output<typeof DiffListSchema>;
 
-/** GET /api/storage: what diff delver takes on disk (DESIGN 9.1). */
+/** GET /api/storage: what diff delver takes on disk (DESIGN 9.1), as last measured. */
 export const StorageSchema = z.object({
-	/** The database's size on disk, exactly, in words: "1.2 MB". */
+	/** The database's size on disk, exactly, with when: "1.2 MB on disk, measured just now", or "Not measured yet". */
 	databaseText: message,
-	/** Each repository's store, the largest first. */
+	/** Each repository's store, the largest first, then those not measured yet. */
 	stores: z.array(
 		z.object({
 			/** The repository it holds, by its folder name. */
 			repository: message,
-			/** Its size on disk, exactly, in words. */
-			onDiskText: message,
+			/** Its size on disk, exactly, with when it was measured, or "Not measured yet". */
+			sizeText: message,
 			/** Its Delves, with what each takes in it; those that free most first. */
 			delves: z.array(DiffSummarySchema)
 		})

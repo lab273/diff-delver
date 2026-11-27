@@ -2,24 +2,23 @@
  * What each Delve takes on disk (DESIGN 9.1), measured from a real store: two
  * Delves of one repository share what both reach, a Delve's own figure grows
  * when an update adds what only it has, deleting one makes what it shared the
- * other's own, and the Storage page's figures are the store's and the
- * database's real sizes.
+ * other's own, the Storage page's figures are the store's and the
+ * database's sizes as measured, and measuring waits a minute after a change
+ * and stops when asked.
  */
 import { createHash } from 'node:crypto';
-import { stat } from 'node:fs/promises';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { settableClock } from '#lib/core/clock.ts';
 import type { DelveDiskUsage } from '#lib/core/disk-usage/delve-sizes.ts';
 import { sequentialIds } from '#lib/core/ids.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import { parseGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
-import { folderSize, GRACE_PERIOD, listStores } from '#lib/server/store/index.ts';
+import { GRACE_PERIOD } from '#lib/server/store/index.ts';
 import { emptyRepo, tempDirectory } from '../../../../tests/support/fixture-repos.ts';
 import { value } from '../../../../tests/support/git-source-helpers.ts';
 import { at } from '../../../../tests/support/report-rows.ts';
 import { reviewer } from '../../../../tests/support/reviewer-git.ts';
-import { DATABASE_FILE } from '../db/index.ts';
+import { MEASURE_AFTER_MS } from './disk-usage.ts';
 import { ReportService, type OpenOutcome } from './index.ts';
 
 const KB = 1024;
@@ -95,7 +94,10 @@ describe('what each Delve takes on disk', () => {
 		// An update adds a version that alone reaches d.txt.
 		await repo.write('d.txt', incompressible('d', 20));
 		value(await service.update(uncommitted));
-		await service.measureDiskUsage();
+		// Measured once the store has not changed for a while, and not before.
+		expect(await service.measureDiskUsage()).toEqual([]);
+		clock.advance(MEASURE_AFTER_MS);
+		expect(await service.measureDiskUsage()).toHaveLength(1);
 		about(listed(service, uncommitted)?.own ?? 0, 70);
 		about(listed(service, uncommitted)?.shared ?? 0, 70);
 
@@ -106,17 +108,26 @@ describe('what each Delve takes on disk', () => {
 		clock.advance(GRACE_PERIOD + 60_000);
 		expect(value(await service.collectFreedStores())).toHaveLength(1);
 		expect(value(await service.collectFreedStores())).toEqual([]);
+		clock.advance(MEASURE_AFTER_MS);
 		await service.measureDiskUsage();
 		about(listed(service, uncommitted)?.own ?? 0, 140);
 		expect(listed(service, uncommitted)?.shared).toBe(0);
 
-		// The Storage page: the store's real size and the database's, with the Delve in it.
-		const storage = value(await service.storage());
-		const [store] = value(await listStores(data));
+		// The Storage page: the store's size and the database's as measured, with the Delve in it.
+		const storage = value(service.storage());
 		expect(storage.stores).toHaveLength(1);
-		expect(storage.stores[0]?.onDisk).toBe(store === undefined ? -1 : await folderSize(store.dir));
+		about(storage.stores[0]?.size?.onDisk ?? 0, 140);
+		expect(storage.stores[0]?.size?.measuredAt).toBe(clock.now());
 		expect(storage.stores[0]?.delves.map((d) => d.summary.id)).toEqual([uncommitted]);
-		expect(storage.database).toBeGreaterThanOrEqual((await stat(join(data, DATABASE_FILE))).size);
+		expect(storage.database?.onDisk ?? 0).toBeGreaterThan(0);
+
+		// A daemon stopping stops measuring, and what it did not measure is measured next time.
+		await repo.write('e.txt', incompressible('e', 5));
+		value(await service.update(uncommitted));
+		clock.advance(MEASURE_AFTER_MS);
+		expect(await service.measureDiskUsage(AbortSignal.abort())).toEqual([]);
+		expect(await service.measureDiskUsage()).toHaveLength(1);
+		about(listed(service, uncommitted)?.own ?? 0, 145);
 		service.close();
 	});
 

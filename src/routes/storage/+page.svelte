@@ -1,9 +1,9 @@
 <!--
-	Storage (DESIGN 9.1): what diff delver takes on disk. Each repository's
-	store with its real size, the Delves in it by what deleting each would
-	free, with Delete, and the database's size. A Delve's figures are
-	estimates, measured in the background, so one opened a moment ago may
-	have none yet.
+	Storage (DESIGN 9.1): what diff delver takes on disk, as last measured in
+	the background. Each repository's store with its size and when it was
+	measured, the Delves in it by what deleting each would free, with Delete,
+	and the database's size. A Delve's figures are estimates; one opened a
+	moment ago may have none yet.
 -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
@@ -46,7 +46,7 @@
 		diff delver keeps a copy of what each Delve shows, one store for each repository, so it can be
 		read after the repository has moved on. What each Delve takes is an estimate: Delves of a
 		repository share what they have in common, and only what a Delve alone holds is freed when it is
-		deleted.
+		deleted. Sizes are measured a minute or so after anything changes.
 	</p>
 	{#if storage.stores.length === 0}
 		<p>Nothing is stored yet.</p>
@@ -54,7 +54,7 @@
 	{#each storage.stores as store, index (index)}
 		<section aria-labelledby="store-{String(index)}">
 			<h2 id="store-{String(index)}">
-				{store.repository} <span class="size">{store.onDiskText} on disk</span>
+				{store.repository} <span class="size">{store.sizeText}</span>
 			</h2>
 			{#if store.delves.length === 0}
 				<p class="none">No Delves. What is left is freed the next time it is tidied.</p>
@@ -88,9 +88,12 @@
 			{/if}
 		</section>
 	{/each}
-	<p class="database">
-		Your Delves’ details, comments and reviews: {storage.databaseText} on disk.
-	</p>
+	<section aria-labelledby="database">
+		<h2 id="database">
+			Your Delves’ details, comments and reviews <span class="size">{storage.databaseText}</span>
+		</h2>
+		<p class="none">Kept in one database, beside the stores.</p>
+	</section>
 	{#if !data.canReview}
 		<ReviewAccess diff={null} what="deleting" />
 	{/if}
@@ -138,8 +141,7 @@
 
 	.size,
 	.figure,
-	.none,
-	.database {
+	.none {
 		color: var(--color-muted);
 		font-size: 0.875rem;
 		font-weight: 400;
@@ -167,9 +169,5 @@
 
 	.delves button {
 		margin-left: auto;
-	}
-
-	.database {
-		margin: 1.5rem 0 0;
 	}
 </style>

@@ -1,115 +1,80 @@
 /**
  * What a store's objects take on disk (DESIGN 9.1), for the figures of each
- * Delve (`#lib/core/disk-usage/delve-sizes.ts`): the objects some snapshots
- * reach, the objects in a pack, each object's size on disk by git's own
- * measure, and the store's whole size on disk. Each holds the store shared,
- * so a collection waits for it; between two of them the store may be
- * collected, which only makes an estimate a little off.
+ * Delve (`#lib/core/disk-usage/delve-sizes.ts`): the size on disk of what
+ * some snapshots and commits reach, by git's own measure, and the store's
+ * whole size. git adds them up itself, so nothing is listed object by object.
+ * Each holds the store shared, so a collection waits for it, and stops git
+ * when `stop` fires; between two of them the store may be collected, which
+ * only makes an estimate a little off.
  */
-import { readdir, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
 import { parseByteSize, type ByteSize } from '#lib/core/byte-size.tiny.ts';
-import { parseObjectId, type ObjectId } from '#lib/core/object-id.tiny.ts';
-import { ok, type Result } from '#lib/core/result.ts';
+import type { CommitId } from '#lib/core/commit-id.tiny.ts';
+import { err, type Result } from '#lib/core/result.ts';
 import type { SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
-import { runGit } from '../git/run-git.ts';
+import { runGitText } from '../git/run-git.ts';
 import { SNAPSHOT_REFS } from './snapshots.ts';
 import type { Store } from './store.ts';
 import type { StoreError } from './store-error.ts';
 import { withStoreLock } from './store-lock.ts';
 
-/** Every object id at the start of a line of git's output, once each, in the order given. */
-function objectIdsIn(output: Buffer, field: number): readonly ObjectId[] {
-	const ids: ObjectId[] = [];
-	for (const line of output.toString('utf8').split('\n')) {
-		const id = parseObjectId(line.split(' ')[field] ?? '');
-		if (id.ok) ids.push(id.value);
-	}
-	return ids;
+/** What to measure: snapshots, by their refs, and commits, each with its tree but not its history. */
+export interface Reach {
+	readonly snapshots: readonly SnapshotId[];
+	readonly commits: readonly CommitId[];
+}
+
+function bytes(store: Store, value: number, what: string): Result<ByteSize, StoreError> {
+	const size = parseByteSize(value);
+	return size.ok
+		? size
+		: err({ kind: 'StoreDamaged', store: store.id, detail: `git gave no size for ${what}` });
 }
 
 /**
- * Every object the snapshots reach: their trees, the trees and blobs in them.
- * A snapshot deleted meanwhile reaches nothing.
+ * The size on disk of every object `reach` reaches, each counted once: a
+ * loose object's file, or its entry in a pack, which for an object stored as
+ * a delta against another is the delta's size. A snapshot or commit gone
+ * meanwhile reaches nothing. A commit's parents are never read, since a pull
+ * request's history may be only in the clone it was fetched with.
  */
-export function objectsReachedBy(
+export function diskUsageOf(
 	store: Store,
-	snapshots: readonly SnapshotId[]
-): Promise<Result<readonly ObjectId[], StoreError>> {
-	if (snapshots.length === 0) return Promise.resolve(ok([]));
+	reach: Reach,
+	stop?: AbortSignal
+): Promise<Result<ByteSize, StoreError>> {
+	const tips = [...reach.snapshots.map((id) => `${SNAPSHOT_REFS}${id}`), ...reach.commits];
+	if (tips.length === 0) return Promise.resolve(bytes(store, 0, 'nothing'));
 	return withStoreLock(store.dir, 'shared', async () => {
-		const listed = await runGit({
+		const measured = await runGitText({
 			cwd: store.dir,
-			args: ['rev-list', '--objects', '--no-object-names', '--ignore-missing', '--stdin'],
-			input: snapshots.map((id) => `${SNAPSHOT_REFS}${id}\n`).join('')
+			args: ['rev-list', '--objects', '--no-walk', '--disk-usage', '--ignore-missing', '--stdin'],
+			input: tips.map((tip) => `${tip}\n`).join(''),
+			...(stop === undefined ? {} : { stopWhen: stop })
 		});
-		return listed.ok ? ok(objectIdsIn(listed.value.stdout, 0)) : listed;
-	});
-}
-
-/** Every object in the pack whose index is `packIndex`, a file of the store's. */
-export function objectsInPack(
-	store: Store,
-	packIndex: string
-): Promise<Result<readonly ObjectId[], StoreError>> {
-	return withStoreLock(store.dir, 'shared', async () => {
-		const index = await readFile(packIndex).catch(() => undefined);
-		// A pack collected meanwhile holds nothing any more.
-		if (index === undefined) return ok([]);
-		const listed = await runGit({
-			cwd: store.dir,
-			args: ['show-index', `--object-format=${store.objectFormat}`],
-			input: index
-		});
-		// Each line is the object's offset in the pack, its id and its checksum.
-		return listed.ok ? ok(objectIdsIn(listed.value.stdout, 1)) : listed;
+		return measured.ok ? bytes(store, Number(measured.value.trim()), 'its objects') : measured;
 	});
 }
 
 /**
- * The size on disk of every object in the store, by git's own measure: a
- * loose object's file, or its entry in a pack, which may be stored against
- * another object. An object in two packs has the size of one of them.
+ * The store's size on disk, as git counts it: its loose objects, its packs
+ * and what is left over in its pack folder.
  */
-export function objectDiskSizes(
-	store: Store
-): Promise<Result<ReadonlyMap<ObjectId, ByteSize>, StoreError>> {
+export function storeSizeOnDisk(
+	store: Store,
+	stop?: AbortSignal
+): Promise<Result<ByteSize, StoreError>> {
 	return withStoreLock(store.dir, 'shared', async () => {
-		const listed = await runGit({
+		const counted = await runGitText({
 			cwd: store.dir,
-			args: ['cat-file', '--batch-all-objects', '--batch-check=%(objectname) %(objectsize:disk)']
+			args: ['count-objects', '-v'],
+			...(stop === undefined ? {} : { stopWhen: stop })
 		});
-		if (!listed.ok) return listed;
-		const sizes = new Map<ObjectId, ByteSize>();
-		for (const line of listed.value.stdout.toString('utf8').split('\n')) {
-			const [name = '', bytes = ''] = line.split(' ');
-			const id = parseObjectId(name);
-			const size = parseByteSize(Number(bytes));
-			if (id.ok && size.ok && bytes !== '' && !sizes.has(id.value)) sizes.set(id.value, size.value);
+		if (!counted.ok) return counted;
+		let kib = 0;
+		for (const line of counted.value.split('\n')) {
+			const [name = '', value = ''] = line.split(': ');
+			if (name === 'size' || name === 'size-pack' || name === 'size-garbage') kib += Number(value);
 		}
-		return ok(sizes);
+		return bytes(store, kib * 1024, 'the store');
 	});
-}
-
-/** The store's whole size on disk: every file in its folder, added up. */
-export async function storeSizeOnDisk(store: Store): Promise<ByteSize> {
-	return withStoreLock(store.dir, 'shared', () => folderSize(store.dir));
-}
-
-/** Every file under `folder`, added up; one removed while it is read counts nothing. */
-export async function folderSize(folder: string): Promise<ByteSize> {
-	const size = parseByteSize(await bytesUnder(folder));
-	if (!size.ok) throw new Error(`A folder's files add up to no size: ${folder}`);
-	return size.value;
-}
-
-async function bytesUnder(folder: string): Promise<number> {
-	let total = 0;
-	const entries = await readdir(folder, { withFileTypes: true }).catch(() => []);
-	for (const entry of entries) {
-		const path = join(folder, entry.name);
-		if (entry.isDirectory()) total += await bytesUnder(path);
-		else if (entry.isFile()) total += (await stat(path).catch(() => undefined))?.size ?? 0;
-	}
-	return total;
 }

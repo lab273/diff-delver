@@ -43,7 +43,9 @@ export type TableName =
 	| 'draft_resolutions'
 	| 'review_resolutions'
 	| 'github_review_post_resolutions'
-	| 'delve_sizes';
+	| 'delve_sizes'
+	| 'store_sizes'
+	| 'database_size';
 
 /**
  * The file could not be opened or made (a missing folder, no permission, a full
@@ -241,6 +243,10 @@ function tableInWords(table: TableName): string {
 			return 'a review being posted to GitHub';
 		case 'delve_sizes':
 			return 'what a Delve takes on disk';
+		case 'store_sizes':
+			return 'what a repository’s saved changes take on disk';
+		case 'database_size':
+			return 'what the database takes on disk';
 	}
 }
 
@@ -287,6 +293,8 @@ function storedRowAdvice(table: TableName): string {
 		case 'settings':
 			return 'Change any setting on a Delve’s page, which stores it again.';
 		case 'delve_sizes':
+		case 'store_sizes':
+		case 'database_size':
 			return 'Nothing needs doing: diff delver measures it again.';
 		case 'schema_migrations':
 		case 'unreferenced_snapshots':

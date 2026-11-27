@@ -44,6 +44,7 @@ export type {
 	RepositoryPullRequests,
 	ReportSummary,
 	Storage,
+	MeasuredSize,
 	StoreStorage,
 	StoredDelve,
 	StartOutcome,

@@ -285,7 +285,7 @@ describe('the database', () => {
 			},
 			{
 				version: 23,
-				name: 'what each Delve takes on disk in each store, measured in the background',
+				name: 'what each Delve, each store and the database take on disk, measured in the background',
 				applied_at: 1_700_000_000_000
 			}
 		]);
@@ -386,6 +386,8 @@ describe('the database', () => {
 			review_resolutions: [],
 			github_review_post_resolutions: [],
 			delve_sizes: [],
+			store_sizes: [],
+			database_size: [],
 			// SQLite's own, for the tables whose ids are never used again, touched by their migrations.
 			sqlite_sequence: [
 				{ name: 'draft_comments', seq: 0 },

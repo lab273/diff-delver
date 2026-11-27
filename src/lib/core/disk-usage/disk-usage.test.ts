@@ -4,8 +4,16 @@ import { delveSizes, totalDiskUsage, type DelveDiskUsage } from './delve-sizes.t
 import {
 	describeDiskUsage,
 	describeDiskUsageInFull,
+	describeMeasuredSize,
 	describeWhatDeletingFrees
 } from './disk-words.ts';
+import { parseTimestamp, type Timestamp } from '../timestamp.tiny.ts';
+
+function time(ms: number): Timestamp {
+	const parsed = parseTimestamp(ms);
+	if (!parsed.ok) throw new Error('not a time');
+	return parsed.value;
+}
 
 function size(n: number): ByteSize {
 	const parsed = parseByteSize(n);
@@ -20,47 +28,45 @@ function usage(own: number, shared: number): DelveDiskUsage {
 const MB = 1024 * 1024;
 
 describe('what each Delve takes on disk', () => {
-	const sizes = new Map([
-		['a', 10],
-		['b', 20],
-		['c', 40],
-		['d', 80]
-	]);
-	const sizeOf = (o: string): ByteSize | undefined => {
-		const found = sizes.get(o);
-		return found === undefined ? undefined : size(found);
-	};
+	// a 10, b 20 and c 40 bytes: the first reaches a, b and c; the second c and d, of 80.
+	const reach = (r: number, others: number): { reach: ByteSize; others: ByteSize } => ({
+		reach: size(r),
+		others: size(others)
+	});
 
 	it('counts what one Delve alone reaches as its own and the rest as shared', () => {
 		const measured = delveSizes(
+			size(150),
 			new Map([
-				['first', ['a', 'b', 'c']],
-				['second', ['c', 'd']]
-			]),
-			sizeOf
+				['first', reach(70, 120)],
+				['second', reach(120, 70)]
+			])
 		);
 		expect(measured.get('first')).toEqual(usage(30, 40));
 		expect(measured.get('second')).toEqual(usage(80, 40));
 	});
 
-	it('counts an object once however often a Delve reaches it, and nothing for one gone', () => {
-		const measured = delveSizes(new Map([['only', ['a', 'a', 'b', 'gone']]]), sizeOf);
-		expect(measured.get('only')).toEqual(usage(30, 0));
+	it('gives a Delve alone in its store all it reaches, and one that reaches nothing nothing', () => {
+		expect(delveSizes(size(30), new Map([['only', reach(30, 0)]])).get('only')).toEqual(
+			usage(30, 0)
+		);
+		const measured = delveSizes(
+			size(30),
+			new Map([
+				['first', reach(30, 30)],
+				['second', reach(30, 30)],
+				['empty', reach(0, 30)]
+			])
+		);
+		expect(measured.get('first')).toEqual(usage(0, 30));
+		expect(measured.get('empty')).toEqual(usage(0, 0));
 	});
 
-	it('gives a Delve that reaches nothing no space, and the deletion of one frees what was shared', () => {
-		const both = delveSizes(
-			new Map([
-				['first', ['a', 'b']],
-				['second', ['a', 'b']],
-				['empty', []]
-			]),
-			sizeOf
-		);
-		expect(both.get('first')).toEqual(usage(0, 30));
-		expect(both.get('empty')).toEqual(usage(0, 0));
-		const after = delveSizes(new Map([['second', ['a', 'b']]]), sizeOf);
-		expect(after.get('second')).toEqual(usage(30, 0));
+	it('never says less than nothing, nor more than a Delve reaches, when measures disagree', () => {
+		const measured = delveSizes(size(100), new Map([['first', reach(40, 120)]]));
+		expect(measured.get('first')).toEqual(usage(0, 40));
+		const more = delveSizes(size(200), new Map([['first', reach(40, 10)]]));
+		expect(more.get('first')).toEqual(usage(40, 0));
 	});
 
 	it('adds a Delve up over stores', () => {
@@ -96,5 +102,13 @@ describe('what a Delve takes on disk, in words', () => {
 		expect(describeWhatDeletingFrees(undefined)).toBe(
 			'The space it takes on disk is freed within an hour.'
 		);
+	});
+
+	it("says a store's or the database's size exactly, with when it was measured", () => {
+		const now = time(1_700_000_000_000);
+		expect(
+			describeMeasuredSize({ onDisk: size(12 * MB), measuredAt: time(now - 5 * 60_000) }, now)
+		).toBe('12 MB on disk, measured 5 minutes ago');
+		expect(describeMeasuredSize(undefined, now)).toBe('Not measured yet');
 	});
 });

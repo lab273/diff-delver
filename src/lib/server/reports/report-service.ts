@@ -411,7 +411,6 @@ import {
 	listSnapshotPaths,
 	snapshotEntry,
 	listStores,
-	storeSizeOnDisk,
 	openSnapshotRef,
 	openStore,
 	removeStaleFolders,
@@ -426,7 +425,9 @@ import {
 	type Store,
 	type StoreError
 } from '../store/index.ts';
-import { databaseSize, DiskUsage } from './disk-usage.ts';
+import { DiskUsage } from './disk-usage.ts';
+import { everyStoreSize } from '../db/tables/store-sizes.ts';
+import { databaseSizeOf } from '../db/tables/database-size.ts';
 import { delveSizesOf, everyDelveSize, type StoredDelveSize } from '../db/tables/delve-sizes.ts';
 import { totalDiskUsage, type DelveDiskUsage } from '#lib/core/disk-usage/delve-sizes.ts';
 import { describeReportError, type ReportError } from './report-error.ts';
@@ -533,10 +534,16 @@ export interface ReportSummary {
 
 /** What diff delver takes on disk, for the Storage page (DESIGN 9.1). */
 export interface Storage {
-	/** The database's size on disk, exactly. */
-	readonly database: ByteSize;
-	/** Every store, by its repository's name. */
+	/** The database's size on disk, when last measured. */
+	readonly database: MeasuredSize | undefined;
+	/** Every store, the largest first, then those not measured yet. */
 	readonly stores: readonly StoreStorage[];
+}
+
+/** A size on disk, and when it was measured. */
+export interface MeasuredSize {
+	readonly onDisk: ByteSize;
+	readonly measuredAt: Timestamp;
 }
 
 /** One repository's store and the Delves in it. */
@@ -544,8 +551,8 @@ export interface StoreStorage {
 	readonly store: StoreId;
 	/** The repository it holds snapshots of, by its folder's name: "shop". */
 	readonly repository: ReviewerMessage;
-	/** Its size on disk, exactly. */
-	readonly onDisk: ByteSize;
+	/** Its size on disk, when last measured. */
+	readonly size: MeasuredSize | undefined;
 	/** Its Delves, those that free the most first, then those not measured yet. */
 	readonly delves: readonly StoredDelve[];
 }
@@ -4737,45 +4744,50 @@ export class ReportService {
 
 	/**
 	 * What diff delver takes on disk (DESIGN 9.1): the database's size, and
-	 * each store's with its Delves, by what each would free. A store's size and
-	 * the database's are read now and exact; the Delves' are as last measured.
-	 * A Delve that cannot be read is left out; the list of Delves shows it.
+	 * each store's with its Delves, by what each would free, all as last
+	 * measured, from the database alone, so it never waits for a store. A
+	 * Delve that cannot be read is left out; the list of Delves shows it.
 	 */
-	async storage(): Promise<Result<Storage, ReportError>> {
-		const stores = await listStores(this.#dataDirectory);
-		if (!stores.ok) return stores;
+	storage(): Result<Storage, ReportError> {
 		const listed = this.list();
 		if (!listed.ok) return listed;
 		const found = this.#db.read((q) =>
 			ok({
 				sizes: everyDelveSize(q),
+				stores: everyStoreSize(q),
+				database: databaseSizeOf(q),
 				storeOf: new Map(
 					everyReport(q).flatMap((row) => (row.ok ? [[row.value.id, row.value.store]] : []))
 				)
 			})
 		);
 		if (!found.ok) return found;
-		const { sizes, storeOf } = found.value;
-		const shown: StoreStorage[] = [];
-		for (const store of stores.value) {
+		const { sizes, stores, database, storeOf } = found.value;
+		const measured = new Map(stores.map((s) => [s.store, s]));
+		const ids = [...new Set([...stores.map((s) => s.store), ...storeOf.values()])];
+		const shown = ids.map((id): StoreStorage => {
 			const delves = listed.value
-				.flatMap((r) => (r.kind === 'report' && storeOf.get(r.id) === store.id ? [r] : []))
+				.flatMap((r) => (r.kind === 'report' && storeOf.get(r.id) === id ? [r] : []))
 				.map((summary): StoredDelve => {
-					const own = sizes.filter((s) => s.report === summary.id && s.store === store.id);
+					const own = sizes.filter((s) => s.report === summary.id && s.store === id);
 					return {
 						summary,
 						usage: own.length === 0 ? undefined : totalDiskUsage(own.map((s) => s.usage))
 					};
 				})
 				.toSorted((a, b) => (b.usage?.own ?? -1) - (a.usage?.own ?? -1));
-			shown.push({
-				store: store.id,
-				repository: delves[0]?.summary.repository ?? storeName(store.repository),
-				onDisk: await storeSizeOnDisk(store),
+			const size = measured.get(id);
+			return {
+				store: id,
+				repository: delves[0]?.summary.repository ?? storeName(size?.repository),
+				size: size === undefined ? undefined : { onDisk: size.onDisk, measuredAt: size.measuredAt },
 				delves
-			});
-		}
-		return ok({ database: await databaseSize(this.#db.file), stores: shown });
+			};
+		});
+		return ok({
+			database,
+			stores: shown.toSorted((a, b) => (b.size?.onDisk ?? -1) - (a.size?.onDisk ?? -1))
+		});
 	}
 
 	/**

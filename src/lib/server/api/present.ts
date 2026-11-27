@@ -6,9 +6,9 @@
 import {
 	describeDiskUsage,
 	describeDiskUsageInFull,
+	describeMeasuredSize,
 	describeWhatDeletingFrees
 } from '#lib/core/disk-usage/disk-words.ts';
-import { describeByteSize } from '#lib/core/viewer/words.ts';
 import { gitHubRepositoryText } from '#lib/core/github/github-repository.ts';
 import {
 	describeListedDetails,
@@ -166,19 +166,14 @@ export function summaryView(summary: ReportSummary): DiffSummary {
 	};
 }
 
-/** What diff delver takes on disk, for the Storage page. */
-export function storageView(storage: Storage): StorageView {
+/** What diff delver takes on disk, for the Storage page, as last measured. */
+export function storageView(storage: Storage, now: Timestamp): StorageView {
 	return {
-		databaseText: describeByteSize(storage.database),
+		databaseText: describeMeasuredSize(storage.database, now),
 		stores: storage.stores.map((store) => ({
 			repository: store.repository,
-			onDiskText: describeByteSize(store.onDisk),
-			delves: store.delves.map(({ summary, usage }) =>
-				summaryView({
-					...summary,
-					disk: usage
-				})
-			)
+			sizeText: describeMeasuredSize(store.size, now),
+			delves: store.delves.map(({ summary, usage }) => summaryView({ ...summary, disk: usage }))
 		}))
 	};
 }

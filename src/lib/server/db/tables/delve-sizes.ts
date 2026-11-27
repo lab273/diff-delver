@@ -9,7 +9,6 @@ import { parseByteSize } from '#lib/core/byte-size.tiny.ts';
 import type { DelveDiskUsage } from '#lib/core/disk-usage/delve-sizes.ts';
 import { parseReportId, type ReportId } from '#lib/core/report-id.tiny.ts';
 import { parseStoreId, type StoreId } from '#lib/core/store-id.tiny.ts';
-import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 import { parseRow, text, whole } from '../columns.ts';
 import type { Queries, RawRow } from '../database.ts';
 
@@ -62,25 +61,26 @@ export function delveSizesOf(q: Queries, report: ReportId): readonly StoredDelve
 export function replaceStoreSizes(
 	q: Queries,
 	store: StoreId,
-	sizes: ReadonlyMap<ReportId, DelveDiskUsage>,
-	at: Timestamp
+	sizes: ReadonlyMap<ReportId, DelveDiskUsage>
 ): void {
 	q.run('DELETE FROM delve_sizes WHERE store_id = ?', store);
 	for (const [report, usage] of sizes) {
 		q.run(
-			`INSERT INTO delve_sizes (report_id, store_id, own_bytes, shared_bytes, measured_at)
-			 SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM reports WHERE id = ?)`,
+			`INSERT INTO delve_sizes (report_id, store_id, own_bytes, shared_bytes)
+			 SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM reports WHERE id = ?)`,
 			report,
 			store,
 			usage.own,
 			usage.shared,
-			at,
 			report
 		);
 	}
 }
 
-/** The stores with a Delve whose figures there have not been measured. */
+/**
+ * The stores with a Delve whose figures there have not been measured, or
+ * whose own size has not been.
+ */
 export function storesNotMeasured(q: Queries): readonly StoreId[] {
 	return q
 		.all(
@@ -88,7 +88,7 @@ export function storesNotMeasured(q: Queries): readonly StoreId[] {
 			 WHERE NOT EXISTS (
 				SELECT 1 FROM delve_sizes AS s
 				WHERE s.report_id = v.report_id AND s.store_id = v.store_id
-			 )`
+			 ) OR NOT EXISTS (SELECT 1 FROM store_sizes AS t WHERE t.store_id = v.store_id)`
 		)
 		.flatMap((raw) => {
 			const parsed = parseRow('delve_sizes', storeOnly, raw);

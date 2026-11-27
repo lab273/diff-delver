@@ -5,7 +5,10 @@
  * always said with "about"; a store's and the database's sizes on disk are
  * exact and are not.
  */
+import type { ByteSize } from '../byte-size.tiny.ts';
 import { reviewerMessage, type ReviewerMessage } from '../reviewer-message.tiny.ts';
+import { describeTimeAgo } from '../time-ago.ts';
+import type { Timestamp } from '../timestamp.tiny.ts';
 import { describeByteSize } from '../viewer/words.ts';
 import type { DelveDiskUsage } from './delve-sizes.ts';
 
@@ -59,4 +62,18 @@ export function describeWhatDeletingFrees(usage: DelveDiskUsage | undefined): Re
 		);
 	}
 	return reviewerMessage(`Deleting it frees ${about(usage.own)} on disk within an hour.`);
+}
+
+/**
+ * A store's or the database's size on disk, which is exact, with when it was
+ * measured: "12 MB on disk, measured 5 minutes ago", or "Not measured yet".
+ */
+export function describeMeasuredSize(
+	size: { readonly onDisk: ByteSize; readonly measuredAt: Timestamp } | undefined,
+	now: Timestamp
+): ReviewerMessage {
+	if (size === undefined) return reviewerMessage('Not measured yet');
+	return reviewerMessage(
+		`${describeByteSize(size.onDisk)} on disk, measured ${describeTimeAgo(size.measuredAt, now)}`
+	);
 }

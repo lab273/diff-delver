@@ -908,7 +908,7 @@ ALTER TABLE review_deliveries_rebuilt RENAME TO review_deliveries;
 	},
 	{
 		version: schemaVersionOf(23),
-		name: 'what each Delve takes on disk in each store, measured in the background',
+		name: 'what each Delve, each store and the database take on disk, measured in the background',
 		sql: `
 -- What a Delve's snapshots take in a store (DESIGN 9.1), as last measured:
 -- own_bytes, what only this Delve's snapshots and downloads reach, which
@@ -920,9 +920,22 @@ CREATE TABLE delve_sizes (
 	store_id TEXT NOT NULL,
 	own_bytes INTEGER NOT NULL CHECK (own_bytes >= 0),
 	shared_bytes INTEGER NOT NULL CHECK (shared_bytes >= 0),
-	measured_at INTEGER NOT NULL CHECK (measured_at >= 0),
 	PRIMARY KEY (report_id, store_id)
 ) STRICT, WITHOUT ROWID;
+-- Each store's size on disk when its Delves were last measured, with the
+-- repository it was made for, so the Storage page never reads a store.
+CREATE TABLE store_sizes (
+	store_id TEXT PRIMARY KEY,
+	repository TEXT CHECK (repository IS NULL OR length(repository) > 0),
+	on_disk_bytes INTEGER NOT NULL CHECK (on_disk_bytes >= 0),
+	measured_at INTEGER NOT NULL CHECK (measured_at >= 0)
+) STRICT, WITHOUT ROWID;
+-- The database's own size on disk, when the stores were last measured: one row.
+CREATE TABLE database_size (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	on_disk_bytes INTEGER NOT NULL CHECK (on_disk_bytes >= 0),
+	measured_at INTEGER NOT NULL CHECK (measured_at >= 0)
+) STRICT;
 `
 	}
 ];

@@ -9,9 +9,16 @@
  * collected. Each object counts once per Delve however many of its snapshots
  * reach it.
  *
+ * git adds up the sizes itself: what every Delve of the store reaches, what
+ * each Delve reaches, and what all the others reach without it. What a Delve
+ * alone reaches is then the first less the last, and what it shares the rest
+ * of its reach.
+ *
  * The sizes are git's own on disk, which depend on how the objects were
- * compressed against each other, so the figures are estimates, said with
- * "about" (`disk-words.ts`).
+ * compressed against each other: an object stored as a delta against another
+ * counts the delta's size, though deleting that other would leave it to be
+ * stored whole. So the figures are estimates, said with "about"
+ * (`disk-words.ts`).
  */
 import { parseByteSize, type ByteSize } from '../byte-size.tiny.ts';
 
@@ -32,43 +39,27 @@ function bytes(value: number): ByteSize {
 /** No space at all. */
 export const NO_DISK_USAGE: DelveDiskUsage = { own: bytes(0), shared: bytes(0) };
 
+/** What git measured for one Delve of a store. */
+export interface DelveReach {
+	/** What its snapshots and downloads reach. */
+	readonly reach: ByteSize;
+	/** What every other Delve of the store reaches, without it. */
+	readonly others: ByteSize;
+}
+
 /**
- * Each Delve's figures, from the objects each reaches (`reached`, by Delve)
- * and each object's size on disk (`sizeOf`). An object whose size is not
- * known, such as one collected while it was being measured, counts nothing.
- * Every Delve of `reached` has figures, none for a Delve it lacks.
+ * Each Delve's figures, from what every Delve of the store reaches together
+ * (`all`) and each Delve's `DelveReach`. Measured at slightly different
+ * moments, the figures can disagree a little; none is ever below nothing.
  */
-export function delveSizes<Delve, ObjectName>(
-	reached: ReadonlyMap<Delve, Iterable<ObjectName>>,
-	sizeOf: (object: ObjectName) => ByteSize | undefined
+export function delveSizes<Delve>(
+	all: ByteSize,
+	each: ReadonlyMap<Delve, DelveReach>
 ): ReadonlyMap<Delve, DelveDiskUsage> {
-	// The one Delve that reaches each object, or `SHARED` once a second does.
-	const SHARED = Symbol('shared');
-	const owner = new Map<ObjectName, Delve | typeof SHARED>();
-	for (const [delve, objects] of reached) {
-		for (const object of objects) {
-			const now = owner.get(object);
-			if (now === undefined) owner.set(object, delve);
-			else if (now !== delve) owner.set(object, SHARED);
-		}
-	}
-	const own = new Map<Delve, number>();
-	const shared = new Map<Delve, number>();
-	for (const [delve, objects] of reached) {
-		own.set(delve, 0);
-		shared.set(delve, 0);
-		const counted = new Set<ObjectName>();
-		for (const object of objects) {
-			if (counted.has(object)) continue;
-			counted.add(object);
-			const size = sizeOf(object) ?? 0;
-			const into = owner.get(object) === SHARED ? shared : own;
-			into.set(delve, (into.get(delve) ?? 0) + size);
-		}
-	}
 	const sizes = new Map<Delve, DelveDiskUsage>();
-	for (const delve of reached.keys()) {
-		sizes.set(delve, { own: bytes(own.get(delve) ?? 0), shared: bytes(shared.get(delve) ?? 0) });
+	for (const [delve, { reach, others }] of each) {
+		const own = Math.min(reach, Math.max(0, all - others));
+		sizes.set(delve, { own: bytes(own), shared: bytes(reach - own) });
 	}
 	return sizes;
 }
