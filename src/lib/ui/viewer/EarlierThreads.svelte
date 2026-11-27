@@ -3,9 +3,10 @@
 	above the diff with how many are open and how many had their code changed
 	since: each open one with its file, its lines and its first words, and the
 	way to go to it among the lines, where it is replied to or resolved; `p`
-	goes to the next. One whose lines are gone, and one resolved in an earlier
-	review, which is not drawn among the lines, is drawn here in full, to reply
-	to, resolve or reopen. Drawn only when the Delve has threads on this
+	goes to the next. One not drawn among the lines, because its lines are
+	gone, its file is not in this version's diff (as when the agent put it back
+	as it was), or it was resolved in an earlier review, is drawn here in full,
+	to reply to, resolve or reopen, and `p` comes here for it. Drawn only when the Delve has threads on this
 	version.
 -->
 <script lang="ts">
@@ -24,6 +25,7 @@
 
 	let {
 		threads,
+		drawn,
 		comments,
 		shown,
 		act,
@@ -31,6 +33,8 @@
 		showNewer
 	}: {
 		threads: readonly EarlierThreadView[];
+		/** The paths of the files the version shown draws, among whose lines threads are drawn. */
+		drawn: ReadonlySet<string>;
 		comments: Comments;
 		shown: RevisionNumber;
 		/** Whether they can be replied to or resolved here. */
@@ -41,10 +45,16 @@
 	} = $props();
 
 	const heading = $derived(describeEarlierThreads(threads));
+	/** Whether a thread is drawn among the lines: open, with lines in a file the version shows. */
+	const atLines = (t: EarlierThreadView): boolean =>
+		t.at !== null && t.status !== 'resolved' && drawn.has(t.at.path);
 	/** Drawn among the lines, so listed in short here. */
-	const atLines = $derived(threads.filter((t) => t.at !== null && t.status !== 'resolved'));
-	/** Not drawn among the lines: drawn here in full. */
-	const here = $derived(threads.filter((t) => t.at === null || t.status === 'resolved'));
+	const short = $derived(threads.filter(atLines));
+	/**
+	 * Not drawn among the lines, so drawn here in full: one whose lines are
+	 * gone, whose file is not in this version's diff, or resolved earlier.
+	 */
+	const here = $derived(threads.filter((t) => !atLines(t)));
 
 	/** The first line of a thread's first words, cut short. */
 	function teaser(thread: EarlierThreadView): string {
@@ -59,9 +69,9 @@
 		What you said in earlier reviews, at its lines in this version. A reply, and what you resolve,
 		go in this review. <kbd aria-hidden="true">p</kbd> goes to the next one open.
 	</p>
-	{#if atLines.length > 0}
+	{#if short.length > 0}
 		<ul>
-			{#each atLines as thread (thread.id)}
+			{#each short as thread (thread.id)}
 				{@const resolution = comments.resolutionOf(thread.id)}
 				<li>
 					<span class="status" class:changed={thread.status === 'changed'}>

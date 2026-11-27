@@ -116,6 +116,7 @@
 	class:resolved={resolution ?? thread.status === 'resolved'}
 	tabindex="-1"
 	data-thread={listed ? undefined : thread.id}
+	data-listed-thread={listed ? thread.id : undefined}
 	aria-label="{start}, {standing}, on {listed && path !== undefined
 		? `${shownPath(path)}, `
 		: ''}{lines}"

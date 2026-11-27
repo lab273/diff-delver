@@ -2264,11 +2264,49 @@
 	let lastThread: number | undefined;
 
 	/** Goes to a thread of an earlier review among the lines of the version shown. */
+	/**
+	 * Goes to a thread of an earlier review: among the lines of the version
+	 * shown when it is drawn there, else to where the list above the diff
+	 * draws it in full, as for one whose file is not in this version's diff.
+	 */
 	async function goToThread(thread: EarlierThreadView): Promise<void> {
 		const shown = viewer;
-		if (shown === undefined || thread.at === null) return;
+		if (shown === undefined) return;
 		lastThread = Number(thread.id);
-		await goToComment({ version: shown.version, anchor: thread.at }, { thread: Number(thread.id) });
+		const at = thread.at;
+		if (at !== null && drawnAtLines(shown, thread)) {
+			await goToComment({ version: shown.version, anchor: at }, { thread: Number(thread.id) });
+			return;
+		}
+		const card = document.querySelector<HTMLElement>(`[data-listed-thread="${String(thread.id)}"]`);
+		if (card === null) return;
+		scrollToTop(card);
+		card.focus({ preventScroll: true });
+	}
+
+	/** Whether a thread is drawn among the lines of the version shown, and not only in the list. */
+	function drawnAtLines(shown: Viewer, thread: EarlierThreadView): boolean {
+		const at = thread.at;
+		return (
+			at !== null &&
+			thread.status !== 'resolved' &&
+			shown.parts.some((part) => part.part.path === at.path)
+		);
+	}
+
+	/** Goes to a saved comment from the list of the draft's comments: a reply, to it in its thread. */
+	async function goToListed(place: CommentPlace, what: DraftCommentView | Writing): Promise<void> {
+		const reply = what instanceof Writing || what.replyTo === null ? undefined : what;
+		const thread =
+			reply === undefined ? undefined : viewer?.threads.find((t) => t.id === reply.replyTo);
+		if (reply === undefined || thread === undefined) {
+			await goToComment(place, what);
+			return;
+		}
+		await goToThread(thread);
+		document
+			.querySelector<HTMLElement>(`[data-comment="${String(reply.id)}"]`)
+			?.focus({ preventScroll: true });
 	}
 
 	/**
@@ -2279,7 +2317,7 @@
 	async function nextThread(): Promise<void> {
 		const shown = viewer;
 		if (shown === undefined) return;
-		const open = shown.threads.filter((t) => t.at !== null && t.status !== 'resolved');
+		const open = shown.threads.filter((t) => t.status !== 'resolved');
 		if (open.length === 0) {
 			commentsFor(shown.id).said = 'No comment from an earlier review is open on this version.';
 			return;
@@ -2995,6 +3033,7 @@
 			{#if data.canReview && viewer.threads.length > 0}
 				<EarlierThreads
 					threads={viewer.threads}
+					drawn={new Set(viewer.parts.map((part) => part.part.path))}
 					comments={commentsFor(viewer.id)}
 					shown={viewer.version}
 					act={summary.state.kind === 'open'}
@@ -3027,7 +3066,7 @@
 						open={summary.state.kind === 'open'}
 						diffHidden={byFile}
 						{showNewer}
-						ongo={goToComment}
+						ongo={goToListed}
 						bind:control={draftsControl}
 					/>
 					<FinishReview
