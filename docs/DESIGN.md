@@ -576,7 +576,7 @@ Live loop and review:
 | Tool | Purpose |
 |---|---|
 | `wait_for_requests(report, timeout?)` | Long-poll. Returns reviewer requests, or an idle status when the timeout passes. Also reports "diff updated" and "review submitted". |
-| `answer_request(request, body, references?)` | Reply in the thread. `references` are path and line ranges that the server renders as code excerpts. |
+| `answer_request(request, body, references?, version?)` | Reply in the thread. `references` are path and line ranges that the server renders as code excerpts, at most ten of forty lines each, read from the Delve's current version, as `get_file` and `get_diff` read it; `version` is the one the agent read, the version the question was asked on when left out, and the call is refused when it is not the current one. |
 | `get_review(report, review?)` | A submitted review by number, the latest by default: comments, flags, promoted notes, unread slices, and threads still open from earlier reviews. Same content as the clipboard export. |
 
 `assign` example:
@@ -659,8 +659,19 @@ thread. If not, the request has a "Copy as prompt" button producing a
 self-contained prompt, including the report id, that any agent with the MCP server
 can act on.
 
-The long-poll timeout stays below typical client tool timeouts. The skill tells
-the agent to call again.
+The long-poll timeout stays below typical client tool timeouts, at most 45
+seconds. A wait is tied to the call it answers, so nothing is handed over to an
+agent that has gone, and a question handed over and not yet answered comes back in
+full with the next wait. "Agent connected" means a wait is open or ended in the
+last two minutes. "Copy as prompt" is offered whenever no agent is connected and
+the question is unanswered.
+
+Listening costs the person's agent a turn for every wait, so an agent never
+listens on its own: after sorting it says the Delve is ready and how to have
+questions answered live, and it calls `wait_for_requests` only when the person
+asks it to listen, until they stop it, the review is finished or the Delve is
+closed. A question asked while no agent listens waits on the page, with "Copy as
+prompt".
 
 ### 7.3 The skill
 
@@ -679,8 +690,9 @@ that exist, and grows with them. Outline:
 5. Call `get_coverage` and repeat until nothing is uncategorised.
 6. Write the overview and section summaries. Add notes only where there is
    something specific to say.
-7. Stay attached with `wait_for_requests` until the review is submitted, then
-   fetch it with `get_review`.
+7. Say the Delve is ready, and that questions from the page are answered live if
+   the person asks the agent to listen. Listen with `wait_for_requests` only when
+   asked; when the person says the review is done, fetch it with `get_review`.
 
 It also says what not to do: do not paste diff content back, do not invent line
 numbers, do not describe code you have not read.
@@ -717,9 +729,10 @@ line, with shift-click or a drag to extend. By keyboard it is the same thing:
 move to a line with the arrow keys, hold Shift with the arrow keys to extend the
 selection, and press Enter to open the menu.
 
-Comment and Flag are built; Ask comes with the live loop. A line's number is the
-control: a `+` shows on it on hover and focus, and pressing it, or taking several
-lines, opens the menu under them (Comment, Flag, Cancel). `c` and `f` skip the menu:
+A line's number is the control: a `+` shows on it on hover and focus, and
+pressing it, or taking several lines, opens the menu under them (Comment, Flag,
+Ask, Cancel); `q` on a line opens the Ask box at once, which asks about the lines,
+or their whole file or section. `c` and `f` skip the menu:
 `c` goes from a file to its lines and, on a line, opens the comment box; `f` flags
 the line or the lines taken at once. A saved comment is drawn under the last of its
 lines, as plain text, with **Edit** and **Delete**. A flag is drawn there too,
