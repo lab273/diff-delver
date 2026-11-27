@@ -20,7 +20,7 @@ export {
 	fetchKey,
 	forgetPullRequestFetches,
 	keptFetchesIn,
-	keptFetchIndex,
+	keptFetchSize,
 	removeHalfKeptFetches
 } from './kept-fetches.ts';
 export { pullRequestFingerprint, snapshotPullRequest } from './snapshot-pull-request.ts';

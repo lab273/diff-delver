@@ -13,7 +13,6 @@
  * Sources build on `takeSnapshot`; the git source is in `#lib/server/sources/git`.
  */
 export { machineDataDirectory } from './data-directory.ts';
-export type { Reach } from './disk-usage.ts';
 export { diskUsageOf, storeSizeOnDisk } from './disk-usage.ts';
 export type { ShortLivedFolder } from './stale-folders.ts';
 export { GRACE_PERIOD, removeStaleFolders } from './stale-folders.ts';

@@ -85,9 +85,17 @@ export async function keptFetches(objects: AbsolutePath): Promise<readonly KeptF
 	return kept.filter((k) => k !== undefined);
 }
 
-/** The index of a kept download's pack, by which git finds it: beside its `.keep` file. */
-export function keptFetchIndex(kept: KeptFetch): string {
-	return `${kept.file.slice(0, -'.keep'.length)}.idx`;
+/**
+ * A kept download's size on disk: its pack and the pack's index, or nothing
+ * once they are gone.
+ */
+export async function keptFetchSize(kept: KeptFetch): Promise<number> {
+	const base = kept.file.slice(0, -'.keep'.length);
+	let total = 0;
+	for (const part of [`${base}.pack`, `${base}.idx`]) {
+		total += (await stat(part).catch(() => undefined))?.size ?? 0;
+	}
+	return total;
 }
 
 /** The downloads kept in the store. */

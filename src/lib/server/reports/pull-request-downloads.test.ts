@@ -39,6 +39,7 @@ import { ReportService, type OpenOutcome } from './index.ts';
 
 const DISCOUNT = value(parseSourceSpec('https://github.com/acme/shop/pull/7'));
 const RECEIPT = value(parseSourceSpec('https://github.com/acme/shop/pull/8'));
+const BEFORE_EARLIER = value(parseSourceSpec('HEAD~1'));
 
 const standIns: GitHubStandIn[] = [];
 afterEach(async () => {
@@ -369,5 +370,37 @@ describe('the downloads of a pull request', () => {
 		value(await service.tidyStores());
 		const left = (await readdir(store)).filter((name) => name.startsWith('diff-delver-incoming-'));
 		expect(left).toEqual(['diff-delver-incoming-now']);
+	});
+
+	it('count in what their Delve takes on disk, beside a local Delve of the same store', async () => {
+		const { upstream, github } = await shop();
+		// The main branch moved on before the clone and after it: the download holds
+		// its new tip, whose tree names a folder only the clone has.
+		await commitFiles(upstream, 'main', 'earlier', 1);
+		const clone = await cloneShop(upstream, join(await tempDirectory(), 'shop'));
+		await commitFiles(upstream, 'discount', 'gap', 3);
+		await commitFiles(upstream, 'main', 'later', 1);
+		await upstream.git('checkout', '--quiet', 'main');
+		await github.setPull(SHOP_OWNER, SHOP_NAME, DISCOUNT_PULL);
+		const { service, data } = await serviceFor(github);
+		const pull = created(value(await service.open(clone.dir, DISCOUNT)));
+		// A commit from before that folder, so no snapshot holds it.
+		const local = created(value(await service.open(clone.dir, BEFORE_EARLIER)));
+		const packs = [...(await downloads(data)).keys()];
+		expect(packs).toHaveLength(1);
+
+		// The download's commits are never walked, since their history is the clone's.
+		expect(await service.measureDiskUsage()).toHaveLength(1);
+		const listed = value(service.list());
+		const sizeOf = (id: ReportId) => {
+			const found = listed.find((r) => r.kind === 'report' && r.id === id);
+			return found?.kind === 'report' ? found.disk : undefined;
+		};
+		// The pull request's own figure holds its download's pack, which is its alone.
+		expect(sizeOf(pull)?.own ?? 0).toBeGreaterThan(0);
+		expect(sizeOf(local)).toBeDefined();
+		const storage = value(service.storage());
+		expect(storage.stores).toHaveLength(1);
+		expect(storage.stores[0]?.size?.onDisk ?? 0).toBeGreaterThan(0);
 	});
 });

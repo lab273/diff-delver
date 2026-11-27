@@ -2,11 +2,12 @@
  * Measuring what each Delve takes on disk (DESIGN 9.1), for the report
  * service: in the background, a store at a time, `MEASURE_AFTER_MS` after a
  * snapshot was last added to it or removed from it or it was collected, and
- * at once for every store with a Delve, or a size, not measured yet. A
- * Delve's reach is its snapshots and, for a pull request's Delve, the commits
- * of its kept downloads; git adds up what every Delve of the store reaches,
- * what each reaches, and what the others reach without it
- * (`core/disk-usage/delve-sizes.ts`). The figures, the store's size and the
+ * at once for every store with a Delve, or a size, not measured yet. git
+ * adds up what every Delve's snapshots in the store reach, what each one's
+ * reach, and what the others' reach without it
+ * (`core/disk-usage/delve-sizes.ts`); a pull request's kept downloads, which
+ * are its alone, add their packs' sizes to its own figure, and may hold some
+ * of what its snapshots reach, so its figure may be a little high. The figures, the store's size and the
  * database's are kept in the database, so the list and the Storage page read
  * nothing else. Nothing waits for it: until a Delve is measured, nothing is
  * said of its size. The rows of the database are not counted; they are small.
@@ -15,8 +16,11 @@ import { stat } from 'node:fs/promises';
 import type { AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseByteSize, type ByteSize } from '#lib/core/byte-size.tiny.ts';
 import type { Clock } from '#lib/core/clock.ts';
-import type { CommitId } from '#lib/core/commit-id.tiny.ts';
-import { delveSizes, type DelveReach } from '#lib/core/disk-usage/delve-sizes.ts';
+import {
+	delveSizes,
+	type DelveDiskUsage,
+	type DelveReach
+} from '#lib/core/disk-usage/delve-sizes.ts';
 import type { ReportId } from '#lib/core/report-id.tiny.ts';
 import { ok, type Result } from '#lib/core/result.ts';
 import type { SnapshotId } from '#lib/core/snapshot-id.tiny.ts';
@@ -27,8 +31,8 @@ import { replaceStoreSizes, storesNotMeasured } from '../db/tables/delve-sizes.t
 import { everyReport } from '../db/tables/reports.ts';
 import { snapshotsInStore } from '../db/tables/revisions.ts';
 import { recordStoreSize } from '../db/tables/store-sizes.ts';
-import { fetchKey, keptFetchesIn } from '../sources/github/index.ts';
-import { diskUsageOf, openStore, storeSizeOnDisk, type Reach } from '../store/index.ts';
+import { fetchKey, keptFetchesIn, keptFetchSize } from '../sources/github/index.ts';
+import { diskUsageOf, openStore, storeSizeOnDisk } from '../store/index.ts';
 import { describeReportError, type ReportError } from './report-error.ts';
 
 /**
@@ -143,46 +147,47 @@ export class DiskUsage {
 		for (const { report, snapshot } of found.value.snapshots) {
 			snapshots.set(report, [...(snapshots.get(report) ?? []), snapshot]);
 		}
-		const commits = new Map<ReportId, CommitId[]>();
+		// A pull request's downloads are its alone: each counts by its pack's size.
+		const downloads = new Map<ReportId, number>();
 		const delveOf = new Map(found.value.pullRequests.map((p) => [p.key, p.report]));
 		for (const kept of await keptFetchesIn(store.value)) {
 			const report = delveOf.get(kept.key);
 			if (report !== undefined && snapshots.has(report)) {
-				commits.set(report, [...(commits.get(report) ?? []), ...kept.commits]);
+				downloads.set(report, (downloads.get(report) ?? 0) + (await keptFetchSize(kept)));
 			}
 		}
-		const reachOf = (report: ReportId): Reach => ({
-			snapshots: snapshots.get(report) ?? [],
-			commits: commits.get(report) ?? []
-		});
-		const reachOfAll = (of: readonly ReportId[]): Reach => ({
-			snapshots: of.flatMap((d) => reachOf(d).snapshots),
-			commits: of.flatMap((d) => reachOf(d).commits)
-		});
+		const reachOf = (of: readonly ReportId[]): readonly SnapshotId[] =>
+			of.flatMap((d) => snapshots.get(d) ?? []);
 		const delves = [...snapshots.keys()];
-		const all = await diskUsageOf(store.value, reachOfAll(delves), stop);
+		const all = await diskUsageOf(store.value, reachOf(delves), stop);
 		if (!all.ok) return all;
 		const each = new Map<ReportId, DelveReach>();
 		for (const delve of delves) {
-			if (stop?.aborted === true) return ok(undefined);
+			if (stopped(stop)) return ok(undefined);
 			if (delves.length === 1) {
 				each.set(delve, { reach: all.value, others: zero() });
 				continue;
 			}
-			const reach = await diskUsageOf(store.value, reachOf(delve), stop);
+			const reach = await diskUsageOf(store.value, reachOf([delve]), stop);
 			if (!reach.ok) return reach;
 			const others = await diskUsageOf(
 				store.value,
-				reachOfAll(delves.filter((d) => d !== delve)),
+				reachOf(delves.filter((d) => d !== delve)),
 				stop
 			);
 			if (!others.ok) return others;
 			each.set(delve, { reach: reach.value, others: others.value });
 		}
+		const sizes = new Map(
+			[...delveSizes(all.value, each)].map(([delve, usage]) => [
+				delve,
+				withDownloads(usage, downloads.get(delve) ?? 0)
+			])
+		);
 		const onDisk = await storeSizeOnDisk(store.value, stop);
 		if (!onDisk.ok) return onDisk;
 		return this.#db.write((q) => {
-			replaceStoreSizes(q, storeId, delveSizes(all.value, each));
+			replaceStoreSizes(q, storeId, sizes);
 			recordStoreSize(q, storeId, {
 				repository: store.value.repository,
 				onDisk: onDisk.value,
@@ -196,6 +201,12 @@ export class DiskUsage {
 /** Whether `stop` has fired, asked again after each wait. */
 function stopped(stop: AbortSignal | undefined): boolean {
 	return stop?.aborted === true;
+}
+
+/** A Delve's figures with its downloads, which are its own. */
+function withDownloads(usage: DelveDiskUsage, downloads: number): DelveDiskUsage {
+	const own = parseByteSize(usage.own + downloads);
+	return own.ok ? { ...usage, own: own.value } : usage;
 }
 
 function zero(): ByteSize {
