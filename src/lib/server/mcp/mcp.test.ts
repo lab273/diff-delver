@@ -1,3 +1,4 @@
+import { z } from 'zod';
 /**
  * The agent interface (DESIGN 7.1) as an agent meets it: the MCP SDK's own
  * client, connected through the real stdio shim (`diff-delver mcp`, from the
@@ -126,6 +127,67 @@ async function shopAgent(): Promise<Agent> {
 }
 
 describe('the agent interface, through the stdio shim', () => {
+	it('stops a wait for the person’s questions when the agent cancels it', async () => {
+		const { repo, data, who, session } = await shopAgent();
+		const report = reportIn(await session.call('create_report', { source: 'working-tree' }));
+		// The person's browser, let in by the command's address, as they would open it.
+		const printed = await run(
+			['open', 'working-tree', '--no-open', '--data-directory', data],
+			repo.dir,
+			who
+		);
+		const address = /http:\/\/127\.0\.0\.1:(\d+)(\/\S*\?entry=[0-9a-f]+)/.exec(printed);
+		const port = Number(address?.[1]);
+		const entered = await rawRequest(port, { path: address?.[2] ?? '' });
+		const cookie = entered.headers['set-cookie']?.[0]?.split(';', 1)[0] ?? '';
+		const frame = async (): Promise<{ agentConnected: boolean; requests: { status: string }[] }> =>
+			z
+				.object({
+					agentConnected: z.boolean(),
+					requests: z.array(z.object({ status: z.string() }))
+				})
+				.parse(
+					JSON.parse(
+						(await rawRequest(port, { path: `/api/diffs/${report}`, headers: { cookie } })).body
+					)
+				);
+
+		const cancel = new AbortController();
+		const waiting = session.client
+			.callTool({ name: 'wait_for_requests', arguments: { report, timeout: 45 } }, undefined, {
+				signal: cancel.signal
+			})
+			.then(
+				() => 'answered',
+				() => 'cancelled'
+			);
+		// The wait has reached the daemon once the page says an agent is connected.
+		while (!(await frame()).agentConnected) await new Promise((r) => setImmediate(r));
+		cancel.abort();
+		expect(await waiting).toBe('cancelled');
+		// A call after the cancel reaches the daemon after it, through the same shim.
+		await session.call('list_reports');
+
+		const asked = await rawRequest(port, {
+			method: 'POST',
+			path: `/api/diffs/${report}/requests`,
+			headers: {
+				cookie,
+				origin: `http://127.0.0.1:${String(port)}`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				action: 'ask',
+				version: 1,
+				about: { kind: 'file', path: 'src/cart.ts' },
+				question: 'Why?'
+			})
+		});
+		expect(asked.status).toBe(200);
+		// No wait is left to take it: it waits for the next one.
+		expect((await frame()).requests.map((r) => r.status)).toEqual(['waiting']);
+	});
+
 	it('sorts a diff from nothing to everything, writing nothing to the repository', async () => {
 		const { repo, data, session } = await shopAgent();
 		const { before, after, result } = await listingsAround([repo.dir], () =>

@@ -99,7 +99,7 @@ describe('requests to the agent, through the MCP server', () => {
 		expect(again.text).toContain('has that answer already, so it was passed over');
 		const ahead = await session.call('answer_request', { ...answer, version: 2 });
 		expect(ahead.refused).toBe(true);
-		expect(ahead.text).toContain('has no version 2');
+		expect(ahead.text).toContain('You sent "version": 2, and report');
 
 		// The page's frame has the request, answered, with the code read from the snapshot.
 		const loaded = value(await service.load(id));
@@ -122,5 +122,17 @@ describe('requests to the agent, through the MCP server', () => {
 			'I asked the agent:\n> Explain this.\n\nThe agent answered:\n> The total now goes through `roundPrice`.'
 		);
 		expect(value(await service.previewReview(id, one)).text).toContain('I asked the agent:');
+
+		// Once the diff has moved on, an answer must say it read the new version.
+		await repo.write('src/cart.ts', 'export const cart = [];\n');
+		await session.call('create_report', { source: 'working-tree' });
+		const stale = await session.call('answer_request', { ...answer, body: 'Again.' });
+		expect(stale.refused).toBe(true);
+		expect(stale.text).toContain(
+			`Request ${String(asked.id)} was asked on version 1, and report ${report} is at version 2 now`
+		);
+		expect(stale.text).toContain('Read the code you point at again with get_file or get_diff');
+		const current = await session.call('answer_request', { ...answer, body: 'Again.', version: 2 });
+		expect(current.refused).toBe(false);
 	});
 });

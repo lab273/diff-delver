@@ -29,6 +29,10 @@ export interface WaitOutcome {
 	readonly more: number;
 	/** Requests handed over by an earlier wait and not answered yet, with what they ask. */
 	readonly unanswered: readonly AgentRequest[];
+	/** Requests handed over earlier and not answered, beyond those listed. */
+	readonly moreUnanswered: number;
+	/** Whether the wait was stopped before its time, as when diff delver stopped. */
+	readonly stopped: boolean;
 	/** The version the diff was updated to since the last call; undefined when it was not. */
 	readonly updated: RevisionNumber | undefined;
 	/** The newest review the person finished since the last call; undefined when none was. */
@@ -68,6 +72,10 @@ export function renderWaited(heading: ReportHeading, outcome: WaitOutcome): stri
 			...outcome.requests.map(requestLines),
 			`Answer each with answer_request: read the code first with get_file or get_diff, and point at code with "references" (a path and lines, which diff delver shows beside your answer as excerpts) rather than pasting it. Answer what was asked, plainly; the person reviews the code themselves, so do not review it for them.`
 		);
+	} else if (outcome.stopped) {
+		out.push(
+			'The wait was stopped before it ended, as when diff delver stopped or was replaced: nothing was handed over.'
+		);
 	} else if (!outcome.closed) {
 		out.push(
 			`No requests from the person in the last ${counted(outcome.waited, 'second', 'seconds')}.`
@@ -77,7 +85,10 @@ export function renderWaited(heading: ReportHeading, outcome: WaitOutcome): stri
 	if (outcome.unanswered.length > 0) {
 		out.push(
 			`Delivered earlier and still waiting for your answer (answer these too):`,
-			...outcome.unanswered.map(requestLines)
+			...outcome.unanswered.map(requestLines),
+			...(outcome.moreUnanswered > 0
+				? [`and ${String(outcome.moreUnanswered)} more, given once you have answered these.`]
+				: [])
 		);
 	}
 	if (!outcome.closed) {

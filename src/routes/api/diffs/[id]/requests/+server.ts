@@ -69,7 +69,8 @@ function answer(
 		requests: requestsView(requests.value, {
 			id,
 			title: summary.value.title,
-			repository: summary.value.repository
+			repository: summary.value.repository,
+			version: summary.value.revision
 		}),
 		asked,
 		comment: comment === undefined ? null : commentView(comment)

@@ -1202,6 +1202,10 @@ export interface Waited {
 	readonly more: number;
 	/** Requests handed over by an earlier wait and not answered yet, with what they ask. */
 	readonly unanswered: readonly AgentRequest[];
+	/** Requests handed over earlier and not answered, beyond those listed. */
+	readonly moreUnanswered: number;
+	/** Whether the wait was stopped, by its caller going or the service closing, before its time. */
+	readonly stopped: boolean;
 	readonly updated: RevisionNumber | undefined;
 	readonly finished: ReviewNumber | undefined;
 	readonly closed: boolean;
@@ -2497,6 +2501,8 @@ export class ReportService {
 			requests: [],
 			more: 0,
 			unanswered: [],
+			moreUnanswered: 0,
+			stopped: true,
 			updated: undefined,
 			finished: undefined,
 			closed: false
@@ -2559,6 +2565,7 @@ export class ReportService {
 				andThen(latestReviewNumber(q, id), (review) =>
 					andThen(openAgentRequestsOf(q, id), (open): Result<Waited, ReportError> => {
 						const waiting = open.filter((r) => r.status === 'waiting');
+						const delivered = open.filter((r) => r.status === 'delivered');
 						const handed = waiting.slice(0, MAX_REQUESTS_PER_WAIT);
 						for (const request of handed) setRequestStatus(q, request.id, 'delivered');
 						if (handed.length > 0) this.#frameVersions.edited(revision.id);
@@ -2573,9 +2580,9 @@ export class ReportService {
 							report: id,
 							requests: handed.map((r) => ({ ...r, status: 'delivered' as const })),
 							more: waiting.length - handed.length,
-							unanswered: open
-								.filter((r) => r.status === 'delivered')
-								.slice(0, MAX_REQUESTS_PER_WAIT),
+							unanswered: delivered.slice(0, MAX_REQUESTS_PER_WAIT),
+							moreUnanswered: Math.max(0, delivered.length - MAX_REQUESTS_PER_WAIT),
+							stopped: false,
 							updated:
 								seen !== undefined && seen.version !== revision.number
 									? revision.number

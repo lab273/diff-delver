@@ -84,13 +84,14 @@ describe('requests to the agent', () => {
 			{
 				id: report,
 				title: reviewerMessage('Uncommitted changes'),
-				repository: reviewerMessage('shop')
+				repository: reviewerMessage('shop'),
+				version: v(parseRevisionNumber(2))
 			},
 			{ id, anchor: lines, question: 'Why‮here?' },
 			String
 		);
 		expect(prompt).toBe(
-			'In diff delver report r_7f3a9c01 (“Uncommitted changes” in shop), the person reviewing asks about src/cart.ts, lines +3..+5 (the new side): “Why\\u202Ehere?” Read the code with get_file or get_diff for report r_7f3a9c01, then answer with answer_request for request 7, pointing at code by path and lines in "references" rather than pasting it, so the answer appears beside the code in their browser. Answer the question only: the person reviews the code themselves.'
+			'In diff delver report r_7f3a9c01 (“Uncommitted changes” in shop), the person reviewing asks about src/cart.ts, lines +3..+5 (the new side): “Why\\u202Ehere?” Read the code with get_file or get_diff for report r_7f3a9c01, at version 2, then answer with answer_request for request 7 with "version": 2, pointing at code by path and lines in "references" rather than pasting it, so the answer appears beside the code in their browser. Answer the question only: the person reviews the code themselves.'
 		);
 	});
 
@@ -132,6 +133,8 @@ describe('requests to the agent', () => {
 			requests: [request({ question: 'Line one\nline "two"' })],
 			more: 2,
 			unanswered: [],
+			moreUnanswered: 0,
+			stopped: false,
 			updated: undefined,
 			finished: undefined,
 			closed: false,
@@ -143,12 +146,28 @@ describe('requests to the agent', () => {
 			requests: [],
 			more: 0,
 			unanswered: [request({ status: 'delivered', question: 'Why?' })],
+			moreUnanswered: 3,
+			stopped: false,
 			updated: v(parseRevisionNumber(2)),
 			finished: v(parseReviewNumber(1)),
 			closed: false,
 			waited: 45
 		});
 		expect(finished).toContain('No requests from the person in the last 45 seconds.');
+		expect(finished).toContain('and 3 more, given once you have answered these.');
+		const stopped = renderWaited(heading, {
+			requests: [],
+			more: 0,
+			unanswered: [],
+			moreUnanswered: 0,
+			stopped: true,
+			updated: undefined,
+			finished: undefined,
+			closed: false,
+			waited: 45
+		});
+		expect(stopped).toContain('The wait was stopped before it ended');
+		expect(stopped).not.toContain('No requests from the person');
 		expect(finished).toContain('The diff was updated to version 2');
 		expect(finished).toContain('The person finished review 1: read it with get_review');
 		expect(finished).toContain(

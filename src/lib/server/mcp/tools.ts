@@ -1387,7 +1387,7 @@ const answerRequest = tool({
 			.min(1)
 			.optional()
 			.describe(
-				'The version of the report you read the code at, from the first line of get_file or get_diff. Refused if the diff has been updated since, so your references point at the code you read. Left out, references are read from the version the person asked on.'
+				'The version of the report you read the code at, from the first line of get_file or get_diff. Refused if the diff has been updated since, so your references point at the code you read. Left out, it is taken to be the version the person asked on, and refused in the same way once the diff has moved on from it.'
 			),
 		body: z
 			.string()
@@ -1418,26 +1418,20 @@ const answerRequest = tool({
 		if (!id.ok) return err('"request" is a request\'s number, 1 or more.');
 		const owner = context.service.requestOwner(id.value);
 		if (!owner.ok) return err(describeForAgent(owner.error));
-		// The references are read from the version the agent read, or else the one the person asked on.
-		let version = owner.value.version;
-		if (input.version !== undefined) {
-			const sent = parseRevisionNumber(input.version);
-			if (!sent.ok) return err('"version" must be a whole number, 1 or more.');
-			const now = context.service.summary(owner.value.report);
-			if (!now.ok) return err(describeForAgent(now.error));
-			if (sent.value !== now.value.revision) {
-				return err(
-					describeForAgent({
-						kind: sent.value > now.value.revision ? 'VersionNotFound' : 'VersionOutOfDate',
-						report: owner.value.report,
-						seen: sent.value,
-						current: now.value.revision
-					})
-				);
-			}
-			version = sent.value;
+		// References are read from the current version, which get_file and get_diff read: the
+		// one the agent says it read, or, left out, the one the person asked on, while it is current.
+		const now = context.service.summary(owner.value.report);
+		if (!now.ok) return err(describeForAgent(now.error));
+		const current = now.value.revision;
+		const sent = input.version === undefined ? undefined : parseRevisionNumber(input.version);
+		if (sent !== undefined && !sent.ok) return err('"version" must be a whole number, 1 or more.');
+		const read = sent === undefined ? owner.value.version : sent.value;
+		if (read !== current) {
+			return err(
+				`${sent === undefined ? `Request ${String(id.value)} was asked on version ${String(read)}` : `You sent "version": ${String(read)}`}, and report ${owner.value.report} is at version ${String(current)} now${read > current ? '' : ': the diff changed since'}. Nothing was saved. Read the code you point at again with get_file or get_diff, which read version ${String(current)}, then send answer_request again with "version": ${String(current)}.`
+			);
 		}
-		const page = await loadReport(context, owner.value.report, version);
+		const page = await loadReport(context, owner.value.report, current);
 		if (!page.ok) return page;
 		const body = parseAgentMarkdown(input.body);
 		if (!body.ok || input.body.trim() === '') {

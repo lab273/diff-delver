@@ -422,7 +422,8 @@ export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): 
 		requests: requestsView(loaded.requests, {
 			id: loaded.report.id,
 			title: loaded.summary.title,
-			repository: loaded.summary.repository
+			repository: loaded.summary.repository,
+			version: loaded.summary.revision
 		}),
 		agentConnected: loaded.agentListening,
 		frame: `${view}:${loaded.frame}`,

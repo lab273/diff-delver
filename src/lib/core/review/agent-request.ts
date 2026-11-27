@@ -176,6 +176,8 @@ export interface DelveAsked {
 	readonly id: ReportId;
 	readonly title: ReviewerMessage;
 	readonly repository: ReviewerMessage;
+	/** Its current version, which the agent reads and answers on. */
+	readonly version: RevisionNumber;
 }
 
 /**
@@ -194,8 +196,9 @@ export function requestPrompt(
 	return textToCopy(
 		`In diff delver report ${delve.id} (${what}), the person reviewing asks about ` +
 			`${anchorForAgent(request.anchor, path)}: “${visibleText(request.question.trim())}” ` +
-			`Read the code with get_file or get_diff for report ${delve.id}, then answer with ` +
-			`answer_request for request ${String(request.id)}, pointing at code by path and lines ` +
+			`Read the code with get_file or get_diff for report ${delve.id}, at version ` +
+			`${String(delve.version)}, then answer with answer_request for request ` +
+			`${String(request.id)} with "version": ${String(delve.version)}, pointing at code by path and lines ` +
 			`in "references" rather than pasting it, so the answer appears beside the code in their ` +
 			`browser. Answer the question only: the person reviews the code themselves.`
 	);

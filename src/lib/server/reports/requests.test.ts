@@ -50,17 +50,32 @@ describe('waiting for the reviewer’s questions', () => {
 		const gone = new AbortController();
 		const abandoned = service.waitForRequests(id, 60_000, gone.signal);
 		gone.abort();
-		expect(value(await abandoned).requests).toEqual([]);
+		expect(value(await abandoned).stopped).toBe(true);
+		// Asked after the caller went, it is not handed to the wait that was stopped.
+		const early = value(await service.askAgent(id, one, { kind: 'file', path: file }, 'First?'));
+		await Promise.resolve();
+		expect(value(service.requests(id)).map((r) => [r.id, r.status])).toEqual([
+			[early.id, 'waiting']
+		]);
 
+		// The next wait takes it at once.
+		const taken = value(await service.waitForRequests(id, 60_000));
+		expect(taken.requests.map((r) => [r.id, r.status])).toEqual([[early.id, 'delivered']]);
+
+		// A wait open when a question is asked is woken by it.
 		const waiting = service.waitForRequests(id, 60_000);
 		const asked = value(await service.askAgent(id, one, { kind: 'file', path: file }, 'Why?'));
 		const woken = value(await waiting);
 		expect(woken.requests.map((r) => [r.id, r.status])).toEqual([[asked.id, 'delivered']]);
+		expect(woken.unanswered.map((r) => r.id)).toEqual([early.id]);
 
-		// Handed over and not answered, it comes again, with what it asks, in the next wait.
+		// Handed over and not answered, they come again, with what they ask, in the next wait.
 		const next = value(await service.waitForRequests(id, 1));
 		expect(next.requests).toEqual([]);
-		expect(next.unanswered.map((r) => [r.id, r.question])).toEqual([[asked.id, 'Why?']]);
+		expect(next.unanswered.map((r) => [r.id, r.question])).toEqual([
+			[early.id, 'First?'],
+			[asked.id, 'Why?']
+		]);
 	});
 
 	it('reports an update since the last wait, and ends every wait when it closes', async () => {

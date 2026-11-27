@@ -68,7 +68,9 @@ type Undelivered =
 	/** No daemon answered, or one answered with a refusal that finding the daemon again may cure. */
 	| { readonly kind: 'retry'; readonly reason: string }
 	/** The daemon answered, but in a way that is no answer to MCP: sending it again would not help. */
-	| { readonly kind: 'failed'; readonly reason: string };
+	| { readonly kind: 'failed'; readonly reason: string }
+	/** The agent cancelled the call while it was on its way: nothing is sent back. */
+	| { readonly kind: 'cancelled'; readonly reason: string };
 
 const InitializeResult = z.object({ result: z.object({ protocolVersion: z.string() }) });
 
@@ -127,9 +129,19 @@ export async function runShim(options: ShimOptions): Promise<number> {
 	const browser = new BrowserOffer(!options.noOpen);
 	const transport = new StdioServerTransport();
 
+	/**
+	 * The requests on their way to the daemon, by id, each with what aborts its
+	 * fetch: the agent cancelling one (`notifications/cancelled`) goes to the
+	 * daemon as a message of its own, which a stateless server cannot match to
+	 * the call, so the shim also drops the call's connection, and the daemon
+	 * stops what it was doing for it, such as a wait for the person's requests.
+	 */
+	const inFlight = new Map<string | number, AbortController>();
+
 	const post = async (
 		connection: DaemonConnection,
-		message: JSONRPCMessage
+		message: JSONRPCMessage,
+		signal: AbortSignal | undefined
 	): Promise<Result<readonly JSONRPCMessage[], Undelivered>> => {
 		const headers: Record<string, string> = {
 			'content-type': 'application/json',
@@ -146,10 +158,13 @@ export async function runShim(options: ShimOptions): Promise<number> {
 			response = await fetch(`${connection.origin}${MCP_PATH}`, {
 				method: 'POST',
 				headers,
-				body: JSON.stringify(message)
+				body: JSON.stringify(message),
+				...(signal === undefined ? {} : { signal })
 			});
 		} catch (error) {
 			browser.settle(ask, false);
+			if (signal?.aborted === true)
+				return err({ kind: 'cancelled', reason: 'the agent cancelled it' });
 			return err({
 				kind: 'retry',
 				reason: `diff delver did not answer at ${connection.origin} (${error instanceof Error ? error.message : String(error)})`
@@ -157,6 +172,8 @@ export async function runShim(options: ShimOptions): Promise<number> {
 		}
 		browser.settle(ask, response.headers.get(OPENED_HEADER) === 'yes');
 		const text = await response.text().catch(() => '');
+		if (signal?.aborted === true)
+			return err({ kind: 'cancelled', reason: 'the agent cancelled it' });
 		// The token belongs to a daemon that has stopped since, or another took the port.
 		if (response.status === 403 || response.status === 421 || response.status === 503) {
 			return err({
@@ -200,6 +217,22 @@ export async function runShim(options: ShimOptions): Promise<number> {
 		message.params['name'] === 'create_report';
 
 	const deliver = async (message: JSONRPCMessage): Promise<void> => {
+		const cancelling = cancelledRequest(message);
+		if (cancelling !== undefined) inFlight.get(cancelling)?.abort();
+		const id = isJSONRPCRequest(message) ? message.id : undefined;
+		const aborter = id === undefined ? undefined : new AbortController();
+		if (id !== undefined && aborter !== undefined) inFlight.set(id, aborter);
+		try {
+			await deliverOnce(message, aborter?.signal);
+		} finally {
+			if (id !== undefined && inFlight.get(id) === aborter) inFlight.delete(id);
+		}
+	};
+
+	const deliverOnce = async (
+		message: JSONRPCMessage,
+		signal: AbortSignal | undefined
+	): Promise<void> => {
 		let failedOn: DaemonConnection | undefined;
 		let reason = '';
 		for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
@@ -208,7 +241,7 @@ export async function runShim(options: ShimOptions): Promise<number> {
 				reason = connection.error;
 				break;
 			}
-			const answered = await post(connection.value, message);
+			const answered = await post(connection.value, message, signal);
 			if (answered.ok) {
 				for (const reply of answered.value) {
 					const init = InitializeResult.safeParse(reply);
@@ -219,6 +252,8 @@ export async function runShim(options: ShimOptions): Promise<number> {
 				}
 				return;
 			}
+			// A cancelled call is answered by nobody: the agent no longer waits for it.
+			if (answered.error.kind === 'cancelled') return;
 			reason = answered.error.reason;
 			if (answered.error.kind === 'failed') break;
 			failedOn = connection.value;
@@ -258,6 +293,13 @@ export async function runShim(options: ShimOptions): Promise<number> {
 	await closed;
 	await Promise.all(pending);
 	return 0;
+}
+
+/** The id of the request a `notifications/cancelled` message cancels, if it is one. */
+function cancelledRequest(message: JSONRPCMessage): string | number | undefined {
+	if (!('method' in message) || message.method !== 'notifications/cancelled') return undefined;
+	const id = message.params?.['requestId'];
+	return typeof id === 'string' || typeof id === 'number' ? id : undefined;
 }
 
 /** The data of each event of a whole server-sent event stream. */
