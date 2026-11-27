@@ -9,7 +9,9 @@ import { test } from '../support/journey.ts';
 // and finds the lines no step names after the steps. The agent's summaries
 // are read too: `n` goes to a section's summary before its first step, and
 // ticking a section's last part with `r` goes to the next section's summary
-// before its files. Keyboard only.
+// before its files. Following a section's link in the rail and pressing n
+// goes on from its summary; a summary the agent rewrites is unread again.
+// Keyboard only.
 test.describe("J22 Read a section in the agent's order", () => {
 	test('the reviewer reads and ticks a section step by step, in the order the agent gave', async ({
 		journey
@@ -90,6 +92,34 @@ test.describe("J22 Read a section in the agent's order", () => {
 		await journey.expectVisible(
 			journey.byText('Left to read: 14 changes and 2 section summaries', { exact: true })
 		);
+
+		// Following a section's link in the rail puts the reader on its summary:
+		// n goes on from there, to its file, and reads it.
+		const groups = journey.byRole('navigation', { name: 'Groups' });
+		await journey.activate(
+			journey.within(groups).byRole('link', { name: 'Checkout asks for a code', exact: true })
+		);
+		await journey.press('n');
+		await journey.expectFocused(toggle('src/checkout.ts'));
+		await journey.expectVisible(
+			journey.byText('Left to read: 14 changes and 1 section summary', { exact: true })
+		);
+		// A summary the agent rewrites is unread again.
+		await journey.agentCall('upsert_sections', {
+			report,
+			version: 1,
+			sections: [
+				{
+					id: 'checkout',
+					summary: 'checkout() asks for a discount code, trims it and passes it on.'
+				}
+			]
+		});
+		await journey.returnToPage();
+		await journey.expectVisible(
+			journey.byText('Left to read: 14 changes and 2 section summaries', { exact: true })
+		);
+
 		await journey.press('n');
 		await journey.expectFocused(
 			journey.byRole('region', { name: 'Agent summary: A cart total can take a discount' })

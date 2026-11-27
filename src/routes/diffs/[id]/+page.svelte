@@ -756,7 +756,10 @@
 	 * group's heading, focused, and said. Moving on from it, with `n` or `r`,
 	 * marks it read.
 	 */
-	async function goToSummary(place: WritingPlace, stillGoing?: () => boolean): Promise<void> {
+	async function goToSummary(
+		place: WritingPlace,
+		{ said, stillGoing }: { said?: string; stillGoing?: () => boolean } = {}
+	): Promise<void> {
 		const shown = viewer;
 		if (shown === undefined) return;
 		const group = place.kind === 'summary' ? shown.groups[place.group] : undefined;
@@ -769,11 +772,11 @@
 		shown.atSummary = place;
 		await tick();
 		if (stillGoing?.() === false || viewer !== shown) return;
-		const said =
+		const where =
 			group === undefined
 				? 'The agent’s overview of the change. Press n to go on.'
 				: `The agent’s summary of ${group.name}. Press n to go on to its files.`;
-		shown.announcement = shown.announcement === '' ? said : `${shown.announcement} ${said}`;
+		shown.announcement = said === undefined ? where : `${said} ${where}`;
 		if (group === undefined) {
 			const overview = document.getElementById(AGENT_OVERVIEW);
 			if (overview instanceof HTMLDetailsElement) overview.open = true;
@@ -1034,12 +1037,15 @@
 	 */
 	async function nextUnread(said?: string, stillGoing?: () => boolean): Promise<void> {
 		if (viewer === undefined) return;
-		// Moving on from the agent's writing the page took the reader to reads it.
-		viewer.moveOnFromSummary();
-		const next = viewer.nextUnreadPlace();
+		// Moving on from the agent's writing the page took the reader to reads it,
+		// and the next thing is the next after it.
+		const from = viewer.moveOnFromSummary();
+		const next = viewer.nextUnreadPlace(from);
 		if (next?.kind === 'overview' || next?.kind === 'summary') {
-			if (said !== undefined) viewer.announcement = said;
-			await goToSummary(next, stillGoing);
+			await goToSummary(next, {
+				...(said === undefined ? {} : { said }),
+				...(stillGoing === undefined ? {} : { stillGoing })
+			});
 			return;
 		}
 		const at = next?.at;
@@ -1237,7 +1243,8 @@
 					// On the last part the tick's own words say everything is reviewed, so
 					// they stay, and focus goes to the notice that says so.
 					if (outcome.allDone) document.getElementById(EVERYTHING_REVIEWED)?.focus();
-					else await nextUnread(undefined, moveOn);
+					// The tick's own words come first, then where it went.
+					else await nextUnread(viewer.announcement || undefined, moveOn);
 					return;
 				}
 				if (readerMoved && !focusLost()) return;
@@ -1254,7 +1261,10 @@
 					);
 					if (next !== undefined && viewer.summaryUnread(next)) {
 						// Its summary is the next thing to read, before its files.
-						await goToSummary({ kind: 'summary', group: viewer.groups.indexOf(next) });
+						await goToSummary(
+							{ kind: 'summary', group: viewer.groups.indexOf(next) },
+							{ said: viewer.announcement }
+						);
 						return;
 					}
 					if (next !== undefined) document.getElementById(`${next.anchor}-heading`)?.focus();

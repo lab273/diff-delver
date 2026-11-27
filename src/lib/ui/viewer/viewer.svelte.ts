@@ -524,6 +524,14 @@ export class Viewer {
 			this.current = before === undefined ? undefined : this.nearestPart(before);
 			if (this.current !== undefined) this.drawUpTo(this.current);
 		}
+		// The summary the person is on stays theirs, found again by its group, whose key names its section.
+		const was = previous?.atSummary;
+		if (was?.kind === 'overview') this.atSummary = was;
+		else if (was !== undefined && previous !== undefined) {
+			const id = previous.groups[was.group]?.id;
+			const group = groups.findIndex((g) => g.id === id);
+			if (group >= 0) this.atSummary = { kind: 'summary', group };
+		}
 		this.files = $state([...page.files]);
 		const fileAt = new SvelteMap<EscapedPath, number>();
 		for (const [at, file] of page.files.entries()) fileAt.set(file.path, at);
@@ -646,11 +654,16 @@ export class Viewer {
 	 * The next unread thing after where the person is, the agent's overview and
 	 * summaries among it (DESIGN 8.1), or undefined when nothing is left.
 	 */
-	nextUnreadPlace(): ReadingPlace | undefined {
-		const from: ReadingPlace | undefined =
-			this.atSummary ??
-			(this.current === undefined ? undefined : { kind: 'part', at: this.current });
+	nextUnreadPlace(from: ReadingPlace | undefined = this.here()): ReadingPlace | undefined {
 		return nextUnreadPlace(this.toRead, from);
+	}
+
+	/** Where the person is: the summary the page took them to, or the part they are on. */
+	here(): ReadingPlace | undefined {
+		return (
+			this.atSummary ??
+			(this.current === undefined ? undefined : { kind: 'part', at: this.current })
+		);
 	}
 
 	/** How much of the agent's writing is left to read. */
@@ -668,17 +681,20 @@ export class Viewer {
 	 * The person moves on from the overview or a summary the page took them to:
 	 * it is read, kept at once on the page and saved for the Delve. A save that
 	 * fails leaves it read on this page only, so it is read again next time.
+	 * Gives where the person was, to go on from.
 	 */
-	moveOnFromSummary(): void {
+	moveOnFromSummary(): ReadingPlace | undefined {
+		const from = this.here();
 		const at = this.atSummary;
 		this.atSummary = undefined;
-		if (at === undefined) return;
+		if (at === undefined) return from;
 		const group = at.kind === 'summary' ? this.groups[at.group] : undefined;
 		const place = group === undefined ? { kind: 'overview' as const } : sectionOf(group.key);
 		const text = group === undefined ? this.overview : group.summary;
-		if (place === undefined || text === null || this.#isRead(place, text)) return;
+		if (place === undefined || text === null || this.#isRead(place, text)) return from;
 		this.#read.add(readKey(place, text));
 		void this.client.markSummaryRead(this.id, { version: this.version, place });
+		return from;
 	}
 
 	#isRead(place: SummaryPlace, text: AgentMarkdown): boolean {
