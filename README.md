@@ -81,15 +81,22 @@ place, or [install it](#upgrading) to get a real `diff-delver` command.
 
 ### Have a coding agent sort the diff
 
-diff delver includes an MCP server that a coding agent can start. Add it to your
-agent once. For Claude Code:
+diff delver includes an MCP server that a coding agent can start, and a skill,
+one file of advice on how to sort a diff for a reviewer. Connect your agents to
+them once:
 
 ```
-claude mcp add --scope user diff-delver -- npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz mcp
+npx https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz setup
 ```
 
-For another agent, add an MCP server that runs the same command: everything after
-the `--`.
+It finds Claude Code and Codex on your machine, adds the MCP server and the skill
+to each, and says what it did. Run it with `--undo` after `setup` to take them out
+again.
+
+For another agent, add an MCP server that runs
+`npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz mcp`,
+and give it the skill,
+[`SKILL.md`](plugins/claude-code/skills/diff-delver/SKILL.md), as a file.
 
 A Delve that is not sorted yet shows these steps itself, with the commands for your
 copy of diff delver and a sentence that names that Delve: press **Have an agent sort
@@ -104,11 +111,6 @@ Sort my changes for review with diff delver.
 The Delve opens in your browser and the sections appear as the agent makes them, in
 the order it suggests you read them. The picture at the top of this page is a Delve
 that Codex sorted in one of the project's recorded trials.
-
-The agent sorts better when it has the project's skill, one file of advice on how to
-sort a diff for a reviewer:
-[`SKILL.md`](plugins/claude-code/skills/diff-delver/SKILL.md). Give it to your agent
-as a file. For Claude Code, save it as `~/.claude/skills/diff-delver/SKILL.md`.
 
 The MCP server uses the same data folder as the command. Add `--no-open` after `mcp`
 to have the agent give you the page's address instead of opening a browser.
@@ -131,8 +133,8 @@ have questions answered as you ask them, tell the agent to listen, for example
   <img src="tests/journeys/screenshots/j7-ask-for-more-context.03.the-agent-s-answer-with-its-code.light.png" alt="A question for the agent under a line of a Delve, answered, with the two excerpts of code the agent pointed at" width="800">
 </picture>
 
-If an older MCP shim stops connecting after an upgrade, update the agent's
-`diff-delver mcp` command and restart its MCP server so it uses the new build.
+If an older MCP shim stops connecting after an upgrade, run setup again and restart
+the agent so it uses the new build.
 
 ### Keep reviewing as the code changes
 
@@ -244,6 +246,7 @@ To take comment access away from every browser, run `diff-delver stop`, delete
   finished.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex
   have both done it in the project's [recorded trials](tests/agent-trials/README.md).
+  `diff-delver setup` connects both to diff delver, with the skill.
 - The agent's overview and section summaries appear while the Delve is open. They
   count as unread until you move on from them, and are read again when rewritten.
 - Agent notes: the agent can point at lines with a label (possible bug, risk,
@@ -265,8 +268,8 @@ Not built yet:
 - A pull request with no clone of its repository on this machine, and GitHub
   Enterprise.
 - Snapshot-test images shown beside their tests.
-- A setup command and an installable Claude Code plugin. For now you add the MCP
-  server and the skill yourself, as above.
+- An installable Claude Code plugin. `diff-delver setup` gives Claude Code the MCP
+  server and the skill instead.
 - macOS and Windows have not been tried.
 
 The plan is in [docs/DESIGN.md](docs/DESIGN.md).
@@ -318,10 +321,10 @@ build in place of `diff-delver`:
 node <clone>/bin/diff-delver.js
 ```
 
-For a coding agent, add the build as its MCP server:
+To connect your coding agents to the build rather than to the newest release:
 
 ```
-claude mcp add --scope user diff-delver -- node <clone>/bin/diff-delver.js mcp
+node <clone>/bin/diff-delver.js setup
 ```
 
 After pulling changes, run `pnpm install` and then `pnpm build`. Without the build
