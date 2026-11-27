@@ -86,7 +86,7 @@ one file of advice on how to sort a diff for a reviewer. Connect your agents to
 them once:
 
 ```
-npx https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz setup
+npx --yes https://github.com/lab273/diff-delver/releases/latest/download/diff-delver.tgz setup
 ```
 
 It finds Claude Code and Codex on your machine, adds the MCP server and the skill
