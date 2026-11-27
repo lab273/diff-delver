@@ -177,7 +177,10 @@ A merged or closed pull request has nothing left to review, and the command says
 so, or why one could not be opened, without opening a page. For now a pull
 request opens only from a local clone of its repository; with no clone, and on
 GitHub Enterprise, it does not yet. The agent reads its title and description as
-quoted text.
+quoted text. A pull request's Delve links back to it, "Pull request #7 on GitHub",
+beside its repository's name on its page and in the list of Delves (not in the
+panel that opens another Delve), by an address made from the pull request's
+identity, never taken from GitHub's answers, which opens in a new tab.
 
 **Choosing commits.** The choose page lists a repository's branches and, for the
 one chosen, its commits, newest first, each with when it was made and how many
