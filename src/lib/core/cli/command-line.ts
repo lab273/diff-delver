@@ -21,6 +21,8 @@ export type Command =
 	| { readonly kind: 'stop' }
 	/** The stdio MCP shim coding agents launch (DESIGN 3). */
 	| { readonly kind: 'mcp' }
+	/** Connects the coding agents on this machine to this copy, or with `undo` takes that out (DESIGN 3). */
+	| { readonly kind: 'setup'; readonly undo: boolean }
 	| { readonly kind: 'help' }
 	| { readonly kind: 'version' };
 
@@ -46,12 +48,14 @@ export type CommandLineError =
 			readonly argument: string;
 	  }
 	| { readonly kind: 'MissingOptionValue'; readonly option: string }
+	/** `--undo` with a command other than setup. */
+	| { readonly kind: 'UndoWithoutSetup' }
 	| {
 			readonly kind: 'InvalidSource';
 			readonly message: ReviewerMessage;
 	  };
 
-const COMMANDS = ['open', 'choose', 'serve', 'stop', 'mcp', 'help', 'version'] as const;
+const COMMANDS = ['open', 'choose', 'serve', 'stop', 'mcp', 'setup', 'help', 'version'] as const;
 
 /** Reads the arguments after the program's name. */
 export function parseCommandLine(args: readonly string[]): Result<Invocation, CommandLineError> {
@@ -59,6 +63,7 @@ export function parseCommandLine(args: readonly string[]): Result<Invocation, Co
 	let dataDirectory: string | undefined;
 	let help = false;
 	let version = false;
+	let undo = false;
 	const words: string[] = [];
 	let onlyWords = false;
 	for (let i = 0; i < args.length; i += 1) {
@@ -77,6 +82,8 @@ export function parseCommandLine(args: readonly string[]): Result<Invocation, Co
 			help = true;
 		} else if (arg === '--version' || arg === '-v') {
 			version = true;
+		} else if (arg === '--undo') {
+			undo = true;
 		} else if (arg === '--data-directory') {
 			const next = args[i + 1];
 			if (next === undefined || next === '') {
@@ -104,6 +111,7 @@ export function parseCommandLine(args: readonly string[]): Result<Invocation, Co
 	if (first === undefined) return done({ kind: 'start' });
 	const known = COMMANDS.find((name) => name === first);
 	if (known === undefined) return err({ kind: 'UnknownCommand', word: first });
+	if (undo && known !== 'setup') return err({ kind: 'UndoWithoutSetup' });
 	switch (known) {
 		case 'open': {
 			const [source, ...extra] = rest;
@@ -117,6 +125,11 @@ export function parseCommandLine(args: readonly string[]): Result<Invocation, Co
 			}
 			return done({ kind: 'open', source: spec.value });
 		}
+		case 'setup':
+			if (rest[0] !== undefined) {
+				return err({ kind: 'ExtraArgument', command: known, argument: rest[0] });
+			}
+			return done({ kind: 'setup', undo });
 		case 'choose':
 		case 'serve':
 		case 'stop':
@@ -143,6 +156,7 @@ function describeExtraArgument(command: (typeof COMMANDS)[number], argument: str
 		case 'serve':
 		case 'stop':
 		case 'mcp':
+		case 'setup':
 		case 'help':
 		case 'version':
 			return `diff-delver ${command} did not expect "${argument}" after it: it takes nothing. ${SEE_HELP}`;
@@ -168,6 +182,10 @@ export function describeCommandLineError(error: CommandLineError): ReviewerMessa
 			return reviewerMessage(
 				`${error.option} needs a folder after it, such as ${error.option} ~/diff-delver-data.`
 			);
+		case 'UndoWithoutSetup':
+			return reviewerMessage(
+				`--undo goes with diff-delver setup: diff-delver setup --undo takes out what setup put in. ${SEE_HELP}`
+			);
 		case 'InvalidSource':
 			return error.message;
 	}
@@ -189,12 +207,18 @@ Usage:
                               sizes and when they were made, in your browser.
   diff-delver serve           Run diff delver in this terminal until Ctrl+C.
   diff-delver stop            Stop diff delver if it is running.
+  diff-delver setup           Connect the coding agents on this machine, Claude
+                              Code and Codex, to diff delver: adds its MCP
+                              server and its skill to each one it finds, and
+                              says what it did. Run it once. With --undo, takes
+                              out what it put in.
   diff-delver mcp             For coding agents: an MCP server on standard input
                               and output, which lets an agent sort the diff into
-                              sections for you. Add it to your agent's MCP
-                              servers with this command. It starts diff delver
-                              if needed and opens each Delve the agent makes in
-                              your browser, unless given --no-open.
+                              sections for you. diff-delver setup adds it to your
+                              agents; for another agent, add an MCP server that
+                              runs this command. It starts diff delver if needed
+                              and opens each Delve the agent makes in your
+                              browser, unless given --no-open.
 
 Options:
   --no-open                   Print the address instead of opening a browser.

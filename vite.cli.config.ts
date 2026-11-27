@@ -34,8 +34,18 @@ function filesUnder(dir: string): string[] {
 	});
 }
 
-/** What the version's hash is made of, besides `src` without its tests; and what "+ changes" looks at. */
-const CODE_FILES = ['package.json', 'pnpm-lock.yaml', 'vite.config.ts', 'vite.cli.config.ts'];
+/**
+ * What the version's hash is made of, besides `src` without its tests; and what
+ * "+ changes" looks at. The skill is among them because the command bundles it,
+ * for `diff-delver setup`.
+ */
+const CODE_FILES = [
+	'package.json',
+	'pnpm-lock.yaml',
+	'vite.config.ts',
+	'vite.cli.config.ts',
+	'plugins/claude-code/skills/diff-delver/SKILL.md'
+];
 
 function isCodeInput(path: string): boolean {
 	return !path.endsWith('.test.ts');

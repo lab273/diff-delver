@@ -48,6 +48,9 @@ import {
 } from './outcome.ts';
 import { versionLine } from '#lib/core/cli/version-line.ts';
 import { versionWithCommit } from '#lib/core/build-identity.ts';
+import { copyOf, dataDirectoryToName } from '#lib/core/agent-setup/agent-server.ts';
+import { anyFailed, describeSetup, describeUndo } from '#lib/core/agent-setup/setup-words.ts';
+import { setUpAgents, undoAgents } from './setup.ts';
 
 export interface Terminal {
 	readonly print: (line: string) => void;
@@ -96,6 +99,31 @@ function homeFolder(): AbsolutePath | undefined {
 	} catch {
 		return undefined;
 	}
+}
+
+/** `diff-delver setup`, or with `undo` its undoing, for this copy on `dataDirectory`. */
+async function setUp(dataDirectory: AbsolutePath, undo: boolean, entry: string): Promise<number> {
+	const home = homeFolder();
+	if (home === undefined) {
+		terminal.printError(
+			'diff delver cannot tell which is your home folder, where coding agents keep their settings. Set HOME to it, then try again.'
+		);
+		return 1;
+	}
+	const machine = machineDataDirectory();
+	const setup = {
+		copy: copyOf(codeVersion(), absolute(entry), absolute(process.execPath)),
+		dataDirectory: dataDirectoryToName(dataDirectory, machine.ok ? machine.value : undefined),
+		home
+	};
+	if (undo) {
+		const results = await undoAgents(setup, process.env, home);
+		for (const line of describeUndo(results, setup)) terminal.print(line);
+		return anyFailed(results) ? 1 : 0;
+	}
+	const results = await setUpAgents(setup, process.env, home);
+	for (const line of describeSetup(results, setup)) terminal.print(line);
+	return anyFailed(results) ? 1 : 0;
 }
 
 async function serve(
@@ -218,6 +246,7 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 		case 'serve':
 		case 'stop':
 		case 'mcp':
+		case 'setup':
 		case 'start':
 		case 'open':
 		case 'choose':
@@ -229,6 +258,8 @@ export async function main(args: readonly string[], cwd: string, entry: string):
 		return 1;
 	}
 	switch (command.kind) {
+		case 'setup':
+			return setUp(dataDirectory.value, command.undo, entry);
 		case 'serve':
 			return serve(dataDirectory.value, process.send !== undefined, entry);
 		case 'mcp': {

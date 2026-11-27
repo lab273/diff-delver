@@ -17,7 +17,9 @@ const INPUTS = [
 	'package.json',
 	'pnpm-lock.yaml',
 	'vite.config.ts',
-	'vite.cli.config.ts'
+	'vite.cli.config.ts',
+	// The skill, which the command bundles for diff-delver setup.
+	'plugins/claude-code/skills'
 ];
 
 /** The files the tests need from the build. */

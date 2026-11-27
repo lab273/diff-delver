@@ -78,15 +78,33 @@ export function dataDirectoryToName(
 	return dataDirectory === machineDefault ? undefined : dataDirectory;
 }
 
-/** The program an MCP server entry runs, and its arguments, each exact. */
-export function serverWords(setup: AgentServerSetup): readonly [string, ...string[]] {
+/** A command of this copy on its data folder, its program and arguments each exact. */
+export function commandWords(
+	setup: AgentServerSetup,
+	command: 'mcp' | 'setup'
+): readonly [string, ...string[]] {
 	const data = setup.dataDirectory === undefined ? [] : ['--data-directory', setup.dataDirectory];
 	switch (setup.copy.kind) {
 		case 'release':
-			return ['npx', '--yes', RELEASE_ADDRESS, 'mcp', ...data];
+			return ['npx', '--yes', RELEASE_ADDRESS, command, ...data];
 		case 'build':
-			return [setup.copy.node ?? 'node', setup.copy.entry, 'mcp', ...data];
+			return [setup.copy.node ?? 'node', setup.copy.entry, command, ...data];
 	}
+}
+
+/** The program an MCP server entry runs, and its arguments, each exact. */
+export function serverWords(setup: AgentServerSetup): readonly [string, ...string[]] {
+	return commandWords(setup, 'mcp');
+}
+
+/**
+ * `diff-delver setup` for this copy, for a terminal: it connects every agent
+ * it finds to this same copy and data folder (`setup` in the command).
+ */
+export function setupCommand(setup: AgentServerSetup, undo = false): TextToCopy {
+	return textToCopy(
+		shellCommand([...commandWords(setup, 'setup'), ...(undo ? ['--undo'] : [])], setup.home)
+	);
 }
 
 /**
