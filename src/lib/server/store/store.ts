@@ -220,6 +220,34 @@ export async function listStores(
 }
 
 /**
+ * When each store's newest pack was written, in milliseconds since 1970, for
+ * stores whose newest pack is younger than `since`: what a collection there
+ * keeps through the next one for the grace period, as git dates an object
+ * taken out of a pack by the pack. Only the pack folders are read, file by
+ * file, never with git.
+ */
+export async function storesPackedSince(
+	dataDirectory: AbsolutePath,
+	since: number
+): Promise<ReadonlyMap<StoreId, number>> {
+	const found = new Map<StoreId, number>();
+	const names = await readdir(join(dataDirectory, STORES_FOLDER)).catch(() => []);
+	for (const name of names) {
+		if (!name.endsWith('.git')) continue;
+		const id = parseStoreId(name.slice(0, -'.git'.length));
+		if (!id.ok) continue;
+		const packs = join(dataDirectory, STORES_FOLDER, name, 'objects', 'pack');
+		let newest = 0;
+		for (const file of await readdir(packs).catch(() => [])) {
+			const info = await stat(join(packs, file)).catch(() => undefined);
+			if (info !== undefined && info.mtimeMs > newest) newest = info.mtimeMs;
+		}
+		if (newest > since) found.set(id.value, newest);
+	}
+	return found;
+}
+
+/**
  * Where a source points refs at commits for as long as it holds the store,
  * such as a pull request's fetch, under a folder of its own per snapshot.
  * They are deleted before it lets the store go, so none is left when the

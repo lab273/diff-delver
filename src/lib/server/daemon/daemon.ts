@@ -503,6 +503,8 @@ export async function startDaemon(
 	const binaryCounted = service.countBinaryFiles(stopCounting.signal).then(async (counted) => {
 		// Then the threads of earlier reviews not yet followed to their Delve's version.
 		await service.followAllThreads(stopCounting.signal);
+		// A Delve deleted just before the last stop is still freed within about an hour.
+		await service.queueRecentlyPackedStores();
 		caughtUp = true;
 		measureDiskUsage();
 		return counted;

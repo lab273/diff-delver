@@ -26,6 +26,7 @@ export {
 	listStores,
 	openStore,
 	storeDirectory,
+	storesPackedSince,
 	STORES_FOLDER
 } from './store.ts';
 export type {

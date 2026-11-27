@@ -413,6 +413,7 @@ import {
 	listStores,
 	openSnapshotRef,
 	openStore,
+	storesPackedSince,
 	removeStaleFolders,
 	readBlobSizes,
 	readSnapshotDiff,
@@ -4866,12 +4867,31 @@ export class ReportService {
 			if (!store.ok && store.error.kind === 'StoreNotFound') continue;
 			const done = store.ok ? await this.#collect(store.value) : store;
 			if (!done.ok) {
-				this.#collectAfter.set(id, now);
+				// Tried again once the grace period has passed, not every few seconds.
+				this.#collectAfter.set(id, now + GRACE_PERIOD);
 				return done;
 			}
 			collected.push(id);
 		}
 		return ok(collected);
+	}
+
+	/**
+	 * Queues for `collectFreedStores` every store a collection may have left
+	 * something young in, so a Delve deleted just before the daemon last
+	 * stopped is still freed within about an hour: those whose newest pack
+	 * was written within the grace period, by the files' own times, each
+	 * collected once that has passed. The daemon calls it once it is serving.
+	 */
+	async queueRecentlyPackedStores(): Promise<readonly StoreId[]> {
+		const realNow = Date.now();
+		const recent = await storesPackedSince(this.#dataDirectory, realNow - GRACE_PERIOD);
+		const now = this.#clock.now();
+		for (const [store, writtenAt] of recent) {
+			const after = now + (writtenAt + GRACE_PERIOD - realNow) + COLLECT_FREED_MARGIN_MS;
+			this.#collectAfter.set(store, Math.max(this.#collectAfter.get(store) ?? 0, after));
+		}
+		return [...recent.keys()];
 	}
 
 	// --- Inside -------------------------------------------------------------------

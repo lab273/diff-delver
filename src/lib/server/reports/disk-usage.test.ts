@@ -108,6 +108,12 @@ describe('what each Delve takes on disk', () => {
 		clock.advance(GRACE_PERIOD + 60_000);
 		expect(value(await service.collectFreedStores())).toHaveLength(1);
 		expect(value(await service.collectFreedStores())).toEqual([]);
+		// A daemon started again finds the store its collection just repacked, and
+		// collects it again once the grace period has passed.
+		expect(await service.queueRecentlyPackedStores()).toHaveLength(1);
+		expect(value(await service.collectFreedStores())).toEqual([]);
+		clock.advance(GRACE_PERIOD + 60_000);
+		expect(value(await service.collectFreedStores())).toHaveLength(1);
 		clock.advance(MEASURE_AFTER_MS);
 		await service.measureDiskUsage();
 		about(listed(service, uncommitted)?.own ?? 0, 140);
