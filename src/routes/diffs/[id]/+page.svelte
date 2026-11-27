@@ -44,6 +44,7 @@
 	import { countOf, describeChanges, describeTally, formatCount } from '#lib/core/viewer/words.ts';
 	import { nextShown, previousShown } from '#lib/core/viewer/reading-order.ts';
 	import { describeLeftToRead, type WritingPlace } from '#lib/core/viewer/reading-places.ts';
+	import { PageMover, revealNearest, type Move } from '#lib/ui/viewer/page-mover.ts';
 	import { parsePartIndex, type PartIndex } from '#lib/core/part-index.tiny.ts';
 	import type { OrderStep } from '#lib/core/order-step.tiny.ts';
 	import FileList from '#lib/ui/viewer/FileList.svelte';
@@ -295,6 +296,8 @@
 	});
 
 	const EVERYTHING_REVIEWED = 'everything-reviewed';
+	/** Every move the page makes on its own, eased into place (`page-mover.ts`). */
+	const mover = new PageMover();
 	const AGENT_OVERVIEW = 'agent-overview';
 
 	/** Read from the address once, when the page opens: by file, and only what waits. */
@@ -435,6 +438,8 @@
 		}
 		waitingForComment = undefined;
 
+		// A move under way is where the reader is going: keep that place.
+		mover.settle();
 		const active = document.activeElement;
 		const focused = partAtElement(shown, active);
 		const heading = active?.closest('section.group')?.querySelector('h2')?.id;
@@ -617,6 +622,8 @@
 	 * where it was, however much taller or shorter its lines are drawn now.
 	 */
 	async function keepingPlace(change: () => void): Promise<void> {
+		// A move under way is where the reader is going: keep that place.
+		mover.settle();
 		const atTop = window.scrollY === 0;
 		const anchor = atTop ? undefined : viewportPart(viewer);
 		const before = anchor?.getBoundingClientRect().top;
@@ -780,11 +787,6 @@
 		if (heading !== null) scrollToTop(heading);
 	}
 
-	/** Scrolls what holds an element, the rail or the page, only as far as it takes to show it. */
-	function revealNearest(element: HTMLElement): void {
-		element.scrollIntoView({ block: 'nearest' });
-	}
-
 	/** What is kept at the top of the screen while the diff settles, if anything: stopped by the next. */
 	let keptAtTop: { stopped: boolean } | undefined;
 
@@ -800,7 +802,7 @@
 	 * something else to the top, or a tick starts (`stopKeepingAtTop`). The bound
 	 * only ends the keeping if a part's lines never come.
 	 */
-	async function keepAtTop(element: HTMLElement): Promise<void> {
+	async function keepAtTop(element: HTMLElement, move: Move): Promise<void> {
 		const shown = viewer;
 		if (shown === undefined) return;
 		if (keptAtTop !== undefined) keptAtTop.stopped = true;
@@ -811,6 +813,8 @@
 		const keeping = (): boolean =>
 			!kept.stopped && !since.readerMoved && viewer === shown && element.isConnected;
 		const again = (): boolean => {
+			// While the move eases, its frames follow the element themselves.
+			if (move.running) return true;
 			const before = window.scrollY;
 			placeAtTop(element);
 			return window.scrollY !== before;
@@ -1442,8 +1446,8 @@
 	 * settles (`keepAtTop`).
 	 */
 	function scrollToTop(element: HTMLElement): void {
-		placeAtTop(element);
-		void keepAtTop(element);
+		const move = mover.move(() => (element.isConnected ? topOf(element) : undefined));
+		void keepAtTop(element, move);
 	}
 
 	/**
@@ -1452,14 +1456,40 @@
 	 * screen, so whatever its height it would otherwise be drawn over the element.
 	 */
 	function placeAtTop(element: HTMLElement): void {
-		element.scrollIntoView({ block: 'start' });
+		window.scrollTo(0, topOf(element));
+	}
+
+	/**
+	 * Where the window's scroll puts an element at the top of the screen, as
+	 * `placeAtTop` does: below its margin, the search when it is open, and its
+	 * part's sticky header when it is inside a part; as far as the page goes.
+	 */
+	function topOf(element: HTMLElement): number {
 		const part = element.closest('article.part');
 		const header = part === element ? null : part?.querySelector('header');
 		const clearance = header?.getBoundingClientRect().height ?? 0;
-		if (stickyTop + clearance === 0) return;
 		const margin = parseFloat(getComputedStyle(element).scrollMarginTop) || 0;
-		const under = stickyTop + clearance + margin - element.getBoundingClientRect().top;
-		if (under > 0) window.scrollBy(0, -under);
+		const top =
+			window.scrollY +
+			element.getBoundingClientRect().top -
+			margin -
+			scrollPadding().top -
+			stickyTop -
+			clearance;
+		const bottom = document.documentElement.scrollHeight - window.innerHeight;
+		return Math.max(0, Math.min(top, bottom));
+	}
+
+	/**
+	 * The page's scroll padding, which a scroll to an element keeps clear: at
+	 * the bottom, the overall review's bar and the bookmarks pinned there.
+	 */
+	function scrollPadding(): { top: number; bottom: number } {
+		const style = getComputedStyle(document.documentElement);
+		return {
+			top: parseFloat(style.scrollPaddingTop) || 0,
+			bottom: parseFloat(style.scrollPaddingBottom) || 0
+		};
 	}
 
 	/** Where the reader is: the part at the top of the screen and how far down it is. */
@@ -1505,8 +1535,11 @@
 		}
 		await tick();
 		const anchor = place.anchor === '' ? null : document.getElementById(place.anchor);
-		if (anchor === null) window.scrollTo(0, place.y);
-		else window.scrollBy(0, anchor.getBoundingClientRect().top - place.top);
+		mover.move(() =>
+			anchor?.isConnected === true
+				? window.scrollY + anchor.getBoundingClientRect().top - place.top
+				: place.y
+		);
 	}
 
 	async function closeSearch(): Promise<void> {
@@ -1556,14 +1589,16 @@
 			// the error is seen.
 			console.error(`The match moved to in part ${String(match.at)} was not drawn.`);
 			shown.search.notShown(match);
-			document.getElementById(`part-${String(match.at)}`)?.scrollIntoView({ block: 'start' });
+			const part = document.getElementById(`part-${String(match.at)}`);
+			if (part !== null) mover.move(() => (part.isConnected ? topOf(part) : undefined));
 			return;
 		}
 		const part = element.closest('article.part');
 		const header = part?.querySelector('header');
 		const searchBar = document.querySelector('[role="search"]');
-		const centre = (): boolean => {
-			const before = window.scrollY;
+		/** Where the window's scroll puts the match in the middle, or nowhere new. */
+		const middleOf = (): number | undefined => {
+			if (!element.isConnected) return undefined;
 			const box = element.getBoundingClientRect();
 			const head = header?.getBoundingClientRect();
 			const pathMatch = match.place.kind === 'path';
@@ -1577,10 +1612,17 @@
 					? part.getBoundingClientRect().top + box.top - head.top
 					: box.top;
 			const distance = matchTop + box.height / 2 - middle;
-			if (Math.abs(distance) >= 1) window.scrollBy(0, distance);
+			return Math.abs(distance) >= 1 ? window.scrollY + distance : window.scrollY;
+		};
+		const move = mover.move(middleOf);
+		const centre = (): boolean => {
+			// While the move eases, its frames follow the match themselves.
+			if (move.running) return true;
+			const before = window.scrollY;
+			const to = middleOf();
+			if (to !== undefined && to !== before) window.scrollTo(0, to);
 			return window.scrollY !== before;
 		};
-		centre();
 		// Centred again whenever the diff's size changes, until a frame passes with
 		// no change and no part above still fetching its lines, or the reader moves
 		// on: by their own input (a wheel, a touch, a key, the scroll bar), which
@@ -2088,7 +2130,16 @@
 			document.getElementById('finish-and-copy') ?? document.getElementById('finish-review');
 		if (target === null) return;
 		target.focus({ preventScroll: true });
-		target.scrollIntoView({ block: 'center' });
+		mover.move(() => {
+			if (!target.isConnected) return undefined;
+			const box = target.getBoundingClientRect();
+			// The middle of the screen clear of what is pinned to its edges.
+			const { top, bottom: below } = scrollPadding();
+			const middle =
+				window.scrollY + box.top + box.height / 2 - (top + (window.innerHeight - top - below) / 2);
+			const bottom = document.documentElement.scrollHeight - window.innerHeight;
+			return Math.max(0, Math.min(middle, bottom));
+		});
 	}
 
 	/** Which part has focus, so keys act on the part the person is in. */

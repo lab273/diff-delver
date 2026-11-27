@@ -1,10 +1,11 @@
 /**
  * Telling the reader's own moving of the page from the page's: a wheel, a
  * touch, a key or a press of the pointer, as on the scroll bar, is the reader's.
- * The page's own scrolling, `scrollIntoView` and `scrollTo`, fires only
- * `scroll` events, which are not listened for, so it is never taken for the
- * reader's. A click on a line, which puts the keyboard there, starts with a
- * press of the pointer, so it is the reader's too.
+ * The page's own scrolling, `scrollIntoView`, `scrollTo` and the frames of a
+ * move easing into place (`page-mover.ts`), fires only `scroll` events, which
+ * are not listened for, so it is never taken for the reader's. A click on a
+ * line, which puts the keyboard there, starts with a press of the pointer, so
+ * it is the reader's too.
  */
 
 /** The events by which a reader moves the page themselves. */
