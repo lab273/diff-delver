@@ -128,6 +128,17 @@ describe('an old-side thread', () => {
 		).toEqual({ kind: 'lines', anchor: on('a.ts', 3, 3, 'old'), edited: false });
 	});
 
+	it('is unchanged over unchanged lines and removed ones while the change still removes those', () => {
+		expect(
+			followThread(on('a.ts', 2, 4, 'old'), {
+				heads: changes(removing, removing),
+				bases: changes(base, base),
+				before: diffOf(tree(base), tree(removing)),
+				after: diffOf(tree(base), tree(removing))
+			})
+		).toEqual({ kind: 'lines', anchor: on('a.ts', 2, 4, 'old'), edited: false });
+	});
+
 	it('has its code changed once the change no longer removes them', () => {
 		// The agent put line 3 back: the base is the same, the line is no longer removed.
 		expect(

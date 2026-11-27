@@ -163,33 +163,37 @@ export interface VersionChanges {
 	readonly heads: TreeChanges;
 	/** git's diff from the earlier version's base tree to the later one's. */
 	readonly bases: TreeChanges;
-	readonly before: Diff;
+	/** The earlier version's diff; undefined when it could not be read, and the old side is followed by its tree alone. */
+	readonly before: Diff | undefined;
 	readonly after: Diff;
 }
 
 /**
  * Where a thread's lines are in the later version (`reanchor`, through the
  * trees of its side), with an old-side thread's code counted changed too
- * when the change no longer removes the lines it removed before.
+ * when the change no longer removes a line it removed before: each such
+ * line is followed to the later tree on its own, and the later diff must
+ * still remove it there. Lines of the thread the change never removed, such
+ * as the unchanged lines around a removal, say nothing either way.
  */
 export function followThread(anchor: CommentAnchor, changes: VersionChanges): Reanchored {
 	const moved = reanchor(anchor, anchor.side === 'new' ? changes.heads : changes.bases);
 	if (moved.kind === 'gone' || moved.edited || anchor.side === 'new') return moved;
+	if (changes.before === undefined) return moved;
 	const before = removedLines(changes.before, anchor.path);
-	let removed = false;
-	for (let line = Number(anchor.first); line <= Number(anchor.last); line += 1) {
-		if (before.has(line)) removed = true;
-	}
-	if (!removed) return moved;
 	const after = removedLines(changes.after, moved.anchor.path);
-	for (let line = Number(moved.anchor.first); line <= Number(moved.anchor.last); line += 1) {
-		if (!after.has(line)) return { ...moved, edited: true };
+	for (let line = Number(anchor.first); line <= Number(anchor.last); line += 1) {
+		if (!before.has(line)) continue;
+		const one = lineNumberOf(line);
+		const there = reanchor({ ...anchor, first: one, last: one }, changes.bases);
+		if (there.kind === 'gone' || there.edited) return { ...moved, edited: true };
+		if (!after.has(Number(there.anchor.first))) return { ...moved, edited: true };
 	}
 	return moved;
 }
 
-/** The lines a diff removes from the file whose old path is `path`. */
+/** The lines a diff removes from the file whose old path is `path`; a copy removes none of its source's. */
 function removedLines(diff: Diff, path: RepoPath): { has(line: number): boolean } {
-	const file = diff.files.find((f) => f.file.old?.path === path);
+	const file = diff.files.find((f) => f.file.old?.path === path && f.file.status !== 'copied');
 	return file === undefined ? { has: () => false } : file.changed.old;
 }
