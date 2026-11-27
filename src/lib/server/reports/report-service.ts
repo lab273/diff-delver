@@ -168,7 +168,7 @@ import {
 } from '../db/tables/threads.ts';
 import { threadStatus, type EarlierThread } from '#lib/core/review/threads.ts';
 import type { ThreadId } from '#lib/core/thread-id.tiny.ts';
-import { reanchor } from '#lib/core/update/reanchor.ts';
+import { followThread, type VersionChanges } from '#lib/core/update/reanchor.ts';
 import type { ExportedThread } from '#lib/core/review/review-export.ts';
 import { draftSummaryOf, writeDraftSummary } from '../db/tables/draft-summaries.ts';
 import {
@@ -1195,6 +1195,13 @@ type Written =
 			readonly summary: UpdateSummary;
 	  };
 
+/** git's diffs between an earlier version's trees and a later one's, read already. */
+interface KnownTreeChanges {
+	readonly from: RevisionId;
+	readonly heads: TreeChanges;
+	readonly bases: TreeChanges;
+}
+
 /** What `carryOver` needs, from the current revision and the snapshot prepared for the next. */
 function carryOverInput(
 	diff: Diff,
@@ -1899,14 +1906,16 @@ export class ReportService {
 		const content = await this.#contentOf(report, shown.value.revision);
 		if (!content.ok) return content;
 		const { snapshot, diff, revision } = content.value;
-		const threads = await this.#threadsIn(report, revision, snapshot);
-		if (!threads.ok) return threads;
+		let threads: readonly StoredThread[] = [];
 		const found = this.#db.read((q): Result<StoredFrame, ReportError> => {
 			// Sample before reading the rows, so a concurrent commit cannot give
 			// older rows a newer stamp. Both stamps are conservative on a race.
 			const elsewhere = writesElsewhere(q);
 			const sorting = this.#sortingOf(revision.id, elsewhere);
 			const assignments = this.#assignmentsOf(revision.id, elsewhere);
+			const stored = threadsOf(q, id);
+			if (!stored.ok) return stored;
+			threads = stored.value;
 			return andThen(asOf(q, id, revision.number), (shownNow) =>
 				andThen(sectionsOf(q, revision.id), (sections) =>
 					andThen(assignmentRowsFor(q, revision.id), (rows) =>
@@ -1988,7 +1997,7 @@ export class ReportService {
 			notes: found.value.notes,
 			earlierNotes: found.value.earlierNotes,
 			requests: found.value.requests,
-			threads: threads.value,
+			threads: this.#shownThreads(threads, revision),
 			agentListening: this.#listening.listening(id),
 			frame: this.#frameOf(found.value.shown.report, revision.id, found.value.sorting),
 			sorting: found.value.sorting,
@@ -2013,64 +2022,75 @@ export class ReportService {
 	}
 
 	/**
-	 * The Delve's threads (DESIGN 6.3) as `revision` has them, each at its
-	 * lines there. A thread not yet followed to `revision` is followed now,
-	 * from the latest earlier version it has been followed to, through git's
-	 * diff between the two versions' trees of its side (`reanchor`), and that
-	 * is kept, so each thread is followed to each version once. One whose lines
-	 * are gone stays gone. A thread started on a later version than
-	 * `revision` is not shown on it.
+	 * Follows the Delve's threads (DESIGN 6.3) to version `to`: each one not
+	 * yet followed there, from the latest earlier version it was followed to,
+	 * through git's diff between the two versions' trees of its side and the
+	 * two versions' diffs (`followThread`), kept in `thread_places`, so each
+	 * thread is followed to each version once and a page only reads. One whose
+	 * lines are gone stays gone. Run when an update makes a version (with the
+	 * trees' diffs it read, `known`), before the draft is replied to, resolved,
+	 * previewed or finished, and when the daemon starts, for threads an
+	 * earlier diff delver or a stopped daemon left behind.
 	 */
-	async #threadsIn(
+	async #followThreads(
 		report: Report,
-		revision: Revision,
-		snapshot: Snapshot
-	): Promise<Result<readonly EarlierThread[], ReportError>> {
-		const read = (): Result<readonly StoredThread[], ReportError> =>
-			this.#db.read((q) => threadsOf(q, report.id));
-		const stored = read();
+		to: Revision,
+		known?: KnownTreeChanges
+	): Promise<Result<void, ReportError>> {
+		const stored = this.#db.read((q) => threadsOf(q, report.id));
 		if (!stored.ok) return stored;
 		const behind = stored.value.filter(
 			(t) =>
-				!t.places.some((p) => p.revision === revision.id) &&
-				t.places.some((p) => p.version < revision.number)
+				!t.places.some((p) => p.revision === to.id) && t.places.some((p) => p.version < to.number)
 		);
-		if (behind.length === 0) return ok(this.#shownThreads(stored.value, revision));
+		if (behind.length === 0) return ok(undefined);
 		const revisions = this.#db.read((q) => revisionsOf(q, report.id));
 		if (!revisions.ok) return revisions;
 		const byId = new Map(revisions.value.map((r) => [r.id, r]));
-		const changes = new Map<string, TreeChanges>();
-		const changesFrom = async (
+		const target = await this.#contentOf(report, to);
+		if (!target.ok) return target;
+		const store = target.value.snapshot.store;
+		const read = new Map<RevisionId, VersionChanges>();
+		const trees = async (
 			from: Revision,
-			side: Side
+			a: Revision['headTree'],
+			b: Revision['headTree']
 		): Promise<Result<TreeChanges, ReportError>> => {
-			const key = `${from.id}:${side}`;
-			const known = changes.get(key);
-			if (known !== undefined) return ok(known);
-			let found: TreeChanges = { kind: 'unrelated' };
-			if (from.store === revision.store) {
-				const files = await readTreeDiff(
-					snapshot.store,
-					side === 'new' ? from.headTree : from.baseTree,
-					side === 'new' ? revision.headTree : revision.baseTree
-				);
-				if (!files.ok) return files;
-				found = { kind: 'diff', files: files.value };
-			}
-			changes.set(key, found);
-			return ok(found);
+			if (from.store !== to.store) return ok({ kind: 'unrelated' });
+			const files = await readTreeDiff(store, a, b);
+			return files.ok ? ok({ kind: 'diff', files: files.value }) : files;
+		};
+		const changesFrom = async (from: Revision): Promise<Result<VersionChanges, ReportError>> => {
+			const kept = read.get(from.id);
+			if (kept !== undefined) return ok(kept);
+			const earlier = await this.#contentOf(report, from);
+			if (!earlier.ok) return earlier;
+			const heads =
+				known?.from === from.id ? ok(known.heads) : await trees(from, from.headTree, to.headTree);
+			if (!heads.ok) return heads;
+			const bases =
+				known?.from === from.id ? ok(known.bases) : await trees(from, from.baseTree, to.baseTree);
+			if (!bases.ok) return bases;
+			const changes: VersionChanges = {
+				heads: heads.value,
+				bases: bases.value,
+				before: earlier.value.diff,
+				after: target.value.diff
+			};
+			read.set(from.id, changes);
+			return ok(changes);
 		};
 		const places: { thread: ThreadId; anchor: CommentAnchor | undefined; edited: boolean }[] = [];
 		for (const thread of behind) {
-			const from = thread.places.filter((p) => p.version < revision.number).at(-1);
+			const from = thread.places.filter((p) => p.version < to.number).at(-1);
 			const earlier = from === undefined ? undefined : byId.get(from.revision);
 			if (from?.anchor === undefined || earlier === undefined) {
 				places.push({ thread: thread.id, anchor: undefined, edited: false });
 				continue;
 			}
-			const tree = await changesFrom(earlier, from.anchor.side);
-			if (!tree.ok) return tree;
-			const moved = reanchor(from.anchor, tree.value);
+			const changes = await changesFrom(earlier);
+			if (!changes.ok) return changes;
+			const moved = followThread(from.anchor, changes.value);
 			places.push(
 				moved.kind === 'lines'
 					? { thread: thread.id, anchor: moved.anchor, edited: moved.edited }
@@ -2078,12 +2098,52 @@ export class ReportService {
 			);
 		}
 		const written = this.#db.write((q): Result<undefined, ReportError> => {
-			for (const p of places) insertThreadPlace(q, p.thread, revision.id, p.anchor, p.edited);
+			for (const p of places) insertThreadPlace(q, p.thread, to.id, p.anchor, p.edited);
 			return ok(undefined);
 		});
 		if (!written.ok) return written;
-		const again = read();
-		return again.ok ? ok(this.#shownThreads(again.value, revision)) : again;
+		// A page that read this version's frame before reads it again, with the threads.
+		this.#frameVersions.edited(to.id);
+		return ok(undefined);
+	}
+
+	/** `#followThreads`, saying in the log when it could not: what it was run for goes on. */
+	async #followThreadsOrLog(report: Report, to: Revision, known?: KnownTreeChanges): Promise<void> {
+		const followed = await this.#followThreads(report, to, known);
+		if (!followed.ok) {
+			this.#log(
+				`diff delver could not follow the comments of earlier reviews of ${report.id} to its version ${String(to.number)}: ${describeReportError(followed.error)}`
+			);
+		}
+	}
+
+	/** Follows a Delve's threads to its current version, saying in the log when it could not. */
+	async #catchUpThreads(id: ReportId): Promise<void> {
+		const found = this.#db.read((q) => current(q, id));
+		if (found.ok) await this.#followThreadsOrLog(found.value.report, found.value.revision);
+	}
+
+	/**
+	 * Follows every Delve's threads to its current version, one Delve at a
+	 * time, for the daemon once it is serving: threads an earlier diff delver
+	 * made of its finished reviews, or a daemon stopped before following them.
+	 */
+	async followAllThreads(stop?: AbortSignal): Promise<void> {
+		const listed = this.list();
+		if (!listed.ok) return;
+		for (const entry of listed.value) {
+			if (stop?.aborted === true) return;
+			if (entry.kind === 'report') await this.#catchUpThreads(entry.id);
+		}
+	}
+
+	/** The Delve's threads as the current version has them, from what is stored. */
+	#threadsNow(id: ReportId): Result<readonly EarlierThread[], ReportError> {
+		return this.#db.read((q) =>
+			andThen(current(q, id), ({ revision }) =>
+				map(threadsOf(q, id), (stored) => this.#shownThreads(stored, revision))
+			)
+		);
 	}
 
 	#shownThreads(stored: readonly StoredThread[], revision: Revision): readonly EarlierThread[] {
@@ -3416,38 +3476,33 @@ export class ReportService {
 		body: string
 	): Promise<Result<DraftComment, ReportError>> {
 		if (!isThreadBody('comment', body)) return err({ kind: 'InvalidCommentBody' });
-		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
-		if (!found.ok) return found;
-		const content = await this.#contentOf(found.value.report, found.value.revision);
-		if (!content.ok) return content;
-		const { revision, snapshot } = content.value;
-		const threads = await this.#threadsIn(found.value.report, revision, snapshot);
-		if (!threads.ok) return threads;
-		if (!threads.value.some((t) => t.id === thread)) return err({ kind: 'ThreadNotFound' });
+		await this.#catchUpThreads(id);
 		return this.#db.write((q) =>
-			andThen(currentAsSeen(q, id, seen), (now): Result<DraftComment, ReportError> => {
-				if (now.revision.id !== revision.id) {
-					return err({ kind: 'RevisionChangedWhileSaving', report: id });
-				}
-				return andThen(draftReplyTo(q, id, thread), (replied) => {
+			andThen(currentAsSeen(q, id, seen), (now): Result<DraftComment, ReportError> =>
+				andThen(draftReplyTo(q, id, thread), (replied) => {
 					if (replied !== undefined) return err({ kind: 'ThreadReplied' });
 					return andThen(threadsOf(q, id), (stored): Result<DraftComment, ReportError> => {
-						const lines = stored
-							.find((t) => t.id === thread)
-							?.places.filter((p) => p.version <= revision.number && p.anchor !== undefined)
-							.at(-1);
-						if (lines?.anchor === undefined) return err({ kind: 'ThreadNotFound' });
+						const found = stored.find((t) => t.id === thread);
+						if (found === undefined || threadIn(found, now.revision) === undefined) {
+							return err({ kind: 'ThreadNotFound' });
+						}
+						// On the version shown, so its status counts from there, on the lines the
+						// thread has there or, when they are gone, the lines it last had.
+						const lines = found.places
+							.filter((p) => p.version <= now.revision.number && p.anchor !== undefined)
+							.at(-1)?.anchor;
+						if (lines === undefined) return err({ kind: 'ThreadNotFound' });
 						const at = this.#clock.now();
 						return andThen(
-							insertDraftComment(q, lines.revision, 'comment', lines.anchor, body, at, thread),
+							insertDraftComment(q, now.revision.id, 'comment', lines, body, at, thread),
 							(saved) => {
 								touchReport(q, id, at);
 								return ok(saved);
 							}
 						);
 					});
-				});
-			})
+				})
+			)
 		);
 	}
 
@@ -3464,25 +3519,19 @@ export class ReportService {
 		thread: ThreadId,
 		resolved: boolean | undefined
 	): Promise<Result<readonly ShownResolution[], ReportError>> {
-		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
-		if (!found.ok) return found;
-		const content = await this.#contentOf(found.value.report, found.value.revision);
-		if (!content.ok) return content;
-		const { revision, snapshot } = content.value;
-		const threads = await this.#threadsIn(found.value.report, revision, snapshot);
-		if (!threads.ok) return threads;
-		const shown = threads.value.find((t) => t.id === thread);
-		if (shown === undefined) return err({ kind: 'ThreadNotFound' });
+		await this.#catchUpThreads(id);
 		return this.#db.write((q) =>
 			andThen(
 				currentAsSeen(q, id, seen),
 				(now): Result<readonly ShownResolution[], ReportError> => {
-					if (now.revision.id !== revision.id) {
-						return err({ kind: 'RevisionChangedWhileSaving', report: id });
-					}
+					const stored = threadsOf(q, id);
+					if (!stored.ok) return stored;
+					const found = stored.value.find((t) => t.id === thread);
+					const shown = found === undefined ? undefined : threadIn(found, now.revision);
+					if (shown === undefined) return err({ kind: 'ThreadNotFound' });
 					const already = shown.status === 'resolved';
 					if (resolved === undefined || resolved === already) deleteDraftResolution(q, thread);
-					else setDraftResolution(q, thread, revision.id, resolved);
+					else setDraftResolution(q, thread, now.revision.id, resolved);
 					touchReport(q, id, this.#clock.now());
 					return map(draftResolutionsOf(q, id), shownResolutions);
 				}
@@ -3601,7 +3650,10 @@ export class ReportService {
 		if (this.#finishing.has(id)) return this.#db.read((q) => beingFinished(q, id));
 		this.#finishing.add(id);
 		try {
-			return await this.#finish(id, seen, shown, options.forgetEarlierPost === true);
+			const finished = await this.#finish(id, seen, shown, options.forgetEarlierPost === true);
+			// Its comments start threads on the versions they were written on: followed to this one.
+			if (finished.ok) await this.#catchUpThreads(id);
+			return finished;
 		} finally {
 			this.#finishing.delete(id);
 		}
@@ -3752,7 +3804,9 @@ export class ReportService {
 		if (this.#finishing.has(id)) return this.#db.read((q) => beingFinished(q, id));
 		this.#finishing.add(id);
 		try {
-			return await this.#post(id, seen, shown, posting);
+			const posted = await this.#post(id, seen, shown, posting);
+			if (posted.ok) await this.#catchUpThreads(id);
+			return posted;
 		} finally {
 			this.#finishing.delete(id);
 		}
@@ -4064,11 +4118,8 @@ export class ReportService {
 			if (!lines.ok) return lines;
 			quoted.push(lines.value.lines.map((l) => l.text));
 		}
-		const threads = await this.#threadsIn(
-			found.report,
-			content.value.revision,
-			content.value.snapshot
-		);
+		await this.#catchUpThreads(id);
+		const threads = this.#threadsNow(id);
 		if (!threads.ok) return threads;
 		return ok({
 			found: { report: found.report, revision: content.value.revision },
@@ -5120,6 +5171,11 @@ export class ReportService {
 				continue;
 			}
 			const made = written.value;
+			await this.#followThreadsOrLog(found.value.report, made.revision, {
+				from: revision.id,
+				heads: prepared.heads,
+				bases: prepared.bases
+			});
 			// Its revision refers to it now.
 			this.#held.delete(heldKey(snapshot.store.id, snapshot.id));
 			await this.#remember(id, {

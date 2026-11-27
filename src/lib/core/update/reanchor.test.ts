@@ -1,13 +1,13 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { editScript, tree, treeDiff } from '../../../../tests/support/tree-diffs.ts';
+import { diffOf, editScript, tree, treeDiff } from '../../../../tests/support/tree-diffs.ts';
 import { lineNumberOf } from '../line-number.tiny.ts';
 import { parseRepoPath, type RepoPath } from '../repo-path.tiny.ts';
 import type { CommentAnchor } from '../review/draft-comment.ts';
 import type { Side } from '../side.tiny.ts';
 import type { TreeChanges } from './line-map.ts';
 import { NO_TREE_CHANGES } from './line-map.ts';
-import { reanchor } from './reanchor.ts';
+import { followThread, reanchor } from './reanchor.ts';
 
 function path(text: string): RepoPath {
 	const parsed = parseRepoPath(text);
@@ -110,6 +110,34 @@ describe("where a thread's lines are in a later tree", () => {
 				changes({ 'a.ts': lines }, { 'a.ts': lines, 'c.ts': lines }, { copies: { 'a.ts': 'c.ts' } })
 			)
 		).toEqual({ kind: 'lines', anchor: on('a.ts', 2, 3, 'old'), edited: false });
+	});
+});
+
+describe('an old-side thread', () => {
+	const base = { 'a.ts': numbered(6) };
+	const removing = { 'a.ts': [...numbered(6).slice(0, 2), ...numbered(6).slice(3)] };
+
+	it('is unchanged while the change still removes its lines', () => {
+		expect(
+			followThread(on('a.ts', 3, 3, 'old'), {
+				heads: changes(removing, removing),
+				bases: changes(base, base),
+				before: diffOf(tree(base), tree(removing)),
+				after: diffOf(tree(base), tree(removing))
+			})
+		).toEqual({ kind: 'lines', anchor: on('a.ts', 3, 3, 'old'), edited: false });
+	});
+
+	it('has its code changed once the change no longer removes them', () => {
+		// The agent put line 3 back: the base is the same, the line is no longer removed.
+		expect(
+			followThread(on('a.ts', 3, 3, 'old'), {
+				heads: changes(removing, base),
+				bases: changes(base, base),
+				before: diffOf(tree(base), tree(removing)),
+				after: diffOf(tree(base), tree(base))
+			})
+		).toEqual({ kind: 'lines', anchor: on('a.ts', 3, 3, 'old'), edited: true });
 	});
 });
 

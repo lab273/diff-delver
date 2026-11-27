@@ -209,7 +209,9 @@ export interface RunningDaemon extends DaemonConnection {
 	readonly cleaned: Promise<void>;
 	/**
 	 * The counting of binary files an earlier diff delver did not count, which
-	 * starting begins once the daemon is serving, with the versions it counted.
+	 * starting begins once the daemon is serving, with the versions it counted,
+	 * and then the following of every Delve's threads of earlier reviews to its
+	 * version (`followAllThreads`).
 	 */
 	readonly binaryCounted: Promise<readonly RevisionId[]>;
 	/**
@@ -479,7 +481,11 @@ export async function startDaemon(
 		}
 	});
 	const stopCounting = new AbortController();
-	const binaryCounted = service.countBinaryFiles(stopCounting.signal);
+	const binaryCounted = service.countBinaryFiles(stopCounting.signal).then(async (counted) => {
+		// Then the threads of earlier reviews not yet followed to their Delve's version.
+		await service.followAllThreads(stopCounting.signal);
+		return counted;
+	});
 	let stopChecking = (): void => undefined;
 	let lastTidy = options.clock.now();
 	let tidying: Promise<void> | undefined;

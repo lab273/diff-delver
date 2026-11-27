@@ -157,6 +157,45 @@ describe('threads of earlier reviews', () => {
 				['open', ['Ten and eleven.', 'Still wrong.']],
 				['changed', ['Gone?']]
 			]);
+
+			// Resolved on version 2; then two updates that no page shows, the second
+			// rewriting the lines it is on; the draft is finished on version 4.
+			value(await service.resolveThread(id, version(2), open.id, true));
+			const cart = (change: (i: number) => string | undefined) =>
+				`top\nmore\n${lines(20, (i) => change(i) ?? (i === 3 ? 'cart three, fixed' : `cart ${String(i)}`))}`;
+			await repo.write(
+				'src/cart.ts',
+				cart((i) => (i === 18 ? 'cart eighteen' : undefined))
+			);
+			expect(value(await service.update(id)).kind).toBe('updated');
+			await repo.write(
+				'src/cart.ts',
+				cart((i) => (i === 18 ? 'cart eighteen' : i === 11 ? 'cart eleven' : undefined))
+			);
+			expect(value(await service.update(id)).kind).toBe('updated');
+			// A reply to the thread whose lines are gone, on version 4, counts from there.
+			const answer = value(
+				await service.replyToThread(id, version(4), gone.id, 'Fine that it went.')
+			);
+			expect(answer).toMatchObject({ version: 4, replyTo: gone.id });
+			const fourth = value(await service.load(id));
+			expect(fourth.revision.number).toBe(4);
+			expect(fourth.threads.map((t) => [t.status, t.at?.first])).toEqual([
+				['resolved', 5],
+				['changed', 12],
+				['changed', undefined]
+			]);
+			const last = value(await service.previewReview(id, version(4)));
+			expect(last.resolutions).toEqual([{ thread: open.id, resolved: true }]);
+			value(
+				await service.finishReview(id, version(4), {
+					comments: shown([answer]),
+					overall: NO_EDITS,
+					resolutions: last.resolutions
+				})
+			);
+			const done = value(await service.load(id));
+			expect(done.threads.map((t) => t.status)).toEqual(['resolved', 'resolved', 'open']);
 		} finally {
 			service.close();
 		}
