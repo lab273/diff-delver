@@ -654,6 +654,55 @@ describe('the database', () => {
 		db.close();
 	});
 
+	it('keeps a review posted to GitHub before its delivery log kept copies and reads', async () => {
+		const dir = await tempDirectory();
+		const ids = sequentialIds();
+		const id = ids.reportId();
+		const revision = aRevision(ids.revisionId(), id);
+		const before = value(await Database.open(dir, clock(), MIGRATIONS.slice(0, 21)));
+		value(
+			before.write((q) => {
+				insertReport(q, aReport(id));
+				insertEarlierRevision(q, revision);
+				q.run(
+					`INSERT INTO reviews (report_id, number, revision_id, submitted_at, export_text,
+						counted, reviewed, ignored, uncategorised)
+					 VALUES (?, 1, ?, 5000, '# Review 1', 3, 1, 0, 0)`,
+					id,
+					revision.id
+				);
+				q.run(
+					`INSERT INTO review_deliveries (report_id, review_number, destination, posted_as,
+						github_review_id, address, in_text, delivered_at)
+					 VALUES (?, 1, 'github', 'approve', 7, ?, 2, 6000)`,
+					id,
+					'https://github.com/acme/shop/pull/3#pullrequestreview-7'
+				);
+				return ok(undefined);
+			})
+		);
+		before.close();
+
+		const db = await opened(dir);
+		expect(value(db.read((q) => reviewsOf(q, id)))).toMatchObject([
+			{
+				number: 1,
+				posted: {
+					postedAs: 'approve',
+					address: 'https://github.com/acme/shop/pull/3#pullrequestreview-7',
+					inText: 2,
+					at: 6000
+				},
+				copied: undefined,
+				read: undefined
+			}
+		]);
+		expect(
+			value(db.read((q) => ok(q.all('SELECT last_at, times FROM review_deliveries'))))
+		).toEqual([{ last_at: 6000, times: 1 }]);
+		db.close();
+	});
+
 	it('upgrades a version 1 file through every migration and a next one that adds a table and a column', async () => {
 		const dir = await tempDirectory();
 		const id = sequentialIds().reportId();
