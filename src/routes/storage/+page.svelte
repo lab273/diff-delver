@@ -49,7 +49,7 @@
 		deleted. Sizes are measured a minute or so after anything changes.
 	</p>
 	{#if storage.stores.length === 0}
-		<p>Nothing is stored yet.</p>
+		<p>No Delves are stored.</p>
 	{/if}
 	{#each storage.stores as store, index (index)}
 		<section aria-labelledby="store-{String(index)}">
