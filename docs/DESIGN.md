@@ -558,6 +558,21 @@ diff again.
 - **As of this review**: the report as it stood at submission, with that revision's
   diff, breakdown and reviewed marks.
 
+**As built.** A Delve's history is a page of its own, linked from its rail once it
+has a second version or a finished review: versions and reviews oldest first, each
+version with when it arrived and what its update did, each review with what it
+held, how far it had got, how it was handed over and its threads' status today.
+Snapshot sizes are not shown yet. A past review's page has the text handed over
+with Copy again, each comment, flag, reply and resolution against the version it
+was written on, and links to the reviews either side. "As of review N" is the
+Delve's page on that review's version with the marks it copied, its own comments
+and the earlier threads as they stood when it was finished, and nothing that can
+be changed; the agent's notes and questions are those it had by then, while the
+sorting, the overview and the summaries are as they are today, which the page
+says. The delivery log keeps each way a review was handed over, posted to GitHub
+with its link, copied and read by an agent through `get_review`, with the first
+and latest time and how many times; saving to a file is not built.
+
 Reports, reviews and their snapshots are kept indefinitely for now. Nothing is
 removed until the reviewer deletes a report.
 
