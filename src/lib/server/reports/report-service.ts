@@ -218,7 +218,7 @@ import {
 	insertRequestAnswer,
 	setRequestPromoted,
 	setRequestStatus,
-	waitingRequestIds
+	openAgentRequestsOf
 } from '../db/tables/agent-requests.ts';
 import {
 	isOpenRequest,
@@ -1200,7 +1200,8 @@ export interface Waited {
 	readonly report: ReportId;
 	readonly requests: readonly AgentRequest[];
 	readonly more: number;
-	readonly unanswered: readonly AgentRequestId[];
+	/** Requests handed over by an earlier wait and not answered yet, with what they ask. */
+	readonly unanswered: readonly AgentRequest[];
 	readonly updated: RevisionNumber | undefined;
 	readonly finished: ReviewNumber | undefined;
 	readonly closed: boolean;
@@ -1235,6 +1236,9 @@ function sameExcerpts(a: readonly RequestExcerpt[], b: readonly RequestExcerpt[]
 		})
 	);
 }
+
+/** How many Delves' last waits are remembered, to say what happened since. */
+const WAIT_SEEN_KEPT = 50;
 
 /** How often a wait looks again for what it is not woken for: an update, a finished review, a close. */
 const WAIT_CHECK_EVERY_MS = 5_000;
@@ -1509,6 +1513,8 @@ export class ReportService {
 	readonly #frameVersions = new FrameVersions();
 	/** Which Delves an agent waits on for requests, by the service's clock. */
 	readonly #listening: ReturnType<typeof agentListening>;
+	/** Set once the service closes: every wait then ends. */
+	#closing = false;
 	/** The waits to wake, by Delve, when a request is asked. */
 	readonly #waiters = new Map<ReportId, Set<() => void>>();
 	/** What the last wait on each Delve saw, so the next says what happened since. */
@@ -1571,6 +1577,9 @@ export class ReportService {
 
 	/** Closes the database. The service cannot be used afterwards. */
 	close(): void {
+		// Every wait ends first, and none touches the database again.
+		this.#closing = true;
+		for (const id of [...this.#waiters.keys()]) this.#wake(id);
 		this.#db.close();
 	}
 
@@ -2375,7 +2384,7 @@ export class ReportService {
 		const anchor = held.anchor;
 		const side = diff.byPath.get(anchor.path)?.file[anchor.side];
 		if (side === undefined) return err({ kind: 'InvalidCommentRange' });
-		const body = promotedRequestBody(held).slice(0, MAX_COMMENT_LENGTH);
+		const body = promotedRequestBody(held, MAX_COMMENT_LENGTH);
 		if (!isThreadBody('comment', body)) return err({ kind: 'InvalidCommentBody' });
 		return this.#db.write((q) =>
 			andThen(currentAsSeen(q, id, seen), (now) =>
@@ -2407,10 +2416,14 @@ export class ReportService {
 	}
 
 	/** The Delve a request belongs to, for `answer_request`, which names only the request. */
-	requestOwner(request: AgentRequestId): Result<ReportId, ReportError> {
+	requestOwner(
+		request: AgentRequestId
+	): Result<{ readonly report: ReportId; readonly version: RevisionNumber }, ReportError> {
 		return this.#db.read((q) =>
 			andThen(agentRequestOf(q, request), (held) =>
-				held === undefined ? err({ kind: 'RequestNotFound' }) : ok(held.report)
+				held === undefined
+					? err({ kind: 'RequestNotFound' })
+					: ok({ report: held.report, version: held.request.version })
 			)
 		);
 	}
@@ -2469,12 +2482,32 @@ export class ReportService {
 	 * `timeout` milliseconds for one, looking now and then for an update, a
 	 * finished review or the Delve closed, which it says too. While it waits,
 	 * and for a while after, the Delve's page says an agent is connected.
+	 *
+	 * It is tied to the call that asked: once `signal` aborts, as when the
+	 * agent's request is gone, nothing more is marked delivered, and it ends.
+	 * Closing the service ends every wait without touching the database.
 	 */
-	async waitForRequests(id: ReportId, timeout: number): Promise<Result<Waited, ReportError>> {
+	async waitForRequests(
+		id: ReportId,
+		timeout: number,
+		signal?: AbortSignal
+	): Promise<Result<Waited, ReportError>> {
+		const nothing: Waited = {
+			report: id,
+			requests: [],
+			more: 0,
+			unanswered: [],
+			updated: undefined,
+			finished: undefined,
+			closed: false
+		};
+		const gone = (): boolean => this.#closing || signal?.aborted === true;
+		if (gone()) return ok(nothing);
 		this.#listening.began(id);
+		const started = performance.now();
 		try {
-			let left = timeout;
 			for (;;) {
+				if (gone()) return ok(nothing);
 				const taken = this.#takeRequests(id);
 				if (!taken.ok) return taken;
 				const found = taken.value;
@@ -2483,28 +2516,31 @@ export class ReportService {
 					found.updated !== undefined ||
 					found.finished !== undefined ||
 					found.closed;
+				const left = timeout - (performance.now() - started);
 				if (anything || left <= 0) return taken;
-				const step = Math.min(left, WAIT_CHECK_EVERY_MS);
-				await this.#nextWake(id, step);
-				left -= step;
+				await this.#nextWake(id, Math.min(left, WAIT_CHECK_EVERY_MS), signal);
 			}
 		} finally {
 			this.#listening.ended(id);
 		}
 	}
 
-	/** Waits until a request is asked of `id`, or `ms` pass. */
-	#nextWake(id: ReportId, ms: number): Promise<void> {
+	/** Waits until a request is asked of `id`, `ms` pass, `signal` aborts or the service closes. */
+	#nextWake(id: ReportId, ms: number, signal: AbortSignal | undefined): Promise<void> {
 		return new Promise((resolve) => {
 			const waiters = this.#waiters.get(id) ?? new Set<() => void>();
 			this.#waiters.set(id, waiters);
 			const done = (): void => {
 				clearTimeout(timer);
+				signal?.removeEventListener('abort', done);
 				waiters.delete(done);
 				if (waiters.size === 0) this.#waiters.delete(id);
 				resolve();
 			};
 			const timer = setTimeout(done, ms);
+			// A wait never keeps the process alive.
+			timer.unref();
+			signal?.addEventListener('abort', done, { once: true });
 			waiters.add(done);
 		});
 	}
@@ -2513,40 +2549,44 @@ export class ReportService {
 		for (const wake of [...(this.#waiters.get(id) ?? [])]) wake();
 	}
 
-	/** One look for a wait: the requests waiting, handed over, and what happened since the last look. */
+	/**
+	 * One look for a wait: the requests waiting, handed over, the ones handed
+	 * over earlier and not answered, and what happened since the last look.
+	 */
 	#takeRequests(id: ReportId): Result<Waited, ReportError> {
 		return this.#db.write((q) =>
 			andThen(current(q, id), ({ report, revision }) =>
 				andThen(latestReviewNumber(q, id), (review) =>
-					andThen(waitingRequestIds(q, id), (waiting) =>
-						andThen(agentRequestsOf(q, id), (all): Result<Waited, ReportError> => {
-							const handed = new Set(waiting.slice(0, MAX_REQUESTS_PER_WAIT));
-							for (const request of handed) setRequestStatus(q, request, 'delivered');
-							if (handed.size > 0) this.#frameVersions.edited(revision.id);
-							const seen = this.#waitSeen.get(id);
-							this.#waitSeen.set(id, { version: revision.number, review });
-							const finished =
+					andThen(openAgentRequestsOf(q, id), (open): Result<Waited, ReportError> => {
+						const waiting = open.filter((r) => r.status === 'waiting');
+						const handed = waiting.slice(0, MAX_REQUESTS_PER_WAIT);
+						for (const request of handed) setRequestStatus(q, request.id, 'delivered');
+						if (handed.length > 0) this.#frameVersions.edited(revision.id);
+						const seen = this.#waitSeen.get(id);
+						this.#waitSeen.delete(id);
+						this.#waitSeen.set(id, { version: revision.number, review });
+						for (const oldest of this.#waitSeen.keys()) {
+							if (this.#waitSeen.size <= WAIT_SEEN_KEPT) break;
+							this.#waitSeen.delete(oldest);
+						}
+						return ok({
+							report: id,
+							requests: handed.map((r) => ({ ...r, status: 'delivered' as const })),
+							more: waiting.length - handed.length,
+							unanswered: open
+								.filter((r) => r.status === 'delivered')
+								.slice(0, MAX_REQUESTS_PER_WAIT),
+							updated:
+								seen !== undefined && seen.version !== revision.number
+									? revision.number
+									: undefined,
+							finished:
 								seen !== undefined && review !== undefined && review !== seen.review
 									? review
-									: undefined;
-							return ok({
-								report: id,
-								requests: all
-									.filter((r) => handed.has(r.id))
-									.map((r) => ({ ...r, status: 'delivered' as const })),
-								more: waiting.length - handed.size,
-								unanswered: all
-									.filter((r) => r.status === 'delivered' && !handed.has(r.id))
-									.map((r) => r.id),
-								updated:
-									seen !== undefined && seen.version !== revision.number
-										? revision.number
-										: undefined,
-								finished,
-								closed: report.state.kind !== 'open'
-							});
-						})
-					)
+									: undefined,
+							closed: report.state.kind !== 'open'
+						});
+					})
 				)
 			)
 		);

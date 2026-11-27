@@ -18,6 +18,7 @@ import {
 	isQuestion,
 	MAX_QUESTION_LENGTH,
 	promotedRequestBody,
+	CUT_SHORT,
 	requestPrompt,
 	requestStatusWords,
 	type AgentRequest,
@@ -99,11 +100,25 @@ describe('requests to the agent', () => {
 			promotedRequestBody(
 				request({
 					answers: [{ body, answeredAt: v(parseTimestamp(1)), version: one, excerpts: [] }]
-				})
+				}),
+				10_000
 			)
 		).toBe(
 			'I asked the agent:\n> Explain this.\n\nThe agent answered:\n> It rounds.\n>\n> See `roundPrice`.'
 		);
+	});
+
+	it('cuts a promoted request that is too long where a character ends, and says so', () => {
+		const body = v(parseAgentMarkdown('\u{1F600}'.repeat(60)));
+		const asked = request({
+			answers: [{ body, answeredAt: v(parseTimestamp(1)), version: one, excerpts: [] }]
+		});
+		for (let max = CUT_SHORT.length + 80; max < CUT_SHORT.length + 84; max += 1) {
+			const text = promotedRequestBody(asked, max);
+			expect(text.endsWith(CUT_SHORT)).toBe(true);
+			expect(text.length).toBeLessThanOrEqual(max);
+			expect(text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+		}
 	});
 
 	it('hands requests to the agent quoted, and says what happened since', () => {
@@ -127,7 +142,7 @@ describe('requests to the agent', () => {
 		const finished = renderWaited(heading, {
 			requests: [],
 			more: 0,
-			unanswered: [id],
+			unanswered: [request({ status: 'delivered', question: 'Why?' })],
 			updated: v(parseRevisionNumber(2)),
 			finished: v(parseReviewNumber(1)),
 			closed: false,
@@ -136,6 +151,8 @@ describe('requests to the agent', () => {
 		expect(finished).toContain('No requests from the person in the last 45 seconds.');
 		expect(finished).toContain('The diff was updated to version 2');
 		expect(finished).toContain('The person finished review 1: read it with get_review');
-		expect(finished).toContain('Still waiting for your answer: request 7.');
+		expect(finished).toContain(
+			'Delivered earlier and still waiting for your answer (answer these too):\n- Request 7, about src/cart.ts, lines +3..+5 (the new side), asked on version 1:\n  "Why?"'
+		);
 	});
 });

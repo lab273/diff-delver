@@ -630,6 +630,12 @@
 						"maximum": 9007199254740991,
 						"description": "The request's number, from wait_for_requests (\"Request 3, ...\")."
 					},
+					"version": {
+						"description": "The version of the report you read the code at, from the first line of get_file or get_diff. Refused if the diff has been updated since, so your references point at the code you read. Left out, references are read from the version the person asked on.",
+						"type": "integer",
+						"minimum": 1,
+						"maximum": 9007199254740991
+					},
 					"body": {
 						"type": "string",
 						"maxLength": 16000,

@@ -213,7 +213,19 @@ function quoted(text: string): string {
  * agent's answers quoted under a line that says they are the agent's, so the
  * review never passes them off as the reviewer's own.
  */
-export function promotedRequestBody(request: Pick<AgentRequest, 'question' | 'answers'>): string {
+export function promotedRequestBody(
+	request: Pick<AgentRequest, 'question' | 'answers'>,
+	max: number
+): string {
 	const answers = request.answers.map((a) => quoted(a.body)).join('\n>\n');
-	return `I asked the agent:\n${quoted(request.question)}\n\nThe agent answered:\n${answers}`;
+	const whole = `I asked the agent:\n${quoted(request.question)}\n\nThe agent answered:\n${answers}`;
+	if (whole.length <= max) return whole;
+	// Cut where a character ends, never inside one, and say it was cut.
+	const end = Math.max(0, max - CUT_SHORT.length);
+	const code = whole.charCodeAt(end - 1);
+	const at = code >= 0xd800 && code <= 0xdbff ? end - 1 : end;
+	return `${whole.slice(0, at)}${CUT_SHORT}`;
 }
+
+/** What a promoted request's words end with when they were longer than a comment holds. */
+export const CUT_SHORT = '\n\n(Cut short: the answer was longer than a comment holds.)';

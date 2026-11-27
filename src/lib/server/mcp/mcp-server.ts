@@ -156,23 +156,33 @@ function serverFor(context: ToolContext, version: CodeVersion, agents: AgentActi
 	);
 	const server = mcp.server;
 	server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [...listedTools()] }));
-	server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
-		const found = TOOLS.find((t) => t.name === request.params.name);
-		if (found === undefined) {
-			return { content: [{ type: 'text', text: unknownTool(request.params.name) }], isError: true };
+	server.setRequestHandler(
+		CallToolRequestSchema,
+		async (request, extra): Promise<CallToolResult> => {
+			const found = TOOLS.find((t) => t.name === request.params.name);
+			if (found === undefined) {
+				return {
+					content: [{ type: 'text', text: unknownTool(request.params.name) }],
+					isError: true
+				};
+			}
+			const signal =
+				context.signal === undefined
+					? extra.signal
+					: AbortSignal.any([context.signal, extra.signal]);
+			const answer = await found.call(request.params.arguments, { ...context, signal });
+			// Only a call that did something is work on a Delve: a refused one is not.
+			if (!answer.refused) {
+				const report = request.params.arguments?.['report'];
+				const named = typeof report === 'string' ? parseReportId(report) : undefined;
+				if (named?.ok === true) agents.worked(named.value);
+			}
+			return {
+				content: [{ type: 'text', text: answer.text }],
+				...(answer.refused ? { isError: true } : {})
+			};
 		}
-		const answer = await found.call(request.params.arguments, context);
-		// Only a call that did something is work on a Delve: a refused one is not.
-		if (!answer.refused) {
-			const report = request.params.arguments?.['report'];
-			const named = typeof report === 'string' ? parseReportId(report) : undefined;
-			if (named?.ok === true) agents.worked(named.value);
-		}
-		return {
-			content: [{ type: 'text', text: answer.text }],
-			...(answer.refused ? { isError: true } : {})
-		};
-	});
+	);
 	return mcp;
 }
 
@@ -183,6 +193,11 @@ export function mcpHandler(
 	return async (req, res) => {
 		// At most one window for a message, and the shim is told when it opened one.
 		let opened = false;
+		// Aborted when the request is gone before it was answered, as when the agent stopped waiting.
+		const gone = new AbortController();
+		res.on('close', () => {
+			if (!res.writableFinished) gone.abort();
+		});
 		const directory = directoryOf(req);
 		options.agents.heard(
 			directory,
@@ -193,6 +208,7 @@ export function mcpHandler(
 			directory,
 			browser: browserAsk(header(req, OPEN_BROWSER_HEADER)),
 			entryAddress: options.entryAddress,
+			signal: gone.signal,
 			open: async (page) => {
 				if (opened) return false;
 				opened = await options.open(page);

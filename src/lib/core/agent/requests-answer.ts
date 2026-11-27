@@ -16,7 +16,7 @@ import {
 	MAX_REPLY_LENGTH,
 	type AgentRequest
 } from '../review/agent-request.ts';
-import { counted, headingLine, namesListed, shortened, type ReportHeading } from './answer.ts';
+import { counted, headingLine, shortened, type ReportHeading } from './answer.ts';
 
 /** The longest question an answer quotes in full. */
 const QUOTED_QUESTION = 1_000;
@@ -27,8 +27,8 @@ export interface WaitOutcome {
 	readonly requests: readonly AgentRequest[];
 	/** Requests waiting beyond those handed over, for the next call. */
 	readonly more: number;
-	/** Requests handed over before and not answered yet. */
-	readonly unanswered: readonly AgentRequestId[];
+	/** Requests handed over by an earlier wait and not answered yet, with what they ask. */
+	readonly unanswered: readonly AgentRequest[];
 	/** The version the diff was updated to since the last call; undefined when it was not. */
 	readonly updated: RevisionNumber | undefined;
 	/** The newest review the person finished since the last call; undefined when none was. */
@@ -76,7 +76,8 @@ export function renderWaited(heading: ReportHeading, outcome: WaitOutcome): stri
 	out.push(...events);
 	if (outcome.unanswered.length > 0) {
 		out.push(
-			`Still waiting for your answer: ${namesListed(outcome.unanswered.map((id) => `request ${String(id)}`))}.`
+			`Delivered earlier and still waiting for your answer (answer these too):`,
+			...outcome.unanswered.map(requestLines)
 		);
 	}
 	if (!outcome.closed) {

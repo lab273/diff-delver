@@ -15,8 +15,11 @@
  * The daemon serves MCP without sessions, so when it stops or is replaced
  * mid-session (a newer diff delver started, or `diff-delver stop`), the shim
  * finds or starts the daemon again, as the command would, and sends the message
- * again: the agent never sees it. Every tool is idempotent, so a message that
- * reached the old daemon before it stopped does no harm sent twice. Only when no
+ * again: the agent never sees it. Every write is harmless sent twice (a repeat
+ * answers as a success and changes nothing more), so a message that reached
+ * the old daemon before it stopped does no harm sent again. A wait for the
+ * person's requests that the old daemon ended hands nothing over, and a request
+ * it had handed over and not seen answered is given again with the next wait. Only when no
  * daemon can be reached does a request get an error, which says why.
  */
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';

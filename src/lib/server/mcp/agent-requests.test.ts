@@ -97,6 +97,9 @@ describe('requests to the agent, through the MCP server', () => {
 		expect(answered.text).toContain('beside what they asked about, with 1 excerpt of code');
 		const again = await session.call('answer_request', answer);
 		expect(again.text).toContain('has that answer already, so it was passed over');
+		const ahead = await session.call('answer_request', { ...answer, version: 2 });
+		expect(ahead.refused).toBe(true);
+		expect(ahead.text).toContain('has no version 2');
 
 		// The page's frame has the request, answered, with the code read from the snapshot.
 		const loaded = value(await service.load(id));

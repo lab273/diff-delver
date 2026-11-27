@@ -93,7 +93,7 @@ import { jsonQuoted } from '#lib/core/json-quoted.ts';
 import { MAX_REFERENCES, MAX_SECTIONS } from '#lib/core/reports/section-requests.ts';
 import { describeDiffSize } from '#lib/core/reports/diff-size.ts';
 import { err, ok, type Result } from '#lib/core/result.ts';
-import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import { parseRevisionNumber, type RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { Side } from '#lib/core/side.tiny.ts';
 import { formatGitSourceSpec } from '#lib/core/sources/git-source-spec.ts';
@@ -132,6 +132,11 @@ export interface ToolContext {
 	 * daemon and never comes back here, so no answer can hold it.
 	 */
 	readonly open: (page: string) => Promise<boolean>;
+	/**
+	 * Aborts once the call's HTTP request is gone, or the client cancelled it:
+	 * a long wait then stops, and hands nothing over that nobody would read.
+	 */
+	readonly signal?: AbortSignal;
 }
 
 /** A tool as the server lists and calls it. */
@@ -277,9 +282,10 @@ async function reportFor(
 
 async function loadReport(
 	context: ToolContext,
-	id: ReportId
+	id: ReportId,
+	version?: RevisionNumber
 ): Promise<Result<LoadedReport, string>> {
-	const page = await context.service.load(id);
+	const page = await context.service.load(id, version);
 	if (page.ok) return page;
 	if (page.error.kind === 'ReportNotFound') {
 		return err(`There is no report ${id}.${knownReports(context.service)}`);
@@ -1342,7 +1348,11 @@ const waitForRequests = tool({
 		const page = await reportFor(context, input.report);
 		if (!page.ok) return page;
 		const seconds = input.timeout ?? MAX_WAIT_SECONDS;
-		const waited = await context.service.waitForRequests(page.value.report.id, seconds * 1000);
+		const waited = await context.service.waitForRequests(
+			page.value.report.id,
+			seconds * 1000,
+			context.signal
+		);
 		if (!waited.ok) return err(describeForAgent(waited.error));
 		return ok(
 			renderWaited(
@@ -1371,6 +1381,14 @@ const answerRequest = tool({
 			.int()
 			.min(1)
 			.describe('The request\'s number, from wait_for_requests ("Request 3, ...").'),
+		version: z
+			.number()
+			.int()
+			.min(1)
+			.optional()
+			.describe(
+				'The version of the report you read the code at, from the first line of get_file or get_diff. Refused if the diff has been updated since, so your references point at the code you read. Left out, references are read from the version the person asked on.'
+			),
 		body: z
 			.string()
 			.max(MAX_REPLY_LENGTH * 2)
@@ -1400,7 +1418,26 @@ const answerRequest = tool({
 		if (!id.ok) return err('"request" is a request\'s number, 1 or more.');
 		const owner = context.service.requestOwner(id.value);
 		if (!owner.ok) return err(describeForAgent(owner.error));
-		const page = await loadReport(context, owner.value);
+		// The references are read from the version the agent read, or else the one the person asked on.
+		let version = owner.value.version;
+		if (input.version !== undefined) {
+			const sent = parseRevisionNumber(input.version);
+			if (!sent.ok) return err('"version" must be a whole number, 1 or more.');
+			const now = context.service.summary(owner.value.report);
+			if (!now.ok) return err(describeForAgent(now.error));
+			if (sent.value !== now.value.revision) {
+				return err(
+					describeForAgent({
+						kind: sent.value > now.value.revision ? 'VersionNotFound' : 'VersionOutOfDate',
+						report: owner.value.report,
+						seen: sent.value,
+						current: now.value.revision
+					})
+				);
+			}
+			version = sent.value;
+		}
+		const page = await loadReport(context, owner.value.report, version);
 		if (!page.ok) return page;
 		const body = parseAgentMarkdown(input.body);
 		if (!body.ok || input.body.trim() === '') {

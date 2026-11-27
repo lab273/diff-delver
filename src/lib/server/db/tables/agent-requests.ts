@@ -12,7 +12,7 @@ import { parseLineNumber } from '#lib/core/line-number.tiny.ts';
 import { parseLineText } from '#lib/core/line-text.tiny.ts';
 import { repoPathBytes } from '#lib/core/path-bytes.ts';
 import { parseReportId, type ReportId } from '#lib/core/report-id.tiny.ts';
-import { andThen, ok, type Result } from '#lib/core/result.ts';
+import { andThen, map, ok, type Result } from '#lib/core/result.ts';
 import {
 	MAX_EXCERPT_LINES,
 	type AgentRequest,
@@ -226,19 +226,25 @@ export function agentRequestOf(
 	);
 }
 
-/** The requests of a report still waiting for an agent, oldest first. */
-export function waitingRequestIds(
+/**
+ * The requests of a report no agent has answered or the reviewer cancelled,
+ * waiting or delivered, oldest first; an open request has no answers yet.
+ */
+export function openAgentRequestsOf(
 	q: Queries,
 	report: ReportId
-): Result<readonly AgentRequestId[], StoredRowInvalid> {
-	return parseRows(
-		'agent_requests',
-		z.object({ id: whole(parseAgentRequestId) }).transform(({ id }) => id),
-		q.all(
-			`SELECT a.id FROM revisions r JOIN agent_requests a ON r.id = a.revision_id
-			 WHERE r.report_id = ? AND a.status = 'waiting' ORDER BY a.id`,
-			report
-		)
+): Result<readonly AgentRequest[], StoredRowInvalid> {
+	return map(
+		parseRows(
+			'agent_requests',
+			requestRow,
+			q.all(
+				`SELECT ${COLUMNS} FROM revisions r JOIN agent_requests a ON r.id = a.revision_id
+				 WHERE r.report_id = ? AND a.status IN ('waiting', 'delivered') ORDER BY a.id`,
+				report
+			)
+		),
+		(rows) => rows.map((row) => ({ ...row, answers: [] }))
 	);
 }
 
