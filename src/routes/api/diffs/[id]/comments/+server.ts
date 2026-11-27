@@ -20,10 +20,13 @@ export const GET: RequestHandler = ({ locals, params, request }) => {
 	if (!comments.ok) return serviceFailure(comments.error);
 	const overall = locals.daemon.service.overallReview(id.value);
 	if (!overall.ok) return serviceFailure(overall.error);
+	const resolutions = locals.daemon.service.draftResolutions(id.value);
+	if (!resolutions.ok) return serviceFailure(resolutions.error);
 	const body: DraftCommentsView = {
 		now: locals.daemon.clock.now(),
 		comments: comments.value.map(commentView),
-		overall: overallReviewView(overall.value)
+		overall: overallReviewView(overall.value),
+		resolutions: [...resolutions.value]
 	};
 	return Response.json(body, { headers: PRIVATE });
 };

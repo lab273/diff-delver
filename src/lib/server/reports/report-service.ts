@@ -151,9 +151,25 @@ import {
 	draftCommentOf,
 	draftCommentsOf,
 	draftFlagOn,
+	draftReplyTo,
 	insertDraftComment,
 	updateDraftComment
 } from '../db/tables/draft-comments.ts';
+import {
+	deleteDraftResolution,
+	draftResolutionsOf,
+	insertReviewResolutions,
+	insertThreadPlace,
+	setDraftResolution,
+	startThreads,
+	threadsOf,
+	type ResolutionRow,
+	type StoredThread
+} from '../db/tables/threads.ts';
+import { threadStatus, type EarlierThread } from '#lib/core/review/threads.ts';
+import type { ThreadId } from '#lib/core/thread-id.tiny.ts';
+import { reanchor } from '#lib/core/update/reanchor.ts';
+import type { ExportedThread } from '#lib/core/review/review-export.ts';
 import { draftSummaryOf, writeDraftSummary } from '../db/tables/draft-summaries.ts';
 import {
 	agentNoteOf,
@@ -612,6 +628,11 @@ export interface LoadedReport {
 	readonly earlierNotes: EarlierNotes | undefined;
 	/** The reviewer's requests to the agent, on every version, in the order asked, with the answers. */
 	readonly requests: readonly AgentRequest[];
+	/**
+	 * The threads of earlier reviews (DESIGN 6.3) that this version has, in
+	 * the order they were started, each at its lines here, or with them gone.
+	 */
+	readonly threads: readonly EarlierThread[];
 	/** Whether an agent is listening for this Delve's requests now (DESIGN 7.2). */
 	readonly agentListening: boolean;
 	readonly frame: string;
@@ -1273,10 +1294,21 @@ export interface ShownComment {
 	readonly edits: EditCount;
 }
 
-/** The draft as a page showed it: its comments, and how many times its overall review had been changed. */
+/** A thread the draft resolves, or opens again, as a page showed it. */
+export interface ShownResolution {
+	readonly thread: ThreadId;
+	readonly resolved: boolean;
+}
+
+/**
+ * The draft as a page showed it: its comments, how many times its overall
+ * review had been changed, and the threads it resolves or opens again.
+ */
 export interface ShownDraft {
 	readonly comments: readonly ShownComment[];
 	readonly overall: EditCount;
+	/** Left out, none. */
+	readonly resolutions?: readonly ShownResolution[];
 }
 
 /** How the draft is finished and copied only. */
@@ -1298,6 +1330,8 @@ export interface ReviewPreview {
 	readonly comments: readonly DraftComment[];
 	/** The draft's overall review, as it is now. */
 	readonly overall: OverallReview;
+	/** The threads it resolves or opens again, as they are now. */
+	readonly resolutions: readonly ShownResolution[];
 	/** For a pull request's Delve, what posting it would put on GitHub; undefined for others. */
 	readonly github: GitHubPreview | undefined;
 }
@@ -1319,10 +1353,11 @@ export interface JustFinished extends FinishedReview {
 	readonly earlier: { readonly draftKept: boolean } | undefined;
 }
 
-/** The draft as stored: its comments and its overall review. */
+/** The draft as stored: its comments, its overall review and the threads it resolves or opens again. */
 interface Draft {
 	readonly comments: readonly DraftComment[];
 	readonly overall: OverallReview;
+	readonly resolutions: readonly ResolutionRow[];
 }
 
 interface PreparedReview {
@@ -1331,6 +1366,8 @@ interface PreparedReview {
 	readonly draft: Draft;
 	/** The code each comment of the draft is on, in the same order. */
 	readonly quoted: readonly (readonly LineText[])[];
+	/** The threads of earlier reviews, as the version finished on has them. */
+	readonly threads: readonly EarlierThread[];
 }
 
 interface ReviewText {
@@ -1338,11 +1375,81 @@ interface ReviewText {
 	readonly text: TextForAgent;
 	readonly progress: UnitProgress;
 	readonly comments: readonly ReviewCommentRow[];
+	readonly threads: readonly ExportedThread[];
+}
+
+/** The draft's resolutions as a page shows them. */
+function shownResolutions(rows: readonly ResolutionRow[]): readonly ShownResolution[] {
+	return rows.map((r) => ({ thread: r.thread, resolved: r.resolved }));
+}
+
+/**
+ * The threads as a finished review hands them over: each one this version
+ * has, with what the draft replies to it and does to it.
+ */
+function exportedThreads(
+	threads: readonly EarlierThread[],
+	draft: Draft,
+	quotedOf: (thread: EarlierThread) => readonly LineText[]
+): readonly ExportedThread[] {
+	const replies = new Map(
+		draft.comments.flatMap((c) => (c.replyTo === undefined ? [] : [[c.replyTo, c.body] as const]))
+	);
+	const actions = new Map(draft.resolutions.map((r) => [r.thread, r.resolved]));
+	return threads.flatMap((thread): ExportedThread[] => {
+		const [start, ...rest] = thread.messages;
+		if (start === undefined) return [];
+		const action = actions.get(thread.id);
+		return [
+			{
+				start: {
+					kind: start.kind,
+					anchor: start.anchor,
+					version: start.version,
+					body: start.body,
+					quoted: quotedOf(thread)
+				},
+				from: start.review,
+				replies: rest.map((m) => ({ review: m.review, body: m.body })),
+				at: thread.at,
+				status: thread.status,
+				reply: replies.get(thread.id),
+				action: action === undefined ? undefined : action ? 'resolved' : 'reopened'
+			}
+		];
+	});
+}
+
+/**
+ * A stored thread as version `version` shows it, or undefined when it was
+ * started on a later version than that, or not yet followed to it.
+ */
+function threadIn(stored: StoredThread, version: Revision): EarlierThread | undefined {
+	const here = stored.places.find((p) => p.revision === version.id);
+	const start = stored.messages[0];
+	if (here === undefined || start === undefined) return undefined;
+	return {
+		id: stored.id,
+		kind: start.kind,
+		messages: stored.messages,
+		quoted: stored.quoted,
+		at: here.anchor,
+		status: threadStatus(
+			stored.messages,
+			stored.resolutions,
+			stored.places.filter((p) => p.version <= version.number),
+			version.number
+		)
+	};
 }
 
 /** Whether the draft holds exactly the comments shown, each with the words shown, and the overall review shown. */
 function sameDraft(draft: Draft, shown: ShownDraft): boolean {
 	if (draft.overall.edits !== shown.overall) return false;
+	const shownResolutions = shown.resolutions ?? [];
+	if (draft.resolutions.length !== shownResolutions.length) return false;
+	const resolved = new Map(shownResolutions.map((r) => [r.thread, r.resolved]));
+	if (draft.resolutions.some((r) => resolved.get(r.thread) !== r.resolved)) return false;
 	if (draft.comments.length !== shown.comments.length) return false;
 	const edits = new Map(shown.comments.map((c) => [c.id, c.edits]));
 	return draft.comments.every((c) => edits.get(c.id) === c.edits);
@@ -1350,13 +1457,17 @@ function sameDraft(draft: Draft, shown: ShownDraft): boolean {
 
 /** Whether the draft holds anything to finish: a comment, or an overall review. */
 function anythingToFinish(draft: Draft): boolean {
-	return draft.comments.length > 0 || isWritten(draft.overall.body);
+	return draft.comments.length > 0 || isWritten(draft.overall.body) || draft.resolutions.length > 0;
 }
 
 /** The Delve's draft as stored. */
 function draftOf(q: Queries, report: ReportId): Result<Draft, ReportError> {
 	return andThen(draftCommentsOf(q, report), (comments) =>
-		andThen(draftSummaryOf(q, report), (overall) => ok({ comments, overall }))
+		andThen(draftSummaryOf(q, report), (overall) =>
+			andThen(draftResolutionsOf(q, report), (resolutions) =>
+				ok({ comments, overall, resolutions })
+			)
+		)
 	);
 }
 
@@ -1430,7 +1541,8 @@ function frozenComments(
 				body: c.body,
 				quoted: quoted[i] ?? []
 			},
-			writtenAt: c.writtenAt
+			writtenAt: c.writtenAt,
+			replyTo: c.replyTo
 		});
 	}
 	return ok(rows);
@@ -1787,6 +1899,8 @@ export class ReportService {
 		const content = await this.#contentOf(report, shown.value.revision);
 		if (!content.ok) return content;
 		const { snapshot, diff, revision } = content.value;
+		const threads = await this.#threadsIn(report, revision, snapshot);
+		if (!threads.ok) return threads;
 		const found = this.#db.read((q): Result<StoredFrame, ReportError> => {
 			// Sample before reading the rows, so a concurrent commit cannot give
 			// older rows a newer stamp. Both stamps are conservative on a race.
@@ -1874,6 +1988,7 @@ export class ReportService {
 			notes: found.value.notes,
 			earlierNotes: found.value.earlierNotes,
 			requests: found.value.requests,
+			threads: threads.value,
 			agentListening: this.#listening.listening(id),
 			frame: this.#frameOf(found.value.shown.report, revision.id, found.value.sorting),
 			sorting: found.value.sorting,
@@ -1894,6 +2009,87 @@ export class ReportService {
 					: { revision: revision.number, at: revision.takenAt, summary },
 			fresh: fresh.value,
 			unmarked: unmarked.value
+		});
+	}
+
+	/**
+	 * The Delve's threads (DESIGN 6.3) as `revision` has them, each at its
+	 * lines there. A thread not yet followed to `revision` is followed now,
+	 * from the latest earlier version it has been followed to, through git's
+	 * diff between the two versions' trees of its side (`reanchor`), and that
+	 * is kept, so each thread is followed to each version once. One whose lines
+	 * are gone stays gone. A thread started on a later version than
+	 * `revision` is not shown on it.
+	 */
+	async #threadsIn(
+		report: Report,
+		revision: Revision,
+		snapshot: Snapshot
+	): Promise<Result<readonly EarlierThread[], ReportError>> {
+		const read = (): Result<readonly StoredThread[], ReportError> =>
+			this.#db.read((q) => threadsOf(q, report.id));
+		const stored = read();
+		if (!stored.ok) return stored;
+		const behind = stored.value.filter(
+			(t) =>
+				!t.places.some((p) => p.revision === revision.id) &&
+				t.places.some((p) => p.version < revision.number)
+		);
+		if (behind.length === 0) return ok(this.#shownThreads(stored.value, revision));
+		const revisions = this.#db.read((q) => revisionsOf(q, report.id));
+		if (!revisions.ok) return revisions;
+		const byId = new Map(revisions.value.map((r) => [r.id, r]));
+		const changes = new Map<string, TreeChanges>();
+		const changesFrom = async (
+			from: Revision,
+			side: Side
+		): Promise<Result<TreeChanges, ReportError>> => {
+			const key = `${from.id}:${side}`;
+			const known = changes.get(key);
+			if (known !== undefined) return ok(known);
+			let found: TreeChanges = { kind: 'unrelated' };
+			if (from.store === revision.store) {
+				const files = await readTreeDiff(
+					snapshot.store,
+					side === 'new' ? from.headTree : from.baseTree,
+					side === 'new' ? revision.headTree : revision.baseTree
+				);
+				if (!files.ok) return files;
+				found = { kind: 'diff', files: files.value };
+			}
+			changes.set(key, found);
+			return ok(found);
+		};
+		const places: { thread: ThreadId; anchor: CommentAnchor | undefined; edited: boolean }[] = [];
+		for (const thread of behind) {
+			const from = thread.places.filter((p) => p.version < revision.number).at(-1);
+			const earlier = from === undefined ? undefined : byId.get(from.revision);
+			if (from?.anchor === undefined || earlier === undefined) {
+				places.push({ thread: thread.id, anchor: undefined, edited: false });
+				continue;
+			}
+			const tree = await changesFrom(earlier, from.anchor.side);
+			if (!tree.ok) return tree;
+			const moved = reanchor(from.anchor, tree.value);
+			places.push(
+				moved.kind === 'lines'
+					? { thread: thread.id, anchor: moved.anchor, edited: moved.edited }
+					: { thread: thread.id, anchor: undefined, edited: true }
+			);
+		}
+		const written = this.#db.write((q): Result<undefined, ReportError> => {
+			for (const p of places) insertThreadPlace(q, p.thread, revision.id, p.anchor, p.edited);
+			return ok(undefined);
+		});
+		if (!written.ok) return written;
+		const again = read();
+		return again.ok ? ok(this.#shownThreads(again.value, revision)) : again;
+	}
+
+	#shownThreads(stored: readonly StoredThread[], revision: Revision): readonly EarlierThread[] {
+		return stored.flatMap((t) => {
+			const shown = threadIn(t, revision);
+			return shown === undefined ? [] : [shown];
 		});
 	}
 
@@ -3199,6 +3395,101 @@ export class ReportService {
 		);
 	}
 
+	/** The threads of earlier reviews the draft resolves or opens again. */
+	draftResolutions(id: ReportId): Result<readonly ShownResolution[], ReportError> {
+		return this.#db.read((q) =>
+			andThen(current(q, id), () => map(draftResolutionsOf(q, id), shownResolutions))
+		);
+	}
+
+	/**
+	 * Saves the draft's reply to a thread of an earlier review (DESIGN 6.3),
+	 * from a page that shows the current version: a comment of the draft that
+	 * names the thread, on its lines in that version, or, when they are gone
+	 * from it, on the lines it last had. A thread has one reply in a draft,
+	 * whose words are edited as a comment's are.
+	 */
+	async replyToThread(
+		id: ReportId,
+		seen: RevisionNumber,
+		thread: ThreadId,
+		body: string
+	): Promise<Result<DraftComment, ReportError>> {
+		if (!isThreadBody('comment', body)) return err({ kind: 'InvalidCommentBody' });
+		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
+		if (!found.ok) return found;
+		const content = await this.#contentOf(found.value.report, found.value.revision);
+		if (!content.ok) return content;
+		const { revision, snapshot } = content.value;
+		const threads = await this.#threadsIn(found.value.report, revision, snapshot);
+		if (!threads.ok) return threads;
+		if (!threads.value.some((t) => t.id === thread)) return err({ kind: 'ThreadNotFound' });
+		return this.#db.write((q) =>
+			andThen(currentAsSeen(q, id, seen), (now): Result<DraftComment, ReportError> => {
+				if (now.revision.id !== revision.id) {
+					return err({ kind: 'RevisionChangedWhileSaving', report: id });
+				}
+				return andThen(draftReplyTo(q, id, thread), (replied) => {
+					if (replied !== undefined) return err({ kind: 'ThreadReplied' });
+					return andThen(threadsOf(q, id), (stored): Result<DraftComment, ReportError> => {
+						const lines = stored
+							.find((t) => t.id === thread)
+							?.places.filter((p) => p.version <= revision.number && p.anchor !== undefined)
+							.at(-1);
+						if (lines?.anchor === undefined) return err({ kind: 'ThreadNotFound' });
+						const at = this.#clock.now();
+						return andThen(
+							insertDraftComment(q, lines.revision, 'comment', lines.anchor, body, at, thread),
+							(saved) => {
+								touchReport(q, id, at);
+								return ok(saved);
+							}
+						);
+					});
+				});
+			})
+		);
+	}
+
+	/**
+	 * Resolves a thread of an earlier review in the draft, opens it again, or
+	 * (`undefined`) takes back what the draft did to it, from a page that
+	 * shows the current version. Resolving a thread already resolved, or
+	 * opening one already open, takes back what the draft did. It is part of
+	 * the draft, finished with it.
+	 */
+	async resolveThread(
+		id: ReportId,
+		seen: RevisionNumber,
+		thread: ThreadId,
+		resolved: boolean | undefined
+	): Promise<Result<readonly ShownResolution[], ReportError>> {
+		const found = this.#db.read((q) => currentAsSeen(q, id, seen));
+		if (!found.ok) return found;
+		const content = await this.#contentOf(found.value.report, found.value.revision);
+		if (!content.ok) return content;
+		const { revision, snapshot } = content.value;
+		const threads = await this.#threadsIn(found.value.report, revision, snapshot);
+		if (!threads.ok) return threads;
+		const shown = threads.value.find((t) => t.id === thread);
+		if (shown === undefined) return err({ kind: 'ThreadNotFound' });
+		return this.#db.write((q) =>
+			andThen(
+				currentAsSeen(q, id, seen),
+				(now): Result<readonly ShownResolution[], ReportError> => {
+					if (now.revision.id !== revision.id) {
+						return err({ kind: 'RevisionChangedWhileSaving', report: id });
+					}
+					const already = shown.status === 'resolved';
+					if (resolved === undefined || resolved === already) deleteDraftResolution(q, thread);
+					else setDraftResolution(q, thread, revision.id, resolved);
+					touchReport(q, id, this.#clock.now());
+					return map(draftResolutionsOf(q, id), shownResolutions);
+				}
+			)
+		);
+	}
+
 	/** Reads the overall review of the one private draft. */
 	overallReview(id: ReportId): Result<OverallReview, ReportError> {
 		return this.#db.read((q) => andThen(current(q, id), () => draftSummaryOf(q, id)));
@@ -3245,9 +3536,11 @@ export class ReportService {
 	): Promise<Result<ReviewPreview, ReportError>> {
 		const prepared = await this.#prepareReview(id, seen);
 		if (!prepared.ok) return prepared;
-		const { found, diff, draft, quoted } = prepared.value;
+		const { found, diff, draft, quoted, threads } = prepared.value;
 		return this.#db.read((q) =>
-			andThen(this.#reviewText(q, found, diff, draft, quoted), ({ number, text, comments }) => {
+			andThen(this.#reviewText(q, found, diff, draft, quoted, threads), (made) => {
+				const { number, text } = made;
+				const comments = made.comments.filter((r) => r.replyTo === undefined);
 				const version = found.revision.number;
 				const github: GitHubPreview | undefined =
 					found.report.source.kind === 'github'
@@ -3259,6 +3552,7 @@ export class ReportService {
 									version,
 									overall: draft.overall.body,
 									comments: comments.map((r) => r.comment),
+									threads: made.threads,
 									allInText: false,
 									mark: undefined
 								}).body,
@@ -3269,7 +3563,14 @@ export class ReportService {
 								)
 							}
 						: undefined;
-				return ok({ number, text, comments: draft.comments, overall: draft.overall, github });
+				return ok({
+					number,
+					text,
+					comments: draft.comments,
+					overall: draft.overall,
+					resolutions: shownResolutions(draft.resolutions),
+					github
+				});
 			})
 		);
 	}
@@ -3314,7 +3615,7 @@ export class ReportService {
 	): Promise<Result<JustFinished, ReportError>> {
 		const prepared = await this.#prepareReview(id, seen, shown);
 		if (!prepared.ok) return prepared;
-		const { found, diff, draft, quoted } = prepared.value;
+		const { found, diff, draft, quoted, threads } = prepared.value;
 		if (!forgetEarlierPost) {
 			const earlier = await this.#earlierPost(id, seen, found.report);
 			if (!earlier.ok) return earlier;
@@ -3329,7 +3630,7 @@ export class ReportService {
 					const may = finishable(q, id, draftNow, shown);
 					if (!may.ok) return may;
 					return andThen(
-						this.#reviewText(q, found, diff, draft, quoted),
+						this.#reviewText(q, found, diff, draft, quoted, threads),
 						({ number, text, progress, comments }): Result<JustFinished, ReportError> => {
 							const at = this.#clock.now();
 							insertReview(
@@ -3343,6 +3644,9 @@ export class ReportService {
 								draft.overall.body
 							);
 							insertReviewComments(q, id, number, comments);
+							startThreads(q, id, number);
+							insertReviewResolutions(q, id, number, draft.resolutions);
+							for (const r of draft.resolutions) deleteDraftResolution(q, r.thread);
 							copyReviewMarks(q, id, number, found.revision.id);
 							// Asked for: an earlier post of it is never looked for on GitHub again.
 							if (forgetEarlierPost) forgetPosting(q, id);
@@ -3462,7 +3766,7 @@ export class ReportService {
 	): Promise<Result<JustFinished, ReportError>> {
 		const prepared = await this.#prepareReview(id, seen, shown);
 		if (!prepared.ok) return prepared;
-		const { found, diff, draft, quoted } = prepared.value;
+		const { found, diff, draft, quoted, threads } = prepared.value;
 		const { source } = found.report;
 		if (source.kind !== 'github') return err({ kind: 'NotAPullRequest' });
 		const pullRequest = source.pullRequest;
@@ -3479,7 +3783,7 @@ export class ReportService {
 		if (asked.read.value.kind === 'read' && asked.read.value.details.state !== 'open') {
 			return refused({ kind: 'closed', merged: asked.read.value.details.state === 'merged' });
 		}
-		const text = this.#db.read((q) => this.#reviewText(q, found, diff, draft, quoted));
+		const text = this.#db.read((q) => this.#reviewText(q, found, diff, draft, quoted, threads));
 		if (!text.ok) return text;
 		const { number } = text.value;
 		const noted = this.#db.read((q) => reviewBeingPosted(q, id));
@@ -3512,7 +3816,8 @@ export class ReportService {
 				diff,
 				version: found.revision.number,
 				overall: draft.overall.body,
-				comments: text.value.comments.map((r) => r.comment),
+				comments: text.value.comments.filter((r) => r.replyTo === undefined).map((r) => r.comment),
+				threads: text.value.threads,
 				allInText,
 				mark
 			});
@@ -3552,7 +3857,8 @@ export class ReportService {
 					comments: text.value.comments.map((r) => ({
 						...r,
 						edits: edits.get(r.draft) ?? NO_EDITS
-					}))
+					})),
+					resolutions: draft.resolutions
 				},
 				this.#clock.now()
 			);
@@ -3613,8 +3919,16 @@ export class ReportService {
 						const at = this.#clock.now();
 						const { number } = note;
 						const as = made.postedAs ?? note.postedAs;
+						let kept = false;
 						insertReview(q, id, number, note.revision, at, note.progress, note.text, note.overall);
 						copyNotedReview(q, id, number);
+						startThreads(q, id, number);
+						// What was sent leaves the draft; a resolution changed since stays.
+						const sentResolutions = new Map(note.resolutions.map((r) => [r.thread, r.resolved]));
+						for (const r of draftNow.resolutions) {
+							if (sentResolutions.get(r.thread) === r.resolved) deleteDraftResolution(q, r.thread);
+							else kept = true;
+						}
 						insertDelivery(q, id, number, made.id, {
 							postedAs: as,
 							address: gitHubReviewAddress(pullRequest, made.id, as === 'draft'),
@@ -3623,7 +3937,6 @@ export class ReportService {
 						});
 						forgetPosting(q, id);
 						const sent = new Map(note.comments.map((c) => [c.draft, c.edits]));
-						let kept = false;
 						for (const comment of draftNow.comments) {
 							const edits = sent.get(comment.id);
 							if (edits === comment.edits) {
@@ -3740,8 +4053,8 @@ export class ReportService {
 		if (!content.ok) return content;
 		const quoted: (readonly LineText[])[] = [];
 		for (const comment of draft.comments) {
-			// A flag quotes no code: it names its lines.
-			if (comment.kind === 'flag') {
+			// A flag quotes no code: it names its lines; a reply is on its thread's.
+			if (comment.kind === 'flag' || comment.replyTo !== undefined) {
 				quoted.push([]);
 				continue;
 			}
@@ -3751,11 +4064,18 @@ export class ReportService {
 			if (!lines.ok) return lines;
 			quoted.push(lines.value.lines.map((l) => l.text));
 		}
+		const threads = await this.#threadsIn(
+			found.report,
+			content.value.revision,
+			content.value.snapshot
+		);
+		if (!threads.ok) return threads;
 		return ok({
 			found: { report: found.report, revision: content.value.revision },
 			diff: content.value.diff,
 			draft,
-			quoted
+			quoted,
+			threads: threads.value
 		});
 	}
 
@@ -3768,7 +4088,8 @@ export class ReportService {
 		found: Current,
 		diff: Diff,
 		draft: Draft,
-		quoted: readonly (readonly LineText[])[]
+		quoted: readonly (readonly LineText[])[],
+		threads: readonly EarlierThread[]
 	): Result<ReviewText, ReportError> {
 		const { report, revision } = found;
 		return andThen(latestReviewNumber(q, report.id), (latest) =>
@@ -3784,11 +4105,13 @@ export class ReportService {
 							sections.map((s) => s.id)
 						)
 					);
+					const handed = exportedThreads(threads, draft, (t) => t.quoted);
 					return andThen(frozenComments(q, report.id, draft.comments, quoted), (rows) =>
 						ok({
 							number,
 							progress,
 							comments: rows,
+							threads: handed,
 							text: renderReviewExport({
 								number,
 								report: report.id,
@@ -3797,7 +4120,8 @@ export class ReportService {
 								version: revision.number,
 								headCommit: revision.headCommit,
 								overall: draft.overall.body,
-								comments: rows.map((r) => r.comment),
+								comments: rows.filter((r) => r.replyTo === undefined).map((r) => r.comment),
+								threads: handed,
 								notReviewed: notReviewed(diff, state, marks, sections),
 								progress
 							})

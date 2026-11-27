@@ -35,6 +35,7 @@ import {
 import { draftSummaryOf, NO_OVERALL_REVIEW, writeDraftSummary } from './tables/draft-summaries.ts';
 import { insertReport, reportById, setReportState } from './tables/reports.ts';
 import { reviewsOf } from './tables/reviews.ts';
+import { threadsOf } from './tables/threads.ts';
 import { insertRevision } from './tables/revisions.ts';
 
 const clock = () => settableClock(at(1_700_000_000_000));
@@ -271,6 +272,11 @@ describe('the database', () => {
 				version: 20,
 				name: "the reviewer's requests to the agent and its answers",
 				applied_at: 1_700_000_000_000
+			},
+			{
+				version: 21,
+				name: "threads: finished reviews' comments followed through later versions, replied to and resolved",
+				applied_at: 1_700_000_000_000
 			}
 		]);
 		expect({ ...v.foreignKeys }).toEqual({ foreign_keys: 1 });
@@ -364,8 +370,16 @@ describe('the database', () => {
 			agent_requests: [],
 			request_answers: [],
 			request_answer_excerpts: [],
-			// SQLite's own, for the one table whose ids are never used again.
-			sqlite_sequence: [{ name: 'draft_comments', seq: 0 }],
+			threads: [],
+			thread_places: [],
+			draft_resolutions: [],
+			review_resolutions: [],
+			github_review_post_resolutions: [],
+			// SQLite's own, for the tables whose ids are never used again, touched by their migrations.
+			sqlite_sequence: [
+				{ name: 'draft_comments', seq: 0 },
+				{ name: 'threads', seq: 0 }
+			],
 			revision_updates: [],
 			revisions_to_check: [{ revision_id: 'v_1' }]
 		});
@@ -569,6 +583,69 @@ describe('the database', () => {
 			})
 		);
 		expect(value(db.read((q) => ok(q.all('SELECT * FROM draft_summaries'))))).toEqual([]);
+		db.close();
+	});
+
+	it('makes a thread of every comment and flag of the reviews finished before threads were kept', async () => {
+		const dir = await tempDirectory();
+		const ids = sequentialIds();
+		const id = ids.reportId();
+		const revision = aRevision(ids.revisionId(), id);
+		const before = value(await Database.open(dir, clock(), MIGRATIONS.slice(0, 20)));
+		value(
+			before.write((q) => {
+				insertReport(q, aReport(id));
+				insertEarlierRevision(q, revision);
+				q.run(
+					`INSERT INTO reviews (report_id, number, revision_id, submitted_at, export_text,
+						counted, reviewed, ignored, uncategorised)
+					 VALUES (?, 1, ?, 5000, '# Review 1', 3, 1, 0, 0)`,
+					id,
+					revision.id
+				);
+				for (const [position, kind, body] of [
+					[1, 'comment', 'Why?'],
+					[2, 'flag', '']
+				] as const) {
+					q.run(
+						`INSERT INTO review_comments (report_id, review_number, position, draft_comment_id,
+							revision_id, kind, path, side, first_line, last_line, body, written_at, quoted)
+						 VALUES (?, 1, ?, ?, ?, ?, ?, 'new', 2, 3, ?, 4000, '["two","three"]')`,
+						id,
+						position,
+						position,
+						revision.id,
+						kind,
+						new TextEncoder().encode('src/a.ts'),
+						body
+					);
+				}
+				return ok(undefined);
+			})
+		);
+		before.close();
+
+		const db = await opened(dir);
+		const threads = value(db.read((q) => threadsOf(q, id)));
+		expect(threads).toMatchObject([
+			{
+				messages: [{ review: 1, kind: 'comment', body: 'Why?', version: 1 }],
+				quoted: ['two', 'three'],
+				resolutions: [],
+				places: [
+					{ revision: revision.id, anchor: { path: 'src/a.ts', first: 2, last: 3 }, edited: false }
+				]
+			},
+			{ messages: [{ review: 1, kind: 'flag', body: '' }] }
+		]);
+		// Deleting the Delve takes its threads with it.
+		value(
+			db.write((q) => {
+				q.run('DELETE FROM reports');
+				return ok(undefined);
+			})
+		);
+		expect(value(db.read((q) => ok(q.all('SELECT * FROM threads'))))).toEqual([]);
 		db.close();
 	});
 

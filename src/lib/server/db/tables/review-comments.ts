@@ -16,13 +16,14 @@ import { parseReviewNumber, type ReviewNumber } from '#lib/core/review-number.ti
 import type { DraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
 import type { RevisionId } from '#lib/core/revision-id.tiny.ts';
 import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import type { ThreadId } from '#lib/core/thread-id.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 import { parseRows, repoPath, text, whole } from '../columns.ts';
 import type { Queries } from '../database.ts';
 import type { StoredRowInvalid } from '../database-error.ts';
 
 /** The quoted lines, stored as a JSON array of strings. */
-const quoted = z
+export const quoted = z
 	.string()
 	.transform((value, context) => {
 		try {
@@ -55,7 +56,7 @@ const row = z
 		quoted
 	}));
 
-/** The comments of a finished review, in the order they were written. */
+/** The comments of a finished review that start threads, in the order they were written: not its replies. */
 export function reviewCommentsOf(
 	q: Queries,
 	report: ReportId,
@@ -68,7 +69,7 @@ export function reviewCommentsOf(
 			`SELECT c.kind, r.number AS version, c.path, c.side, c.first_line AS first, c.last_line AS last,
 				c.body, c.quoted
 			 FROM review_comments c JOIN revisions r ON r.id = c.revision_id
-			 WHERE c.report_id = ? AND c.review_number = ? ORDER BY c.position`,
+			 WHERE c.report_id = ? AND c.review_number = ? AND c.reply_to IS NULL ORDER BY c.position`,
 			report,
 			number
 		)
@@ -108,6 +109,8 @@ export interface ReviewCommentRow {
 	readonly revision: RevisionId;
 	readonly comment: SubmittedComment;
 	readonly writtenAt: Timestamp;
+	/** The thread from an earlier review it replies to; undefined for one that starts a thread. */
+	readonly replyTo: ThreadId | undefined;
 }
 
 /** Writes a finished review's comments, numbered from 1 in the order given. */
@@ -117,11 +120,11 @@ export function insertReviewComments(
 	number: ReviewNumber,
 	comments: readonly ReviewCommentRow[]
 ): void {
-	comments.forEach(({ draft, revision, comment, writtenAt }, i) => {
+	comments.forEach(({ draft, revision, comment, writtenAt, replyTo }, i) => {
 		q.run(
 			`INSERT INTO review_comments (report_id, review_number, position, draft_comment_id,
-				revision_id, kind, path, side, first_line, last_line, body, written_at, quoted)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				revision_id, kind, path, side, first_line, last_line, body, written_at, quoted, reply_to)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			report,
 			number,
 			i + 1,
@@ -134,7 +137,8 @@ export function insertReviewComments(
 			comment.anchor.last,
 			comment.body,
 			writtenAt,
-			JSON.stringify(comment.quoted)
+			JSON.stringify(comment.quoted),
+			replyTo ?? null
 		);
 	});
 }

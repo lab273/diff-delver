@@ -33,6 +33,7 @@ import { parseSubjectLine } from '#lib/core/history/subject-line.tiny.ts';
 import { parseFileCount } from '#lib/core/file-count.tiny.ts';
 import { parseFileMode } from '#lib/core/file-mode.tiny.ts';
 import { parseDraftCommentId } from '#lib/core/draft-comment-id.tiny.ts';
+import { parseThreadId } from '#lib/core/thread-id.tiny.ts';
 import { textForAgent } from '#lib/core/text-for-agent.tiny.ts';
 import { parseCommentCount } from '#lib/core/comment-count.tiny.ts';
 import { parseReviewNumber } from '#lib/core/review-number.tiny.ts';
@@ -470,6 +471,39 @@ export const AgentRequestSchema = z.strictObject({
 });
 export type AgentRequestView = z.output<typeof AgentRequestSchema>;
 
+const threadId = parsed(z.number(), parseThreadId);
+const threadAnchor = z.strictObject({
+	path: escapedPath,
+	side,
+	first: lineNumber,
+	last: lineNumber
+});
+
+/**
+ * A thread of an earlier review (DESIGN 6.3) as the version shown has it: its
+ * status there, its lines there (null when they are gone), its messages,
+ * each with the review it was finished in, and the code its first message
+ * was on.
+ */
+export const EarlierThreadSchema = z.strictObject({
+	id: threadId,
+	kind: z.enum(['comment', 'flag']),
+	status: z.enum(['open', 'changed', 'resolved']),
+	at: threadAnchor.nullable(),
+	messages: z.array(
+		z.strictObject({
+			review: parsed(z.number(), parseReviewNumber),
+			kind: z.enum(['comment', 'flag']),
+			version,
+			anchor: threadAnchor,
+			body: z.string(),
+			writtenAt: timestamp
+		})
+	),
+	quoted: z.array(parsed(z.string(), parseLineText))
+});
+export type EarlierThreadView = z.output<typeof EarlierThreadSchema>;
+
 /** GET /api/diffs/:id: a diff's page, without the code, which comes a part at a time. */
 const frameStamp = z.string().min(1).max(256);
 export const DiffPageSchema = z.object({
@@ -486,6 +520,11 @@ export const DiffPageSchema = z.object({
 	requests: z.array(AgentRequestSchema),
 	/** Whether an agent is listening for this Delve's questions now (DESIGN 7.2). */
 	agentConnected: z.boolean(),
+	/**
+	 * The threads of earlier reviews this version has, in the order they were
+	 * started; null for a browser that may not read the reviews.
+	 */
+	threads: z.array(EarlierThreadSchema).nullable(),
 	/** Identifies the frame of this version and view for a conditional read. */
 	frame: frameStamp,
 	/** The sorting the reviewer saw when deciding to tick a slice or group. */
@@ -1197,6 +1236,8 @@ const draftCommentId = parsed(z.number(), parseDraftCommentId);
 /** One saved comment or flag: the version its lines are in, its words, and when they were written. */
 export const DraftCommentSchema = draftThread.extend({
 	id: draftCommentId,
+	/** The thread of an earlier review it replies to, or null for a comment of the draft's own. */
+	replyTo: threadId.nullable(),
 	writtenAt: timestamp,
 	/** When its words were last changed, or null while they are as first written. */
 	editedAt: timestamp.nullable(),
@@ -1223,11 +1264,16 @@ export const SaveOverallReviewSchema = z.strictObject({
 });
 export type SaveOverallReview = z.infer<typeof SaveOverallReviewSchema>;
 
+/** A thread of an earlier review the draft resolves, or opens again. */
+const shownResolution = z.strictObject({ thread: threadId, resolved: z.boolean() });
+
 /** GET /api/diffs/[id]/comments: the whole draft, with the daemon's time to say how long ago. */
 export const DraftCommentsSchema = z.strictObject({
 	now: timestamp,
 	comments: z.array(DraftCommentSchema),
-	overall: OverallReviewSchema
+	overall: OverallReviewSchema,
+	/** The threads of earlier reviews it resolves or opens again. */
+	resolutions: z.array(shownResolution)
 });
 export type DraftCommentsView = z.infer<typeof DraftCommentsSchema>;
 
@@ -1285,6 +1331,26 @@ export const RequestsChangedSchema = z.strictObject({
 });
 export type RequestsChangedView = z.infer<typeof RequestsChangedSchema>;
 
+/**
+ * POST /api/diffs/[id]/threads, from a page that shows `version`, the current
+ * one: replies to a thread of an earlier review, resolves it, opens it again,
+ * or takes back what the draft did to it.
+ */
+export const ThreadActionSchema = z.discriminatedUnion('action', [
+	z.strictObject({ action: z.literal('reply'), version, thread: threadId, body: commentBody }),
+	z.strictObject({ action: z.literal('resolve'), version, thread: threadId }),
+	z.strictObject({ action: z.literal('reopen'), version, thread: threadId }),
+	z.strictObject({ action: z.literal('undo'), version, thread: threadId })
+]);
+export type ThreadAction = z.infer<typeof ThreadActionSchema>;
+
+/** What a thread action left: the draft's resolutions, and the reply just saved. */
+export const ThreadsChangedSchema = z.strictObject({
+	resolutions: z.array(shownResolution),
+	comment: DraftCommentSchema.nullable()
+});
+export type ThreadsChangedView = z.infer<typeof ThreadsChangedSchema>;
+
 /** A comment's id in an address, where it is text. */
 export const DraftCommentIdInAddressSchema = parsed(
 	z.string().regex(/^[1-9][0-9]{0,15}$/),
@@ -1310,6 +1376,8 @@ export const ReviewPreviewSchema = z.strictObject({
 	comments: z.array(shownComment),
 	/** How many times the overall review it holds had been changed: sent back to finish it. */
 	overall: editCount,
+	/** The threads of earlier reviews it resolves or opens again: sent back to finish it. */
+	resolutions: z.array(shownResolution),
 	/**
 	 * For a pull request's Delve, what posting it would put on GitHub: the
 	 * review's text as posted, without the hidden mark made then, and which
@@ -1325,6 +1393,8 @@ export const FinishReviewSchema = z.strictObject({
 	comments: z.array(shownComment).max(100_000),
 	/** How many times the overall review had been changed when the page showed it. */
 	overall: editCount,
+	/** The threads of earlier reviews it resolved or opened again when the page showed it; left out, none. */
+	resolutions: z.array(shownResolution).max(100_000).optional(),
 	/**
 	 * For a pull request's Delve, to post it to GitHub as one review too:
 	 * published as `kind`, or, with `draft`, left a draft there, `kind` set aside.

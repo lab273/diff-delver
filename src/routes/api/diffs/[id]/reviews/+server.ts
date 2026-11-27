@@ -31,7 +31,11 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	if (!id.ok) return id.error;
 	const parsed = await readBody(request, FinishReviewSchema);
 	if (!parsed.ok) return parsed.error;
-	const shown = { comments: parsed.value.comments, overall: parsed.value.overall };
+	const shown = {
+		comments: parsed.value.comments,
+		overall: parsed.value.overall,
+		resolutions: parsed.value.resolutions ?? []
+	};
 	const { github, forgetEarlierPost } = parsed.value;
 	if (github !== undefined && forgetEarlierPost === true) {
 		return badRequest('a review posted to GitHub cannot forget an earlier post of it');

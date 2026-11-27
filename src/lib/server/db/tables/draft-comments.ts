@@ -13,6 +13,7 @@ import {
 	type ThreadKind
 } from '#lib/core/review/draft-comment.ts';
 import { ok, type Result } from '#lib/core/result.ts';
+import { parseThreadId, type ThreadId } from '#lib/core/thread-id.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 import { nullable, parseRow, parseRows, repoPath, timestamp, whole } from '../columns.ts';
 import type { Queries } from '../database.ts';
@@ -30,7 +31,8 @@ const row = z
 		body: z.string().max(MAX_COMMENT_LENGTH),
 		writtenAt: timestamp,
 		editedAt: nullable(timestamp),
-		edits: whole(parseEditCount)
+		edits: whole(parseEditCount),
+		replyTo: nullable(whole(parseThreadId))
 	})
 	.refine(({ kind, first, last, body }) => last >= first && (kind === 'flag' || body.trim() !== ''))
 	.transform(
@@ -45,7 +47,8 @@ const row = z
 			body,
 			writtenAt,
 			editedAt,
-			edits
+			edits,
+			replyTo
 		}): DraftComment => ({
 			id,
 			kind,
@@ -54,13 +57,15 @@ const row = z
 			body,
 			writtenAt,
 			editedAt,
-			edits
+			edits,
+			replyTo
 		})
 	);
 
 /** A comment's columns, with its revision's number as its version. */
 const COLUMNS = `c.id, c.kind, r.number AS version, c.path, c.side, c.first_line AS first,
-	c.last_line AS last, c.body, c.written_at AS writtenAt, c.edited_at AS editedAt, c.edits`;
+	c.last_line AS last, c.body, c.written_at AS writtenAt, c.edited_at AS editedAt, c.edits,
+	c.reply_to AS replyTo`;
 
 /** All comments in the Delve's draft, in the order they were saved. */
 export function draftCommentsOf(q: Queries, report: ReportId) {
@@ -98,11 +103,13 @@ export function insertDraftComment(
 	kind: ThreadKind,
 	anchor: CommentAnchor,
 	body: string,
-	now: Timestamp
+	now: Timestamp,
+	replyTo?: ThreadId
 ): Result<DraftComment, StoredRowInvalid> {
 	const saved = q.get(
-		`INSERT INTO draft_comments (revision_id, kind, path, side, first_line, last_line, body, written_at, edits)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+		`INSERT INTO draft_comments (revision_id, kind, path, side, first_line, last_line, body,
+			written_at, edits, reply_to)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
 		 RETURNING id`,
 		revision,
 		kind,
@@ -111,7 +118,8 @@ export function insertDraftComment(
 		anchor.first,
 		anchor.last,
 		body,
-		now
+		now,
+		replyTo ?? null
 	);
 	// Read back as any comment is read, so what is answered is what was stored.
 	const stored = q.get(
@@ -134,7 +142,7 @@ export function draftFlagOn(
 	const found = q.get(
 		`SELECT ${COLUMNS}
 		 FROM revisions r JOIN draft_comments c ON r.id = c.revision_id
-		 WHERE c.revision_id = ? AND c.kind = 'flag' AND c.path = ? AND c.side = ?
+		 WHERE c.revision_id = ? AND c.kind = 'flag' AND c.reply_to IS NULL AND c.path = ? AND c.side = ?
 			AND c.first_line = ? AND c.last_line = ?
 		 ORDER BY c.id LIMIT 1`,
 		revision,
@@ -142,6 +150,22 @@ export function draftFlagOn(
 		anchor.side,
 		anchor.first,
 		anchor.last
+	);
+	return found === undefined ? ok(undefined) : parseRow('draft_comments', row, found);
+}
+
+/** The draft's reply to a thread, if it has one: a thread has at most one in a draft. */
+export function draftReplyTo(
+	q: Queries,
+	report: ReportId,
+	thread: ThreadId
+): Result<DraftComment | undefined, StoredRowInvalid> {
+	const found = q.get(
+		`SELECT ${COLUMNS}
+		 FROM revisions r JOIN draft_comments c ON r.id = c.revision_id
+		 WHERE r.report_id = ? AND c.reply_to = ? ORDER BY c.id LIMIT 1`,
+		report,
+		thread
 	);
 	return found === undefined ? ok(undefined) : parseRow('draft_comments', row, found);
 }
@@ -169,8 +193,9 @@ export function updateDraftComment(
 export function renumberDraftComment(q: Queries, id: DraftCommentId): void {
 	q.run(
 		`INSERT INTO draft_comments (revision_id, kind, path, side, first_line, last_line, body,
-			written_at, edited_at, edits)
-		 SELECT revision_id, kind, path, side, first_line, last_line, body, written_at, edited_at, edits
+			written_at, edited_at, edits, reply_to)
+		 SELECT revision_id, kind, path, side, first_line, last_line, body, written_at, edited_at, edits,
+			reply_to
 		 FROM draft_comments WHERE id = ?`,
 		id
 	);

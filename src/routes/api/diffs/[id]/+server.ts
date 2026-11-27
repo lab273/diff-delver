@@ -1,5 +1,5 @@
 import { PageQuerySchema, type DeletedResponse, type DiffPage } from '#lib/api/schemas.ts';
-import { pageView, serviceFailure } from '#lib/server/api/present.ts';
+import { framePrefix, pageView, serviceFailure } from '#lib/server/api/present.ts';
 import { diffId, readQuery } from '#lib/server/api/request.ts';
 import { canReview, reviewSessionRequired } from '#lib/server/api/review-session.ts';
 import type { RequestHandler } from './$types';
@@ -8,14 +8,15 @@ import type { RequestHandler } from './$types';
  * One diff, as its page shows it: everything but the code, which comes a part
  * at a time. Its newest version, or the one asked for.
  */
-export const GET: RequestHandler = async ({ locals, params, url }) => {
+export const GET: RequestHandler = async ({ locals, params, request, url }) => {
 	const id = diffId(params.id);
 	if (!id.ok) return id.error;
 	const query = readQuery(url, PageQuerySchema);
 	if (!query.ok) return query.error;
 	const { service, clock } = locals.daemon;
 	const { version, view, since } = query.value;
-	const prefix = `${view}:`;
+	const reviews = canReview(locals.daemon, request);
+	const prefix = framePrefix(view, reviews);
 	if (version !== undefined && since?.startsWith(prefix)) {
 		const unchanged = service.frameUnchanged(id.value, version, since.slice(prefix.length));
 		if (!unchanged.ok) return serviceFailure(unchanged.error);
@@ -23,7 +24,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	}
 	const loaded = await service.load(id.value, version);
 	if (!loaded.ok) return serviceFailure(loaded.error);
-	const body: DiffPage = pageView(loaded.value, clock.now(), view);
+	const body: DiffPage = pageView(loaded.value, clock.now(), view, reviews);
 	return Response.json(body);
 };
 

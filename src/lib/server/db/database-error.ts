@@ -37,7 +37,12 @@ export type TableName =
 	| 'github_review_post_marks'
 	| 'agent_notes'
 	| 'summaries_read'
-	| 'agent_requests';
+	| 'agent_requests'
+	| 'threads'
+	| 'thread_places'
+	| 'draft_resolutions'
+	| 'review_resolutions'
+	| 'github_review_post_resolutions';
 
 /**
  * The file could not be opened or made (a missing folder, no permission, a full
@@ -225,6 +230,14 @@ function tableInWords(table: TableName): string {
 			return 'which of the agent’s summaries you have read';
 		case 'agent_requests':
 			return 'your questions to the agent and its answers';
+		case 'threads':
+		case 'thread_places':
+		case 'review_resolutions':
+			return 'the comments of earlier reviews, and where they are in later versions';
+		case 'draft_resolutions':
+			return 'which comments of earlier reviews the draft resolves';
+		case 'github_review_post_resolutions':
+			return 'a review being posted to GitHub';
 	}
 }
 
@@ -251,6 +264,7 @@ function storedRowAdvice(table: TableName): string {
 		case 'pull_requests':
 			return 'Delete that Delve from the list of Delves, where it shows as damaged, or restore the database from a backup.';
 		case 'draft_comments':
+		case 'draft_resolutions':
 			return 'Restore the database from a backup to recover the draft comments.';
 		case 'draft_summaries':
 			return 'Restore the database from a backup to recover the draft overall review.';
@@ -258,10 +272,14 @@ function storedRowAdvice(table: TableName): string {
 		case 'review_comments':
 		case 'review_marks':
 		case 'review_deliveries':
+		case 'threads':
+		case 'thread_places':
+		case 'review_resolutions':
 			return 'Restore the database from a backup to recover the finished reviews.';
 		case 'github_review_posts':
 		case 'github_review_post_comments':
 		case 'github_review_post_marks':
+		case 'github_review_post_resolutions':
 			return 'Look on the pull request on GitHub for the review, then restore the database from a backup or delete that Delve from the list of Delves.';
 		case 'settings':
 			return 'Change any setting on a Delve’s page, which stores it again.';

@@ -20,6 +20,7 @@ export const GET: RequestHandler = async ({ locals, params, request, url }) => {
 		text: preview.value.text,
 		comments: preview.value.comments.map((c) => ({ id: c.id, edits: c.edits })),
 		overall: preview.value.overall.edits,
+		resolutions: [...preview.value.resolutions],
 		github:
 			preview.value.github === undefined
 				? null

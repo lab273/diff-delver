@@ -232,6 +232,10 @@ export type ReportError =
 	| { readonly kind: 'CommentFinished'; readonly number: ReviewNumber }
 	/** The report has no finished review with that number. */
 	| { readonly kind: 'ReviewNotFound'; readonly number: ReviewNumber }
+	/** The Delve has no thread from an earlier review with that id, or none on the version shown. */
+	| { readonly kind: 'ThreadNotFound' }
+	/** The draft already has a reply to that thread, to edit instead. */
+	| { readonly kind: 'ThreadReplied' }
 	| PathNotFound
 	| PathIsDirectory
 	| PathIsSubmodule
@@ -382,6 +386,14 @@ export function describeReportError(error: ReportError): ReviewerMessage {
 		case 'CommentFinished':
 			return reviewerMessage(
 				`This comment was finished as part of review ${String(error.number)}, perhaps in another tab, so it can no longer be changed and nothing was changed. If you want to add to it, write a new comment: it starts the next review.`
+			);
+		case 'ThreadNotFound':
+			return reviewerMessage(
+				'That comment from an earlier review is not on this version of the Delve. Reload the page to see the comments it has.'
+			);
+		case 'ThreadReplied':
+			return reviewerMessage(
+				'Your draft already has a reply to this comment, perhaps written in another tab. Edit that reply instead; reload the page if you cannot see it.'
 			);
 		case 'ReviewNotFound':
 			return reviewerMessage(

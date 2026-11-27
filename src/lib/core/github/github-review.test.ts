@@ -17,6 +17,8 @@ import {
 	gitHubReview,
 	hasReviewMarker,
 	FLAGS_HEADING,
+	RESOLVED_HEADING,
+	STILL_OPEN_HEADING,
 	IN_TEXT_HEADING,
 	placeComment,
 	reviewMarker,
@@ -235,6 +237,45 @@ describe('gitHubReview', () => {
 				FLAGS_HEADING,
 				'`modified.txt`, line 3 (after the change)',
 				reviewMarker(REPORT, REVIEW, MARK)
+			].join('\n\n')
+		);
+	});
+
+	it("puts threads from earlier reviews and this review's replies in the text, never on lines", () => {
+		const start = comment('modified.txt', 'new', 3, 3, { version: 1, body: 'Why three?' });
+		const review = gitHubReview({
+			...base,
+			mark: undefined,
+			overall: '',
+			comments: [],
+			threads: [
+				{
+					start,
+					from: value(parseReviewNumber(1)),
+					replies: [],
+					at: start.anchor,
+					status: 'changed',
+					reply: 'Four is right.',
+					action: undefined
+				},
+				{
+					start: comment('modified.txt', 'new', 5, 5, { version: 1, body: 'Done?' }),
+					from: value(parseReviewNumber(1)),
+					replies: [],
+					at: start.anchor,
+					status: 'open',
+					reply: undefined,
+					action: 'resolved'
+				}
+			]
+		});
+		expect(review.comments).toEqual([]);
+		expect(review.body).toBe(
+			[
+				STILL_OPEN_HEADING,
+				'`modified.txt`, line 3 (after the change), from review 1, changed since\n\n> Why three?\n\nReply in this review:\n\n> Four is right.',
+				RESOLVED_HEADING,
+				'`modified.txt`, line 3 (after the change), from review 1, unchanged\n\n> Done?'
 			].join('\n\n')
 		);
 	});

@@ -10,6 +10,7 @@ import {
 	describePullRequestList
 } from '#lib/core/github/listed-pull-request.ts';
 import { describeEarlierNotes, type AgentNote } from '#lib/core/review/agent-note.ts';
+import type { EarlierThread } from '#lib/core/review/threads.ts';
 import {
 	describeRequestAnchor,
 	isOpenRequest,
@@ -20,6 +21,7 @@ import {
 import { agentPath } from '#lib/core/diff/agent-text.ts';
 import type {
 	AgentNoteView,
+	EarlierThreadView,
 	AgentRequestView,
 	ApiErrorBody,
 	Candidate,
@@ -400,7 +402,16 @@ export function marksOf(loaded: LoadedReport): PartMarks {
 	return { reviewed: loaded.reviewed, fresh: loaded.fresh, unmarked: loaded.unmarked };
 }
 
-export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): DiffPage {
+/**
+ * A diff's page as the API gives it. The threads of earlier reviews are the
+ * reviewer's, so only a browser that may read reviews (`reviews`) gets them.
+ */
+export function pageView(
+	loaded: LoadedReport,
+	now: Timestamp,
+	view: ViewKind,
+	reviews = true
+): DiffPage {
 	const update = loaded.update;
 	const sections = new Map(loaded.sections.map((section) => [section.id, section]));
 	const frame = frameOf(
@@ -426,7 +437,8 @@ export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): 
 			version: loaded.summary.revision
 		}),
 		agentConnected: loaded.agentListening,
-		frame: `${view}:${loaded.frame}`,
+		threads: reviews ? threadsView(loaded.threads) : null,
+		frame: `${framePrefix(view, reviews)}${loaded.frame}`,
 		sorting: loaded.sorting,
 		assignments: loaded.assignments,
 		source: formatSourceSpec(sourceSpecOf(loaded.report.source)),
@@ -670,6 +682,7 @@ export function statusOf(error: ReportError): number {
 		case 'RequestNotFound':
 		case 'ReviewNotFound':
 		case 'PullRequestNotFound':
+		case 'ThreadNotFound':
 			return 404;
 		case 'GitHubRateLimited':
 			return 429;
@@ -688,6 +701,7 @@ export function statusOf(error: ReportError): number {
 		case 'DraftChanged':
 		case 'CommentsFinished':
 		case 'CommentFinished':
+		case 'ThreadReplied':
 		case 'VersionOutOfDate':
 		case 'SortingChanged':
 		case 'AssignmentsChanged':
@@ -819,6 +833,34 @@ export function requestsView(
 				}))
 			}))
 		}));
+}
+
+/**
+ * What a frame's stamp starts with: the view, and whether the browser may
+ * read reviews, so a page that is let write its drafts gets the threads it
+ * could not read before.
+ */
+export function framePrefix(view: ViewKind, reviews: boolean): string {
+	return `${view}:${reviews ? 'review' : 'view'}:`;
+}
+
+/** The threads of earlier reviews as a page draws them. */
+export function threadsView(threads: readonly EarlierThread[]): EarlierThreadView[] {
+	return threads.map((t) => ({
+		id: t.id,
+		kind: t.kind,
+		status: t.status,
+		at: t.at === undefined ? null : { ...t.at, path: escapedRepoPath(t.at.path) },
+		messages: t.messages.map((m) => ({
+			review: m.review,
+			kind: m.kind,
+			version: m.version,
+			anchor: { ...m.anchor, path: escapedRepoPath(m.anchor.path) },
+			body: m.body,
+			writtenAt: m.writtenAt
+		})),
+		quoted: [...t.quoted]
+	}));
 }
 
 /** The agent's notes as a page draws them: promoted ones are comments of the draft by then. */

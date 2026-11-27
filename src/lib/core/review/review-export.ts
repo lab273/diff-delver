@@ -9,6 +9,14 @@
  * another look", each with any words they wrote, quoted the same way. Last
  * comes what was not reviewed, group by group.
  *
+ * Threads from earlier reviews (`threads.ts`) come before the comments, under
+ * "Still open from earlier reviews": each one open, or whose code changed
+ * since, at its lines in the version the review is finished on, with the
+ * review it is from, whether its code changed since and the words said in it,
+ * then this review's reply, if any. Those resolved in this review follow,
+ * under "Resolved in this review". A thread whose lines are gone names them
+ * as they were, on its version, and quotes the code it was on.
+ *
  * Text from the repository (paths, section titles, code) is written as the
  * agent's other answers write it: paths as `agentPath` does, and each
  * character that cannot be seen, or turns text round, as an escape, so code
@@ -41,6 +49,7 @@ import type { PostedAs } from '../github/github-review.ts';
 import { countOf, formatCount } from '../viewer/words.ts';
 import type { CommentAnchor, ThreadKind } from './draft-comment.ts';
 import { isWritten } from './overall-review.ts';
+import type { ThreadStatus } from './threads.ts';
 import { countWithin } from './progress.ts';
 import { fileUnitReviewed, reviewedLines, type ReviewedMarks } from './reviewed-marks.ts';
 
@@ -66,6 +75,29 @@ export interface SubmittedComment {
 	readonly body: string;
 	/** The first `MAX_QUOTED_LINES` lines of its range, from its version's snapshot; none for a flag. */
 	readonly quoted: readonly LineText[];
+}
+
+/**
+ * A thread from an earlier review as a finished review hands it over: the
+ * comment or flag that started it, what was said in it since, where it is in
+ * the version the review is finished on and how it stood there, and what this
+ * review did to it.
+ */
+export interface ExportedThread {
+	/** The comment or flag that started it, with the code it was on. */
+	readonly start: SubmittedComment;
+	/** The review it started in. */
+	readonly from: ReviewNumber;
+	/** Replies to it in earlier reviews, oldest first. */
+	readonly replies: readonly { readonly review: ReviewNumber; readonly body: string }[];
+	/** Its lines in the version the review is finished on; undefined when they are gone. */
+	readonly at: CommentAnchor | undefined;
+	/** How it stood in that version before this review. */
+	readonly status: ThreadStatus;
+	/** This review's reply to it, exactly as typed. */
+	readonly reply: string | undefined;
+	/** Whether this review resolved it, opened it again, or neither. */
+	readonly action: 'resolved' | 'reopened' | undefined;
 }
 
 /** A group with changes nobody marked reviewed, and its files that have them. */
@@ -155,8 +187,19 @@ export interface ReviewExportInput {
 	/** The reviewer's overall review, exactly as typed; '' when they wrote none. */
 	readonly overall: string;
 	readonly comments: readonly SubmittedComment[];
+	/** Threads from earlier reviews, in the order they were started; left out, none. */
+	readonly threads?: readonly ExportedThread[];
 	readonly notReviewed: readonly NotReviewedGroup[];
 	readonly progress: UnitProgress;
+}
+
+/**
+ * Whether a thread is listed as still open by this review: open, or with its
+ * code changed since, or replied to or opened again in it, and not resolved by it.
+ */
+export function stillOpen(thread: ExportedThread): boolean {
+	if (thread.action === 'resolved') return false;
+	return thread.status !== 'resolved' || thread.action === 'reopened' || thread.reply !== undefined;
 }
 
 /** A finished review as Markdown written for a language model. */
@@ -164,13 +207,26 @@ export function renderReviewExport(input: ReviewExportInput): TextForAgent {
 	const written = isWritten(input.overall);
 	const comments = input.comments.filter((c) => c.kind === 'comment');
 	const flags = input.comments.filter((c) => c.kind === 'flag');
+	const threads = input.threads ?? [];
+	const open = threads.filter(stillOpen);
+	const resolved = threads.filter((t) => t.action === 'resolved');
 	const out: string[] = [
 		`# Review ${String(input.number)} of ${visibleText(input.title)} in ${visibleText(input.repository)}`,
 		'',
-		`A code review from diff delver: report ${input.report}, version ${String(input.version)}${input.headCommit === undefined ? '' : `, whose new side is commit ${input.headCommit.slice(0, 7)}`}. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished, and the reviewer’s words follow it, each line after a >.${written ? ' The reviewer’s overall review of the change comes first, quoted the same way.' : ''}${flags.length > 0 ? ' Lines the reviewer flagged to look at again are listed after the comments, named the same way, with any words they wrote quoted the same way.' : ''}`,
+		`A code review from diff delver: report ${input.report}, version ${String(input.version)}${input.headCommit === undefined ? '' : `, whose new side is commit ${input.headCommit.slice(0, 7)}`}. Each comment names a file, its lines, and the side they are on: (new) is the file after the change, (old) before it. The code each comment is on is quoted as it was when the review was finished, and the reviewer’s words follow it, each line after a >.${written ? ' The reviewer’s overall review of the change comes first, quoted the same way.' : ''}${open.length > 0 ? ' Comments from earlier reviews that are still open come before this review’s own, each at its lines in this version, with the review it is from and whether its code changed since then; it may have been dealt with.' : ''}${flags.length > 0 ? ' Lines the reviewer flagged to look at again are listed after the comments, named the same way, with any words they wrote quoted the same way.' : ''}`,
 		''
 	];
 	if (written) out.push('## Overall', '', ...wordsQuoted(input.overall), '');
+	if (open.length > 0) {
+		out.push('## Still open from earlier reviews');
+		for (const thread of open) out.push('', ...threadLines(thread, input.version));
+		out.push('');
+	}
+	if (resolved.length > 0) {
+		out.push('## Resolved in this review');
+		for (const thread of resolved) out.push('', ...threadLines(thread, input.version));
+		out.push('');
+	}
 	out.push('## Comments');
 	if (comments.length === 0) out.push('', 'No comments.');
 	for (const comment of comments) out.push('', ...commentLines(comment, input.version));
@@ -190,6 +246,39 @@ function placeOf(comment: SubmittedComment, version: RevisionNumber): string {
 	const lines = first === last ? String(first) : `${String(first)}-${String(last)}`;
 	const where = comment.version === version ? side : `${side}, version ${String(comment.version)}`;
 	return `${agentPath(path)}:${lines} (${where})`;
+}
+
+/** How a thread's code stands, in a few words: "unchanged", "changed since", "its lines are gone". */
+export function threadStanding(thread: ExportedThread): string {
+	if (thread.at === undefined) return 'its lines are gone';
+	if (thread.status === 'changed') return 'changed since';
+	return thread.action === 'reopened' ? 'opened again' : 'unchanged';
+}
+
+/**
+ * A thread from an earlier review: where it is now, the review it is from and
+ * how its code stands, the words said in it, and this review's reply. One
+ * whose lines are gone is named where it was, with the code it was on.
+ */
+function threadLines(thread: ExportedThread, version: RevisionNumber): string[] {
+	const what = thread.start.kind === 'flag' ? 'flagged in' : 'from';
+	const changed = threadStanding(thread);
+	const place =
+		thread.at === undefined
+			? placeOf(thread.start, version)
+			: placeOf({ ...thread.start, anchor: thread.at, version }, version);
+	const out = [`### ${place}, ${what} review ${String(thread.from)}, ${changed}`];
+	if (thread.at === undefined && thread.start.quoted.length > 0) {
+		const code = thread.start.quoted.map((text) => quotedLine(text));
+		const fence = '`'.repeat(Math.max(3, longestRun(code, '`') + 1));
+		out.push(`${fence}${languageOf(thread.start.anchor.path) ?? ''}`, ...code, fence);
+	}
+	if (thread.start.body.trim() !== '') out.push(...wordsQuoted(thread.start.body));
+	for (const reply of thread.replies) {
+		out.push(`Reply in review ${String(reply.review)}:`, ...wordsQuoted(reply.body));
+	}
+	if (thread.reply !== undefined) out.push('Reply in this review:', ...wordsQuoted(thread.reply));
+	return out;
 }
 
 /**

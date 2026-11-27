@@ -18,7 +18,8 @@ export function commentView(comment: DraftComment): DraftCommentView {
 		body: comment.body,
 		writtenAt: comment.writtenAt,
 		editedAt: comment.editedAt ?? null,
-		edits: comment.edits
+		edits: comment.edits,
+		replyTo: comment.replyTo ?? null
 	};
 }
 

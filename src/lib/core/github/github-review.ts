@@ -44,7 +44,14 @@ import { closingOpenBlocks } from './open-blocks.ts';
 import type { RevisionNumber } from '../revision-number.tiny.ts';
 import type { Side } from '../side.tiny.ts';
 import { isWritten } from '../review/overall-review.ts';
-import { longestRun, quotedLine, type SubmittedComment } from '../review/review-export.ts';
+import {
+	longestRun,
+	quotedLine,
+	stillOpen,
+	threadStanding,
+	type ExportedThread,
+	type SubmittedComment
+} from '../review/review-export.ts';
 import { countOf } from '../viewer/words.ts';
 
 /** What a review posted to GitHub says of the pull request, the reviewer's choice. */
@@ -204,6 +211,12 @@ export interface GitHubReviewInput {
 	readonly overall: string;
 	/** Its comments and flags, in the order they were made. */
 	readonly comments: readonly SubmittedComment[];
+	/**
+	 * Threads from earlier reviews, with this review's replies and
+	 * resolutions. They are diff delver's, not GitHub's, so they all go in the
+	 * text, never on lines: a reply has no GitHub comment to answer.
+	 */
+	readonly threads?: readonly ExportedThread[];
 	/** Every comment in the text, as when GitHub refused to place them on their lines. */
 	readonly allInText: boolean;
 	/**
@@ -263,6 +276,12 @@ export function tooLongForGitHub(review: GitHubReviewDraft): number | undefined 
 /** The heading over the comments in the review's text. */
 export const IN_TEXT_HEADING = '**Comments on lines GitHub does not show**';
 
+/** The heading over the threads from earlier reviews still open, in the review's text. */
+export const STILL_OPEN_HEADING = '**Still open from earlier reviews**';
+
+/** The heading over the threads this review resolved, in the review's text. */
+export const RESOLVED_HEADING = '**Resolved in this review**';
+
 /** The heading over the flags in the review's text. */
 export const FLAGS_HEADING = '**Flagged for another look**';
 
@@ -290,6 +309,19 @@ export function gitHubReview(input: GitHubReviewInput): GitHubReviewDraft {
 		// Whatever the overall review leaves open is ended, so nothing after it is swallowed or hidden.
 		const closing = closingOpenBlocks(input.overall);
 		parts.push(closing === '' ? input.overall : `${input.overall}\n${closing}`);
+	}
+	const threads = input.threads ?? [];
+	const open = threads.filter(stillOpen);
+	const resolved = threads.filter((t) => t.action === 'resolved');
+	if (open.length > 0) {
+		parts.push(
+			[STILL_OPEN_HEADING, ...open.map((t) => inTextThread(t, input.version))].join('\n\n')
+		);
+	}
+	if (resolved.length > 0) {
+		parts.push(
+			[RESOLVED_HEADING, ...resolved.map((t) => inTextThread(t, input.version))].join('\n\n')
+		);
 	}
 	if (inText.length > 0) {
 		parts.push(
@@ -329,6 +361,27 @@ function placeInText(comment: SubmittedComment, version: RevisionNumber): string
 	const shownSide = side === 'old' ? 'before the change' : 'after the change';
 	const earlier = comment.version === version ? '' : `, in version ${String(comment.version)}`;
 	return `${inlineCode(agentPath(path))}, ${lines} (${shownSide}${earlier})`;
+}
+
+/**
+ * A thread from an earlier review in the review's text: where it is now (or
+ * was, when its lines are gone), the review it is from and how its code
+ * stands, then the words said in it and this review's reply, each a quote.
+ */
+function inTextThread(thread: ExportedThread, version: RevisionNumber): string {
+	const quote = (body: string): string[] =>
+		body.split('\n').map((line) => (line === '' ? '>' : `> ${line}`));
+	const where =
+		thread.at === undefined
+			? placeInText(thread.start, version)
+			: placeInText({ ...thread.start, anchor: thread.at, version }, version);
+	const out = [`${where}, from review ${String(thread.from)}, ${threadStanding(thread)}`];
+	if (thread.start.body.trim() !== '') out.push('', ...quote(thread.start.body));
+	for (const reply of thread.replies) {
+		out.push('', `Reply in review ${String(reply.review)}:`, '', ...quote(reply.body));
+	}
+	if (thread.reply !== undefined) out.push('', 'Reply in this review:', '', ...quote(thread.reply));
+	return out.join('\n');
 }
 
 /** A flag in the review's text: where it is, and the reviewer's words, if any, as a quote. */

@@ -27,6 +27,7 @@ import { parseRow, parseRows, text, timestamp, whole } from '../columns.ts';
 import type { Queries } from '../database.ts';
 import type { StoredRowInvalid } from '../database-error.ts';
 import type { ReviewCommentRow } from './review-comments.ts';
+import { resolutionRow, type ResolutionRow } from './threads.ts';
 
 /** A comment of the draft as it was sent: which, and how many times its words had been changed. */
 export interface SentComment {
@@ -55,11 +56,17 @@ export interface ReviewPostNote {
 	/** How many comments went in its text. */
 	readonly inText: CommentCount;
 	readonly comments: readonly SentComment[];
+	/** The threads it resolved or opened again, as they were sent. */
+	readonly resolutions: readonly ResolutionRow[];
 }
 
-/** What is noted of a review about to be sent: the note, with its comments as the review will keep them. */
-export interface ReviewToNote extends Omit<ReviewPostNote, 'comments' | 'startedAt'> {
+/** What is noted of a review about to be sent: the note, with its comments and resolutions as the review will keep them. */
+export interface ReviewToNote extends Omit<
+	ReviewPostNote,
+	'comments' | 'startedAt' | 'resolutions'
+> {
 	readonly comments: readonly (ReviewCommentRow & { readonly edits: EditCount })[];
+	readonly resolutions: readonly ResolutionRow[];
 }
 
 const row = z
@@ -85,7 +92,13 @@ const row = z
 		inText: whole(parseCommentCount)
 	})
 	.transform(
-		({ counted, reviewed, ignored, uncategorised, ...rest }): Omit<ReviewPostNote, 'comments'> => ({
+		({
+			counted,
+			reviewed,
+			ignored,
+			uncategorised,
+			...rest
+		}): Omit<ReviewPostNote, 'comments' | 'resolutions'> => ({
 			...rest,
 			progress: { counted, reviewed, ignored, uncategorised }
 		})
@@ -109,7 +122,7 @@ export function reviewBeingPosted(
 		report
 	);
 	if (found === undefined) return ok(undefined);
-	return andThen(parseRow('github_review_posts', row, found), (note) =>
+	const noted = andThen(parseRow('github_review_posts', row, found), (note) =>
 		map(
 			parseRows(
 				'github_review_post_comments',
@@ -120,8 +133,21 @@ export function reviewBeingPosted(
 					report
 				)
 			),
-			(comments): ReviewPostNote => ({ ...note, comments })
+			(comments) => ({ ...note, comments })
 		)
+	);
+	if (!noted.ok) return noted;
+	return map(
+		parseRows(
+			'github_review_post_resolutions',
+			resolutionRow,
+			q.all(
+				`SELECT thread_id AS thread, revision_id AS revision, resolved
+				 FROM github_review_post_resolutions WHERE report_id = ? ORDER BY thread_id`,
+				report
+			)
+		),
+		(resolutions): ReviewPostNote => ({ ...noted.value, resolutions })
 	);
 }
 
@@ -158,11 +184,11 @@ export function notePosting(
 		review.allInText ? 1 : 0,
 		review.inText
 	);
-	review.comments.forEach(({ draft, edits, revision, comment, writtenAt }, i) => {
+	review.comments.forEach(({ draft, edits, revision, comment, writtenAt, replyTo }, i) => {
 		q.run(
 			`INSERT INTO github_review_post_comments (report_id, position, draft_comment_id, edits,
-				revision_id, kind, path, side, first_line, last_line, body, written_at, quoted)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				revision_id, kind, path, side, first_line, last_line, body, written_at, quoted, reply_to)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			report,
 			i + 1,
 			draft,
@@ -175,9 +201,20 @@ export function notePosting(
 			comment.anchor.last,
 			comment.body,
 			writtenAt,
-			JSON.stringify(comment.quoted)
+			JSON.stringify(comment.quoted),
+			replyTo ?? null
 		);
 	});
+	for (const r of review.resolutions) {
+		q.run(
+			`INSERT INTO github_review_post_resolutions (report_id, thread_id, revision_id, resolved)
+			 VALUES (?, ?, ?, ?)`,
+			report,
+			r.thread,
+			r.revision,
+			r.resolved ? 1 : 0
+		);
+	}
 	q.run(
 		`INSERT INTO github_review_post_marks (report_id, path, side, first_line, last_line)
 		 SELECT ?, path, side, first_line, last_line FROM reviewed_marks WHERE revision_id = ?`,
@@ -203,10 +240,17 @@ export function noteAllInText(q: Queries, report: ReportId, inText: CommentCount
 export function copyNotedReview(q: Queries, report: ReportId, number: ReviewNumber): void {
 	q.run(
 		`INSERT INTO review_comments (report_id, review_number, position, draft_comment_id,
-			revision_id, kind, path, side, first_line, last_line, body, written_at, quoted)
+			revision_id, kind, path, side, first_line, last_line, body, written_at, quoted, reply_to)
 		 SELECT report_id, ?, position, draft_comment_id, revision_id, kind, path, side, first_line,
-			last_line, body, written_at, quoted
+			last_line, body, written_at, quoted, reply_to
 		 FROM github_review_post_comments WHERE report_id = ? ORDER BY position`,
+		number,
+		report
+	);
+	q.run(
+		`INSERT INTO review_resolutions (report_id, review_number, thread_id, revision_id, resolved)
+		 SELECT report_id, ?, thread_id, revision_id, resolved
+		 FROM github_review_post_resolutions WHERE report_id = ?`,
 		number,
 		report
 	);

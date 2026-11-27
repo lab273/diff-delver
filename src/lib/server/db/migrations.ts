@@ -788,6 +788,86 @@ CREATE TABLE request_answer_excerpts (
 	PRIMARY KEY (answer_id, position)
 ) STRICT, WITHOUT ROWID;
 `
+	},
+	{
+		version: schemaVersionOf(21),
+		name: "threads: finished reviews' comments followed through later versions, replied to and resolved",
+		sql: `
+-- A thread (DESIGN 6.3) is what a finished review's comment or flag becomes:
+-- the Delve's, not the review's, followed to its lines in every later
+-- version. It starts with that comment (its review and place in it); a reply
+-- in a later review is a comment of that review that names the thread it
+-- answers (reply_to), as a reply in the draft is a draft comment that does.
+CREATE TABLE threads (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	report_id TEXT NOT NULL,
+	review_number INTEGER NOT NULL,
+	position INTEGER NOT NULL,
+	UNIQUE (report_id, review_number, position),
+	FOREIGN KEY (report_id, review_number, position)
+		REFERENCES review_comments (report_id, review_number, position) ON DELETE CASCADE
+) STRICT;
+ALTER TABLE review_comments ADD COLUMN reply_to INTEGER REFERENCES threads (id) ON DELETE CASCADE;
+ALTER TABLE draft_comments ADD COLUMN reply_to INTEGER REFERENCES threads (id) ON DELETE CASCADE;
+ALTER TABLE github_review_post_comments ADD COLUMN reply_to INTEGER REFERENCES threads (id) ON DELETE CASCADE;
+CREATE INDEX review_comments_by_thread ON review_comments (reply_to) WHERE reply_to IS NOT NULL;
+
+-- Where a thread's lines are in each version it has been followed to, from
+-- the one its first comment is on: NULL lines when they are gone. edited
+-- says whether its code changed since the version it was followed from.
+CREATE TABLE thread_places (
+	thread_id INTEGER NOT NULL REFERENCES threads (id) ON DELETE CASCADE,
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	path BLOB,
+	side TEXT CHECK (side IN ('old', 'new')),
+	first_line INTEGER CHECK (first_line >= 1),
+	last_line INTEGER CHECK (last_line >= first_line),
+	edited INTEGER NOT NULL CHECK (edited IN (0, 1)),
+	PRIMARY KEY (thread_id, revision_id),
+	CHECK ((path IS NULL) = (side IS NULL)),
+	CHECK ((path IS NULL) = (first_line IS NULL)),
+	CHECK ((path IS NULL) = (last_line IS NULL))
+) STRICT, WITHOUT ROWID;
+CREATE INDEX thread_places_by_revision ON thread_places (revision_id);
+
+-- A thread resolved (1) or opened again (0) in the draft, on the version
+-- shown then: part of the draft, finished with it.
+CREATE TABLE draft_resolutions (
+	thread_id INTEGER PRIMARY KEY REFERENCES threads (id) ON DELETE CASCADE,
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	resolved INTEGER NOT NULL CHECK (resolved IN (0, 1))
+) STRICT;
+-- The same, as a finished review did it.
+CREATE TABLE review_resolutions (
+	report_id TEXT NOT NULL,
+	review_number INTEGER NOT NULL,
+	thread_id INTEGER NOT NULL REFERENCES threads (id) ON DELETE CASCADE,
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	resolved INTEGER NOT NULL CHECK (resolved IN (0, 1)),
+	PRIMARY KEY (report_id, review_number, thread_id),
+	FOREIGN KEY (report_id, review_number) REFERENCES reviews (report_id, number) ON DELETE CASCADE
+) STRICT;
+-- And as a review being posted to GitHub sent it.
+CREATE TABLE github_review_post_resolutions (
+	report_id TEXT NOT NULL REFERENCES github_review_posts (report_id) ON DELETE CASCADE,
+	thread_id INTEGER NOT NULL REFERENCES threads (id) ON DELETE CASCADE,
+	revision_id TEXT NOT NULL REFERENCES revisions (id) ON DELETE CASCADE,
+	resolved INTEGER NOT NULL CHECK (resolved IN (0, 1)),
+	PRIMARY KEY (report_id, thread_id)
+) STRICT;
+CREATE INDEX draft_resolutions_by_revision ON draft_resolutions (revision_id);
+CREATE INDEX review_resolutions_by_thread ON review_resolutions (thread_id);
+
+-- Every comment and flag of the reviews finished before starts a thread, on
+-- its lines in its own version; later versions follow it when they are shown.
+INSERT INTO threads (report_id, review_number, position)
+	SELECT report_id, review_number, position FROM review_comments
+	ORDER BY report_id, review_number, position;
+INSERT INTO thread_places (thread_id, revision_id, path, side, first_line, last_line, edited)
+	SELECT t.id, c.revision_id, c.path, c.side, c.first_line, c.last_line, 0
+	FROM threads t JOIN review_comments c
+		ON c.report_id = t.report_id AND c.review_number = t.review_number AND c.position = t.position;
+`
 	}
 ];
 

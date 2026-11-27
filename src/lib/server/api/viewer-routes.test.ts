@@ -853,7 +853,8 @@ describe('private draft comments', () => {
 		expect(value(await client.draftComments(id))).toEqual({
 			now: written,
 			comments: [first, second],
-			overall: { body: '', changedAt: null, edits: 0 }
+			overall: { body: '', changedAt: null, edits: 0 },
+			resolutions: []
 		});
 
 		// Its words change; its lines, its version and when it was written do not.
@@ -871,7 +872,8 @@ describe('private draft comments', () => {
 		expect(value(await client.draftComments(id))).toEqual({
 			now: clock.now(),
 			comments: [edited, second],
-			overall: { body: '', changedAt: null, edits: 0 }
+			overall: { body: '', changedAt: null, edits: 0 },
+			resolutions: []
 		});
 
 		// A page that read the words before that change, as another tab did, changes

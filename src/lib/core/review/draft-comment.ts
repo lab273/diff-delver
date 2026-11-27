@@ -4,6 +4,7 @@ import type { LineNumber } from '#lib/core/line-number.tiny.ts';
 import type { RepoPath } from '#lib/core/repo-path.tiny.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 import type { Side } from '#lib/core/side.tiny.ts';
+import type { ThreadId } from '#lib/core/thread-id.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 
 export const MAX_COMMENT_LENGTH = 10_000;
@@ -39,6 +40,11 @@ export interface DraftComment {
 	readonly editedAt: Timestamp | undefined;
 	/** How many times its words have been changed. */
 	readonly edits: EditCount;
+	/**
+	 * The thread from an earlier review it replies to (DESIGN 6.3), on that
+	 * thread's lines; undefined for a comment of the reviewer's own.
+	 */
+	readonly replyTo: ThreadId | undefined;
 }
 
 /** Whether `body` can be saved as a comment's words: something written, and not too long. */

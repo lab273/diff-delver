@@ -17,6 +17,9 @@ import {
 	ApiErrorBodySchema,
 	DraftCommentSchema,
 	NotesChangedSchema,
+	ThreadsChangedSchema,
+	type ThreadAction,
+	type ThreadsChangedView,
 	RequestsChangedSchema,
 	type RequestAction,
 	type RequestsChangedView,
@@ -473,6 +476,11 @@ export class ApiClient {
 	}
 
 	/** Dismisses, promotes or brings back the agent's notes, from a page that shows the current version. */
+	/** Replies to a thread of an earlier review, resolves it, opens it again, or takes that back. */
+	changeThread(id: ReportId, request: ThreadAction): Promise<Result<ThreadsChangedView, ApiError>> {
+		return this.#call('POST', `/api/diffs/${id}/threads`, ThreadsChangedSchema, request);
+	}
+
 	changeNotes(id: ReportId, request: NoteAction): Promise<Result<NotesChangedView, ApiError>> {
 		return this.#call('POST', `/api/diffs/${id}/notes`, NotesChangedSchema, request);
 	}

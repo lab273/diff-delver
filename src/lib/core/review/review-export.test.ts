@@ -260,4 +260,79 @@ describe('a finished review with an overall review', () => {
 		expect(text).not.toContain('## Overall');
 		expect(text).not.toContain('overall review');
 	});
+
+	it('lists threads from earlier reviews still open first, then those this review resolved', () => {
+		const earlier = comment({ version: version(1), body: 'Refresh tokens are logged here.' });
+		const text = renderReviewExport(
+			input({
+				number: sure(parseReviewNumber(2)),
+				comments: [],
+				threads: [
+					{
+						start: earlier,
+						from: sure(parseReviewNumber(1)),
+						replies: [],
+						at: { ...earlier.anchor, first: line(5), last: line(6) },
+						status: 'open',
+						reply: undefined,
+						action: undefined
+					},
+					{
+						start: comment({ version: version(1), body: 'Check for zero.' }),
+						from: sure(parseReviewNumber(1)),
+						replies: [],
+						at: earlier.anchor,
+						status: 'changed',
+						reply: 'Better, thanks.',
+						action: undefined
+					},
+					{
+						start: comment({ version: version(1), body: 'Rename this.' }),
+						from: sure(parseReviewNumber(1)),
+						replies: [],
+						at: undefined,
+						status: 'changed',
+						reply: undefined,
+						action: 'resolved'
+					},
+					{
+						start: comment({ version: version(1), body: 'Long settled.' }),
+						from: sure(parseReviewNumber(1)),
+						replies: [],
+						at: earlier.anchor,
+						status: 'resolved',
+						reply: undefined,
+						action: undefined
+					}
+				]
+			})
+		);
+		expect(text).toContain(
+			[
+				'## Still open from earlier reviews',
+				'',
+				'### src/cart.ts:5-6 (new), from review 1, unchanged',
+				'> Refresh tokens are logged here.',
+				'',
+				'### src/cart.ts:2-3 (new), from review 1, changed since',
+				'> Check for zero.',
+				'Reply in this review:',
+				'> Better, thanks.',
+				'',
+				'## Resolved in this review',
+				'',
+				'### src/cart.ts:2-3 (new, version 1), from review 1, its lines are gone',
+				'```typescript',
+				'const total = sum(items);',
+				'return total - discount;',
+				'```',
+				'> Rename this.',
+				'',
+				'## Comments',
+				'',
+				'No comments.'
+			].join('\n')
+		);
+		expect(text).not.toContain('Long settled.');
+	});
 });
