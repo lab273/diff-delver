@@ -33,6 +33,7 @@
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import VisibleText from '#lib/ui/VisibleText.svelte';
 	import CommentWords from './CommentWords.svelte';
+	import { revealInFooter } from './footer-scroll.ts';
 	import type { Comments } from './comments.svelte.ts';
 
 	let {
@@ -120,19 +121,60 @@
 		toggle?.focus();
 	}
 
-	/** Escape anywhere in the footer but a box with words in it, which keeps them, puts it away. */
+	/**
+	 * Escape anywhere in the footer puts it away, but in a field, in a dialog
+	 * it opened, such as the question before deleting, or in a box with words
+	 * in it, which keeps them: there Escape is theirs.
+	 */
 	function onFooterKey(event: KeyboardEvent): void {
+		// Kept only for the focus the key moves at once, never for a later click.
+		const page = { x: window.scrollX, y: window.scrollY };
+		pageBeforeKey = page;
+		requestAnimationFrame(() => {
+			if (pageBeforeKey === page) pageBeforeKey = undefined;
+		});
 		if (event.key !== 'Escape' || event.defaultPrevented || !expanded) return;
 		const target = event.target;
+		if (!(target instanceof Element)) return;
 		if (
 			target instanceof HTMLTextAreaElement ||
 			target instanceof HTMLInputElement ||
-			target instanceof HTMLSelectElement
+			target instanceof HTMLSelectElement ||
+			target.closest('dialog, [role="dialog"], [role="alertdialog"]') !== null
+		)
+			return;
+		const box = target.closest('form');
+		if (
+			box !== null &&
+			[...box.querySelectorAll('textarea')].some((field) => field.value.trim() !== '')
 		)
 			return;
 		event.preventDefault();
 		void putAway();
 	}
+
+	/**
+	 * The keyboard moving within the footer scrolls only the footer's body.
+	 * The browser, bringing what takes it into view, would scroll the page
+	 * too, to where the footer would be were it not pinned: the page is put
+	 * back before it is drawn.
+	 */
+	function keepPage(event: FocusEvent): void {
+		const target = event.target;
+		const page = pageBeforeKey;
+		pageBeforeKey = undefined;
+		if (!(target instanceof Element) || page === undefined) return;
+		const putBack = (): void => {
+			if (window.scrollY === page.y || !target.isConnected) return;
+			window.scrollTo(page.x, page.y);
+			revealInFooter(target);
+		};
+		putBack();
+		requestAnimationFrame(putBack);
+	}
+
+	/** Where the page was scrolled when a key was last pressed in the footer, as Tab is. */
+	let pageBeforeKey: { x: number; y: number } | undefined;
 
 	function onKey(event: KeyboardEvent): void {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -154,7 +196,7 @@
 	aria-busy={canReview && !loaded && comments.problem === ''}
 	bind:offsetHeight={height}
 >
-	<div role="presentation" onkeydown={onFooterKey}>
+	<div role="presentation" onkeydown={onFooterKey} onfocusin={keepPage}>
 		<div class="head">
 			<h2 id="{ids}-heading" class="visually-hidden">Your draft review</h2>
 			<button
@@ -193,108 +235,108 @@
 				{/if}
 			{/if}
 		</div>
-		<div class="body" id="{ids}-body" hidden={!expanded}>
-			{#if expanded}
-				{#if !canReview}
-					<ReviewAccess diff={id} what="comments" />
-				{:else if comments.problem !== '' && !loaded}
-					<p class="problem" role="alert">{comments.problem}</p>
-				{:else if loaded && !open}
-					<h3 class="part-heading">Overall review</h3>
-					<div class="closed">
-						<p class="note">
-							This Delve is closed, so its overall review cannot be changed and the review cannot be
-							finished. Reopen it, at the top of the page, to go on.
-						</p>
-						<div class="other">
-							{#if isWritten(comments.overall?.body ?? '')}<CommentWords
-									words={comments.overall?.body ?? ''}
-								/>{:else}<p>Nothing written yet.</p>{/if}
-						</div>
-						{#if unsaved}
-							<p class="note">
-								What you typed before it was closed, not saved. It can be saved once the Delve is
-								reopened:
-							</p>
-							<div class="other"><CommentWords words={comments.overallText} /></div>
-							<div class="actions">
-								<button
-									type="button"
-									onclick={() => {
-										comments.discardOverall();
-									}}
-								>
-									Discard changes
-								</button>
-							</div>
-						{/if}
+		<!-- Kept drawn while put away, so nothing in it, such as a post under way, is lost. -->
+		<div class="body" id="{ids}-body" hidden={!expanded} data-footer-body>
+			{#if !canReview}
+				{#if expanded}<ReviewAccess diff={id} what="comments" />{/if}
+			{:else if comments.problem !== '' && !loaded}
+				<p class="problem" role="alert">{comments.problem}</p>
+				<div class="actions">
+					<button type="button" onclick={() => void comments.load()}>Try again</button>
+				</div>
+			{:else if loaded && !open}
+				<h3 class="part-heading">Overall review</h3>
+				<div class="closed">
+					<p class="note">
+						This Delve is closed, so its overall review cannot be changed and the review cannot be
+						finished. Reopen it, at the top of the page, to go on.
+					</p>
+					<div class="other">
+						{#if isWritten(comments.overall?.body ?? '')}<CommentWords
+								words={comments.overall?.body ?? ''}
+							/>{:else}<p>Nothing written yet.</p>{/if}
 					</div>
-				{:else if loaded}
-					<h3 class="part-heading">Overall review</h3>
-					<form
-						aria-busy={writing.saving}
-						onsubmit={(event) => {
-							event.preventDefault();
-							void save();
-						}}
-					>
-						<label for="{ids}-words">
-							Your overall review of the change: what you think of it as a whole. It comes first in
-							the review you finish.
-						</label>
-						<!-- No limit on the field itself: it would cut a long paste short without a word. -->
-						<textarea
-							id="{ids}-words"
-							rows="4"
-							aria-describedby={over > 0 ? `${ids}-over` : undefined}
-							bind:this={input}
-							bind:value={
-								() => comments.overallText, (text: string) => (comments.overallText = text)
-							}
-							readonly={writing.saving}
-							onkeydown={onKey}></textarea>
-						{#if over > 0}
-							<p class="problem" id="{ids}-over" role="status">
-								{over === 1 ? '1 character' : `${formatCount(over)} characters`} too long: an overall
-								review holds up to {formatCount(MAX_OVERALL_REVIEW_LENGTH)}. Shorten it to save.
-							</p>
-						{/if}
-						{#if writing.changedElsewhere && writing.base !== undefined}
-							<div class="note">
-								<p>Its words now, as changed elsewhere. Saving again puts yours in their place:</p>
-								<div class="other">
-									{#if writing.base.body === ''}<p>Nothing: it was emptied.</p>{:else}<CommentWords
-											words={writing.base.body}
-										/>{/if}
-								</div>
-							</div>
-						{/if}
-						{#if writing.problem !== ''}
-							<p class="problem" role="alert">{writing.problem}</p>
-						{/if}
+					{#if unsaved}
+						<p class="note">
+							What you typed before it was closed, not saved. It can be saved once the Delve is
+							reopened:
+						</p>
+						<div class="other"><CommentWords words={comments.overallText} /></div>
 						<div class="actions">
-							<button type="submit" class="primary" aria-disabled={blocked}>
-								{writing.saving ? 'Saving…' : 'Save overall review'}
+							<button
+								type="button"
+								onclick={() => {
+									comments.discardOverall();
+								}}
+							>
+								Discard changes
 							</button>
-							{#if unsaved}
-								<button
-									type="button"
-									aria-disabled={writing.saving}
-									onclick={() => {
-										comments.discardOverall();
-									}}
-								>
-									Discard changes
-								</button>
-							{/if}
-							<span class="private">A private draft: only you see it.</span>
 						</div>
-					</form>
-				{/if}
-				{#if canReview && loaded}
-					{@render drafts?.()}
-					{@render finishing?.()}
-				{/if}
+					{/if}
+				</div>
+			{:else if loaded}
+				<h3 class="part-heading">Overall review</h3>
+				<form
+					aria-busy={writing.saving}
+					onsubmit={(event) => {
+						event.preventDefault();
+						void save();
+					}}
+				>
+					<label for="{ids}-words">
+						Your overall review of the change: what you think of it as a whole. It comes first in
+						the review you finish.
+					</label>
+					<!-- No limit on the field itself: it would cut a long paste short without a word. -->
+					<textarea
+						id="{ids}-words"
+						rows="4"
+						aria-describedby={over > 0 ? `${ids}-over` : undefined}
+						bind:this={input}
+						bind:value={() => comments.overallText, (text: string) => (comments.overallText = text)}
+						readonly={writing.saving}
+						onkeydown={onKey}></textarea>
+					{#if over > 0}
+						<p class="problem" id="{ids}-over" role="status">
+							{over === 1 ? '1 character' : `${formatCount(over)} characters`} too long: an overall review
+							holds up to {formatCount(MAX_OVERALL_REVIEW_LENGTH)}. Shorten it to save.
+						</p>
+					{/if}
+					{#if writing.changedElsewhere && writing.base !== undefined}
+						<div class="note">
+							<p>Its words now, as changed elsewhere. Saving again puts yours in their place:</p>
+							<div class="other">
+								{#if writing.base.body === ''}<p>Nothing: it was emptied.</p>{:else}<CommentWords
+										words={writing.base.body}
+									/>{/if}
+							</div>
+						</div>
+					{/if}
+					{#if writing.problem !== ''}
+						<p class="problem" role="alert">{writing.problem}</p>
+					{/if}
+					<div class="actions">
+						<button type="submit" class="primary" aria-disabled={blocked}>
+							{writing.saving ? 'Saving…' : 'Save overall review'}
+						</button>
+						{#if unsaved}
+							<button
+								type="button"
+								aria-disabled={writing.saving}
+								onclick={() => {
+									comments.discardOverall();
+								}}
+							>
+								Discard changes
+							</button>
+						{/if}
+						<span class="private">A private draft: only you see it.</span>
+					</div>
+				</form>
+			{/if}
+			{#if canReview && loaded}
+				{@render drafts?.()}
+				{@render finishing?.()}
 			{/if}
 		</div>
 	</div>

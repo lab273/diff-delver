@@ -59,6 +59,7 @@
 	import AgentRequest from '#lib/ui/viewer/AgentRequest.svelte';
 	import FinishReview from '#lib/ui/viewer/FinishReview.svelte';
 	import OverallReview from '#lib/ui/viewer/OverallReview.svelte';
+	import { revealInFooter } from '#lib/ui/viewer/footer-scroll.ts';
 	import { Comments, Writing, type CommentPlace } from '#lib/ui/viewer/comments.svelte.ts';
 	import { keptComments } from '#lib/ui/viewer/kept-comments.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
@@ -2158,13 +2159,30 @@
 	let overallHeight = $state(0);
 	let dockHeight = $state(0);
 
-	// What takes the keyboard is scrolled clear of the bar and the bookmarks at the foot.
-	// 16 pixels: the gap the bar keeps under it, and a little room above it.
+	// What takes the keyboard is scrolled clear of the draft's footer and the bookmarks at
+	// the foot. 16 pixels: the gap the footer keeps under it, and a little room above it.
+	// While the keyboard is in the footer itself, which is always on the screen, the
+	// footer is left out: counted, every control in it would seem hidden behind it, and
+	// the browser would scroll the page to its end to show it. Set at once on focus, as
+	// the browser scrolls to what takes the keyboard straight after.
+	function setScrollPadding(): void {
+		const footer = document.querySelector('[data-overall-review]');
+		const inFooter = footer !== null && footer.contains(document.activeElement);
+		document.documentElement.style.scrollPaddingBottom = `${String((inFooter ? 0 : overallHeight) + dockHeight + 16)}px`;
+	}
 	$effect(() => {
-		const root = document.documentElement;
-		root.style.scrollPaddingBottom = `${String(overallHeight + dockHeight + 16)}px`;
+		// Reads the heights, so it runs again when they change.
+		setScrollPadding();
+		// Focus that leaves for nothing, as on a click on the page, is known only after.
+		const afterFocusOut = (): void => {
+			queueMicrotask(setScrollPadding);
+		};
+		document.addEventListener('focusin', setScrollPadding, true);
+		document.addEventListener('focusout', afterFocusOut, true);
 		return () => {
-			root.style.scrollPaddingBottom = '';
+			document.removeEventListener('focusin', setScrollPadding, true);
+			document.removeEventListener('focusout', afterFocusOut, true);
+			document.documentElement.style.scrollPaddingBottom = '';
 		};
 	});
 
@@ -2211,7 +2229,7 @@
 			document.getElementById('finish-and-copy') ?? document.getElementById('finish-review');
 		if (target === null) return;
 		target.focus({ preventScroll: true });
-		target.scrollIntoView({ block: 'nearest' });
+		revealInFooter(target);
 	}
 
 	/** Which part has focus, so keys act on the part the person is in. */

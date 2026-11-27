@@ -47,6 +47,7 @@
 	} from '#lib/core/github/github-review.ts';
 	import { pullRequestShortName, type PullRequestRef } from '#lib/core/github/pull-request.ts';
 	import VisibleText from '#lib/ui/VisibleText.svelte';
+	import { revealInFooter } from './footer-scroll.ts';
 	import { pageClient } from '#lib/ui/client.ts';
 	import type { Comments } from './comments.svelte.ts';
 
@@ -91,6 +92,29 @@
 	/** The finished review whose text is shown, by number. */
 	let reading = $state<number>();
 	const copyButtons: Record<number, HTMLButtonElement | undefined> = $state({});
+	let saidBox = $state<HTMLElement>();
+	let problemBox = $state<HTMLElement>();
+	let previewBox = $state<HTMLElement>();
+	let postedBox = $state<HTMLElement>();
+
+	// What is opened to read, and what it holds once it comes, is brought into
+	// view within the draft's footer, which scrolls within itself.
+	$effect(() => {
+		const shown = postedOpen ? postedBox : previewOpen ? previewBox : undefined;
+		// Read, so the effect runs again when what it shows arrives.
+		const arrived = [preview, previewProblem];
+		if (shown === undefined || arrived.length === 0) return;
+		void tick().then(() => {
+			if (shown.isConnected) revealInFooter(shown);
+		});
+	});
+
+	/** Brings what was just said, or went wrong, into view within the footer. */
+	async function showOutcome(): Promise<void> {
+		await tick();
+		const box = problem !== '' ? problemBox : saidBox;
+		if (box !== undefined) revealInFooter(box);
+	}
 	const previewId = $props.id();
 	const postedId = `${previewId}-posted`;
 	/** What the review is posted to GitHub as: Comment to start with. */
@@ -240,6 +264,7 @@
 			problem = describeApiError(finished.error);
 			const { error } = finished;
 			if (error.kind === 'refused' && error.reason === 'EarlierPostUnchecked') unchecked = next;
+			await showOutcome();
 			return;
 		}
 		const review = finished.value;
@@ -254,7 +279,10 @@
 		onfinished?.();
 		said = `${finishedWords(review, copied)}${postedInTextWords(review)}`;
 		await tick();
-		copyButtons[review.number]?.focus();
+		const again = copyButtons[review.number];
+		again?.focus({ preventScroll: true });
+		if (again !== undefined) revealInFooter(again);
+		await showOutcome();
 	}
 
 	/** What finishing did, in words: finished, posted and copied. */
@@ -320,6 +348,7 @@
 		said = copied
 			? `Review ${String(review.number)} copied.`
 			: `This browser would not let diff delver copy review ${String(review.number)}. Show it and copy the text yourself.`;
+		await showOutcome();
 	}
 
 	function linesOf(text: string): readonly string[] {
@@ -329,7 +358,7 @@
 
 {#if drafted || (reviews?.length ?? 0) > 0}
 	<section class="finish" id="finish-review" tabindex="-1" aria-label="Finish your review">
-		<p class="said" role="status">{said}</p>
+		<p class="said" role="status" bind:this={saidBox}>{said}</p>
 		{#if drafted && !open}
 			<p class="lead">
 				This Delve is closed, so {contents} cannot be finished. Reopen it to finish
@@ -409,7 +438,7 @@
 					Show what will be copied
 				</button>
 			</div>
-			<div id={postedId} hidden={!postedOpen}>
+			<div id={postedId} hidden={!postedOpen} bind:this={postedBox}>
 				{#if postedOpen}
 					{#if previewProblem !== ''}
 						<p role="alert">{previewProblem}</p>
@@ -455,7 +484,7 @@
 					{/if}
 				{/if}
 			</div>
-			<div id={previewId} hidden={!previewOpen}>
+			<div id={previewId} hidden={!previewOpen} bind:this={previewBox}>
 				{#if previewOpen}
 					{#if previewProblem !== ''}
 						<p role="alert">{previewProblem}</p>
@@ -503,7 +532,7 @@
 					Show what will be copied
 				</button>
 			</div>
-			<div id={previewId} hidden={!previewOpen}>
+			<div id={previewId} hidden={!previewOpen} bind:this={previewBox}>
 				{#if previewOpen}
 					{#if previewProblem !== ''}
 						<p role="alert">{previewProblem}</p>
@@ -527,7 +556,7 @@
 			</p>
 		{/if}
 		{#if problem !== ''}
-			<p class="problem" role="alert">{problem}</p>
+			<p class="problem" role="alert" bind:this={problemBox}>{problem}</p>
 		{/if}
 		{#if unchecked !== undefined && unchecked === next && drafted && open}
 			<div class="actions">

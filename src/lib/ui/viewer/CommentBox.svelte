@@ -12,6 +12,7 @@
 	version shown, and moves there with its words.
 -->
 <script lang="ts">
+	import { revealInFooter } from './footer-scroll.ts';
 	import { onMount, tick } from 'svelte';
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
 	import { MAX_COMMENT_LENGTH, describeCommentLines } from '#lib/core/review/draft-comment.ts';
@@ -92,7 +93,7 @@
 			writing.focusGiven = asked;
 			input?.focus({ preventScroll: true });
 			// The whole box on the screen, its buttons too, not only the field.
-			form.scrollIntoView({ block: 'nearest' });
+			revealInFooter(form);
 		});
 	});
 

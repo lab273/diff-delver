@@ -179,6 +179,13 @@ test.describe('J11 Review a GitHub PR', () => {
 		);
 		await journey.step('Posting as a draft on GitHub');
 
+		// Put away and opened again, the draft keeps what was chosen for posting.
+		const draftToggle = bar.byRole('button', { name: 'Your draft review', exact: true });
+		await journey.activate(draftToggle);
+		await journey.expectState(draftToggle, { expanded: false });
+		await journey.activate(draftToggle);
+		await journey.expectState(asDraft, { checked: true });
+
 		await journey.activate(post);
 		await journey.expectVisible(
 			finish.byText(
