@@ -15,7 +15,7 @@ test('pressing a line number opens the menu under it, Comment or Flag, and dragg
 		await file.getByRole('button', { name: 'Show all 8 unchanged lines above' }).click();
 		const line = (number: number, side: 'before' | 'after') =>
 			file.getByRole('button', {
-				name: `Comment on or flag line ${String(number)}, ${side}`,
+				name: `Comment on, flag or ask about line ${String(number)}, ${side}`,
 				exact: true
 			});
 		const middle = async (target: ReturnType<typeof line>) => {
@@ -136,7 +136,7 @@ test('words typed in a box are kept when the page is left by its own links and c
 		const file = page.getByRole('article', { name: 'src/lexer.ts' });
 		await file.getByRole('button', { name: 'Show all 8 unchanged lines above' }).click();
 		await file
-			.getByRole('button', { name: 'Comment on or flag line 2, after', exact: true })
+			.getByRole('button', { name: 'Comment on, flag or ask about line 2, after', exact: true })
 			.click();
 		await file.getByRole('button', { name: 'Comment on After, line 2', exact: true }).click();
 		const typed = 'Kept through the list of Delves.';
@@ -196,7 +196,7 @@ test('a comment is changed in one box, holds what was typed exactly, and shows w
 		await expect(page.locator('html[data-ready]')).toHaveCount(1);
 		const file = page.getByRole('article', { name: 'src/lexer.ts' });
 		await file
-			.getByRole('button', { name: 'Comment on or flag line 12, after', exact: true })
+			.getByRole('button', { name: 'Comment on, flag or ask about line 12, after', exact: true })
 			.click();
 		await file.getByRole('button', { name: 'Comment on After, line 12', exact: true }).click();
 		const box = page.getByRole('form', { name: 'New comment on After, line 12', exact: true });
@@ -269,7 +269,7 @@ test('a browser let in by a link is told under the line how to turn comments on,
 		const file = page.getByRole('article', { name: 'src/lexer.ts' });
 		await file.getByRole('button', { name: 'Show all 8 unchanged lines above' }).click();
 		const line = file.getByRole('button', {
-			name: 'Comment on or flag line 2, after',
+			name: 'Comment on, flag or ask about line 2, after',
 			exact: true
 		});
 		await line.click();
@@ -350,12 +350,15 @@ test('horizontal navigation draws the far side of a long replacement without dra
 		const file = page.getByRole('article', { name: 'data/rows.txt' });
 		await file.getByRole('button', { name: 'Show this large change' }).click();
 		const first = file.getByRole('button', {
-			name: 'Comment on or flag line 1, before',
+			name: 'Comment on, flag or ask about line 1, before',
 			exact: true
 		});
-		const far = file.getByRole('button', { name: 'Comment on or flag line 1, after', exact: true });
+		const far = file.getByRole('button', {
+			name: 'Comment on, flag or ask about line 1, after',
+			exact: true
+		});
 		const middle = file.getByRole('button', {
-			name: 'Comment on or flag line 10000, before',
+			name: 'Comment on, flag or ask about line 10000, before',
 			exact: true
 		});
 		await expect(first).toBeVisible();
@@ -368,7 +371,10 @@ test('horizontal navigation draws the far side of a long replacement without dra
 		await expect(middle).toHaveCount(0);
 		await page.keyboard.press('ArrowLeft');
 		await expect(
-			file.getByRole('button', { name: 'Comment on or flag line 40000, before', exact: true })
+			file.getByRole('button', {
+				name: 'Comment on, flag or ask about line 40000, before',
+				exact: true
+			})
 		).toBeFocused();
 		await expect(middle).toHaveCount(0);
 	} finally {
@@ -387,14 +393,14 @@ test('a click on a line puts the keyboard there, and leaves text being selected 
 		const lexer = page.getByRole('article', { name: 'src/lexer.ts' });
 		const number = (file: typeof lexer, line: number, side: 'before' | 'after') =>
 			file.getByRole('button', {
-				name: `Comment on or flag line ${String(line)}, ${side}`,
+				name: `Comment on, flag or ask about line ${String(line)}, ${side}`,
 				exact: true
 			});
 		const code = (file: typeof lexer, line: number, side: 'before' | 'after') =>
 			file
 				.locator('tr', {
 					has: page.getByRole('button', {
-						name: `Comment on or flag line ${String(line)}, ${side}`,
+						name: `Comment on, flag or ask about line ${String(line)}, ${side}`,
 						exact: true
 					})
 				})
@@ -445,11 +451,14 @@ test('a click on a line puts the keyboard there, and leaves text being selected 
 		// Side by side, the side clicked is the side the keyboard is on.
 		const pairs = page.getByRole('article', { name: 'src/pairs.ts' });
 		await pairs
-			.getByRole('button', { name: 'Comment on or flag line 4, after', exact: true })
+			.getByRole('button', { name: 'Comment on, flag or ask about line 4, after', exact: true })
 			.focus();
 		await page.keyboard.press('s');
 		const row = pairs.locator('tr', {
-			has: page.getByRole('button', { name: 'Comment on or flag line 5, before', exact: true })
+			has: page.getByRole('button', {
+				name: 'Comment on, flag or ask about line 5, before',
+				exact: true
+			})
 		});
 		await row.locator('td.code').first().click();
 		await expect(number(pairs, 5, 'before')).toBeFocused();

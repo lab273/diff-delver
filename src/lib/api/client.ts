@@ -17,6 +17,9 @@ import {
 	ApiErrorBodySchema,
 	DraftCommentSchema,
 	NotesChangedSchema,
+	RequestsChangedSchema,
+	type RequestAction,
+	type RequestsChangedView,
 	type NoteAction,
 	type NotesChangedView,
 	DraftCommentsSchema,
@@ -472,6 +475,14 @@ export class ApiClient {
 	/** Dismisses, promotes or brings back the agent's notes, from a page that shows the current version. */
 	changeNotes(id: ReportId, request: NoteAction): Promise<Result<NotesChangedView, ApiError>> {
 		return this.#call('POST', `/api/diffs/${id}/notes`, NotesChangedSchema, request);
+	}
+
+	/** Asks the agent, cancels a question or promotes one, from a page that shows the current version. */
+	changeRequests(
+		id: ReportId,
+		request: RequestAction
+	): Promise<Result<RequestsChangedView, ApiError>> {
+		return this.#call('POST', `/api/diffs/${id}/requests`, RequestsChangedSchema, request);
 	}
 
 	/** What finishing the draft now would hand over, for a page that shows `version`. */

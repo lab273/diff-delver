@@ -33,7 +33,7 @@
 	import { ROWS_PER_CHUNK } from '#lib/core/viewer/chunks.ts';
 	import { GutterLines, type GutterLine, type GutterRow } from './gutter-lines.ts';
 	import { isPlainClick, ownControlAt, textSelected } from './reader-input.ts';
-	import type { AgentNoteView, DraftCommentView } from '#lib/api/schemas.ts';
+	import type { AgentNoteView, AgentRequestView, DraftCommentView } from '#lib/api/schemas.ts';
 	import {
 		byLastLine,
 		inSelection,
@@ -46,6 +46,8 @@
 	import CommentBox from './CommentBox.svelte';
 	import SavedComment from './SavedComment.svelte';
 	import AgentNote from './AgentNote.svelte';
+	import AgentRequest from './AgentRequest.svelte';
+	import AskBox from './AskBox.svelte';
 	import type { Comments, Writing } from './comments.svelte.ts';
 	import { parseLineNumber, type LineNumber } from '#lib/core/line-number.tiny.ts';
 	import { parseSide, type Side } from '#lib/core/side.tiny.ts';
@@ -315,8 +317,10 @@
 	let drag = $state<number>();
 	/** A browser let in by a link pressed these lines: say how to turn comments on, under them. */
 	let asking = $state.raw<LineSelection>();
-	/** The lines whose menu, Comment or Flag, is open under them. */
+	/** The lines whose menu, Comment, Flag or Ask, is open under them. */
 	let menu = $state.raw<LineSelection>();
+	/** The lines the Ask box is open under. */
+	let askAbout = $state.raw<LineSelection>();
 	let menuElement = $state<HTMLElement>();
 	let buildingGutter = $state(false);
 	const gutter = $derived(buildingGutter ? new GutterLines(gutterRows()) : undefined);
@@ -381,7 +385,31 @@
 		| { readonly kind: 'writing'; readonly key: string; readonly writing: Writing }
 		| { readonly kind: 'asking'; readonly key: string; readonly lines: LineSelection }
 		| { readonly kind: 'menu'; readonly key: string; readonly lines: LineSelection }
-		| { readonly kind: 'note'; readonly key: string; readonly note: AgentNoteView };
+		| { readonly kind: 'note'; readonly key: string; readonly note: AgentNoteView }
+		| { readonly kind: 'ask'; readonly key: string; readonly lines: LineSelection }
+		| {
+				readonly kind: 'request';
+				readonly key: string;
+				readonly request: AgentRequestView;
+				readonly lines: LineSelection;
+		  };
+	/** The reviewer's questions for the agent on lines of this file, on the version shown. */
+	const requestsHere = $derived(
+		viewer.requests.flatMap((request) =>
+			request.version === viewer.version &&
+			request.anchor.kind === 'lines' &&
+			request.anchor.path === path
+				? [{ request, lines: request.anchor }]
+				: []
+		)
+	);
+	/** The section the part is read in, which the Ask box offers to ask about. */
+	const section = $derived.by(() => {
+		const group = viewer.parts[at]?.part.group;
+		return group?.kind === 'section'
+			? { id: group.section, title: viewer.groupWithKey(group)?.name ?? '' }
+			: undefined;
+	});
 	/** The agent's notes on this file, drawn after the reviewer's own, unless dismissed or all hidden. */
 	const notesHere = $derived(
 		viewer.showNotes ? viewer.notes.filter((n) => !n.dismissed && n.anchor.path === path) : []
@@ -405,7 +433,16 @@
 				...(menu === undefined || !canReview
 					? []
 					: [{ kind: 'menu', key: 'menu', lines: menu } satisfies Under]),
-				...notesHere.map((note): Under => ({ kind: 'note', key: `note:${String(note.id)}`, note }))
+				...notesHere.map((note): Under => ({ kind: 'note', key: `note:${String(note.id)}`, note })),
+				...requestsHere.map(({ request, lines }): Under => ({
+					kind: 'request',
+					key: `request:${String(request.id)}`,
+					request,
+					lines
+				})),
+				...(askAbout === undefined || !canReview
+					? []
+					: [{ kind: 'ask', key: 'ask', lines: askAbout } satisfies Under])
 			],
 			(item) =>
 				item.kind === 'saved'
@@ -456,7 +493,8 @@
 		if (
 			inSelection(taken, side, line) ||
 			inSelection(asking, side, line) ||
-			inSelection(menu, side, line)
+			inSelection(menu, side, line) ||
+			inSelection(askAbout, side, line)
 		)
 			return true;
 		for (const writing of here.writing) {
@@ -554,11 +592,15 @@
 		menuElement?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
 	}
 
-	/** Comments on the lines, or flags them, at once: from the menu, or the `c` and `f` keys. */
-	function raise(lines: LineSelection, kind: 'comment' | 'flag'): void {
+	/** Comments on the lines, flags them or asks about them, at once: from the menu, or the `c`, `f` and `q` keys. */
+	function raise(lines: LineSelection, kind: 'comment' | 'flag' | 'ask'): void {
 		menu = undefined;
 		if (!canReview) {
 			asking = lines;
+			return;
+		}
+		if (kind === 'ask') {
+			askAbout = lines;
 			return;
 		}
 		const place = { version: viewer.version, anchor: { path, ...lines } };
@@ -589,7 +631,7 @@
 		const onRaise = (event: Event): void => {
 			const line = lineAt(event.target);
 			const kind: unknown = event instanceof CustomEvent ? event.detail : undefined;
-			if (line === undefined || (kind !== 'comment' && kind !== 'flag')) return;
+			if (line === undefined || (kind !== 'comment' && kind !== 'flag' && kind !== 'ask')) return;
 			raise(linesFor(line), kind);
 		};
 		table.addEventListener('diffdelver:raise', onRaise);
@@ -747,6 +789,41 @@
 		void compose(line);
 	}
 
+	/**
+	 * Asks the agent about the lines, their file or their section, from the
+	 * Ask box under them; once asked, the box goes and the keyboard goes to
+	 * the question, wherever it is drawn.
+	 */
+	async function askFrom(
+		lines: LineSelection,
+		about: 'lines' | 'file' | 'section',
+		question: string
+	): Promise<string | undefined> {
+		const problem = await viewer.changeRequests({
+			action: 'ask',
+			about:
+				about === 'section' && section !== undefined
+					? { kind: 'section', section: section.id }
+					: about === 'lines'
+						? { kind: 'lines', path, ...lines }
+						: { kind: 'file', path },
+			question
+		});
+		if (problem !== undefined) return problem;
+		askAbout = undefined;
+		await tick();
+		const asked = viewer.lastAsked;
+		const shown =
+			asked === undefined
+				? null
+				: document.querySelector(`[data-agent-request="${String(asked)}"]`);
+		if (shown instanceof HTMLElement) {
+			shown.focus({ preventScroll: true });
+			shown.scrollIntoView({ block: 'nearest' });
+		} else afterBox(lines);
+		return undefined;
+	}
+
 	/** Where the keyboard goes when what was under a row has gone: the number it was opened from. */
 	function afterBox(lines: LineSelection): void {
 		if (document.activeElement !== null && document.activeElement !== document.body) return;
@@ -765,7 +842,9 @@
 				class:marked
 				tabindex="-1"
 				data-reading-line={`${side}:${line}`}
-				aria-label="Comment on or flag line {line}, {side === 'old' ? 'before' : 'after'}"
+				aria-label="Comment on, flag or ask about line {line}, {side === 'old'
+					? 'before'
+					: 'after'}"
 				aria-pressed={marked ? 'true' : undefined}
 			>
 				{line}
@@ -829,6 +908,27 @@
 								return problem;
 							}}
 						/>
+					{:else if item.kind === 'request'}
+						<AgentRequest
+							request={item.request}
+							{viewer}
+							{comments}
+							act={canComment && canReview}
+						/>
+					{:else if item.kind === 'ask'}
+						{@const lines = item.lines}
+						<AskBox
+							lines={describeCommentLines(lines)}
+							section={section?.title}
+							connected={viewer.agentConnected}
+							onask={(about: 'lines' | 'file' | 'section', question: string) =>
+								askFrom(lines, about, question)}
+							onclose={async () => {
+								askAbout = undefined;
+								await tick();
+								afterBox(lines);
+							}}
+						/>
 					{:else if item.kind === 'menu'}
 						{@const lines = item.lines}
 						{@const words = describeCommentLines(lines)}
@@ -841,7 +941,7 @@
 							class="line-menu"
 							role="group"
 							tabindex="-1"
-							aria-label="{words}: comment or flag"
+							aria-label="{words}: comment, flag or ask"
 							data-line-menu
 							bind:this={menuElement}
 							onkeydown={(event) => {
@@ -880,6 +980,16 @@
 								}}
 							>
 								Flag
+							</button>
+							<button
+								type="button"
+								data-raise="ask"
+								aria-label="Ask the agent about {words}"
+								onclick={() => {
+									raise(lines, 'ask');
+								}}
+							>
+								Ask
 							</button>
 							<button
 								type="button"

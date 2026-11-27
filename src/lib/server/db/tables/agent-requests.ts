@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { parseAgentMarkdown, type AgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
 import { parseAgentRequestId, type AgentRequestId } from '#lib/core/agent-request-id.tiny.ts';
 import { parseLineNumber } from '#lib/core/line-number.tiny.ts';
+import { parseLineText } from '#lib/core/line-text.tiny.ts';
 import { repoPathBytes } from '#lib/core/path-bytes.ts';
 import { parseReportId, type ReportId } from '#lib/core/report-id.tiny.ts';
 import { andThen, ok, type Result } from '#lib/core/result.ts';
@@ -105,7 +106,7 @@ const excerptRow = z
 		first: whole(parseLineNumber),
 		last: whole(parseLineNumber),
 		lines: z.string().transform((value, context) => {
-			const parsed = z.array(z.string()).max(MAX_EXCERPT_LINES).safeParse(safeJson(value));
+			const parsed = z.array(text(parseLineText)).max(MAX_EXCERPT_LINES).safeParse(safeJson(value));
 			if (parsed.success) return parsed.data;
 			context.addIssue({ code: 'custom', message: 'its lines are not a list of lines' });
 			return z.NEVER;

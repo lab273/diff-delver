@@ -35,7 +35,7 @@ test.describe('J18 Draft comments', () => {
 		const expand = file.byRole('button', { name: 'Show all 8 unchanged lines above' });
 		const line = (number: number, side: 'before' | 'after') =>
 			file.byRole('button', {
-				name: `Comment on or flag line ${String(number)}, ${side}`,
+				name: `Comment on, flag or ask about line ${String(number)}, ${side}`,
 				exact: true
 			});
 		const reviewed = file.byRole('checkbox', { name: 'Reviewed: src/lexer.ts' });

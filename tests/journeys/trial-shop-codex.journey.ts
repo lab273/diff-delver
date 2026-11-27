@@ -141,7 +141,7 @@ test.describe('Trial shop sorted by Codex', () => {
 		const draftText = 'Can we explain how the subtotal is rounded?';
 		const line = (number: number) =>
 			tools.byRole('button', {
-				name: `Comment on or flag line ${String(number)}, after`,
+				name: `Comment on, flag or ask about line ${String(number)}, after`,
 				exact: true
 			});
 		await journey.activate(tools.byRole('button', { name: 'Show the whole file: src/pricing.ts' }));

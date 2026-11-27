@@ -23,6 +23,7 @@ import type {
 	GroupKeyView,
 	Marked,
 	NoteAction,
+	RequestAction,
 	PartLines,
 	PartView,
 	PlaceView,
@@ -372,6 +373,9 @@ export type TickOutcome =
 
 /** What can be done to the agent's notes, without the version, which is the one shown. */
 export type NoteActionKind = DistributiveOmit<NoteAction, 'version'>;
+
+/** What can be done to the reviewer's questions for the agent, without the version shown. */
+export type RequestActionKind = DistributiveOmit<RequestAction, 'version'>;
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 export class Viewer {
@@ -392,6 +396,10 @@ export class Viewer {
 	earlierNotes = $state.raw<DiffPage['earlierNotes']>(null);
 	/** Whether the agent's notes are drawn at their lines; the person's setting. */
 	showNotes = $state(true);
+	/** The reviewer's questions for the agent, on every version (DESIGN 7.2). */
+	requests = $state.raw<DiffPage['requests']>([]);
+	/** Whether an agent is listening for them now: "Agent connected". */
+	agentConnected = $state(false);
 	summary: DiffSummary;
 	parts: PartState[];
 	files: FileView[];
@@ -475,6 +483,8 @@ export class Viewer {
 		this.overview = page.overview;
 		this.notes = page.notes;
 		this.earlierNotes = page.earlierNotes;
+		this.requests = page.requests;
+		this.agentConnected = page.agentConnected;
 		this.#takeRead(page);
 		// Read on the page before a regroup, whether or not it has been saved yet.
 		if (previous !== undefined) for (const key of previous.#read) this.#read.add(key);
@@ -1133,6 +1143,8 @@ export class Viewer {
 		this.#takeRead(frame);
 		this.notes = frame.notes;
 		this.earlierNotes = frame.earlierNotes;
+		this.requests = frame.requests;
+		this.agentConnected = frame.agentConnected;
 		this.summary = frame.summary;
 		for (const group of frame.groups) {
 			for (const part of group.parts) {
@@ -1169,6 +1181,30 @@ export class Viewer {
 					: 'Dismissed agent notes are back.';
 		return undefined;
 	}
+
+	/**
+	 * Asks the agent, cancels a question or promotes one into the draft, on
+	 * the version shown. The questions are those the daemon gives back; what
+	 * went wrong, in words, or undefined.
+	 */
+	async changeRequests(action: RequestActionKind): Promise<string | undefined> {
+		const changed = await this.client.changeRequests(this.id, { ...action, version: this.version });
+		if (!changed.ok) return describeApiError(changed.error);
+		this.requests = changed.value.requests;
+		this.lastAsked = changed.value.asked ?? undefined;
+		this.announcement =
+			action.action === 'ask'
+				? this.agentConnected
+					? 'Asked. The agent’s answer appears with your question.'
+					: 'Asked. No agent is connected: copy it as a prompt for your agent.'
+				: action.action === 'cancel'
+					? 'Question cancelled.'
+					: 'Question and answer promoted: they are a comment of yours now, which you can edit.';
+		return undefined;
+	}
+
+	/** The question asked last from this page, to put the keyboard on once it is drawn. */
+	lastAsked = $state<DiffPage['requests'][number]['id']>();
 
 	/** Puts files the daemon sent in place of the page's own. */
 	#putFiles(files: readonly FileView[]): void {

@@ -18,6 +18,7 @@ import type { AgentMarkdown } from '../agent-markdown.tiny.ts';
 import type { AgentRequestId } from '../agent-request-id.tiny.ts';
 import { textToCopy, type TextToCopy } from '../agent-setup/text-to-copy.tiny.ts';
 import type { LineNumber } from '../line-number.tiny.ts';
+import type { LineText } from '../line-text.tiny.ts';
 import type { RepoPath } from '../repo-path.tiny.ts';
 import type { ReportId } from '../report-id.tiny.ts';
 import type { ReviewerMessage } from '../reviewer-message.tiny.ts';
@@ -79,7 +80,7 @@ export interface RequestExcerpt {
 	/** The last line the agent named, which may be past the lines kept. */
 	readonly last: LineNumber;
 	/** The lines from `first`, at most `MAX_EXCERPT_LINES` of them. */
-	readonly lines: readonly string[];
+	readonly lines: readonly LineText[];
 }
 
 /** One answer of the agent: its words, to be drawn as agent text, and the code it pointed at. */

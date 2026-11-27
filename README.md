@@ -114,6 +114,18 @@ A link the agent gives you opens the Delve to read and tick. To write comments
 there, press **Turn on comments in this browser** on the page: diff delver opens
 the Delve in a tab of its own, and comments work in both.
 
+Once it has sorted the diff, the agent with the skill stays to answer your
+questions. From a line's menu choose **Ask** (or press `q` on the line): ask about
+the lines, their whole file or their section, with **Explain this**, **Show me
+related code** or your own words. The answer appears beside what you asked about,
+with the code it points at. With no agent connected, the question says so and
+offers **Copy as prompt**, to paste into any agent that has the MCP server.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="tests/journeys/screenshots/j7-ask-for-more-context.03.the-agent-s-answer-with-its-code.dark.png">
+  <img src="tests/journeys/screenshots/j7-ask-for-more-context.03.the-agent-s-answer-with-its-code.light.png" alt="A question for the agent under a line of a Delve, answered, with the two excerpts of code the agent pointed at" width="800">
+</picture>
+
 If an older MCP shim stops connecting after an upgrade, update the agent's
 `diff-delver mcp` command and restart its MCP server so it uses the new build.
 
@@ -227,11 +239,15 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 - A reading order within a section: the agent can order a section's code in steps,
   a definition before its use, with a short note on a step. Each step is a part you
   tick on its own; lines no step names come after the steps.
+- Asking the agent about lines, a file or a section from the page, while it listens
+  with `wait_for_requests`; its answer appears beside the question with excerpts of
+  the code it points at. With no agent connected, a question is copied as a prompt.
+  Questions stay out of your review unless you promote one.
 
 Not built yet:
 
 - The agent’s cross-references between sections.
-- Replies to earlier reviews and asking the agent from the page.
+- Replies to earlier reviews.
 - Saving a review to a file.
 - A pull request with no clone of its repository on this machine, and GitHub
   Enterprise.

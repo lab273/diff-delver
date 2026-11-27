@@ -198,7 +198,7 @@ test.describe('J8 The diff changes mid-review', () => {
 		await journey.activate(
 			journey
 				.within(journey.byRole('article', { name: 'src/checkout.ts' }))
-				.byRole('button', { name: 'Comment on or flag line 15, before', exact: true })
+				.byRole('button', { name: 'Comment on, flag or ask about line 15, before', exact: true })
 		);
 		// The menu under the line: Comment, or Flag.
 		await journey.activate(

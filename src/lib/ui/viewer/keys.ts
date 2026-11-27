@@ -6,7 +6,7 @@
  * and go on to the next file waiting, as in Gerrit; `o` to open or close, as
  * in Gmail; `c` to comment, as in Gerrit and GitLab; `f` to flag lines to
  * look at again, and `F` to go from flag to flag, as `b` and `B` do for the
- * bookmark; `d` to open another
+ * bookmark; `q` to ask the agent about lines; `d` to open another
  * Delve; `v`, for review, to write the overall review; `a` to hide or show
  * the agent's notes; `?` for this list, as
  * on GitHub. They never fire while the person types in a field, nor with
@@ -22,6 +22,7 @@ export type KeyAction =
 	| 'toggle-open'
 	| 'comment'
 	| 'flag'
+	| 'ask'
 	| 'next-flag'
 	| 'whole-file'
 	| 'only-unreviewed'
@@ -69,6 +70,11 @@ export const SHORTCUTS: readonly {
 		action: 'flag'
 	},
 	{ keys: ['F'], does: 'Go to the next flag', action: 'next-flag' },
+	{
+		keys: ['q'],
+		does: 'Ask the agent about the line you are on, or the lines taken. From anywhere else, go to the lines of the file you are on',
+		action: 'ask'
+	},
 	{
 		keys: ['e'],
 		does: 'Show the whole file you are on, or only its changes',

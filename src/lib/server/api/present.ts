@@ -10,8 +10,16 @@ import {
 	describePullRequestList
 } from '#lib/core/github/listed-pull-request.ts';
 import { describeEarlierNotes, type AgentNote } from '#lib/core/review/agent-note.ts';
+import {
+	describeRequestAnchor,
+	requestPrompt,
+	type AgentRequest,
+	type DelveAsked
+} from '#lib/core/review/agent-request.ts';
+import { agentPath } from '#lib/core/diff/agent-text.ts';
 import type {
 	AgentNoteView,
+	AgentRequestView,
 	ApiErrorBody,
 	Candidate,
 	CommitsView,
@@ -410,6 +418,12 @@ export function pageView(loaded: LoadedReport, now: Timestamp, view: ViewKind): 
 		notes: notesView(loaded.notes),
 		earlierNotes:
 			loaded.earlierNotes === undefined ? null : describeEarlierNotes(loaded.earlierNotes),
+		requests: requestsView(loaded.requests, {
+			id: loaded.report.id,
+			title: loaded.summary.title,
+			repository: loaded.summary.repository
+		}),
+		agentConnected: loaded.agentListening,
 		frame: `${view}:${loaded.frame}`,
 		sorting: loaded.sorting,
 		assignments: loaded.assignments,
@@ -769,6 +783,40 @@ export function badRequest(what: string): Response {
 			`diff delver could not read this request (${what}). Reload the page and try again.`
 		)
 	);
+}
+
+/** The reviewer's questions for the agent as a page draws them: cancelled ones are gone. */
+export function requestsView(
+	requests: readonly AgentRequest[],
+	delve: DelveAsked
+): AgentRequestView[] {
+	return requests
+		.filter((request) => request.status !== 'cancelled')
+		.map((request) => ({
+			id: request.id,
+			version: request.version,
+			anchor:
+				request.anchor.kind === 'section'
+					? request.anchor
+					: { ...request.anchor, path: escapedRepoPath(request.anchor.path) },
+			about: reviewerMessage(describeRequestAnchor(request.anchor)),
+			question: request.question,
+			status: request.status,
+			promoted: request.promoted,
+			promotable: request.anchor.kind === 'lines' && request.answers.length > 0,
+			prompt: request.status === 'waiting' ? requestPrompt(delve, request, agentPath) : null,
+			answers: request.answers.map((answer) => ({
+				body: answer.body,
+				excerpts: answer.excerpts.map((excerpt) => ({
+					path: escapedRepoPath(excerpt.path),
+					side: excerpt.side,
+					first: excerpt.first,
+					last: excerpt.last,
+					lines: [...excerpt.lines],
+					more: Math.max(0, excerpt.last - excerpt.first + 1 - excerpt.lines.length)
+				}))
+			}))
+		}));
 }
 
 /** The agent's notes as a page draws them: promoted ones are comments of the draft by then. */

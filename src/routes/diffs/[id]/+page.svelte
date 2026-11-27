@@ -54,6 +54,7 @@
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import CommentList from '#lib/ui/viewer/CommentList.svelte';
 	import AgentNotes from '#lib/ui/viewer/AgentNotes.svelte';
+	import AgentRequest from '#lib/ui/viewer/AgentRequest.svelte';
 	import FinishReview from '#lib/ui/viewer/FinishReview.svelte';
 	import OverallReview from '#lib/ui/viewer/OverallReview.svelte';
 	import { Writing, type CommentPlace, type Comments } from '#lib/ui/viewer/comments.svelte.ts';
@@ -360,6 +361,11 @@
 		);
 		lastViewer = made;
 		return made;
+	});
+	/** The reviewer's questions for the agent asked on another version than the one shown, listed above the diff. */
+	const otherVersions = $derived.by(() => {
+		const shown = viewer;
+		return shown === undefined ? [] : shown.requests.filter((r) => r.version !== shown.version);
 	});
 
 	/**
@@ -2051,6 +2057,9 @@
 			case 'flag':
 				void commentKey('flag');
 				return;
+			case 'ask':
+				void commentKey('ask');
+				return;
 			case 'next-flag':
 				void nextFlag();
 				return;
@@ -2530,16 +2539,16 @@
 	}
 
 	/**
-	 * The `c` and `f` keys. On a line's number, `c` comments on that line, or on
-	 * the lines taken with it, and `f` flags them; in the menu under them, each
+	 * The `c`, `f` and `q` keys. On a line's number, `c` comments on that line, or on
+	 * the lines taken with it, `f` flags them and `q` asks the agent about them; in the menu under them, each
 	 * presses its button. Anywhere else, they go to the lines of the file the
 	 * person is on, at the first one on the screen, from where the arrow keys move.
 	 */
-	async function commentKey(kind: 'comment' | 'flag'): Promise<void> {
+	async function commentKey(kind: 'comment' | 'flag' | 'ask'): Promise<void> {
 		const shown = viewer;
 		if (shown === undefined) return;
 		if (byFile) {
-			shown.announcement = `${kind === 'flag' ? 'Flags are raised' : 'Comments are written'} on lines. Choose By section to see them.`;
+			shown.announcement = `${kind === 'flag' ? 'Flags are raised' : kind === 'ask' ? 'Questions are asked' : 'Comments are written'} on lines. Choose By section to see them.`;
 			return;
 		}
 		const on = document.activeElement;
@@ -2582,7 +2591,7 @@
 			return;
 		}
 		line.focus();
-		shown.announcement = `On ${line.getAttribute('aria-label')?.replace('Comment on or flag ', '') ?? 'a line'} of ${name}. Press ${kind === 'flag' ? 'f again to flag it' : 'c again to comment on it'}; the arrow keys move between lines, and Shift with them takes several.`;
+		shown.announcement = `On ${line.getAttribute('aria-label')?.replace('Comment on, flag or ask about ', '') ?? 'a line'} of ${name}. Press ${kind === 'flag' ? 'f again to flag it' : kind === 'ask' ? 'q again to ask the agent about it' : 'c again to comment on it'}; the arrow keys move between lines, and Shift with them takes several.`;
 	}
 </script>
 
@@ -2938,6 +2947,20 @@
 			{:else if viewer.earlierNotes !== null}
 				<p class="earlier-notes">{viewer.earlierNotes}</p>
 			{/if}
+			{#if otherVersions.length > 0}
+				<section class="other-requests" aria-labelledby="other-requests-heading">
+					<h2 id="other-requests-heading">Questions for the agent on other versions</h2>
+					{#each otherVersions as request (request.id)}
+						<p class="asked-on">Asked on version {request.version}</p>
+						<AgentRequest
+							{request}
+							{viewer}
+							{comments}
+							act={data.canReview && summary.state.kind === 'open'}
+						/>
+					{/each}
+				</section>
+			{/if}
 			{#if data.canReview}
 				{#if reviewTurnedOn}
 					<p class="turned-on" role="status">Comments are on in this browser now.</p>
@@ -3053,6 +3076,17 @@
 									<p class="explain">
 										These need no review and are not counted; each says why. Open one to read it.
 									</p>
+								{/if}
+								{#if group.key.kind === 'section'}
+									{@const key = group.key}
+									{#each viewer.requests.filter((r) => r.version === viewer.version && r.anchor.kind === 'section' && r.anchor.section === key.section) as request (request.id)}
+										<AgentRequest
+											{request}
+											{viewer}
+											{comments}
+											act={data.canReview && summary.state.kind === 'open'}
+										/>
+									{/each}
 								{/if}
 								{#each shown as state (state.key)}
 									<Part
@@ -3453,6 +3487,22 @@
 
 	.empty {
 		color: var(--color-muted);
+	}
+
+	.other-requests {
+		margin-block: 0.75rem;
+		max-width: 48rem;
+	}
+
+	.other-requests h2 {
+		margin: 0;
+		font-size: 1rem;
+	}
+
+	.asked-on {
+		margin: 0.5rem 0 0;
+		color: var(--color-muted);
+		font-size: 0.8125rem;
 	}
 
 	.earlier-notes {

@@ -15,7 +15,7 @@ test.describe('J6 Comment and flag', () => {
 		const file = journey.within(journey.byRole('article', { name: 'src/lexer.ts' }));
 		const line = (number: number) =>
 			file.byRole('button', {
-				name: `Comment on or flag line ${String(number)}, after`,
+				name: `Comment on, flag or ask about line ${String(number)}, after`,
 				exact: true
 			});
 		const list = journey.byRole('button', { name: /^Draft comments/ });
@@ -35,14 +35,18 @@ test.describe('J6 Comment and flag', () => {
 		await journey.press('ArrowDown');
 		await journey.expectFocused(line(2));
 		await journey.press('Enter');
-		const menu = journey.within(file.byRole('group', { name: 'After, line 2: comment or flag' }));
+		const menu = journey.within(
+			file.byRole('group', { name: 'After, line 2: comment, flag or ask' })
+		);
 		await journey.expectFocused(menu.byRole('button', { name: 'Comment on After, line 2' }));
 		await journey.step('The menu under a line');
 
 		// Leaving the menu puts it away, so it never holds up the agent's regroup.
 		await journey.press('Shift+Tab');
 		await journey.expectFocused(line(2));
-		await journey.expectHidden(file.byRole('group', { name: 'After, line 2: comment or flag' }));
+		await journey.expectHidden(
+			file.byRole('group', { name: 'After, line 2: comment, flag or ask' })
+		);
 		await journey.press('Enter');
 		await journey.expectFocused(menu.byRole('button', { name: 'Comment on After, line 2' }));
 

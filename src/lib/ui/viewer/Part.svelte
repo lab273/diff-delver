@@ -23,6 +23,7 @@
 	import type { CompareMode } from '#lib/core/image/compare-modes.ts';
 	import { whereWhiteSpaceMatters } from '#lib/core/highlight/language.ts';
 	import TickRefused from './TickRefused.svelte';
+	import AgentRequest from './AgentRequest.svelte';
 	import {
 		done,
 		partly,
@@ -75,6 +76,15 @@
 
 	const at = $derived(state.index);
 	const part = $derived(state.part);
+	/** The reviewer's questions for the agent about the whole file, drawn at the top of its first part. */
+	const fileRequests = $derived(
+		part.position === 1
+			? viewer.requests.filter(
+					(r) =>
+						r.version === viewer.version && r.anchor.kind === 'file' && r.anchor.path === part.path
+				)
+			: []
+	);
 	const ignored = $derived(part.group.kind === 'ignored');
 	const reviewed = $derived(done(part.tally));
 	/** How many of its changes only change white space and are drawn as unchanged lines. */
@@ -335,6 +345,9 @@
 					<AgentMarkdown markdown={part.note} label="From the agent, on this step" />
 				</div>
 			{/if}
+			{#each fileRequests as request (request.id)}
+				<AgentRequest {request} {viewer} {comments} act={canComment && canReview} />
+			{/each}
 			{#if part.tally.unmarked > 0}
 				<p class="unmarked">
 					You had marked {countOf(part.tally.unmarked, 'change', 'changes')} here as reviewed. {part

@@ -16,6 +16,8 @@ import { FILE_PAGE_LINES, FILE_QUERY_LENGTH } from '#lib/core/viewer/file-reader
 import { MAX_COMMENT_LENGTH } from '#lib/core/review/draft-comment.ts';
 import { NOTE_LABELS } from '#lib/core/review/agent-note.ts';
 import { parseAgentNoteId } from '#lib/core/agent-note-id.tiny.ts';
+import { parseAgentRequestId } from '#lib/core/agent-request-id.tiny.ts';
+import { MAX_QUESTION_LENGTH } from '#lib/core/review/agent-request.ts';
 import { MAX_OVERALL_REVIEW_LENGTH } from '#lib/core/review/overall-review.ts';
 import { parseAbsolutePath, type AbsolutePath } from '#lib/core/absolute-path.tiny.ts';
 import { parseAgentMarkdown } from '#lib/core/agent-markdown.tiny.ts';
@@ -413,6 +415,61 @@ export const AgentNoteSchema = z.strictObject({
 });
 export type AgentNoteView = z.output<typeof AgentNoteSchema>;
 
+const agentRequestId = parsed(z.number(), parseAgentRequestId);
+const side = z.enum(['old', 'new']);
+
+/**
+ * One of the reviewer's questions for the agent (DESIGN 7.2), on any version:
+ * what it is about and in words, its status, the prompt to copy while it
+ * waits, and the agent's answers, drawn as agent text, with the code each
+ * pointed at as the daemon read it from the snapshot.
+ */
+export const AgentRequestSchema = z.strictObject({
+	id: agentRequestId,
+	version,
+	anchor: z.discriminatedUnion('kind', [
+		z.strictObject({
+			kind: z.literal('lines'),
+			path: escapedPath,
+			side,
+			first: lineNumber,
+			last: lineNumber
+		}),
+		z.strictObject({ kind: z.literal('file'), path: escapedPath }),
+		z.strictObject({
+			kind: z.literal('section'),
+			section: sectionId,
+			title: parsed(z.string(), parseSectionTitle)
+		})
+	]),
+	/** What it is about, in words: "After, lines 3–5", "the whole file". */
+	about: message,
+	question: z.string(),
+	status: z.enum(['waiting', 'delivered', 'answered', 'cancelled']),
+	promoted: z.boolean(),
+	/** Whether it can be promoted into the draft: answered, and about lines. */
+	promotable: z.boolean(),
+	/** While it waits, the prompt "Copy as prompt" gives; null otherwise. */
+	prompt: toCopy.nullable(),
+	answers: z.array(
+		z.strictObject({
+			body: parsed(z.string(), parseAgentMarkdown),
+			excerpts: z.array(
+				z.strictObject({
+					path: escapedPath,
+					side,
+					first: lineNumber,
+					last: lineNumber,
+					lines: z.array(parsed(z.string(), parseLineText)),
+					/** How many lines of the range are not drawn. */
+					more: z.number().int().min(0)
+				})
+			)
+		})
+	)
+});
+export type AgentRequestView = z.output<typeof AgentRequestSchema>;
+
 /** GET /api/diffs/:id: a diff's page, without the code, which comes a part at a time. */
 const frameStamp = z.string().min(1).max(256);
 export const DiffPageSchema = z.object({
@@ -425,6 +482,10 @@ export const DiffPageSchema = z.object({
 	notes: z.array(AgentNoteSchema),
 	/** On a version with no notes, what to say of the notes an earlier version has; null otherwise. */
 	earlierNotes: message.nullable(),
+	/** The reviewer's questions for the agent, on every version, cancelled ones left out. */
+	requests: z.array(AgentRequestSchema),
+	/** Whether an agent is listening for this Delve's questions now (DESIGN 7.2). */
+	agentConnected: z.boolean(),
 	/** Identifies the frame of this version and view for a conditional read. */
 	frame: frameStamp,
 	/** The sorting the reviewer saw when deciding to tick a slice or group. */
@@ -1188,6 +1249,41 @@ export const NotesChangedSchema = z.strictObject({
 	comment: DraftCommentSchema.nullable()
 });
 export type NotesChangedView = z.infer<typeof NotesChangedSchema>;
+
+/**
+ * POST /api/diffs/[id]/requests, from a page that shows `version`, the
+ * current one: asks the agent about lines, a file or a section, cancels a
+ * question, or promotes an answered one into the draft.
+ */
+export const RequestActionSchema = z.discriminatedUnion('action', [
+	z.strictObject({
+		action: z.literal('ask'),
+		version,
+		about: z.discriminatedUnion('kind', [
+			z.strictObject({
+				kind: z.literal('lines'),
+				path: escapedPath,
+				side,
+				first: lineNumber,
+				last: lineNumber
+			}),
+			z.strictObject({ kind: z.literal('file'), path: escapedPath }),
+			z.strictObject({ kind: z.literal('section'), section: sectionId })
+		]),
+		question: z.string().max(MAX_QUESTION_LENGTH * 2)
+	}),
+	z.strictObject({ action: z.literal('cancel'), version, request: agentRequestId }),
+	z.strictObject({ action: z.literal('promote'), version, request: agentRequestId })
+]);
+export type RequestAction = z.infer<typeof RequestActionSchema>;
+
+/** What a request action left: the Delve's questions, the one just asked, and the comment a promoted one became. */
+export const RequestsChangedSchema = z.strictObject({
+	requests: z.array(AgentRequestSchema),
+	asked: agentRequestId.nullable(),
+	comment: DraftCommentSchema.nullable()
+});
+export type RequestsChangedView = z.infer<typeof RequestsChangedSchema>;
 
 /** A comment's id in an address, where it is text. */
 export const DraftCommentIdInAddressSchema = parsed(
