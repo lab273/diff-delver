@@ -2,7 +2,8 @@
 	Every comment and flag of the reviewer's draft, in one place above the
 	diff: how many there are, each with its file, its lines and when it was written, on
 	whichever version it was written; and whatever is being written whose lines
-	are not on the page, so it is never out of reach.
+	are not on the page, so it is never out of reach, questions for the agent
+	among them, which can be discarded here or moved by asking on a line.
 -->
 <script lang="ts">
 	import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
@@ -13,6 +14,7 @@
 	import { describeDraftComments } from '#lib/core/review/overall-review.ts';
 	import { shownPath } from '#lib/core/shown-path.tiny.ts';
 	import PathText from '#lib/ui/PathText.svelte';
+	import VisibleText from '#lib/ui/VisibleText.svelte';
 	import type { CommentPlace, Comments, Writing } from './comments.svelte.ts';
 
 	let {
@@ -43,6 +45,10 @@
 	/** What is being written and has no place among the lines on the page now. */
 	const waiting = $derived(
 		comments.writing.filter((w) => w.inList === 0 && (diffHidden || w.inDiff === 0))
+	);
+	/** Questions for the agent being written whose box is not on the page: on another version, or the diff hidden. */
+	const asksAway = $derived(
+		comments.asks.filter((ask) => ask.worthKeeping && (diffHidden || ask.place.version !== version))
 	);
 	/** What is being written under its lines, somewhere in the diff: a way back to each. */
 	const underLines = $derived(comments.writing.filter((w) => !diffHidden && w.inDiff > 0));
@@ -80,6 +86,32 @@
 						}}
 					>
 						Go to it
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+	{#if asksAway.length > 0}
+		<ul class="unsaved" aria-label="Questions for the agent not asked yet">
+			{#each asksAway as ask (ask.key)}
+				{@const lines = describeCommentLines(ask.place.anchor)}
+				<li>
+					<span>Question not asked yet:</span>
+					<span class="path"><PathText path={ask.place.anchor.path} /></span>
+					<span>{lines}, version {ask.place.version}</span>
+					<span class="words">“<VisibleText text={ask.text.trim()} />”</span>
+					<span class="hint">To ask it, press <kbd>q</kbd> on a line: it moves there.</span>
+					<button
+						type="button"
+						aria-label="Discard the question not asked yet on {shownPath(
+							ask.place.anchor.path
+						)}, {lines}"
+						onclick={() => {
+							comments.dropAsk(ask);
+							control?.focus();
+						}}
+					>
+						Discard
 					</button>
 				</li>
 			{/each}
@@ -177,6 +209,10 @@
 	.unsaved button {
 		padding: 0.1rem 0.6rem;
 		font-size: 0.8125rem;
+	}
+
+	.hint {
+		color: var(--color-muted);
 	}
 
 	kbd {

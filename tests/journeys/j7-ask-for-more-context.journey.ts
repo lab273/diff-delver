@@ -116,5 +116,26 @@ test.describe('J7 Ask for more context', () => {
 		await journey.expectFocused(aboutFile);
 		await journey.expectVisible(journey.within(aboutFile).byText('Waiting for the agent'));
 		await journey.step('A question about the whole file');
+
+		// A question being written is kept while its lines are not on the page, and listed
+		// above the diff, where it can be discarded.
+		await journey.activate(line(4), 'q');
+		await journey.press('Tab');
+		await journey.press('Tab');
+		await journey.expectFocused(box.byRole('textbox', { name: 'Or ask in your own words' }));
+		await journey.type('Is a code ever upper case?');
+		await journey.activate(journey.byRole('button', { name: 'By file' }));
+		const notAsked = journey.within(
+			journey.byRole('list', { name: 'Questions for the agent not asked yet' })
+		);
+		await journey.expectVisible(notAsked.byText('Is a code ever upper case?', { exact: false }));
+		await journey.activate(
+			notAsked.byRole('button', {
+				name: 'Discard the question not asked yet on src/discount.ts, After, line 4'
+			})
+		);
+		await journey.expectHidden(
+			journey.byRole('list', { name: 'Questions for the agent not asked yet' })
+		);
 	});
 });
