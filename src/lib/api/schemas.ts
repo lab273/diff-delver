@@ -166,7 +166,7 @@ export const DiffSummarySchema = z.object({
 			text: message,
 			/** Both figures in a sentence, for hovering over `text`. */
 			inFull: message,
-			/** What deleting it frees, and when: "Deleting it frees about 40 MB on disk within an hour." */
+			/** What deleting it frees, and when: "Deleting it frees about 40 MB on disk within about an hour." */
 			deleting: message
 		})
 		.nullable()

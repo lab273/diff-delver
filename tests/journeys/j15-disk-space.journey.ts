@@ -16,7 +16,7 @@ test.describe('J15 Disk space', () => {
 		await journey.activate(remove);
 		const dialog = journey.byRole('dialog', { name: 'Delete Uncommitted changes in shop?' });
 		await journey.expectVisible(dialog);
-		await journey.expectText(dialog, 'The space it takes on disk is freed within an hour.');
+		await journey.expectText(dialog, 'The space it takes on disk is freed within about an hour.');
 		// Cancel comes first, so Enter on what has focus never deletes by accident.
 		await journey.expectFocused(journey.within(dialog).byRole('button', { name: 'Cancel' }));
 		await journey.step('Deleting asks first');
@@ -54,7 +54,7 @@ test.describe('J15 Disk space', () => {
 		await journey.activate(journey.within(dialog).byRole('button', { name: 'Delete' }));
 		await journey.expectVisible(
 			journey.byText(
-				'Deleted Uncommitted changes in shop. Its space on disk is freed within an hour.'
+				'Deleted Uncommitted changes in shop. Its space on disk is freed within about an hour.'
 			)
 		);
 		await journey.expectHidden(store);

@@ -35,7 +35,7 @@
 		}
 		await ondeleted(
 			deleted.value.problem === null
-				? `Deleted ${name}. Its space on disk is freed within an hour.`
+				? `Deleted ${name}. Its space on disk is freed within about an hour.`
 				: `Deleted ${name}. ${deleted.value.problem}`
 		);
 	}

@@ -93,14 +93,14 @@ describe('what a Delve takes on disk, in words', () => {
 
 	it('says what deleting frees, and when', () => {
 		expect(describeWhatDeletingFrees(usage(40 * MB, 0))).toBe(
-			'Deleting it frees about 40 MB on disk within an hour.'
+			'Deleting it frees about 40 MB on disk within about an hour.'
 		);
 		expect(describeWhatDeletingFrees(usage(0, 3 * MB))).toBe(
 			'It frees almost no space on disk: what it holds is shared with other Delves of this repository.'
 		);
 		expect(describeWhatDeletingFrees(usage(0, 0))).toBe('It takes almost no space on disk.');
 		expect(describeWhatDeletingFrees(undefined)).toBe(
-			'The space it takes on disk is freed within an hour.'
+			'The space it takes on disk is freed within about an hour.'
 		);
 	});
 

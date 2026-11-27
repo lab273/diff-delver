@@ -4853,7 +4853,7 @@ export class ReportService {
 	 * Collects the stores Delves were deleted from once the store's grace
 	 * period has passed since, by the service's clock, so that the objects the
 	 * collection at deleting kept, as git keeps anything younger than that,
-	 * are freed then, and "frees it within an hour" is true. The daemon calls
+	 * are freed then, and "frees it within about an hour" is true. The daemon calls
 	 * it from its repeating check; it returns the stores it collected. A store
 	 * that could not be collected is tried again next time.
 	 */
