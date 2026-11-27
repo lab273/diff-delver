@@ -22,11 +22,14 @@
 
 	let {
 		viewer,
+		readOnly = false,
 		ontick,
 		ongo,
 		onshownewer
 	}: {
 		viewer: Viewer;
+		/** Whether its ticks are only shown, as on the Delve as of a finished review. */
+		readOnly?: boolean;
 		ontick: (file: FileView, reviewed: boolean) => Promise<void>;
 		ongo: (path: EscapedPath, group: GroupKeyView) => void;
 		/** Shows the diff's newer version, when a tick was refused for being behind it. */
@@ -109,6 +112,7 @@
 								type="checkbox"
 								aria-label="Reviewed: {shownPath(file.path)}"
 								checked={done(file.tally)}
+								disabled={readOnly}
 								indeterminate={partly(file.tally)}
 								onchange={async (event) => {
 									const box = event.currentTarget;

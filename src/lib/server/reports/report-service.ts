@@ -27,6 +27,7 @@
  * and makes the next revision in one transaction. Earlier revisions stay
  * stored, with their snapshots.
  */
+import type { ThreadToday, TimelineVersion } from '#lib/core/reports/timeline.ts';
 import { isUtf8 } from 'node:buffer';
 import { escapedRepoPath } from '#lib/core/path-bytes.ts';
 import { FILE_MATCHES, MOST_FILE_BYTES, fileMatchScore } from '#lib/core/viewer/file-reader.ts';
@@ -195,7 +196,7 @@ import {
 	reviewHolding,
 	type ReviewCommentRow
 } from '../db/tables/review-comments.ts';
-import { copyReviewMarks } from '../db/tables/review-marks.ts';
+import { copyReviewMarks, reviewMarkRowsOf } from '../db/tables/review-marks.ts';
 import { insertReview, latestReviewNumber, reviewOf, reviewsOf } from '../db/tables/reviews.ts';
 import { insertDelivery, noteHandover } from '../db/tables/review-deliveries.ts';
 import {
@@ -605,7 +606,27 @@ export type StartOutcome =
 	  };
 
 /** Everything a report page needs, read from the database and the store only. */
+/** A Delve's history (DESIGN 6.4), as `history` gives it. */
+export interface DelveHistory {
+	/** The Delve as its current version has it. */
+	readonly summary: ReportSummary;
+	/** Oldest first. */
+	readonly versions: readonly TimelineVersion[];
+	/** Oldest first, each with its delivery log. */
+	readonly reviews: readonly FinishedReview[];
+	/** In the order they were started, each with its status in the current version. */
+	readonly threads: readonly ThreadToday[];
+}
+
 export interface LoadedReport {
+	/**
+	 * The finished review it is shown as of (DESIGN 6.4), read-only: its
+	 * version, with the reviewed marks copied when it was finished and the
+	 * threads as they stood then; undefined for the version as it is.
+	 */
+	readonly asOf: { readonly number: ReviewNumber; readonly submittedAt: Timestamp } | undefined;
+	/** The Delve's latest finished review, so a page offers its history; undefined before the first. */
+	readonly latestReview: ReviewNumber | undefined;
 	readonly summary: ReportSummary;
 	readonly report: Report;
 	readonly revision: Revision;
@@ -1439,6 +1460,21 @@ function threadBehind(stored: StoredThread, version: Revision): boolean {
 	);
 }
 
+/**
+ * A thread of an earlier review as it stood when review `number` was
+ * finished: started before it, with only the messages and resolutions of that
+ * review and earlier ones; undefined for one that review or a later one started.
+ */
+function threadAsOf(stored: StoredThread, number: ReviewNumber): StoredThread | undefined {
+	if ((stored.messages[0]?.review ?? number) >= number) return undefined;
+	const messages = stored.messages.filter((m) => m.review <= number);
+	return {
+		...stored,
+		messages,
+		resolutions: stored.resolutions.filter((r) => r.review <= number)
+	};
+}
+
 function threadIn(stored: StoredThread, version: Revision): EarlierThread | undefined {
 	const here = stored.places.find((p) => p.revision === version.id);
 	const start = stored.messages[0];
@@ -1907,10 +1943,30 @@ export class ReportService {
 	 * repository is not touched. Its current revision, or with `version` that
 	 * revision, so a page showing an earlier version keeps reading it after an
 	 * update; a version it never had is `VersionNotFound`. Everything, the
-	 * summary too, is of the revision loaded.
+	 * summary too, is of the revision loaded. With `review`, the Delve as it
+	 * stood when that review was finished (DESIGN 6.4): its version, with the
+	 * reviewed marks the review copied and its progress, and the threads with
+	 * only what that review and earlier ones said; `ReviewNotFound` for one
+	 * it never had.
 	 */
-	async load(id: ReportId, version?: RevisionNumber): Promise<Result<LoadedReport, ReportError>> {
-		const shown = this.#db.read((q) => asOf(q, id, version));
+	async load(
+		id: ReportId,
+		version?: RevisionNumber,
+		review?: ReviewNumber
+	): Promise<Result<LoadedReport, ReportError>> {
+		const past =
+			review === undefined
+				? ok(undefined)
+				: this.#db.read((q) =>
+						andThen(current(q, id), () =>
+							andThen(reviewOf(q, id, review), (found): Result<FinishedReview, ReportError> =>
+								found === undefined ? err({ kind: 'ReviewNotFound', number: review }) : ok(found)
+							)
+						)
+					);
+		if (!past.ok) return past;
+		const finished = past.value;
+		const shown = this.#db.read((q) => asOf(q, id, finished?.version ?? version));
 		if (!shown.ok) return shown;
 		const { report } = shown.value;
 		const content = await this.#contentOf(report, shown.value.revision);
@@ -1929,39 +1985,44 @@ export class ReportService {
 			return andThen(asOf(q, id, revision.number), (shownNow) =>
 				andThen(sectionsOf(q, revision.id), (sections) =>
 					andThen(assignmentRowsFor(q, revision.id), (rows) =>
-						andThen(reviewedRowsFor(q, revision.id), (marked) =>
-							andThen(newUnitRowsFor(q, revision.id), (fresh) =>
-								andThen(unmarkedUnitRowsFor(q, revision.id), (unmarked) =>
-									andThen(revisionUpdateFor(q, revision.id), (summary) =>
-										andThen(referenceRowsFor(q, revision.id), (referenceRows) =>
-											andThen(readingStepsFor(q, revision.id), (readingSteps) =>
-												andThen(overviewOf(q, revision.id), (overview) =>
-													andThen(summariesReadOf(q, id), (readCheck) =>
-														andThen(agentNotesOf(q, revision.id), (notes) =>
-															andThen(agentRequestsOf(q, id), (requests) =>
-																andThen(
-																	notes.length > 0
-																		? ok(undefined)
-																		: earlierWaitingNotes(q, id, revision.number),
-																	(earlierNotes) =>
-																		ok({
-																			sections,
-																			rows,
-																			marked,
-																			fresh,
-																			unmarked,
-																			summary,
-																			referenceRows,
-																			readingSteps,
-																			overview,
-																			readCheck,
-																			notes,
-																			earlierNotes,
-																			requests,
-																			sorting,
-																			assignments,
-																			shown: shownNow
-																		})
+						andThen(
+							finished === undefined
+								? reviewedRowsFor(q, revision.id)
+								: reviewMarkRowsOf(q, id, finished.number),
+							(marked) =>
+								andThen(newUnitRowsFor(q, revision.id), (fresh) =>
+									andThen(unmarkedUnitRowsFor(q, revision.id), (unmarked) =>
+										andThen(revisionUpdateFor(q, revision.id), (summary) =>
+											andThen(referenceRowsFor(q, revision.id), (referenceRows) =>
+												andThen(readingStepsFor(q, revision.id), (readingSteps) =>
+													andThen(overviewOf(q, revision.id), (overview) =>
+														andThen(summariesReadOf(q, id), (readCheck) =>
+															andThen(agentNotesOf(q, revision.id), (notes) =>
+																andThen(agentRequestsOf(q, id), (requests) =>
+																	andThen(
+																		notes.length > 0
+																			? ok(undefined)
+																			: earlierWaitingNotes(q, id, revision.number),
+																		(earlierNotes) =>
+																			ok({
+																				sections,
+																				rows,
+																				marked,
+																				fresh,
+																				unmarked,
+																				summary,
+																				referenceRows,
+																				readingSteps,
+																				overview,
+																				readCheck,
+																				notes,
+																				earlierNotes,
+																				requests,
+																				sorting,
+																				assignments,
+																				shown: shownNow
+																			})
+																	)
 																)
 															)
 														)
@@ -1971,7 +2032,6 @@ export class ReportService {
 										)
 									)
 								)
-							)
 						)
 					)
 				)
@@ -1999,8 +2059,17 @@ export class ReportService {
 		if (!stored.ok) return stored;
 		// Trimmed as read, so no write that skipped the trim can make two steps share a unit.
 		const readingOrders = effectiveOrders(diff, state.value, stored.value);
+		const shownSummary = summaryOf(found.value.shown.report, found.value.shown.revision);
+		const latestReview = this.#db.read((q) => latestReviewNumber(q, id));
+		if (!latestReview.ok) return latestReview;
 		return ok({
-			summary: summaryOf(found.value.shown.report, found.value.shown.revision),
+			latestReview: latestReview.value,
+			asOf:
+				finished === undefined
+					? undefined
+					: { number: finished.number, submittedAt: finished.submittedAt },
+			summary:
+				finished === undefined ? shownSummary : { ...shownSummary, progress: finished.progress },
 			report: found.value.shown.report,
 			revision: found.value.shown.revision,
 			snapshot,
@@ -2013,7 +2082,16 @@ export class ReportService {
 			notes: found.value.notes,
 			earlierNotes: found.value.earlierNotes,
 			requests: found.value.requests,
-			threads: this.#shownThreads(threads, revision),
+			threads:
+				finished === undefined
+					? this.#shownThreads(threads, revision)
+					: this.#shownThreads(
+							threads.flatMap((t) => {
+								const then = threadAsOf(t, finished.number);
+								return then === undefined ? [] : [then];
+							}),
+							revision
+						),
 			agentListening: this.#listening.listening(id),
 			frame: this.#frameOf(found.value.shown.report, revision.id, found.value.sorting),
 			sorting: found.value.sorting,
@@ -4123,6 +4201,50 @@ export class ReportService {
 		);
 		if (resent.ok || resent.error.kind !== 'lines-refused') return resent;
 		return err({ kind: 'refused', allInText: true });
+	}
+
+	/**
+	 * The Delve's history (DESIGN 6.4): every version, with when it arrived and
+	 * what its update did, every finished review with its delivery log, and its
+	 * threads with where each stands in the current version, by what is stored.
+	 */
+	history(id: ReportId): Result<DelveHistory, ReportError> {
+		return this.#db.read((q) =>
+			andThen(current(q, id), ({ report, revision }) =>
+				andThen(revisionsOf(q, id), (revisions) =>
+					andThen(reviewsOf(q, id), (reviews) =>
+						andThen(threadsOf(q, id), (stored) => {
+							const versions: TimelineVersion[] = [];
+							for (const r of revisions) {
+								const update = revisionUpdateFor(q, r.id);
+								if (!update.ok) return update;
+								versions.push({ number: r.number, arrivedAt: r.takenAt, update: update.value });
+							}
+							return ok({
+								summary: summaryOf(report, revision),
+								versions,
+								reviews,
+								threads: stored.map((t): ThreadToday => {
+									const start = t.messages[0];
+									return {
+										id: t.id,
+										kind: start?.kind ?? 'comment',
+										messages: t.messages,
+										resolutions: t.resolutions,
+										status: threadStatus(
+											t.messages,
+											t.resolutions,
+											t.places.filter((p) => p.version <= revision.number),
+											revision.number
+										)
+									};
+								})
+							});
+						})
+					)
+				)
+			)
+		);
 	}
 
 	/**

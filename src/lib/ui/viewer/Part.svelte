@@ -49,6 +49,7 @@
 		comments,
 		canComment,
 		canReview,
+		readOnly = false,
 		imageMode,
 		onimagemode
 	}: {
@@ -69,6 +70,8 @@
 		canComment: boolean;
 		/** Whether this browser may write comments. */
 		canReview: boolean;
+		/** Whether its tick is only shown, as on the Delve as of a finished review. */
+		readOnly?: boolean;
 		/** How changed images are compared, on every part of the page. */
 		imageMode: CompareMode;
 		onimagemode: (mode: CompareMode) => void;
@@ -307,6 +310,7 @@
 						? ''
 						: `, step ${String(part.step)}`}"
 					checked={reviewed}
+					disabled={readOnly}
 					indeterminate={partly(part.tally)}
 					aria-describedby={[
 						state.busy ? `part-${String(at)}-saving` : '',

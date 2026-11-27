@@ -15,6 +15,7 @@
  * time, and drawn when they come; until then the lines are plain, in the same
  * place. Lines opened later are coloured the same way.
  */
+import type { ReviewNumber } from '#lib/core/review-number.tiny.ts';
 import { describeApiError, type ApiClient, type ApiError } from '#lib/api/client.ts';
 import type {
 	DiffPage,
@@ -381,6 +382,8 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 export class Viewer {
 	readonly id: ReportId;
 	readonly version: RevisionNumber;
+	/** The finished review the page shows the Delve as of, read-only; undefined for the Delve as it is. */
+	readonly asOf: ReviewNumber | undefined;
 	readonly view: ViewName;
 	#frame: string;
 	#sorting: string;
@@ -400,6 +403,8 @@ export class Viewer {
 	requests = $state.raw<DiffPage['requests']>([]);
 	/** Whether an agent is listening for them now: "Agent connected". */
 	agentConnected = $state(false);
+	/** The Delve's latest finished review, so the page offers its history; null before the first. */
+	latestReview = $state<ReviewNumber | null>(null);
 	/** The threads of earlier reviews on this version (DESIGN 6.3); none for a browser that may not read reviews. */
 	threads = $state.raw<NonNullable<DiffPage['threads']>>([]);
 	summary: DiffSummary;
@@ -477,6 +482,7 @@ export class Viewer {
 		this.onlyWaiting = $state(onlyWaiting);
 		this.id = page.summary.id;
 		this.version = page.summary.version;
+		this.asOf = page.asOf?.review;
 		this.view = page.view;
 		this.#frame = page.frame;
 		this.#sorting = page.sorting;
@@ -487,6 +493,7 @@ export class Viewer {
 		this.earlierNotes = page.earlierNotes;
 		this.requests = page.requests;
 		this.agentConnected = page.agentConnected;
+		this.latestReview = page.latestReview;
 		this.threads = page.threads ?? [];
 		this.#takeRead(page);
 		// Read on the page before a regroup, whether or not it has been saved yet.
@@ -1124,8 +1131,8 @@ export class Viewer {
 		if (this.parts.some((p) => p.busy)) return;
 		const ticks = this.#ticks;
 		const loaded = force
-			? await this.client.loadDiff(this.id, this.view, this.version)
-			: await this.client.refreshDiff(this.id, this.view, this.version, this.#frame);
+			? await this.client.loadDiff(this.id, this.view, this.version, this.asOf)
+			: await this.client.refreshDiff(this.id, this.view, this.version, this.#frame, this.asOf);
 		if (!loaded.ok || ticks !== this.#ticks || this.parts.some((p) => p.busy)) return;
 		return loaded.value ?? undefined;
 	}
@@ -1148,6 +1155,7 @@ export class Viewer {
 		this.earlierNotes = frame.earlierNotes;
 		this.requests = frame.requests;
 		this.agentConnected = frame.agentConnected;
+		this.latestReview = frame.latestReview;
 		this.threads = frame.threads ?? [];
 		this.summary = frame.summary;
 		for (const group of frame.groups) {

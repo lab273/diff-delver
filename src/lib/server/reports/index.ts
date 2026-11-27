@@ -27,6 +27,7 @@ export type {
 	LastUpdate,
 	ListedReport,
 	LoadedReport,
+	DelveHistory,
 	MarkOutcome,
 	NotesAdded,
 	RequestAbout,

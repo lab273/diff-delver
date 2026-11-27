@@ -28,6 +28,8 @@ import {
 	DraftCommentsSchema,
 	JustFinishedSchema,
 	FinishedReviewsSchema,
+	DelveHistorySchema,
+	PastReviewSchema,
 	HandoverNotedSchema,
 	ReviewPreviewSchema,
 	OverallReviewSchema,
@@ -36,6 +38,8 @@ import {
 	type FinishReview,
 	type JustFinishedView,
 	type FinishedReviewsView,
+	type DelveHistoryView,
+	type PastReviewView,
 	type HandoverNoted,
 	type ReviewPreviewView,
 	type DraftCommentView,
@@ -313,15 +317,20 @@ export class ApiClient {
 		return this.#call('POST', '/api/history/pull-requests', PullRequestsSchema, request);
 	}
 
-	/** A diff's page: of its newest version, or of `version`, the one a page shows. */
+	/**
+	 * A diff's page: of its newest version, or of `version`, the one a page
+	 * shows; with `review`, as it stood when that review was finished.
+	 */
 	loadDiff(
 		id: ReportId,
 		view: ViewName = 'sections',
-		version?: RevisionNumber
+		version?: RevisionNumber,
+		review?: ReviewNumber
 	): Promise<Result<DiffPage, ApiError>> {
 		const query = new URLSearchParams();
 		if (view !== 'sections') query.set('view', view);
 		if (version !== undefined) query.set('version', String(version));
+		if (review !== undefined) query.set('review', String(review));
 		const text = query.toString();
 		return this.#call('GET', `/api/diffs/${id}${text === '' ? '' : `?${text}`}`, DiffPageSchema);
 	}
@@ -331,9 +340,11 @@ export class ApiClient {
 		id: ReportId,
 		view: ViewName,
 		version: RevisionNumber,
-		frame: string
+		frame: string,
+		review?: ReviewNumber
 	): Promise<Result<DiffPage | null, ApiError>> {
 		const query = new URLSearchParams({ view, version: String(version), since: frame });
+		if (review !== undefined) query.set('review', String(review));
 		return this.#call('GET', `/api/diffs/${id}?${query.toString()}`, DiffRefreshSchema);
 	}
 
@@ -516,6 +527,16 @@ export class ApiClient {
 	/** The Delve's finished reviews, oldest first. */
 	reviews(id: ReportId): Promise<Result<FinishedReviewsView, ApiError>> {
 		return this.#call('GET', `/api/diffs/${id}/reviews`, FinishedReviewsSchema);
+	}
+
+	/** The Delve's versions and finished reviews in the order they happened (DESIGN 6.4). */
+	delveHistory(id: ReportId): Promise<Result<DelveHistoryView, ApiError>> {
+		return this.#call('GET', `/api/diffs/${id}/history`, DelveHistorySchema);
+	}
+
+	/** One finished review, read-only, with where each of its comments stands today. */
+	pastReview(id: ReportId, review: ReviewNumber): Promise<Result<PastReviewView, ApiError>> {
+		return this.#call('GET', `/api/diffs/${id}/reviews/${String(review)}`, PastReviewSchema);
 	}
 
 	/** Notes that the page copied a finished review, for its delivery log. */

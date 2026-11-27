@@ -509,6 +509,15 @@ export type EarlierThreadView = z.output<typeof EarlierThreadSchema>;
 const frameStamp = z.string().min(1).max(256);
 export const DiffPageSchema = z.object({
 	now: timestamp,
+	/**
+	 * The finished review this page shows the Delve as of (DESIGN 6.4),
+	 * read-only: its version, with the marks it copied; null for the Delve as it is.
+	 */
+	asOf: z
+		.strictObject({ review: parsed(z.number(), parseReviewNumber), submittedAt: timestamp })
+		.nullable(),
+	/** The Delve's latest finished review, so the page offers its history; null before the first, and for a browser that may not read reviews. */
+	latestReview: parsed(z.number(), parseReviewNumber).nullable(),
 	summary: DiffSummarySchema,
 	overview: parsed(z.string(), parseAgentMarkdown).nullable(),
 	/** Whether the reviewer has read the overview, as this version has it; false when there is none. */
@@ -581,6 +590,8 @@ export const PageQuerySchema = z
 	.object({
 		view: ViewSchema.default('sections'),
 		version: inQuery(parseRevisionNumber).optional(),
+		/** The finished review to show the Delve as of, read-only; its version is the one shown. */
+		review: inQuery(parseReviewNumber).optional(),
 		since: frameStamp.optional()
 	})
 	.refine(
@@ -1474,6 +1485,81 @@ export const FinishedReviewsSchema = z.strictObject({
 	reviews: z.array(FinishedReviewSchema)
 });
 export type FinishedReviewsView = z.infer<typeof FinishedReviewsSchema>;
+
+// ── A Delve's history (DESIGN 6.4) ───────────────────────────────────────────
+
+const threadStatus = z.enum(['open', 'changed', 'resolved']);
+
+/**
+ * GET /api/diffs/[id]/history: the Delve's versions and finished reviews in
+ * the order they happened, each in words, with the daemon's time.
+ */
+export const DelveHistorySchema = z.strictObject({
+	now: timestamp,
+	/** The Delve's title, as its page has it. */
+	title: message,
+	/** Its current version. */
+	version,
+	entries: z.array(
+		z.discriminatedUnion('kind', [
+			z.strictObject({
+				kind: z.literal('version'),
+				version,
+				arrivedAt: timestamp,
+				/** What it brought: "The first version." or what its update did. */
+				text: message
+			}),
+			z.strictObject({
+				kind: z.literal('review'),
+				review: FinishedReviewSchema,
+				/** What it held: "1 comment and 1 earlier comment resolved or reopened". */
+				held: message,
+				/** How it was handed over, one sentence for each way. */
+				deliveries: z.array(message),
+				/** Where its comments stand today, "Today: 1 open, 1 resolved"; null when it has none. */
+				today: message.nullable()
+			})
+		])
+	)
+});
+export type DelveHistoryView = z.infer<typeof DelveHistorySchema>;
+
+/**
+ * GET /api/diffs/[id]/reviews/[review]: one finished review, read-only: the
+ * text handed over, how it was handed over, and each thing it held against
+ * the version it was written on, with its thread's status today.
+ */
+export const PastReviewSchema = z.strictObject({
+	now: timestamp,
+	title: message,
+	/** The Delve's current version, against which "today" is said. */
+	current: version,
+	/** The Delve's latest review, to go to the one before or after. */
+	latest: reviewNumber,
+	review: FinishedReviewSchema,
+	/** What it held: "1 comment and 1 earlier comment resolved or reopened". */
+	held: message,
+	deliveries: z.array(message),
+	items: z.array(
+		z.strictObject({
+			/** "Comment", "Flag", "Reply to review 1". */
+			kind: message,
+			version,
+			anchor: threadAnchor,
+			body: z.string(),
+			status: threadStatus
+		})
+	),
+	resolutions: z.array(
+		z.strictObject({
+			resolved: z.boolean(),
+			from: reviewNumber.nullable(),
+			anchor: threadAnchor.nullable(),
+			status: threadStatus
+		})
+	)
+});
+export type PastReviewView = z.infer<typeof PastReviewSchema>;
 
 /** POST /api/diffs/[id]/reviews/[review]/copied's answer: noted. */
 export const HandoverNotedSchema = z.strictObject({ noted: z.literal(true) });

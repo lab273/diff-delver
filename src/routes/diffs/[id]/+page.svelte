@@ -59,7 +59,7 @@
 	import AgentRequest from '#lib/ui/viewer/AgentRequest.svelte';
 	import FinishReview from '#lib/ui/viewer/FinishReview.svelte';
 	import OverallReview from '#lib/ui/viewer/OverallReview.svelte';
-	import { Writing, type CommentPlace, type Comments } from '#lib/ui/viewer/comments.svelte.ts';
+	import { Comments, Writing, type CommentPlace } from '#lib/ui/viewer/comments.svelte.ts';
 	import { keptComments } from '#lib/ui/viewer/kept-comments.ts';
 	import type { ReportId } from '#lib/core/report-id.tiny.ts';
 	import AgentMarkdown from '#lib/ui/viewer/AgentMarkdown.svelte';
@@ -1319,7 +1319,7 @@
 		{ moveOn }: { moveOn?: () => boolean } = {}
 	): Promise<void> {
 		const shown = viewer;
-		if (shown === undefined) return;
+		if (shown === undefined || shown.asOf !== undefined) return;
 		staleTick = undefined;
 		stopKeepingAtTop();
 		// A move under way to the part ticked arrives first, so what the tick
@@ -2021,6 +2021,15 @@
 		};
 	}
 
+	/** The keys that change the Delve, which do nothing as of a finished review. */
+	const CHANGES: ReadonlySet<string> = new Set([
+		'mark-reviewed',
+		'comment',
+		'flag',
+		'ask',
+		'overall-review'
+	]);
+
 	function onKey(event: KeyboardEvent): void {
 		if (viewer === undefined || dialogOpen()) return;
 		const target = event.target instanceof HTMLElement ? event.target : null;
@@ -2035,6 +2044,10 @@
 		if (event.repeat && !actsOnRepeat(action)) return;
 		const at = action === 'toggle-open' || action === 'whole-file' ? currentPart() : undefined;
 		const state = at === undefined ? undefined : viewer.parts[at];
+		if (viewer.asOf !== undefined && CHANGES.has(action)) {
+			viewer.announcement = `This is the Delve as of review ${String(viewer.asOf)}, which cannot be changed. Go back to the current version to change it.`;
+			return;
+		}
 		switch (action) {
 			case 'next-unread':
 				void nextUnread();
@@ -2243,6 +2256,16 @@
 	 */
 	function commentsFor(id: ReportId): Comments {
 		return untrack(() => keptComments(id, pageClient));
+	}
+
+	/**
+	 * Comments that are never read: the Delve as of a finished review draws
+	 * none of the draft, which is today's and not that review's.
+	 */
+	let noneKept: Comments | undefined;
+	function noComments(id: ReportId): Comments {
+		if (noneKept?.id !== id) noneKept = untrack(() => new Comments(id, pageClient()));
+		return noneKept;
 	}
 
 	// The saved draft is read once this browser may read it, and again whenever
@@ -2693,7 +2716,9 @@
 	{@const page = data.loaded.value}
 	{@const summary = viewer.summary}
 	{@const pull = followsPullRequest(page.source)}
-	{@const comments = commentsFor(summary.id)}
+	{@const pastView = page.asOf}
+	{@const writable = pastView === null && summary.state.kind === 'open'}
+	{@const comments = pastView === null ? commentsFor(summary.id) : noComments(summary.id)}
 	{@const updated = page.update}
 	{@const overall = viewer.overall}
 	{@const allDone = overall.units > 0 && overall.reviewed === overall.units}
@@ -2724,7 +2749,26 @@
 				<span>Last active {describeTimeAgo(summary.lastActivityAt, page.now)}</span>
 			</p>
 
-			{#if check.kind === 'updated'}
+			{#if pastView !== null}
+				<Notice tone="info" heading="As of review {pastView.review}" headingId="as-of-heading">
+					<p>
+						This is the Delve as it stood when you finished review {pastView.review}
+						{describeTimeAgo(pastView.submittedAt, page.now)}: version {summary.version}, with what
+						you had marked as reviewed then. Nothing can be changed here.
+					</p>
+					{#snippet actions()}
+						<a href={resolve('/diffs/[id]', { id: summary.id })}> Back to the current version </a>
+						<a
+							href={resolve('/diffs/[id]/reviews/[review]', {
+								id: summary.id,
+								review: String(pastView.review)
+							})}
+						>
+							Read review {pastView.review}
+						</a>
+					{/snippet}
+				</Notice>
+			{:else if check.kind === 'updated'}
 				<Notice heading="This Delve has a newer version" headingId="newer-heading">
 					<p>
 						It was updated to version {check.version} while this page was open, so what you see here,
@@ -2781,7 +2825,7 @@
 					{/snippet}
 				</Notice>
 			{/if}
-			{#if summary.state.kind === 'open'}
+			{#if pastView === null && summary.state.kind === 'open'}
 				<p class="checked" role="status">
 					{#if busy && check.kind === 'changed'}
 						{pull
@@ -2804,7 +2848,7 @@
 				</Notice>
 			{/if}
 
-			{#if updated !== null}
+			{#if updated !== null && pastView === null}
 				<Notice
 					tone="info"
 					headingId={UPDATED_HEADING}
@@ -2876,6 +2920,11 @@
 				</button>
 			</div>
 			<div aria-live="polite" class="bookmark-message desktop-message">{bookmarkMessage}</div>
+			{#if data.canReview && (summary.version > 1 || viewer.latestReview !== null)}
+				<p class="history">
+					<a href={resolve('/diffs/[id]/history', { id: summary.id })}> History of this Delve </a>
+				</p>
+			{/if}
 			{#if viewer.overview !== null}
 				<details class="agent-overview" id={AGENT_OVERVIEW} tabindex="-1" open>
 					<summary>Agent overview</summary>
@@ -3022,7 +3071,7 @@
 					waiting={viewer.notes.filter((n) => !n.dismissed).length}
 					dismissed={viewer.notes.filter((n) => n.dismissed).length}
 					shown={settings.agentNotes}
-					act={data.canReview && summary.state.kind === 'open'}
+					act={data.canReview && writable}
 					onshow={setShowNotes}
 					onrestore={() => viewer.changeNotes({ action: 'bring-back' })}
 				/>
@@ -3033,9 +3082,9 @@
 				<EarlierThreads
 					threads={viewer.threads}
 					drawn={new Set(viewer.parts.map((part) => part.part.path))}
-					comments={commentsFor(viewer.id)}
+					{comments}
 					shown={viewer.version}
-					act={summary.state.kind === 'open'}
+					act={writable}
 					ongo={goToThread}
 					{showNewer}
 				/>
@@ -3045,16 +3094,13 @@
 					<h2 id="other-requests-heading">Questions for the agent on other versions</h2>
 					{#each otherVersions as request (request.id)}
 						<p class="asked-on">Asked on version {request.version}</p>
-						<AgentRequest
-							{request}
-							{viewer}
-							{comments}
-							act={data.canReview && summary.state.kind === 'open'}
-						/>
+						<AgentRequest {request} {viewer} {comments} act={data.canReview && writable} />
 					{/each}
 				</section>
 			{/if}
-			{#if data.canReview}
+			{#if pastView !== null}
+				<!-- As of a finished review, nothing is written or finished. -->
+			{:else if data.canReview}
 				{#if reviewTurnedOn}
 					<p class="turned-on" role="status">Comments are on in this browser now.</p>
 				{/if}
@@ -3085,7 +3131,13 @@
 			{#key page}
 				{#if fileListMade}
 					<div hidden={!byFile}>
-						<FileList {viewer} ontick={tickFile} ongo={goTo} onshownewer={showNewer} />
+						<FileList
+							{viewer}
+							readOnly={pastView !== null}
+							ontick={tickFile}
+							ongo={goTo}
+							onshownewer={showNewer}
+						/>
 					</div>
 				{/if}
 			{/key}
@@ -3119,6 +3171,7 @@
 											<input
 												type="checkbox"
 												aria-label="All reviewed: {group.name}"
+												disabled={pastView !== null}
 												checked={done(tally)}
 												indeterminate={partly(tally)}
 												onchange={async (event) => {
@@ -3159,7 +3212,7 @@
 												: 'The agent did not place these, so they are listed here.'
 											: 'No agent has sorted this diff into sections, so every file is listed here.'}
 									</p>
-									{#if summary.state.kind === 'open'}
+									{#if writable}
 										<SortWithAgent
 											id={summary.id}
 											bind:open={agentHelpOpen}
@@ -3174,12 +3227,7 @@
 								{#if group.key.kind === 'section'}
 									{@const key = group.key}
 									{#each viewer.requests.filter((r) => r.version === viewer.version && r.anchor.kind === 'section' && r.anchor.section === key.section) as request (request.id)}
-										<AgentRequest
-											{request}
-											{viewer}
-											{comments}
-											act={data.canReview && summary.state.kind === 'open'}
-										/>
+										<AgentRequest {request} {viewer} {comments} act={data.canReview && writable} />
 									{/each}
 								{/if}
 								{#each shown as state (state.key)}
@@ -3189,7 +3237,8 @@
 										closing={closingParts.has(state)}
 										bookmarkLine={bookmarkTarget?.part === state ? bookmarkTarget.line : undefined}
 										{previousVersion}
-										canComment={summary.state.kind === 'open'}
+										canComment={writable}
+										readOnly={pastView !== null}
 										canReview={data.canReview}
 										{comments}
 										sortingProblem={staleAt === state.index ? stale?.message : undefined}
@@ -3206,17 +3255,19 @@
 				</div>
 			{/key}
 			<p class="all-diffs"><a href={resolve('/')}>See all your Delves</a></p>
-			<OverallReview
-				id={summary.id}
-				{comments}
-				open={summary.state.kind === 'open'}
-				canReview={data.canReview}
-				expanded={settings.overallReviewOpen}
-				notesWaiting={viewer.notes.filter((n) => !n.dismissed).length}
-				onexpand={setOverallOpen}
-				onfinish={goToFinish}
-				bind:height={overallHeight}
-			/>
+			{#if pastView === null}
+				<OverallReview
+					id={summary.id}
+					{comments}
+					open={summary.state.kind === 'open'}
+					canReview={data.canReview}
+					expanded={settings.overallReviewOpen}
+					notesWaiting={viewer.notes.filter((n) => !n.dismissed).length}
+					onexpand={setOverallOpen}
+					onfinish={goToFinish}
+					bind:height={overallHeight}
+				/>
+			{/if}
 		</div>
 	</div>
 	<div class="visually-hidden" aria-live="polite">{viewer.announcement}</div>
@@ -3434,6 +3485,11 @@
 		padding: 0 0.3rem;
 		font-weight: 400;
 		opacity: 0.8;
+	}
+
+	.history {
+		margin: 0.5rem 0 0;
+		font-size: 0.875rem;
 	}
 
 	.finders {

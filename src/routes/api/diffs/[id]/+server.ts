@@ -14,17 +14,23 @@ export const GET: RequestHandler = async ({ locals, params, request, url }) => {
 	const query = readQuery(url, PageQuerySchema);
 	if (!query.ok) return query.error;
 	const { service, clock } = locals.daemon;
-	const { version, view, since } = query.value;
+	const { version, view, since, review } = query.value;
 	const reviews = canReview(locals.daemon, request);
-	const prefix = framePrefix(view, reviews);
+	// The Delve as of a finished review is the reviewer's own, as the review is.
+	if (review !== undefined && !reviews) {
+		return reviewSessionRequired('see a Delve as of a finished review', 'comments');
+	}
+	const prefix = `${review === undefined ? '' : `as-of-${String(review)}:`}${framePrefix(view, reviews)}`;
 	if (version !== undefined && since?.startsWith(prefix)) {
 		const unchanged = service.frameUnchanged(id.value, version, since.slice(prefix.length));
 		if (!unchanged.ok) return serviceFailure(unchanged.error);
 		if (unchanged.value) return Response.json(null);
 	}
-	const loaded = await service.load(id.value, version);
+	const loaded = await service.load(id.value, version, review);
 	if (!loaded.ok) return serviceFailure(loaded.error);
-	const body: DiffPage = pageView(loaded.value, clock.now(), view, reviews);
+	const page: DiffPage = pageView(loaded.value, clock.now(), view, reviews);
+	const body: DiffPage =
+		review === undefined ? page : { ...page, frame: `as-of-${String(review)}:${page.frame}` };
 	return Response.json(body);
 };
 

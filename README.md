@@ -236,6 +236,12 @@ To take comment access away from every browser, run `diff-delver stop`, delete
 - Comments of earlier reviews followed to their lines in later versions, as open,
   with their code changed since, or resolved; replied to and resolved in the next
   review, which lists those still open first.
+- A Delve's history, from its page once it has a second version or a finished
+  review: every version with what it brought, and every review with how it was
+  handed over (copied, posted to GitHub, read by an agent) and where its comments
+  stand today. A past review opens read-only, with the text exactly as it was handed
+  over to copy again, and the Delve can be seen as it stood when that review was
+  finished.
 - An agent sorting a diff into sections through the MCP server. Claude Code and Codex
   have both done it in the project's [recorded trials](tests/agent-trials/README.md).
 - The agent's overview and section summaries appear while the Delve is open. They

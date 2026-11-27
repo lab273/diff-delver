@@ -22,6 +22,7 @@
 	over unseen.
 -->
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { tick } from 'svelte';
 	import { describeApiError } from '#lib/api/client.ts';
 	import type {
@@ -539,6 +540,10 @@
 		{/if}
 		{#if reviews !== undefined && reviews.length > 0}
 			<h3>Finished reviews</h3>
+			<p class="note">
+				<a href={resolve('/diffs/[id]/history', { id })}>History of this Delve</a>: every version
+				and review, what each review handed over, and the Delve as it stood then.
+			</p>
 			<ul>
 				{#each [...reviews].reverse() as review (review.number)}
 					<li>

@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
 import { parseRevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import { parseReviewNumber } from '#lib/core/review-number.tiny.ts';
 import { DEFAULT_SETTINGS } from '#lib/core/settings.ts';
 import { pageClient } from '#lib/ui/client.ts';
 import type { PageLoad } from './$types';
@@ -13,8 +14,12 @@ export const load: PageLoad = async ({ fetch, params, depends, url }) => {
 	const pinned = url.searchParams.get('version');
 	const version = pinned === null ? undefined : parseRevisionNumber(Number(pinned));
 	if (version?.ok === false) error(400, 'This Delve version is not a valid number.');
+	// `?review=N`: the Delve as it stood when review N was finished, read-only.
+	const past = url.searchParams.get('review');
+	const review = past === null ? undefined : parseReviewNumber(Number(past));
+	if (review?.ok === false) error(400, 'This review number is not a valid number.');
 	const [loaded, settings] = await Promise.all([
-		client.loadDiff(id.value, 'sections', version?.value),
+		client.loadDiff(id.value, 'sections', version?.value, review?.value),
 		client.readSettings()
 	]);
 	// Settings that cannot be read are the defaults: the diff can still be read.
@@ -22,6 +27,7 @@ export const load: PageLoad = async ({ fetch, params, depends, url }) => {
 		id: id.value,
 		loaded,
 		requestedVersion: pinned,
+		requestedReview: past,
 		settings: settings.ok ? settings.value : DEFAULT_SETTINGS
 	};
 };

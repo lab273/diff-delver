@@ -424,6 +424,11 @@ export function pageView(
 	);
 	return {
 		now,
+		asOf:
+			loaded.asOf === undefined
+				? null
+				: { review: loaded.asOf.number, submittedAt: loaded.asOf.submittedAt },
+		latestReview: reviews ? (loaded.latestReview ?? null) : null,
 		summary: summaryView(loaded.summary),
 		overview: loaded.overview ?? null,
 		overviewRead: loaded.read.overview,

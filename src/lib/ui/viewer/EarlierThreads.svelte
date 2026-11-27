@@ -66,8 +66,10 @@
 <section class="earlier" aria-labelledby="earlier-threads-heading">
 	<h2 id="earlier-threads-heading">{heading}</h2>
 	<p class="muted">
-		What you said in earlier reviews, at its lines in this version. A reply, and what you resolve,
-		go in this review. <kbd aria-hidden="true">p</kbd> goes to the next one open.
+		What you said in earlier reviews, at its lines in this version.{act
+			? ' A reply, and what you resolve, go in this review.'
+			: ''}
+		<kbd aria-hidden="true">p</kbd> goes to the next one open.
 	</p>
 	{#if short.length > 0}
 		<ul>
