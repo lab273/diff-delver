@@ -54,7 +54,8 @@
 		pullRequest,
 		comments,
 		version,
-		open
+		open,
+		onfinished
 	}: {
 		id: ReportId;
 		/** The pull request the Delve follows, to post the review to; undefined for other Delves. */
@@ -64,6 +65,8 @@
 		version: RevisionNumber;
 		/** Whether the Delve is open. */
 		open: boolean;
+		/** After a review is finished: the threads of earlier reviews the page shows change with it. */
+		onfinished?: () => void;
 	} = $props();
 
 	let reviews = $state.raw<readonly FinishedReviewView[]>();
@@ -98,19 +101,26 @@
 	const overall = $derived(comments.overall);
 	const overallEdits = $derived(overall?.edits);
 	const written = $derived(isWritten(overall?.body ?? ''));
-	/** Something to finish: an overall review or a comment. */
-	const drafted = $derived(saved.length > 0 || written);
+	const resolutions = $derived(comments.resolutions);
+	/** Something to finish: an overall review, a comment, or an earlier comment resolved or reopened. */
+	const drafted = $derived(saved.length > 0 || written || resolutions.length > 0);
 	const contents = $derived(
 		describeReviewContents({
 			comments: comments.commentCount,
 			flags: comments.flagCount,
-			overall: written
+			overall: written,
+			resolutions: resolutions.length
 		})
 	);
 	const next = $derived((reviews?.at(-1)?.number ?? 0) + 1);
 	const unsaved = $derived(comments.overallUnsaved || comments.writing.some((w) => w.worthKeeping));
 	/** The draft's comments and their words, so what finishing would hand over is read again when they change. */
-	const draftKey = $derived(saved.map((c) => `${String(c.id)}:${String(c.edits)}`).join(','));
+	const draftKey = $derived(
+		[
+			...saved.map((c) => `${String(c.id)}:${String(c.edits)}`),
+			...resolutions.map((r) => `t${String(r.thread)}:${String(r.resolved)}`)
+		].join(',')
+	);
 	/** What finishing would hand over is wanted: shown, or on a pull request's Delve, to count what goes in the text. */
 	const wanted = $derived(previewOpen || postedOpen || pullRequest !== undefined);
 	/** The comments that go on their lines on GitHub, and those in the review's text, as last read. */
@@ -216,6 +226,7 @@
 			version,
 			comments: saved.map((c) => ({ id: c.id, edits: c.edits })),
 			overall: overallShown,
+			resolutions: resolutions.map((r) => ({ thread: r.thread, resolved: r.resolved })),
 			...(post && pullRequest !== undefined ? { github: { kind, draft: asDraft } } : {}),
 			...(anyway ? { forgetEarlierPost: true as const } : {})
 		});
@@ -238,6 +249,7 @@
 		postedOpen = false;
 		preview = undefined;
 		await comments.reviewFinished(overallShown);
+		onfinished?.();
 		said = `${finishedWords(review, copied)}${postedInTextWords(review)}`;
 		await tick();
 		copyButtons[review.number]?.focus();

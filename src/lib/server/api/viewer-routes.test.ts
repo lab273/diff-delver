@@ -20,7 +20,7 @@ import { parseSearchText } from '#lib/core/search/search-text.tiny.ts';
 import { ReportService } from '#lib/server/reports/index.ts';
 import { viewCookieName } from '#lib/core/daemon/request-gate.ts';
 import { parseReportId } from '#lib/core/report-id.tiny.ts';
-import { ApiErrorBodySchema } from '#lib/api/schemas.ts';
+import { ApiErrorBodySchema, DiffPageSchema } from '#lib/api/schemas.ts';
 import {
 	browserClient,
 	browserCookie,
@@ -1169,6 +1169,31 @@ describe('finished reviews', () => {
 		expect(refusedReason(twice.body)).toBe('CommentsFinished');
 		const listed = await rawRequest(daemon.port, { path: list, headers: { cookie: review } });
 		expect(JSON.parse(listed.body)).toMatchObject({ reviews: [{ number: 1 }] });
+
+		// The comment finished is a thread of the Delve now: the reviewer's browser reads it
+		// with the page, one let in by a link does not, and only the reviewer's may act on it.
+		const page = (cookie: string) =>
+			rawRequest(daemon.port, { path: `/api/diffs/${id}`, headers: { cookie } });
+		const reviewersPage = DiffPageSchema.parse(JSON.parse((await page(review)).body));
+		expect(reviewersPage.threads).toMatchObject([
+			{ status: 'open', messages: [{ review: 1, body: 'Why spell it out?' }] }
+		]);
+		expect(JSON.parse((await page(view)).body)).toMatchObject({ threads: null });
+		const thread = reviewersPage.threads?.[0]?.id;
+		const act = (cookie: string) =>
+			rawRequest(daemon.port, {
+				method: 'POST',
+				path: `/api/diffs/${id}/threads`,
+				headers: { cookie, ...json, origin: daemon.origin },
+				body: JSON.stringify({ action: 'resolve', version: 1, thread })
+			});
+		expect((await act(view)).status).toBe(403);
+		const resolved = await act(review);
+		expect(resolved.status).toBe(200);
+		expect(JSON.parse(resolved.body)).toEqual({
+			resolutions: [{ thread, resolved: true }],
+			comment: null
+		});
 	});
 });
 

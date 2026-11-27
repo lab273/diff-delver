@@ -33,7 +33,12 @@
 	import { ROWS_PER_CHUNK } from '#lib/core/viewer/chunks.ts';
 	import { GutterLines, type GutterLine, type GutterRow } from './gutter-lines.ts';
 	import { isPlainClick, ownControlAt, textSelected } from './reader-input.ts';
-	import type { AgentNoteView, AgentRequestView, DraftCommentView } from '#lib/api/schemas.ts';
+	import type {
+		AgentNoteView,
+		AgentRequestView,
+		DraftCommentView,
+		EarlierThreadView
+	} from '#lib/api/schemas.ts';
 	import {
 		byLastLine,
 		inSelection,
@@ -46,6 +51,7 @@
 	import CommentBox from './CommentBox.svelte';
 	import SavedComment from './SavedComment.svelte';
 	import AgentNote from './AgentNote.svelte';
+	import EarlierThread from './EarlierThread.svelte';
 	import AgentRequest from './AgentRequest.svelte';
 	import AskBox from './AskBox.svelte';
 	import type { AskDraft, Comments, Writing } from './comments.svelte.ts';
@@ -387,6 +393,12 @@
 		| { readonly kind: 'menu'; readonly key: string; readonly lines: LineSelection }
 		| { readonly kind: 'note'; readonly key: string; readonly note: AgentNoteView }
 		| {
+				readonly kind: 'thread';
+				readonly key: string;
+				readonly thread: EarlierThreadView;
+				readonly lines: LineSelection;
+		  }
+		| {
 				readonly kind: 'ask';
 				readonly key: string;
 				readonly lines: LineSelection;
@@ -419,9 +431,24 @@
 	const notesHere = $derived(
 		viewer.showNotes ? viewer.notes.filter((n) => !n.dismissed && n.anchor.path === path) : []
 	);
+	/** The threads of earlier reviews on this file's lines, in the version shown, drawn before the draft's own. */
+	const threadsHere = $derived(
+		viewer.threads.flatMap((thread) =>
+			// One resolved in an earlier review is listed above the diff, not drawn here.
+			thread.at !== null && thread.at.path === path && thread.status !== 'resolved'
+				? [{ thread, lines: thread.at }]
+				: []
+		)
+	);
 	const under = $derived(
 		byLastLine<Under>(
 			[
+				...threadsHere.map(({ thread, lines }): Under => ({
+					kind: 'thread',
+					key: `thread:${String(thread.id)}`,
+					thread,
+					lines
+				})),
 				...here.saved.map((comment): Under => ({
 					kind: 'saved',
 					key: `saved:${String(comment.id)}`,
@@ -903,6 +930,14 @@
 							onclosed={() => {
 								afterBox(item.writing.place.anchor);
 							}}
+						/>
+					{:else if item.kind === 'thread'}
+						<EarlierThread
+							thread={item.thread}
+							{comments}
+							shown={viewer.version}
+							act={canComment && canReview}
+							{showNewer}
 						/>
 					{:else if item.kind === 'note'}
 						{@const note = item.note}

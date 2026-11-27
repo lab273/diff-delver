@@ -145,14 +145,17 @@ export function describeEarlierThreads(
 }
 
 /** Where a thread came from, in words: "Comment from review 1", "Flag from review 2". */
-export function describeThreadStart(thread: Pick<EarlierThread, 'kind' | 'messages'>): string {
-	const start = startOf(thread);
+export function describeThreadStart(thread: {
+	readonly kind: ThreadKind;
+	readonly messages: readonly { readonly review: ReviewNumber }[];
+}): string {
+	const start = thread.messages[0];
 	const what = thread.kind === 'flag' ? 'Flag' : 'Comment';
 	return start === undefined ? what : `${what} from review ${String(start.review)}`;
 }
 
 /** How many replies a thread has, in words: "2 replies", or '' for none. */
-export function describeReplies(thread: Pick<EarlierThread, 'messages'>): string {
+export function describeReplies(thread: { readonly messages: readonly unknown[] }): string {
 	const replies = thread.messages.length - 1;
 	return replies <= 0 ? '' : countOf(replies, 'reply', 'replies');
 }

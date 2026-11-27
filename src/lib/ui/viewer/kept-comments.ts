@@ -23,7 +23,8 @@ function unsaved(comments: Comments | undefined): boolean {
 	return (
 		comments.overallUnsaved ||
 		comments.writing.some((writing) => writing.worthKeeping) ||
-		comments.asks.some((ask) => ask.worthKeeping)
+		comments.asks.some((ask) => ask.worthKeeping) ||
+		comments.replyUnsaved
 	);
 }
 

@@ -400,6 +400,8 @@ export class Viewer {
 	requests = $state.raw<DiffPage['requests']>([]);
 	/** Whether an agent is listening for them now: "Agent connected". */
 	agentConnected = $state(false);
+	/** The threads of earlier reviews on this version (DESIGN 6.3); none for a browser that may not read reviews. */
+	threads = $state.raw<NonNullable<DiffPage['threads']>>([]);
 	summary: DiffSummary;
 	parts: PartState[];
 	files: FileView[];
@@ -485,6 +487,7 @@ export class Viewer {
 		this.earlierNotes = page.earlierNotes;
 		this.requests = page.requests;
 		this.agentConnected = page.agentConnected;
+		this.threads = page.threads ?? [];
 		this.#takeRead(page);
 		// Read on the page before a regroup, whether or not it has been saved yet.
 		if (previous !== undefined) for (const key of previous.#read) this.#read.add(key);
@@ -1145,6 +1148,7 @@ export class Viewer {
 		this.earlierNotes = frame.earlierNotes;
 		this.requests = frame.requests;
 		this.agentConnected = frame.agentConnected;
+		this.threads = frame.threads ?? [];
 		this.summary = frame.summary;
 		for (const group of frame.groups) {
 			for (const part of group.parts) {

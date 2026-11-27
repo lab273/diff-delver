@@ -21,6 +21,7 @@
 		ChangeCheckResponse,
 		DiffPage,
 		DraftCommentView,
+		EarlierThreadView,
 		NextSourceOffer
 	} from '#lib/api/schemas.ts';
 	import { describeTimeAgo } from '#lib/core/time-ago.ts';
@@ -54,6 +55,7 @@
 	import ReviewAccess from '#lib/ui/ReviewAccess.svelte';
 	import CommentList from '#lib/ui/viewer/CommentList.svelte';
 	import AgentNotes from '#lib/ui/viewer/AgentNotes.svelte';
+	import EarlierThreads from '#lib/ui/viewer/EarlierThreads.svelte';
 	import AgentRequest from '#lib/ui/viewer/AgentRequest.svelte';
 	import FinishReview from '#lib/ui/viewer/FinishReview.svelte';
 	import OverallReview from '#lib/ui/viewer/OverallReview.svelte';
@@ -2063,6 +2065,9 @@
 			case 'next-flag':
 				void nextFlag();
 				return;
+			case 'next-thread':
+				void nextThread();
+				return;
 			case 'whole-file':
 				if (byFile || at === undefined) return;
 				void goToPart(at, true).then(() => viewer.wholeFile(at));
@@ -2255,6 +2260,39 @@
 		};
 	});
 
+	/** The thread of an earlier review last gone to with `p`, by id. */
+	let lastThread: number | undefined;
+
+	/** Goes to a thread of an earlier review among the lines of the version shown. */
+	async function goToThread(thread: EarlierThreadView): Promise<void> {
+		const shown = viewer;
+		if (shown === undefined || thread.at === null) return;
+		lastThread = Number(thread.id);
+		await goToComment({ version: shown.version, anchor: thread.at }, { thread: Number(thread.id) });
+	}
+
+	/**
+	 * Goes to the next thread of an earlier review still open among the lines,
+	 * after the one last gone to, in the order they were started, back to the
+	 * first after the last; says so when there is none.
+	 */
+	async function nextThread(): Promise<void> {
+		const shown = viewer;
+		if (shown === undefined) return;
+		const open = shown.threads.filter((t) => t.at !== null && t.status !== 'resolved');
+		if (open.length === 0) {
+			commentsFor(shown.id).said = 'No comment from an earlier review is open on this version.';
+			return;
+		}
+		const after = open.findIndex((t) => Number(t.id) === lastThread);
+		const next = open[after + 1] ?? open[0];
+		if (next === undefined) return;
+		if (after >= 0 && after + 1 >= open.length && open.length > 1) {
+			commentsFor(shown.id).said = 'Back to the first comment from an earlier review.';
+		}
+		await goToThread(next);
+	}
+
 	/** The jump to a comment's lines under way, which a later one, or another viewer, replaces. */
 	let commentJump: object | undefined;
 
@@ -2265,7 +2303,10 @@
 	 * are folded away gets a small window opened around it. The comment, or
 	 * its box, then takes the keyboard.
 	 */
-	async function goToComment(place: CommentPlace, what: DraftCommentView | Writing): Promise<void> {
+	async function goToComment(
+		place: CommentPlace,
+		what: DraftCommentView | Writing | { readonly thread: number }
+	): Promise<void> {
 		const shown = viewer;
 		if (shown === undefined || place.version !== shown.version) return;
 		const comments = commentsFor(shown.id);
@@ -2317,6 +2358,10 @@
 			scrollToTop(row);
 			if (what instanceof Writing) {
 				what.focusAsked += 1;
+			} else if ('thread' in what) {
+				element
+					?.querySelector<HTMLElement>(`[data-thread="${String(what.thread)}"]`)
+					?.focus({ preventScroll: true });
 			} else {
 				element
 					?.querySelector<HTMLElement>(`[data-comment="${String(what.id)}"]`)
@@ -2947,6 +2992,16 @@
 			{:else if viewer.earlierNotes !== null}
 				<p class="earlier-notes">{viewer.earlierNotes}</p>
 			{/if}
+			{#if data.canReview && viewer.threads.length > 0}
+				<EarlierThreads
+					threads={viewer.threads}
+					comments={commentsFor(viewer.id)}
+					shown={viewer.version}
+					act={summary.state.kind === 'open'}
+					ongo={goToThread}
+					{showNewer}
+				/>
+			{/if}
 			{#if otherVersions.length > 0}
 				<section class="other-requests" aria-labelledby="other-requests-heading">
 					<h2 id="other-requests-heading">Questions for the agent on other versions</h2>
@@ -2981,6 +3036,7 @@
 						{comments}
 						version={summary.version}
 						open={summary.state.kind === 'open'}
+						onfinished={() => void refreshReview(true)}
 					/>
 				{/key}
 			{:else}

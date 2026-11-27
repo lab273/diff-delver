@@ -66,8 +66,10 @@
 	let notDeleted = $state.raw<NotDeleted>();
 
 	const flag = $derived(comment.kind === 'flag');
-	/** What it is, as its buttons name it: "your comment", "your flag". */
-	const yours = $derived(flag ? 'your flag' : 'your comment');
+	/** A reply to a thread of an earlier review, drawn with its thread. */
+	const reply = $derived(comment.replyTo !== null);
+	/** What it is, as its buttons name it: "your comment", "your flag", "your reply". */
+	const yours = $derived(flag ? 'your flag' : reply ? 'your reply' : 'your comment');
 
 	async function remove(): Promise<void> {
 		if (deleting) return;
@@ -102,7 +104,7 @@
 	class:flag
 	tabindex="-1"
 	data-comment={listed ? undefined : comment.id}
-	aria-label="{flag ? 'Your flag' : 'Your comment'} on {listed
+	aria-label="{flag ? 'Your flag' : reply ? 'Your reply' : 'Your comment'} on {listed
 		? `${shownPath(comment.anchor.path)}, `
 		: ''}{lines}"
 >
@@ -122,6 +124,8 @@
 		<p class="where">
 			{#if flag}
 				<strong>Flagged to look at again</strong>
+			{:else if reply}
+				<strong>Your reply, in this review</strong>
 			{:else}
 				<strong>Your comment</strong>
 			{/if}
@@ -160,7 +164,7 @@
 						type="button"
 						aria-label={flag
 							? `${words} ${comment.body === '' ? 'to' : 'for'} ${yours} on ${name}`
-							: `Edit your comment on ${name}`}
+							: `Edit ${yours} on ${name}`}
 						onclick={() => {
 							notDeleted = undefined;
 							comments.edit(comment, listed ? 'list' : 'lines');
@@ -179,7 +183,7 @@
 					{:else}
 						<button
 							type="button"
-							aria-label="Delete your comment on {name}"
+							aria-label="Delete {yours} on {name}"
 							onclick={() => {
 								asking = true;
 							}}
@@ -200,11 +204,11 @@
 	<div class="asking">
 		<ConfirmDialog
 			bind:open={asking}
-			heading="Delete this comment?"
+			heading={reply ? 'Delete this reply?' : 'Delete this comment?'}
 			confirm="Delete"
 			onconfirm={remove}
 		>
-			Your comment on {name} will be deleted. Nothing brings it back.
+			{reply ? 'Your reply' : 'Your comment'} on {name} will be deleted. Nothing brings it back.
 		</ConfirmDialog>
 	</div>
 {/if}

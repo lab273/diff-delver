@@ -76,6 +76,8 @@ export interface ReviewContents {
 	readonly comments: number;
 	readonly flags: number;
 	readonly overall: boolean;
+	/** How many comments of earlier reviews it resolves or opens again; left out, none. */
+	readonly resolutions?: number;
 }
 
 /**
@@ -84,15 +86,22 @@ export interface ReviewContents {
  * finished one is listed, "an overall review and 2 comments", "1 comment".
  */
 export function describeReviewContents(
-	{ comments, flags, overall }: ReviewContents,
+	{ comments, flags, overall, resolutions = 0 }: ReviewContents,
 	as: 'yours' | 'listed' = 'yours'
 ): string {
 	const what = inWords([
 		overall ? 'overall review' : undefined,
-		comments > 0 || (!overall && flags === 0)
+		comments > 0 || (!overall && flags === 0 && resolutions === 0)
 			? countOf(comments, 'comment', 'comments')
 			: undefined,
-		flags === 0 ? undefined : countOf(flags, 'flag', 'flags')
+		flags === 0 ? undefined : countOf(flags, 'flag', 'flags'),
+		resolutions === 0
+			? undefined
+			: countOf(
+					resolutions,
+					'earlier comment resolved or reopened',
+					'earlier comments resolved or reopened'
+				)
 	]);
 	if (as === 'yours') return `your ${what}`;
 	return overall ? `an ${what}` : what;

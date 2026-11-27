@@ -8,7 +8,11 @@
  * held here too, saved and as typed, for the bar at the foot of the page.
  * Flags are kept here beside the comments, as the draft keeps them: a flag
  * is saved at once, with no words, and its words are written as a comment's.
+ * So are what the draft does to the threads of earlier reviews: a reply, a
+ * saved comment of the draft that names its thread, drawn with the thread and
+ * not among the lines, and the threads it resolves or opens again.
  */
+import { SvelteMap } from 'svelte/reactivity';
 import { describeApiError, type ApiClient } from '#lib/api/client.ts';
 import type { AddDraftComment, DraftCommentView, OverallReviewView } from '#lib/api/schemas.ts';
 import type { EditCount } from '#lib/core/edit-count.tiny.ts';
@@ -23,6 +27,7 @@ import {
 } from '#lib/core/review/overall-review.ts';
 import { formatCount } from '#lib/core/viewer/words.ts';
 import type { RevisionNumber } from '#lib/core/revision-number.tiny.ts';
+import type { ThreadId } from '#lib/core/thread-id.tiny.ts';
 import type { Timestamp } from '#lib/core/timestamp.tiny.ts';
 
 /** Lines of one side of a file, in the version they are numbered in. */
@@ -151,6 +156,12 @@ export class Comments {
 	saved = $state.raw<readonly DraftCommentView[]>();
 	/** The draft's overall review as saved; undefined until it has been read. */
 	overall = $state.raw<OverallReviewView>();
+	/** The threads of earlier reviews the draft resolves (true) or opens again (false). */
+	resolutions = $state.raw<readonly { readonly thread: ThreadId; readonly resolved: boolean }[]>(
+		[]
+	);
+	/** Replies being typed to threads of earlier reviews, by thread, and not saved yet. */
+	readonly replying = new SvelteMap<ThreadId, string>();
 	/** The daemon's time when the draft was last read, to say how long ago. */
 	now = $state.raw<Timestamp>();
 	loading = $state(false);
@@ -188,6 +199,7 @@ export class Comments {
 		this.problem = '';
 		this.saved = read.value.comments;
 		this.overall = read.value.overall;
+		this.resolutions = read.value.resolutions;
 		this.now = read.value.now;
 	}
 
@@ -196,7 +208,8 @@ export class Comments {
 		const there = ({ version: on, anchor }: CommentPlace): boolean =>
 			on === version && anchor.path === path;
 		return {
-			saved: (this.saved ?? []).filter(there),
+			// A reply is drawn with its thread, not among the lines.
+			saved: (this.saved ?? []).filter((c) => c.replyTo === null && there(c)),
 			writing: this.writing.filter((w) => w.editing === undefined && there(w.place))
 		};
 	}
@@ -371,9 +384,79 @@ export class Comments {
 		return saved.value;
 	}
 
-	/** Whether there is anything to finish: a saved comment, or a saved overall review. */
+	/** Whether there is anything to finish: a saved comment, a saved overall review, or a resolution. */
 	get finishable(): boolean {
-		return (this.saved ?? []).length > 0 || isWritten(this.overall?.body ?? '');
+		return (
+			(this.saved ?? []).length > 0 ||
+			isWritten(this.overall?.body ?? '') ||
+			this.resolutions.length > 0
+		);
+	}
+
+	/** The draft's saved reply to a thread of an earlier review, if it has one. */
+	replyTo(thread: ThreadId): DraftCommentView | undefined {
+		return (this.saved ?? []).find((c) => c.replyTo === thread);
+	}
+
+	/** What the draft does to a thread: resolves it (true), opens it again (false), or nothing. */
+	resolutionOf(thread: ThreadId): boolean | undefined {
+		return this.resolutions.find((r) => r.thread === thread)?.resolved;
+	}
+
+	/** Whether a reply typed to some thread is not saved yet. */
+	get replyUnsaved(): boolean {
+		return [...this.replying.values()].some((text) => text.trim() !== '');
+	}
+
+	/**
+	 * Saves the reply typed to a thread, from a page that shows the current
+	 * version. Saved, it is put away; refused, it stays as typed and the
+	 * answer says why.
+	 */
+	async reply(thread: ThreadId, shown: RevisionNumber): Promise<string | undefined> {
+		const body = this.replying.get(thread) ?? '';
+		if (!isThreadBody('comment', body)) {
+			return body.trim() === ''
+				? 'Write a reply before saving.'
+				: `This reply is too long to save: keep it to ${String(MAX_COMMENT_LENGTH)} characters.`;
+		}
+		const saved = await this.#client.changeThread(this.id, {
+			action: 'reply',
+			version: shown,
+			thread,
+			body
+		});
+		if (!saved.ok) return describeApiError(saved.error);
+		const comment = saved.value.comment;
+		if (comment !== null && !(this.saved ?? []).some((c) => c.id === comment.id)) {
+			this.saved = [...(this.saved ?? []), comment];
+		}
+		this.resolutions = saved.value.resolutions;
+		this.replying.delete(thread);
+		this.said = 'Reply saved.';
+		void this.load();
+		return undefined;
+	}
+
+	/**
+	 * Resolves a thread in the draft, opens it again, or takes that back, from
+	 * a page that shows the current version; refused, the answer says why.
+	 */
+	async resolve(
+		thread: ThreadId,
+		shown: RevisionNumber,
+		action: 'resolve' | 'reopen' | 'undo'
+	): Promise<string | undefined> {
+		const done = await this.#client.changeThread(this.id, { action, version: shown, thread });
+		if (!done.ok) return describeApiError(done.error);
+		this.resolutions = done.value.resolutions;
+		this.said =
+			action === 'resolve'
+				? 'Resolved in this review.'
+				: action === 'reopen'
+					? 'Opened again in this review.'
+					: 'Left as it was.';
+		return undefined;
 	}
 
 	/** Puts away what was typed in the overall review: the box shows the saved words again. */
